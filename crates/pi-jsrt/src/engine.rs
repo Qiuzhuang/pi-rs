@@ -58,6 +58,7 @@ pub(crate) struct State {
     pub(crate) source_maps: RefCell<HashMap<String, SourceMapTable>>,
     rejections: RefCell<Vec<JsObject>>,
     pub(crate) internal: RefCell<Option<JsObject>>,
+    pub(crate) ops: RefCell<Option<JsObject>>,
     pub(crate) cwd: RefCell<PathBuf>,
     stopping: Cell<bool>,
 }
@@ -186,7 +187,19 @@ impl JobExecutor for Executor {
     }
 
     fn run_jobs(self: Rc<Self>, context: &mut Context) -> JsResult<()> {
-        futures::executor::block_on(self.run_jobs_async(&RefCell::new(context)))
+        // Our async jobs (module loading) complete synchronously, so a spinning poll is
+        // enough. Unlike `futures::executor::block_on` this may be re-entered (e.g. by a
+        // synchronous `require()` of an ES module from inside a job).
+        let cell = RefCell::new(context);
+        let fut = self.run_jobs_async(&cell);
+        let mut fut = std::pin::pin!(fut);
+        let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+        loop {
+            if let std::task::Poll::Ready(r) = fut.as_mut().poll(&mut cx) {
+                return r;
+            }
+            std::thread::yield_now();
+        }
     }
 
     async fn run_jobs_async(self: Rc<Self>, context: &RefCell<&mut Context>) -> JsResult<()> {
@@ -716,6 +729,7 @@ pub(crate) fn thread_main(init: ThreadInit, ready: std::sync::mpsc::SyncSender<R
         let limits = ctx.runtime_limits_mut();
         limits.set_recursion_limit(shared.options.recursion_limit);
         limits.set_stack_size_limit(shared.options.stack_size_limit);
+        limits.set_backtrace_limit(32);
         if let Some(n) = shared.options.loop_iteration_limit {
             limits.set_loop_iteration_limit(n);
         }
@@ -733,6 +747,7 @@ pub(crate) fn thread_main(init: ThreadInit, ready: std::sync::mpsc::SyncSender<R
         source_maps: RefCell::default(),
         rejections: RefCell::default(),
         internal: RefCell::default(),
+        ops: RefCell::default(),
         cwd: RefCell::new(cwd),
         stopping: Cell::new(false),
     });
@@ -756,6 +771,7 @@ pub(crate) fn thread_main(init: ThreadInit, ready: std::sync::mpsc::SyncSender<R
     st.pending.borrow_mut().clear();
     st.rejections.borrow_mut().clear();
     *st.internal.borrow_mut() = None;
+    *st.ops.borrow_mut() = None;
     loader.clear();
     crate::ops::teardown(&mut ctx);
     drop(ctx);

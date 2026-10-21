@@ -355,3 +355,34 @@ async fn deadlock_is_detected() {
     .unwrap();
     assert_eq!(rt.eval("host.reenter()").await.unwrap(), json!("deadlock"));
 }
+
+#[tokio::test]
+async fn runaway_scripts_are_contained() {
+    let rt = JsRuntime::new(RuntimeOptions {
+        loop_iteration_limit: Some(1_000_000),
+        ..RuntimeOptions::sandboxed()
+    })
+    .unwrap();
+    let err = rt.eval("let i = 0; while (true) { i++; }").await.unwrap_err();
+    assert!(err.to_string().to_lowercase().contains("loop"), "{err}");
+    let err = rt.eval("function f(n) { return f(n + 1) + 1; } f(0)").await.unwrap_err();
+    assert!(err.to_string().contains("recursive"), "{err}");
+    // The runtime is still usable afterwards.
+    assert_eq!(rt.eval("1 + 1").await.unwrap(), json!(2));
+}
+
+#[tokio::test]
+async fn object_virtual_module() {
+    let rt = JsRuntime::new(RuntimeOptions::default()).unwrap();
+    rt.register_function("host.version", |_rt, _| Ok(json!("1.2.3"))).await.unwrap();
+    let obj = rt
+        .eval_handle("({ getVersion: () => host.version(), CONST: 7 })")
+        .await
+        .unwrap();
+    rt.set_virtual_module("@host/api", pi_jsrt::VirtualModule::Object(obj));
+    let ns = rt
+        .eval_module("import api, { getVersion, CONST } from '@host/api'; export default [getVersion(), CONST, api.CONST];", "x.mjs")
+        .await
+        .unwrap();
+    assert_eq!(ns.get("default").await.unwrap(), json!(["1.2.3", 7, 7]));
+}

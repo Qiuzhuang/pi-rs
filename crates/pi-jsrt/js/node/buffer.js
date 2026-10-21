@@ -502,7 +502,7 @@ class Blob {
   }
   stream() {
     const bytes = this.#bytes;
-    return new internal.ReadableStream({
+    return new globalThis.ReadableStream({
       start(controller) {
         controller.enqueue(new Uint8Array(bytes));
         controller.close();

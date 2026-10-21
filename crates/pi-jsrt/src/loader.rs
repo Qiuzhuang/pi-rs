@@ -169,7 +169,32 @@ impl Loader {
             let p = normalize(&base_dir.join(&spec));
             return self.resolve_path(&p, kind).map(Resolved::File).ok_or_else(not_found);
         }
+        if spec.starts_with('#') {
+            return self.resolve_imports(&spec, base_dir, kind).map(Resolved::File).ok_or_else(not_found);
+        }
         self.resolve_package(&spec, base_dir, kind).map(Resolved::File).ok_or_else(not_found)
+    }
+
+    /// package.json `imports` (`#internal` specifiers) of the nearest package.
+    fn resolve_imports(&self, spec: &str, base_dir: &Path, kind: Kind) -> Option<PathBuf> {
+        let mut dir = Some(base_dir);
+        while let Some(d) = dir {
+            if let Some(pkg) = self.package_json(d) {
+                let imports = pkg.get("imports")?;
+                let conditions: &[&str] = match kind {
+                    Kind::Import => &["import", "module", "node", "default"],
+                    Kind::Require => &["require", "node", "default"],
+                };
+                let target = resolve_exports(imports, spec, conditions)?;
+                if target.starts_with("./") || target.starts_with("../") {
+                    return self.resolve_file_or_index(&normalize(&d.join(target)));
+                }
+                // A bare target refers to a dependency.
+                return self.resolve_package(&target, d, kind);
+            }
+            dir = d.parent();
+        }
+        None
     }
 
     fn resolve_path(&self, p: &Path, kind: Kind) -> Option<PathBuf> {
@@ -482,6 +507,13 @@ impl Loader {
                         self.values.borrow_mut().insert(key, v.clone());
                         Ok(v)
                     }
+                    VirtualModule::Object(handle) => {
+                        let v = state(ctx)
+                            .get_handle(handle.id())
+                            .ok_or_else(|| engine::type_error(format!("virtual module '{spec}' refers to a released handle")))?;
+                        self.values.borrow_mut().insert(key, v.clone());
+                        Ok(v)
+                    }
                 }
             }
             Resolved::File(path) => {
@@ -598,7 +630,7 @@ fn split_package(spec: &str) -> Option<(&str, &str)> {
 pub(crate) fn resolve_exports(exports: &Value, subpath: &str, conditions: &[&str]) -> Option<String> {
     let is_subpath_map = exports
         .as_object()
-        .is_some_and(|m| m.keys().next().is_some_and(|k| k.starts_with('.')));
+        .is_some_and(|m| m.keys().next().is_some_and(|k| k.starts_with('.') || k.starts_with('#')));
     if !is_subpath_map {
         return if subpath == "." { resolve_target(exports, None, conditions) } else { None };
     }

@@ -64,13 +64,24 @@ internal.fromHost = (text) => JSON.parse(text, fromHostReviver);
 
 const builtinFactories = new Map();
 const builtinCache = new Map();
+const lazyBuiltins = ops.config.lazyBuiltins ?? Object.create(null);
+const lazyGlobals = ops.config.lazyGlobals ?? Object.create(null);
+const loadedGlue = new Set();
+internal.loadGlue = (file) => {
+  if (loadedGlue.has(file)) return;
+  loadedGlue.add(file);
+  ops.loadGlue(file);
+};
 internal.defineBuiltin = (name, factory) => {
   builtinFactories.set(name, factory);
 };
-internal.hasBuiltin = (name) => builtinFactories.has(name);
-internal.builtinNames = () => Array.from(builtinFactories.keys());
+internal.hasBuiltin = (name) => builtinFactories.has(name) || Object.prototype.hasOwnProperty.call(lazyBuiltins, name);
+internal.builtinNames = () => Array.from(new Set([...builtinFactories.keys(), ...Object.keys(lazyBuiltins)]));
 internal.requireBuiltin = (name) => {
   if (builtinCache.has(name)) return builtinCache.get(name);
+  if (!builtinFactories.has(name) && Object.prototype.hasOwnProperty.call(lazyBuiltins, name)) {
+    internal.loadGlue(lazyBuiltins[name]);
+  }
   const factory = builtinFactories.get(name);
   if (!factory) {
     const err = new Error(`Cannot find module '${name}'`);
@@ -81,6 +92,21 @@ internal.requireBuiltin = (name) => {
   builtinCache.set(name, exports);
   return exports;
 };
+
+// Globals provided by lazily loaded glue: an accessor loads the file on first use.
+for (const name of Object.keys(lazyGlobals)) {
+  Object.defineProperty(globalThis, name, {
+    configurable: true,
+    enumerable: false,
+    get() {
+      internal.loadGlue(lazyGlobals[name]);
+      return globalThis[name];
+    },
+    set(value) {
+      hidden(globalThis, name, value);
+    },
+  });
+}
 
 // ---------------------------------------------------------------------------
 // CommonJS

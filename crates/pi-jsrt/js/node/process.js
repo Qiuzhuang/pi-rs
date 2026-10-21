@@ -229,6 +229,9 @@ if (config.platform === "darwin") {
   Object.assign(internal.signals, { SIGBUS: 10, SIGUSR1: 30, SIGSEGV: 11, SIGUSR2: 31, SIGCHLD: 20, SIGCONT: 19, SIGSTOP: 17, SIGTSTP: 18 });
 }
 
+// `require` for classic scripts (like `node -e`), relative to the cwd.
+internal.hidden(globalThis, "require", internal.makeRequire(`${ops.cwd()}/[eval]`));
+
 internal.process = process;
 internal.hidden(globalThis, "process", process);
 internal.hidden(globalThis, "global", globalThis);

@@ -30,7 +30,7 @@ function envPairs(env) {
 function resolveCwd(cwd) {
   if (cwd === undefined || cwd === null) return process.cwd();
   if (cwd instanceof internal.URL) return decodeURIComponent(cwd.pathname);
-  return internal.path.resolve(String(cwd));
+  return internal.requireBuiltin("path").resolve(String(cwd));
 }
 
 function normalizeSpawnArgs(command, args, options) {
@@ -130,7 +130,7 @@ internal.childEvent = (id, kind, a, b) => {
 function spawn(command, args, options) {
   const n = normalizeSpawnArgs(command, args, options);
   const opts = n.options;
-  const { Readable, Writable } = internal.stream;
+  const { Readable, Writable } = internal.requireBuiltin("stream");
   const child = new ChildProcess();
   const stdio = normalizeStdio(opts.stdio);
   child.spawnfile = n.file;

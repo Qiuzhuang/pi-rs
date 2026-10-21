@@ -2,7 +2,8 @@
 // perf_hooks, async_hooks, worker_threads, console and stubs for unsupported modules.
 
 const EventEmitter = internal.EventEmitter;
-const path = internal.path;
+const path = internal.requireBuiltin("path");
+internal.requireBuiltin("util");
 
 // ---------------------------------------------------------------------------
 // url

@@ -26,21 +26,159 @@ const WEB_GLUE: &[(&str, &str)] = &[
     ("web/globals.js", include_str!("../../js/web/globals.js")),
 ];
 
-/// Glue scripts installed when Node compatibility is enabled.
+/// Glue scripts installed eagerly when Node compatibility is enabled.
 const NODE_GLUE: &[(&str, &str)] = &[
     ("node/events.js", include_str!("../../js/node/events.js")),
-    ("node/path.js", include_str!("../../js/node/path.js")),
     ("node/buffer.js", include_str!("../../js/node/buffer.js")),
-    ("node/util.js", include_str!("../../js/node/util.js")),
     ("node/process.js", include_str!("../../js/node/process.js")),
-    ("node/stream.js", include_str!("../../js/node/stream.js")),
-    ("node/fs.js", include_str!("../../js/node/fs.js")),
-    ("node/os.js", include_str!("../../js/node/os.js")),
-    ("node/child_process.js", include_str!("../../js/node/child_process.js")),
-    ("node/crypto.js", include_str!("../../js/node/crypto.js")),
-    ("node/misc.js", include_str!("../../js/node/misc.js")),
-    ("web/fetch.js", include_str!("../../js/web/fetch.js")),
 ];
+
+/// A glue file compiled on first use: the builtins and globals it provides.
+struct LazyGlue {
+    file: &'static str,
+    src: &'static str,
+    builtins: &'static [&'static str],
+    globals: &'static [&'static str],
+}
+
+/// Glue loaded on demand (Node compatibility only), to keep startup fast.
+const LAZY_GLUE: &[LazyGlue] = &[
+    LazyGlue {
+        file: "node/path.js",
+        src: include_str!("../../js/node/path.js"),
+        builtins: &["path", "path/posix", "path/win32"],
+        globals: &[],
+    },
+    LazyGlue {
+        file: "node/util.js",
+        src: include_str!("../../js/node/util.js"),
+        builtins: &["util", "util/types"],
+        globals: &[],
+    },
+    LazyGlue {
+        file: "node/stream.js",
+        src: include_str!("../../js/node/stream.js"),
+        builtins: &["stream", "stream/promises", "stream/web"],
+        globals: &[],
+    },
+    LazyGlue {
+        file: "node/fs.js",
+        src: include_str!("../../js/node/fs.js"),
+        builtins: &["fs", "fs/promises"],
+        globals: &[],
+    },
+    LazyGlue {
+        file: "node/os.js",
+        src: include_str!("../../js/node/os.js"),
+        builtins: &["os"],
+        globals: &[],
+    },
+    LazyGlue {
+        file: "node/child_process.js",
+        src: include_str!("../../js/node/child_process.js"),
+        builtins: &["child_process"],
+        globals: &[],
+    },
+    LazyGlue {
+        file: "node/crypto.js",
+        src: include_str!("../../js/node/crypto.js"),
+        builtins: &["crypto"],
+        globals: &[],
+    },
+    LazyGlue {
+        file: "node/misc.js",
+        src: include_str!("../../js/node/misc.js"),
+        builtins: &[
+            "url",
+            "querystring",
+            "string_decoder",
+            "readline",
+            "readline/promises",
+            "assert",
+            "assert/strict",
+            "module",
+            "timers",
+            "timers/promises",
+            "tty",
+            "perf_hooks",
+            "async_hooks",
+            "worker_threads",
+            "console",
+            "zlib",
+            "http",
+            "https",
+            "net",
+            "tls",
+            "dns",
+            "dgram",
+            "cluster",
+            "vm",
+            "v8",
+            "inspector",
+            "http2",
+            "diagnostics_channel",
+            "constants",
+        ],
+        globals: &[],
+    },
+    LazyGlue {
+        file: "web/fetch.js",
+        src: include_str!("../../js/web/fetch.js"),
+        builtins: &[],
+        globals: &[
+            "fetch",
+            "Headers",
+            "Request",
+            "Response",
+            "FormData",
+            "ReadableStream",
+            "ReadableStreamDefaultReader",
+            "ReadableStreamDefaultController",
+            "WritableStream",
+            "TransformStream",
+            "TextDecoderStream",
+            "TextEncoderStream",
+            "CountQueuingStrategy",
+            "ByteLengthQueuingStrategy",
+        ],
+    },
+];
+
+fn trace_glue(name: &str, t: std::time::Instant) {
+    tracing::trace!(target: "pi_jsrt", "glue {name}: {:?}", t.elapsed());
+    if std::env::var_os("PI_JSRT_TRACE_BOOT").is_some() {
+        eprintln!("glue {name}: {:?}", t.elapsed());
+    }
+}
+
+/// `ops.loadGlue(file)`: compile and run a lazily loaded glue file.
+fn op_load_glue(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
+    let file = engine::arg_string(args, 0, ctx)?;
+    let Some(glue) = LAZY_GLUE.iter().find(|g| g.file == file) else {
+        return Err(engine::type_error(format!("unknown glue file {file}")));
+    };
+    let st = state(ctx);
+    let ops = st.ops.borrow().clone().ok_or_else(|| engine::type_error("ops missing"))?;
+    let internal = engine::internal(ctx);
+    let t = std::time::Instant::now();
+    run_glue(ctx, glue.file, glue.src, &ops, &internal)?;
+    trace_glue(glue.file, t);
+    Ok(JsValue::undefined())
+}
+
+fn lazy_tables(ctx: &mut Context) -> JsResult<(JsValue, JsValue)> {
+    let builtins = JsObject::with_null_proto();
+    let globals = JsObject::with_null_proto();
+    for g in LAZY_GLUE {
+        for b in g.builtins {
+            builtins.set(js_str(b).as_string().unwrap(), js_str(g.file), true, ctx)?;
+        }
+        for name in g.globals {
+            globals.set(js_str(name).as_string().unwrap(), js_str(g.file), true, ctx)?;
+        }
+    }
+    Ok((builtins.into(), globals.into()))
+}
 
 /// Create the ops object, run the glue, and store `internal` in the state.
 pub(crate) fn bootstrap(ctx: &mut Context) -> JsResult<()> {
@@ -51,6 +189,7 @@ pub(crate) fn bootstrap(ctx: &mut Context) -> JsResult<()> {
     define_ops(ctx, &ops, crate::loader::LOADER_OPS)?;
     define_ops(ctx, &ops, encoding::OPS)?;
     define_ops(ctx, &ops, crypto::WEB_OPS)?;
+    define_ops(ctx, &ops, &[("loadGlue", 1, op_load_glue)])?;
     if node {
         define_ops(ctx, &ops, fs::OPS)?;
         define_ops(ctx, &ops, process::OPS)?;
@@ -59,19 +198,22 @@ pub(crate) fn bootstrap(ctx: &mut Context) -> JsResult<()> {
         define_ops(ctx, &ops, fetch::OPS)?;
     }
     let config = process::config_object(ctx)?;
+    if node && let Some(cfg) = config.as_object() {
+        let (builtins, globals) = lazy_tables(ctx)?;
+        cfg.set(js_string!("lazyBuiltins"), builtins, true, ctx)?;
+        cfg.set(js_string!("lazyGlobals"), globals, true, ctx)?;
+    }
     ops.set(js_string!("config"), config, true, ctx)?;
+    *st.ops.borrow_mut() = Some(ops.clone());
 
     let internal = JsObject::with_object_proto(ctx.intrinsics());
     *st.internal.borrow_mut() = Some(internal.clone());
-    for (name, src) in WEB_GLUE {
+    let glue = WEB_GLUE.iter().chain(if node { NODE_GLUE } else { &[] });
+    for (name, src) in glue {
+        let t = std::time::Instant::now();
         run_glue(ctx, name, src, &ops, &internal)?;
         engine::run_microtasks(ctx);
-    }
-    if node {
-        for (name, src) in NODE_GLUE {
-            run_glue(ctx, name, src, &ops, &internal)?;
-            engine::run_microtasks(ctx);
-        }
+        trace_glue(name, t);
     }
     Ok(())
 }

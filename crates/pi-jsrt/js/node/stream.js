@@ -759,9 +759,9 @@ internal.stream = Stream;
 internal.defineBuiltin("stream", () => Stream);
 internal.defineBuiltin("stream/promises", () => promises);
 internal.defineBuiltin("stream/web", () => ({
-  ReadableStream: internal.ReadableStream,
-  WritableStream: internal.WritableStream,
-  TransformStream: internal.TransformStream,
-  TextDecoderStream: internal.TextDecoderStream,
-  TextEncoderStream: internal.TextEncoderStream,
+  ReadableStream: globalThis.ReadableStream,
+  WritableStream: globalThis.WritableStream,
+  TransformStream: globalThis.TransformStream,
+  TextDecoderStream: globalThis.TextDecoderStream,
+  TextEncoderStream: globalThis.TextEncoderStream,
 }));

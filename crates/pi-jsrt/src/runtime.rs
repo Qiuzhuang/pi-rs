@@ -37,6 +37,9 @@ pub enum VirtualModule {
     /// A JS expression evaluated once (as a script) on first import. Its value becomes
     /// the `default` export and its own enumerable properties become named exports.
     Expr(String),
+    /// An existing JS object (e.g. built by the host with [`JsRuntime::with_context`] or
+    /// returned from JS); exported like [`VirtualModule::Expr`].
+    Object(JsHandle),
 }
 
 /// Configuration for [`JsRuntime::new`].
@@ -340,7 +343,7 @@ impl JsRuntime {
         if self.is_js_thread() {
             return Err(Error::Deadlock);
         }
-        futures::executor::block_on(rx?).map_err(|_| Error::Terminated)?
+        park_on(rx?).map_err(|_| Error::Terminated)?
     }
 
     /// Run `f` on the JS thread with direct access to the Boa [`Context`].
@@ -547,6 +550,25 @@ impl JsRuntime {
     /// Number of active timers (diagnostics).
     pub async fn timer_count(&self) -> Result<usize> {
         self.with_context(|ctx| engine::timer_count(ctx)).await
+    }
+}
+
+/// Block the current thread on a future, parking between polls.
+fn park_on<F: Future>(fut: F) -> F::Output {
+    struct Unpark(std::thread::Thread);
+    impl std::task::Wake for Unpark {
+        fn wake(self: Arc<Self>) {
+            self.0.unpark();
+        }
+    }
+    let waker = std::task::Waker::from(Arc::new(Unpark(std::thread::current())));
+    let mut cx = std::task::Context::from_waker(&waker);
+    let mut fut = std::pin::pin!(fut);
+    loop {
+        if let std::task::Poll::Ready(v) = fut.as_mut().poll(&mut cx) {
+            return v;
+        }
+        std::thread::park();
     }
 }
 
@@ -775,6 +797,11 @@ impl JsHandle {
     /// Call the function with JSON arguments; awaits a returned promise; returns JSON.
     pub async fn call(&self, args: Vec<Value>) -> Result<Value> {
         self.run(Target::Call, args).await
+    }
+
+    /// Alias of [`JsHandle::call`].
+    pub async fn call_async(&self, args: Vec<Value>) -> Result<Value> {
+        self.call(args).await
     }
 
     /// Blocking [`JsHandle::call`] for non-async threads (e.g. a render thread).

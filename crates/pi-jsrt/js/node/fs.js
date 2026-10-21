@@ -1,6 +1,6 @@
 // node:fs, node:fs/promises
 
-const path = internal.path;
+const path = internal.requireBuiltin("path");
 const Buffer = internal.Buffer;
 const EventEmitter = internal.EventEmitter;
 
@@ -586,7 +586,7 @@ callbackApi.fstat = (fd, options, cb) => {
 
 function createReadStream(p, options = {}) {
   if (typeof options === "string") options = { encoding: options };
-  const { Readable } = internal.stream;
+  const { Readable } = internal.requireBuiltin("stream");
   let fd = options.fd ?? null;
   let pos = options.start ?? null;
   const end = options.end ?? Infinity;
@@ -635,7 +635,7 @@ function createReadStream(p, options = {}) {
 
 function createWriteStream(p, options = {}) {
   if (typeof options === "string") options = { encoding: options };
-  const { Writable } = internal.stream;
+  const { Writable } = internal.requireBuiltin("stream");
   let fd = options.fd ?? null;
   const filePath = p === null ? undefined : toPath(p);
   let pos = options.start ?? null;

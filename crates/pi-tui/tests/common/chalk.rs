@@ -64,3 +64,28 @@ pub fn select_list_theme() -> SelectListTheme {
 pub fn editor_theme() -> EditorTheme {
     EditorTheme { border_color: style(&[DIM]), select_list: select_list_theme() }
 }
+
+pub const GRAY: (&str, &str) = ("\x1b[90m", "\x1b[39m");
+pub const BG_BLUE: (&str, &str) = ("\x1b[44m", "\x1b[49m");
+
+/// The reference tests' `defaultMarkdownTheme`.
+pub fn markdown_theme() -> pi_tui::components::markdown::MarkdownTheme {
+    pi_tui::components::markdown::MarkdownTheme {
+        heading: style(&[BOLD, CYAN]),
+        link: style(&[BLUE]),
+        link_url: style(&[DIM]),
+        code: style(&[YELLOW]),
+        code_block: style(&[GREEN]),
+        code_block_border: style(&[DIM]),
+        quote: style(&[ITALIC]),
+        quote_border: style(&[DIM]),
+        hr: style(&[DIM]),
+        list_bullet: style(&[CYAN]),
+        bold: style(&[BOLD]),
+        italic: style(&[ITALIC]),
+        strikethrough: style(&[STRIKE]),
+        underline: style(&[UNDERLINE]),
+        highlight_code: None,
+        code_block_indent: None,
+    }
+}

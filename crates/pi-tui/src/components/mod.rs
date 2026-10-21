@@ -4,6 +4,7 @@ pub mod box_component;
 pub mod editor;
 pub mod input;
 pub mod loader;
+pub mod markdown;
 pub mod mouse_region;
 pub mod scroll_view;
 pub mod select_list;

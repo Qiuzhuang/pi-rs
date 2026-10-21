@@ -30,5 +30,56 @@ pub async fn normalize_tool_result_images(
     content: &[ToolResultContent],
     options: Option<&NormalizeToolResultImagesOptions>,
 ) -> anyhow::Result<Vec<ToolResultContent>> {
-    todo!("port utils/tool-result-images.ts:normalizeToolResultImages")
+    use crate::utils::image_process::{ProcessImageOptions, ProcessImageResult, process_image};
+    use base64::Engine;
+    if !content.iter().any(|block| matches!(block, UserContentBlock::Image(_))) {
+        return Ok(content.to_vec());
+    }
+
+    let auto_resize_images = options.and_then(|o| o.auto_resize_images).unwrap_or(true);
+    let resize_options = options
+        .and_then(|o| o.resize_options.as_ref())
+        .map(crate::core::tools::read::to_image_resize_options);
+    let mut normalized: Vec<ToolResultContent> = Vec::new();
+    let mut changed = false;
+
+    for block in content {
+        let UserContentBlock::Image(image) = block else {
+            normalized.push(block.clone());
+            continue;
+        };
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(image.data.trim())
+            .unwrap_or_default();
+        let processed = process_image(
+            &bytes,
+            &image.mime_type,
+            Some(&ProcessImageOptions {
+                auto_resize_images: Some(auto_resize_images),
+                resize_options: resize_options.clone(),
+            }),
+        )
+        .await?;
+        let ProcessImageResult::ProcessImageResultVariant1(processed) = processed else {
+            // Unlike `read`, keep the original block. The tool already produced this image and the
+            // failure may just be an unavailable image backend, so passing it through preserves the
+            // behavior tools have today instead of silently deleting their output.
+            normalized.push(block.clone());
+            continue;
+        };
+        if processed.data == image.data && processed.mime_type == image.mime_type && processed.hints.is_empty() {
+            normalized.push(block.clone());
+            continue;
+        }
+        normalized.push(UserContentBlock::Image(pi_ai::types::ImageContent {
+            data: processed.data,
+            mime_type: processed.mime_type,
+        }));
+        if !processed.hints.is_empty() {
+            normalized.push(UserContentBlock::text(processed.hints.join("\n")));
+        }
+        changed = true;
+    }
+
+    Ok(if changed { normalized } else { content.to_vec() })
 }

@@ -4,7 +4,10 @@
 
 pub mod api;
 pub mod auth;
+pub mod compat;
 pub mod env_api_keys;
+pub mod image_models;
+pub mod legacy_api_aliases;
 pub mod models;
 pub mod models_generated;
 pub mod models_store;

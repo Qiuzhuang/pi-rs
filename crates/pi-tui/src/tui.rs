@@ -862,6 +862,15 @@ const MIN_RENDER_INTERVAL_MS: f64 = 16.0;
 
 impl Tui {
     pub(crate) fn new_with_screen(terminal: Arc<dyn Terminal>, options: TuiOptions, mode: TuiMode, screen: Screen) -> Arc<Tui> {
+        Self::new_with_screen_fn(terminal, options, mode, move |_| screen)
+    }
+
+    pub(crate) fn new_with_screen_fn(
+        terminal: Arc<dyn Terminal>,
+        options: TuiOptions,
+        mode: TuiMode,
+        make_screen: impl FnOnce(&Weak<Tui>) -> Screen,
+    ) -> Arc<Tui> {
         let event_loop = options.event_loop.unwrap_or_else(event_loop::current);
         Arc::new_cyclic(|weak| Tui {
             weak_self: weak.clone(),
@@ -888,7 +897,7 @@ impl Tui {
             log_directory: options.log_directory,
             on_debug: Mutex::new(None),
             full_redraw_count: std::sync::atomic::AtomicUsize::new(0),
-            screen,
+            screen: make_screen(weak),
         })
     }
 
@@ -912,10 +921,6 @@ impl Tui {
 
     fn sched(&self) -> MutexGuard<'_, SchedState> {
         self.sched.lock().unwrap_or_else(|e| e.into_inner())
-    }
-
-    pub(crate) fn arc(&self) -> Arc<Tui> {
-        self.weak_self.upgrade().expect("Tui dropped")
     }
 
     pub fn mode(&self) -> TuiMode {

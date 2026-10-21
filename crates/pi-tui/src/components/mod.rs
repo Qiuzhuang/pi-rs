@@ -1,5 +1,6 @@
 //! Built-in components.
 
+pub mod alt_screen_flash;
 pub mod box_component;
 pub mod editor;
 pub mod input;

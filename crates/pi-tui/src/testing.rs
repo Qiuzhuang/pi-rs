@@ -24,9 +24,12 @@ fn blank_line(cols: usize) -> Line {
     vec![Cell::default(); cols]
 }
 
+/// Like xterm's `translateToString(true)`: trailing cells that were never written (or were
+/// erased) are trimmed; explicitly written spaces are kept.
 fn line_to_string(line: &Line) -> String {
+    let end = line.iter().rposition(|cell| !cell.text.is_empty()).map_or(0, |i| i + 1);
     let mut s = String::new();
-    for cell in line {
+    for cell in &line[..end] {
         if cell.continuation {
             continue;
         }
@@ -36,7 +39,7 @@ fn line_to_string(line: &Line) -> String {
             s.push_str(&cell.text);
         }
     }
-    s.trim_end_matches(' ').to_string()
+    s
 }
 
 #[derive(Clone)]

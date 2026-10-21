@@ -753,6 +753,9 @@ pub fn resolve_client_config(model: &Model, options: &StreamOptions) -> BedrockC
 }
 
 fn default_endpoint(region: &str) -> String {
+    if let Some(endpoint) = super::aws_credentials::configured_endpoint("BEDROCK_RUNTIME") {
+        return endpoint;
+    }
     let fips = std::env::var("AWS_USE_FIPS_ENDPOINT").is_ok_and(|v| v.eq_ignore_ascii_case("true"));
     let dualstack = std::env::var("AWS_USE_DUALSTACK_ENDPOINT").is_ok_and(|v| v.eq_ignore_ascii_case("true"));
     let service = if fips { "bedrock-runtime-fips" } else { "bedrock-runtime" };

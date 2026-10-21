@@ -192,7 +192,19 @@ fn sts_error(status: u16, xml: &str) -> anyhow::Error {
     }
 }
 
+/// A configured endpoint for a service (`AWS_ENDPOINT_URL_<SERVICE>`, then `AWS_ENDPOINT_URL`),
+/// unless `AWS_IGNORE_CONFIGURED_ENDPOINT_URLS=true`.
+pub fn configured_endpoint(service_env_suffix: &str) -> Option<String> {
+    if env("AWS_IGNORE_CONFIGURED_ENDPOINT_URLS").is_some_and(|v| v.eq_ignore_ascii_case("true")) {
+        return None;
+    }
+    env(&format!("AWS_ENDPOINT_URL_{service_env_suffix}")).or_else(|| env("AWS_ENDPOINT_URL"))
+}
+
 fn sts_endpoint(region: &str) -> String {
+    if let Some(endpoint) = configured_endpoint("STS") {
+        return format!("{}/", endpoint.trim_end_matches('/'));
+    }
     if region.starts_with("cn-") {
         format!("https://sts.{region}.amazonaws.com.cn/")
     } else {
@@ -360,7 +372,10 @@ async fn sso_token(
     };
     let response = context
         .client
-        .post(format!("https://oidc.{sso_region}.amazonaws.com/token"))
+        .post(format!(
+            "{}/token",
+            configured_endpoint("SSO_OIDC").unwrap_or_else(|| format!("https://oidc.{sso_region}.amazonaws.com")).trim_end_matches('/')
+        ))
         .json(&serde_json::json!({ "clientId": client_id, "clientSecret": client_secret, "grantType": "refresh_token", "refreshToken": refresh_token }))
         .send()
         .await?;
@@ -409,7 +424,8 @@ async fn from_sso(profile_name: &str, profile: &HashMap<String, String>, shared:
     };
     let token = sso_token(session_name.as_deref(), &start_url, &sso_region, context).await?;
     let url = format!(
-        "https://portal.sso.{sso_region}.amazonaws.com/federation/credentials?account_id={}&role_name={}",
+        "{}/federation/credentials?account_id={}&role_name={}",
+        configured_endpoint("SSO").unwrap_or_else(|| format!("https://portal.sso.{sso_region}.amazonaws.com")).trim_end_matches('/'),
         url::form_urlencoded::byte_serialize(account.as_bytes()).collect::<String>(),
         url::form_urlencoded::byte_serialize(role.as_bytes()).collect::<String>()
     );

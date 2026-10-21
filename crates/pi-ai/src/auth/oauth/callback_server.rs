@@ -88,7 +88,8 @@ impl<T: Clone + Send + Sync + 'static> OAuthCallbackServer<T> {
     }
 
     pub fn close(&self) {
-        self.shared.finish(Err("OAuth callback server closed".into()));
+        self.shared
+            .finish(Err("OAuth callback server closed".into()));
         self.shared.listener.close();
         self.shared.shutdown.cancel();
     }
@@ -115,7 +116,9 @@ impl SharedListener {
         futures::future::poll_fn(|cx| {
             let guard = self.0.lock();
             match guard.as_ref() {
-                Some(listener) => listener.poll_accept(cx).map(|r| Some(r.map(|(socket, _)| socket))),
+                Some(listener) => listener
+                    .poll_accept(cx)
+                    .map(|r| Some(r.map(|(socket, _)| socket))),
                 None => std::task::Poll::Ready(None),
             }
         })
@@ -186,21 +189,45 @@ async fn handle_connection<T: Clone + Send + Sync + 'static>(
     provider_name: String,
     complete: CompleteFn<T>,
 ) {
-    let Some((method, target)) = read_request_line(&mut socket).await else { return };
+    let Some((method, target)) = read_request_line(&mut socket).await else {
+        return;
+    };
     let url = url::Url::parse("http://localhost").and_then(|base| base.join(&target));
     let Ok(url) = url else {
-        send_page(&mut socket, 404, &oauth_error_html("Callback route not found.", None), true).await;
+        send_page(
+            &mut socket,
+            404,
+            &oauth_error_html("Callback route not found.", None),
+            true,
+        )
+        .await;
         return;
     };
     if method != "GET" || url.path() != path {
-        send_page(&mut socket, 404, &oauth_error_html("Callback route not found.", None), true).await;
+        send_page(
+            &mut socket,
+            404,
+            &oauth_error_html("Callback route not found.", None),
+            true,
+        )
+        .await;
         return;
     }
-    let param = |name: &str| url.query_pairs().find(|(k, _)| k == name).map(|(_, v)| v.into_owned());
+    let param = |name: &str| {
+        url.query_pairs()
+            .find(|(k, _)| k == name)
+            .map(|(_, v)| v.into_owned())
+    };
     if let Some(expected) = &state
         && param("state").as_deref() != Some(expected.as_str())
     {
-        send_page(&mut socket, 400, &oauth_error_html("State mismatch.", None), true).await;
+        send_page(
+            &mut socket,
+            400,
+            &oauth_error_html("State mismatch.", None),
+            true,
+        )
+        .await;
         return;
     }
     enum Decision {
@@ -224,20 +251,37 @@ async fn handle_connection<T: Clone + Send + Sync + 'static>(
     };
     match decision {
         Decision::AlreadyHandled => {
-            send_page(&mut socket, 409, &oauth_error_html("This sign-in has already been handled.", None), true).await;
+            send_page(
+                &mut socket,
+                409,
+                &oauth_error_html("This sign-in has already been handled.", None),
+                true,
+            )
+            .await;
         }
         Decision::ProviderError(description) => {
             send_page(
                 &mut socket,
                 400,
-                &oauth_error_html(&format!("{provider_name} authorization failed."), Some(&description)),
+                &oauth_error_html(
+                    &format!("{provider_name} authorization failed."),
+                    Some(&description),
+                ),
                 true,
             )
             .await;
-            shared.finish(Err(format!("{provider_name} authorization failed: {description}")));
+            shared.finish(Err(format!(
+                "{provider_name} authorization failed: {description}"
+            )));
         }
         Decision::MissingCode => {
-            send_page(&mut socket, 400, &oauth_error_html("Missing authorization code.", None), true).await;
+            send_page(
+                &mut socket,
+                400,
+                &oauth_error_html("Missing authorization code.", None),
+                true,
+            )
+            .await;
         }
         Decision::Complete(code) => match complete(code).await {
             Ok(value) => {
@@ -267,12 +311,20 @@ pub async fn start_oauth_callback_server<T: Clone + Send + Sync + 'static>(
     if options.signal.as_ref().is_some_and(|s| s.is_cancelled()) {
         anyhow::bail!("Login cancelled");
     }
-    let host = options.host.trim_start_matches('[').trim_end_matches(']').to_string();
+    let host = options
+        .host
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .to_string();
     let listener = TcpListener::bind((host.as_str(), options.port)).await?;
     let port = listener.local_addr()?.port();
     let listener = SharedListener::new(listener);
     let shared = Arc::new(Shared {
-        state: Mutex::new(State { claimed: false, settled: false, result: None }),
+        state: Mutex::new(State {
+            claimed: false,
+            settled: false,
+            result: None,
+        }),
         notify: Notify::new(),
         shutdown: CancellationToken::new(),
         listener: listener.clone(),
@@ -331,9 +383,19 @@ pub async fn start_oauth_callback_server<T: Clone + Send + Sync + 'static>(
         });
     }
 
-    let redirect_host = options.redirect_host.clone().unwrap_or_else(|| options.host.clone());
-    let redirect_host = if redirect_host.contains(':') { format!("[{redirect_host}]") } else { redirect_host };
-    Ok(OAuthCallbackServer { redirect_uri: format!("http://{redirect_host}:{port}{}", options.path), shared })
+    let redirect_host = options
+        .redirect_host
+        .clone()
+        .unwrap_or_else(|| options.host.clone());
+    let redirect_host = if redirect_host.contains(':') {
+        format!("[{redirect_host}]")
+    } else {
+        redirect_host
+    };
+    Ok(OAuthCallbackServer {
+        redirect_uri: format!("http://{redirect_host}:{port}{}", options.path),
+        shared,
+    })
 }
 
 /// The outcome of [`wait_for_callback_or_manual_input`].

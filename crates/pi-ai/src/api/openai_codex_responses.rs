@@ -29,18 +29,20 @@ use super::constrained_sampling::create_grammar_tool_input_properties;
 use super::openai_prompt_cache::clamp_openai_prompt_cache_key;
 use super::openai_responses::{error_message_of, simple_reasoning_effort, thinking_level_entry};
 use super::openai_responses_shared::{
-    ConvertResponsesMessagesOptions, ConvertResponsesToolsOptions, DefaultToolStrict, OpenAIResponsesStreamOptions,
-    ResponsesStreamProcessor, apply_service_tier_multiplier, convert_responses_messages, convert_responses_tools,
-    get_responses_tool_support,
+    ConvertResponsesMessagesOptions, ConvertResponsesToolsOptions, DefaultToolStrict,
+    OpenAIResponsesStreamOptions, ResponsesStreamProcessor, apply_service_tier_multiplier,
+    convert_responses_messages, convert_responses_tools, get_responses_tool_support,
 };
 use super::simple_options::build_base_options;
 use crate::models::ProviderStreams;
 use crate::types::{
-    AssistantMessage, AssistantMessageEvent, CacheRetention, Message, Model, ProviderEnv, ProviderHeaders,
-    ProviderResponse, StopReason, StreamOptions, TranscriptContext, Transport, Usage,
+    AssistantMessage, AssistantMessageEvent, CacheRetention, Message, Model, ProviderEnv,
+    ProviderHeaders, ProviderResponse, StopReason, StreamOptions, TranscriptContext, Transport,
+    Usage,
 };
 use crate::utils::diagnostics::{
-    append_assistant_message_diagnostic, create_assistant_message_diagnostic, diagnostic_error_from_message,
+    append_assistant_message_diagnostic, create_assistant_message_diagnostic,
+    diagnostic_error_from_message,
 };
 use crate::utils::event_stream::{AssistantMessageEventSender, AssistantMessageEventStream};
 use crate::utils::headers::headers_to_record;
@@ -49,7 +51,8 @@ use crate::utils::identity::{ClientIdentityTarget, get_identity_headers};
 use crate::utils::node_http_proxy::get_proxy_url_for_target;
 use crate::utils::text::get_system_message_text;
 use crate::utils::transcript::{
-    get_declared_tools, get_initial_system_message, resolve_transcript, resolve_transcript_tools, transcript_from_messages,
+    get_declared_tools, get_initial_system_message, resolve_transcript, resolve_transcript_tools,
+    transcript_from_messages,
 };
 use crate::utils::uuid::uuidv7;
 
@@ -67,7 +70,14 @@ const CODEX_TOOL_CALL_PROVIDERS: [&str; 3] = ["openai", "openai-codex", "opencod
 const WEBSOCKET_MESSAGE_TOO_BIG_CLOSE_CODE: u16 = 1009;
 const WEBSOCKET_CONNECTION_LIMIT_REACHED_CODE: &str = "websocket_connection_limit_reached";
 const PREVIOUS_RESPONSE_NOT_FOUND_CODE: &str = "previous_response_not_found";
-const CODEX_RESPONSE_STATUSES: [&str; 6] = ["completed", "incomplete", "failed", "cancelled", "queued", "in_progress"];
+const CODEX_RESPONSE_STATUSES: [&str; 6] = [
+    "completed",
+    "incomplete",
+    "failed",
+    "cancelled",
+    "queued",
+    "in_progress",
+];
 
 const OPENAI_BETA_RESPONSES_WEBSOCKETS: &str = "responses_websockets=2026-02-06";
 const SESSION_WEBSOCKET_CACHE_TTL_MS: u64 = 5 * 60 * 1000;
@@ -108,11 +118,14 @@ pub struct WebSocketCloseError {
 struct RetryDelayExceededError(String);
 
 fn is_codex_non_transport_error(error: &anyhow::Error) -> bool {
-    error.downcast_ref::<CodexApiError>().is_some() || error.downcast_ref::<CodexProtocolError>().is_some()
+    error.downcast_ref::<CodexApiError>().is_some()
+        || error.downcast_ref::<CodexProtocolError>().is_some()
 }
 
 fn codex_error_code(error: &anyhow::Error) -> Option<&str> {
-    error.downcast_ref::<CodexApiError>().and_then(|e| e.code.as_deref())
+    error
+        .downcast_ref::<CodexApiError>()
+        .and_then(|e| e.code.as_deref())
 }
 
 fn aborted_error() -> anyhow::Error {
@@ -138,8 +151,14 @@ impl CodexOptions {
             reasoning_effort: options.extra_str("reasoningEffort").map(str::to_string),
             reasoning_summary: options.extra_value("reasoningSummary").cloned(),
             service_tier: options.extra_str("serviceTier").map(str::to_string),
-            text_verbosity: options.extra_str("textVerbosity").filter(|s| !s.is_empty()).map(str::to_string),
-            tool_choice: options.extra_value("toolChoice").filter(|v| !v.is_null()).cloned(),
+            text_verbosity: options
+                .extra_str("textVerbosity")
+                .filter(|s| !s.is_empty())
+                .map(str::to_string),
+            tool_choice: options
+                .extra_value("toolChoice")
+                .filter(|v| !v.is_null())
+                .cloned(),
         }
     }
 }
@@ -148,7 +167,13 @@ fn assert_successful_output(output: &AssistantMessage) -> anyhow::Result<()> {
     match output.stop_reason {
         StopReason::Pending => anyhow::bail!("Codex stream ended without a stop reason"),
         StopReason::Error | StopReason::Aborted => {
-            anyhow::bail!("{}", output.error_message.clone().unwrap_or_else(|| "An unknown error occurred".into()))
+            anyhow::bail!(
+                "{}",
+                output
+                    .error_message
+                    .clone()
+                    .unwrap_or_else(|| "An unknown error occurred".into())
+            )
         }
         _ => Ok(()),
     }
@@ -193,9 +218,11 @@ fn parse_http_date_ms(text: &str) -> Option<f64> {
         return None;
     }
     let day: i64 = parts[1].parse().ok()?;
-    let month = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-        .iter()
-        .position(|m| *m == parts[2])? as i64
+    let month = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ]
+    .iter()
+    .position(|m| *m == parts[2])? as i64
         + 1;
     let year: i64 = parts[3].parse().ok()?;
     let hms: Vec<i64> = parts[4].split(':').filter_map(|p| p.parse().ok()).collect();
@@ -219,7 +246,10 @@ fn get_retry_after_delay_ms(headers: &reqwest::header::HeaderMap) -> Option<f64>
             return Some(millis.max(0.0));
         }
     }
-    let retry_after = headers.get("retry-after").and_then(|v| v.to_str().ok()).filter(|v| !v.is_empty())?;
+    let retry_after = headers
+        .get("retry-after")
+        .and_then(|v| v.to_str().ok())
+        .filter(|v| !v.is_empty())?;
     let seconds = js_number(retry_after);
     if seconds.is_finite() {
         return Some((seconds * 1000.0).max(0.0));
@@ -228,7 +258,9 @@ fn get_retry_after_delay_ms(headers: &reqwest::header::HeaderMap) -> Option<f64>
 }
 
 fn validate_retry_delay_ms(delay_ms: f64, options: &StreamOptions) -> anyhow::Result<f64> {
-    let max = options.max_retry_delay_ms.unwrap_or(DEFAULT_MAX_RETRY_DELAY_MS) as f64;
+    let max = options
+        .max_retry_delay_ms
+        .unwrap_or(DEFAULT_MAX_RETRY_DELAY_MS) as f64;
     if max > 0.0 && delay_ms > max {
         return Err(RetryDelayExceededError(format!(
             "Server requested {}s retry delay (max: {}s)",
@@ -290,7 +322,11 @@ pub fn build_request_body(
     };
     let transcript_tools = resolve_transcript_tools(
         &context.messages,
-        get_responses_tool_support(supports_mid_convo, supports_additional_tools, supports_tool_search),
+        get_responses_tool_support(
+            supports_mid_convo,
+            supports_additional_tools,
+            supports_tool_search,
+        ),
     );
     let messages = convert_responses_messages(
         model,
@@ -306,7 +342,9 @@ pub fn build_request_body(
             configuration_update_effort: None,
         },
     )?;
-    let instructions = get_initial_system_message(&context.messages).map(get_system_message_text).unwrap_or_default();
+    let instructions = get_initial_system_message(&context.messages)
+        .map(get_system_message_text)
+        .unwrap_or_default();
 
     let mut body = Map::new();
     body.insert("model".into(), json!(model.id));
@@ -314,24 +352,43 @@ pub fn build_request_body(
     body.insert("stream".into(), json!(true));
     body.insert(
         "instructions".into(),
-        json!(if instructions.is_empty() { "You are a helpful assistant.".to_string() } else { instructions }),
+        json!(if instructions.is_empty() {
+            "You are a helpful assistant.".to_string()
+        } else {
+            instructions
+        }),
     );
     body.insert("input".into(), Value::Array(messages));
-    body.insert("text".into(), json!({ "verbosity": codex.text_verbosity.clone().unwrap_or_else(|| "low".into()) }));
+    body.insert(
+        "text".into(),
+        json!({ "verbosity": codex.text_verbosity.clone().unwrap_or_else(|| "low".into()) }),
+    );
     body.insert("include".into(), json!(["reasoning.encrypted_content"]));
     if let Some(key) = cache_session_id {
         body.insert("prompt_cache_key".into(), json!(key));
     }
-    body.insert("tool_choice".into(), codex.tool_choice.clone().unwrap_or_else(|| json!("auto")));
+    body.insert(
+        "tool_choice".into(),
+        codex.tool_choice.clone().unwrap_or_else(|| json!("auto")),
+    );
     body.insert("parallel_tool_calls".into(), json!(true));
     if let Some(temperature) = options.temperature {
-        body.insert("temperature".into(), crate::serde_util::js_number(temperature));
+        body.insert(
+            "temperature".into(),
+            crate::serde_util::js_number(temperature),
+        );
     }
     if let Some(tier) = options.extra_value("serviceTier").filter(|v| !v.is_null()) {
         body.insert("service_tier".into(), tier.clone());
     }
     if !transcript_tools.request_tools.is_empty() {
-        body.insert("tools".into(), Value::Array(convert_responses_tools(&transcript_tools.request_tools, &tool_options)?));
+        body.insert(
+            "tools".into(),
+            Value::Array(convert_responses_tools(
+                &transcript_tools.request_tools,
+                &tool_options,
+            )?),
+        );
     }
 
     let summary = match &codex.reasoning_summary {
@@ -351,7 +408,10 @@ pub fn build_request_body(
             }
         };
         if let Some(effort) = effort {
-            body.insert("reasoning".into(), json!({ "effort": effort, "summary": summary }));
+            body.insert(
+                "reasoning".into(),
+                json!({ "effort": effort, "summary": summary }),
+            );
         }
     } else if model.reasoning {
         match effort_entry(model, "off") {
@@ -381,7 +441,10 @@ fn get_service_tier_cost_multiplier(model: &Model, service_tier: Option<&str>) -
     }
 }
 
-fn resolve_codex_service_tier(response_tier: Option<&str>, request_tier: Option<&str>) -> Option<String> {
+fn resolve_codex_service_tier(
+    response_tier: Option<&str>,
+    request_tier: Option<&str>,
+) -> Option<String> {
     if response_tier == Some("default") && matches!(request_tier, Some("flex") | Some("priority")) {
         return request_tier.map(str::to_string);
     }
@@ -390,7 +453,9 @@ fn resolve_codex_service_tier(response_tier: Option<&str>, request_tier: Option<
 
 /// The SSE endpoint for a base URL.
 pub fn resolve_codex_url(base_url: Option<&str>) -> String {
-    let raw = base_url.filter(|b| !b.trim().is_empty()).unwrap_or(DEFAULT_CODEX_BASE_URL);
+    let raw = base_url
+        .filter(|b| !b.trim().is_empty())
+        .unwrap_or(DEFAULT_CODEX_BASE_URL);
     let normalized = raw.trim_end_matches('/');
     if normalized.ends_with("/codex/responses") {
         normalized.to_string()
@@ -486,7 +551,13 @@ fn build_sse_headers(
     token: &str,
     session_id: Option<&str>,
 ) -> HeaderList {
-    let mut headers = build_base_codex_headers(default_headers, init_headers, additional_headers, account_id, token);
+    let mut headers = build_base_codex_headers(
+        default_headers,
+        init_headers,
+        additional_headers,
+        account_id,
+        token,
+    );
     headers.set("OpenAI-Beta", Some("responses=experimental"));
     headers.set("accept", Some("text/event-stream"));
     headers.set("content-type", Some("application/json"));
@@ -505,7 +576,13 @@ fn build_websocket_headers(
     token: &str,
     request_id: &str,
 ) -> HeaderList {
-    let mut headers = build_base_codex_headers(default_headers, init_headers, additional_headers, account_id, token);
+    let mut headers = build_base_codex_headers(
+        default_headers,
+        init_headers,
+        additional_headers,
+        account_id,
+        token,
+    );
     headers.set("accept", None);
     headers.set("content-type", None);
     headers.set("OpenAI-Beta", Some(OPENAI_BETA_RESPONSES_WEBSOCKETS));
@@ -524,10 +601,17 @@ struct ErrorInfo {
 }
 
 fn parse_error_response(status: u16, status_text: &str, raw: &str) -> ErrorInfo {
-    static CODE_RE: Lazy<regex::Regex> =
-        Lazy::new(|| regex::Regex::new(r"(?i)usage_limit_reached|usage_not_included|rate_limit_exceeded").unwrap());
-    let mut message =
-        if !raw.is_empty() { raw.to_string() } else if !status_text.is_empty() { status_text.to_string() } else { "Request failed".into() };
+    static CODE_RE: Lazy<regex::Regex> = Lazy::new(|| {
+        regex::Regex::new(r"(?i)usage_limit_reached|usage_not_included|rate_limit_exceeded")
+            .unwrap()
+    });
+    let mut message = if !raw.is_empty() {
+        raw.to_string()
+    } else if !status_text.is_empty() {
+        status_text.to_string()
+    } else {
+        "Request failed".into()
+    };
     let mut friendly_message = None;
     if let Ok(parsed) = serde_json::from_str::<Value>(raw)
         && let Some(err) = parsed.get("error").filter(|e| !e.is_null())
@@ -550,19 +634,32 @@ fn parse_error_response(status: u16, status_text: &str, raw: &str) -> ErrorInfo 
                 .and_then(Value::as_f64)
                 .filter(|r| *r != 0.0)
                 .map(|resets| {
-                    let mins = ((resets * 1000.0 - crate::utils::now_ms() as f64) / 60000.0).round().max(0.0);
+                    let mins = ((resets * 1000.0 - crate::utils::now_ms() as f64) / 60000.0)
+                        .round()
+                        .max(0.0);
                     format!(" Try again in ~{mins} min.")
                 })
                 .unwrap_or_default();
-            friendly_message = Some(format!("You have hit your ChatGPT usage limit{plan}.{when}").trim().to_string());
+            friendly_message = Some(
+                format!("You have hit your ChatGPT usage limit{plan}.{when}")
+                    .trim()
+                    .to_string(),
+            );
         }
-        if let Some(m) = err.get("message").and_then(Value::as_str).filter(|m| !m.is_empty()) {
+        if let Some(m) = err
+            .get("message")
+            .and_then(Value::as_str)
+            .filter(|m| !m.is_empty())
+        {
             message = m.to_string();
         } else if let Some(f) = &friendly_message {
             message = f.clone();
         }
     }
-    ErrorInfo { message, friendly_message }
+    ErrorInfo {
+        message,
+        friendly_message,
+    }
 }
 
 // ============================================================================
@@ -579,7 +676,11 @@ fn extract_codex_event_error(event: &Value) -> (Option<String>, Option<String>) 
     let message = event
         .get("message")
         .and_then(Value::as_str)
-        .or_else(|| nested.and_then(|n| n.get("message")).and_then(Value::as_str))
+        .or_else(|| {
+            nested
+                .and_then(|n| n.get("message"))
+                .and_then(Value::as_str)
+        })
         .map(str::to_string);
     (code, message)
 }
@@ -594,25 +695,46 @@ enum MappedEvent {
 }
 
 fn map_codex_event(event: Value, output: &mut AssistantMessage) -> anyhow::Result<MappedEvent> {
-    let Some(event_type) = event.get("type").and_then(Value::as_str).filter(|t| !t.is_empty()).map(str::to_string) else {
+    let Some(event_type) = event
+        .get("type")
+        .and_then(Value::as_str)
+        .filter(|t| !t.is_empty())
+        .map(str::to_string)
+    else {
         return Ok(MappedEvent::Skip);
     };
     match event_type.as_str() {
         "error" => {
             let (code, message) = extract_codex_event_error(&event);
-            let detail = message.filter(|m| !m.is_empty()).or_else(|| code.clone().filter(|c| !c.is_empty())).unwrap_or_else(|| event.to_string());
-            Err(CodexApiError { message: format!("Codex error: {detail}"), code, payload: Some(event) }.into())
+            let detail = message
+                .filter(|m| !m.is_empty())
+                .or_else(|| code.clone().filter(|c| !c.is_empty()))
+                .unwrap_or_else(|| event.to_string());
+            Err(CodexApiError {
+                message: format!("Codex error: {detail}"),
+                code,
+                payload: Some(event),
+            }
+            .into())
         }
         "response.failed" => {
             let error = event.get("response").and_then(|r| r.get("error"));
-            let code = error.and_then(|e| e.get("code")).and_then(Value::as_str).map(str::to_string);
+            let code = error
+                .and_then(|e| e.get("code"))
+                .and_then(Value::as_str)
+                .map(str::to_string);
             let message = error
                 .and_then(|e| e.get("message"))
                 .and_then(Value::as_str)
                 .filter(|m| !m.is_empty())
                 .unwrap_or("Codex response failed")
                 .to_string();
-            Err(CodexApiError { message, code, payload: Some(event) }.into())
+            Err(CodexApiError {
+                message,
+                code,
+                payload: Some(event),
+            }
+            .into())
         }
         "response.done" | "response.completed" | "response.incomplete" => {
             let mut event = event;
@@ -652,7 +774,12 @@ struct CodexEventPipeline<'a> {
 }
 
 impl<'a> CodexEventPipeline<'a> {
-    fn new(model: &'a Model, options: &StreamOptions, grammar: &'a HashMap<String, String>, apply: crate::api::openai_responses_shared::ApplyServiceTierPricing<'a>) -> Self {
+    fn new(
+        model: &'a Model,
+        options: &StreamOptions,
+        grammar: &'a HashMap<String, String>,
+        apply: crate::api::openai_responses_shared::ApplyServiceTierPricing<'a>,
+    ) -> Self {
         let codex = CodexOptions::from(options);
         Self {
             processor: ResponsesStreamProcessor::new(
@@ -680,7 +807,12 @@ impl<'a> CodexEventPipeline<'a> {
     }
 
     /// Process a mapped event. Returns true once the terminal event was processed.
-    fn process(&mut self, mapped: MappedEvent, output: &mut AssistantMessage, sender: &AssistantMessageEventSender) -> anyhow::Result<bool> {
+    fn process(
+        &mut self,
+        mapped: MappedEvent,
+        output: &mut AssistantMessage,
+        sender: &AssistantMessageEventSender,
+    ) -> anyhow::Result<bool> {
         match mapped {
             MappedEvent::Skip => Ok(false),
             MappedEvent::Event(event) => {
@@ -696,7 +828,12 @@ impl<'a> CodexEventPipeline<'a> {
     }
 
     /// Returns true once the terminal event was processed.
-    fn handle(&mut self, event: Value, output: &mut AssistantMessage, sender: &AssistantMessageEventSender) -> anyhow::Result<bool> {
+    fn handle(
+        &mut self,
+        event: Value,
+        output: &mut AssistantMessage,
+        sender: &AssistantMessageEventSender,
+    ) -> anyhow::Result<bool> {
         let mapped = self.map(event, output)?;
         self.process(mapped, output, sender)
     }
@@ -740,8 +877,11 @@ impl CodexSseDecoder {
         while let Some(idx) = self.buffer.find("\n\n") {
             let chunk = self.buffer[..idx].to_string();
             self.buffer = self.buffer[idx + 2..].to_string();
-            let data_lines: Vec<&str> =
-                chunk.split('\n').filter(|l| l.starts_with("data:")).map(|l| l[5..].trim()).collect();
+            let data_lines: Vec<&str> = chunk
+                .split('\n')
+                .filter(|l| l.starts_with("data:"))
+                .map(|l| l[5..].trim())
+                .collect();
             if data_lines.is_empty() {
                 continue;
             }
@@ -810,7 +950,10 @@ async fn process_sse_stream(
 // ============================================================================
 
 fn compress_request_body_zstd(body_json: &str) -> Vec<u8> {
-    ruzstd::encoding::compress_to_vec(body_json.as_bytes(), ruzstd::encoding::CompressionLevel::Fastest)
+    ruzstd::encoding::compress_to_vec(
+        body_json.as_bytes(),
+        ruzstd::encoding::CompressionLevel::Fastest,
+    )
 }
 
 // ============================================================================
@@ -858,25 +1001,34 @@ struct CachedConnection {
 
 type CachedEntry = Arc<Mutex<CachedConnection>>;
 
-static WEBSOCKET_SESSION_CACHE: Lazy<Mutex<HashMap<String, HashMap<String, CachedEntry>>>> = Lazy::new(Default::default);
-static WEBSOCKET_DEBUG_STATS: Lazy<Mutex<HashMap<String, OpenAICodexWebSocketDebugStats>>> = Lazy::new(Default::default);
+static WEBSOCKET_SESSION_CACHE: Lazy<Mutex<HashMap<String, HashMap<String, CachedEntry>>>> =
+    Lazy::new(Default::default);
+static WEBSOCKET_DEBUG_STATS: Lazy<Mutex<HashMap<String, OpenAICodexWebSocketDebugStats>>> =
+    Lazy::new(Default::default);
 static WEBSOCKET_SSE_FALLBACK_SESSIONS: Lazy<Mutex<HashSet<String>>> = Lazy::new(Default::default);
 static CLEANUP_REGISTERED: Lazy<()> = Lazy::new(|| {
-    let unregister = crate::session_resources::register_session_resource_cleanup(Arc::new(|session_id: Option<&str>| {
-        close_openai_codex_websocket_sessions(session_id);
-        Ok(())
-    }));
+    let unregister = crate::session_resources::register_session_resource_cleanup(Arc::new(
+        |session_id: Option<&str>| {
+            close_openai_codex_websocket_sessions(session_id);
+            Ok(())
+        },
+    ));
     // The cleanup stays registered for the life of the process.
     std::mem::forget(unregister);
 });
 
-fn with_debug_stats<R>(session_id: &str, f: impl FnOnce(&mut OpenAICodexWebSocketDebugStats) -> R) -> R {
+fn with_debug_stats<R>(
+    session_id: &str,
+    f: impl FnOnce(&mut OpenAICodexWebSocketDebugStats) -> R,
+) -> R {
     let mut stats = WEBSOCKET_DEBUG_STATS.lock();
     f(stats.entry(session_id.to_string()).or_default())
 }
 
 /// WebSocket statistics for a session, if any request used it.
-pub fn get_openai_codex_websocket_debug_stats(session_id: &str) -> Option<OpenAICodexWebSocketDebugStats> {
+pub fn get_openai_codex_websocket_debug_stats(
+    session_id: &str,
+) -> Option<OpenAICodexWebSocketDebugStats> {
     WEBSOCKET_DEBUG_STATS.lock().get(session_id).cloned()
 }
 
@@ -898,7 +1050,10 @@ fn close_websocket_silently(socket: WsStream, code: u16, reason: &str) {
     let reason = reason.to_string();
     let close = async move {
         let mut socket = socket;
-        let frame = CloseFrame { code: CloseCode::from(code), reason: reason.into() };
+        let frame = CloseFrame {
+            code: CloseCode::from(code),
+            reason: reason.into(),
+        };
         let _ = tokio::time::timeout(Duration::from_secs(5), socket.close(Some(frame))).await;
     };
     if let Ok(handle) = tokio::runtime::Handle::try_current() {
@@ -911,7 +1066,10 @@ pub fn close_openai_codex_websocket_sessions(session_id: Option<&str>) {
     let entries: Vec<CachedEntry> = {
         let mut cache = WEBSOCKET_SESSION_CACHE.lock();
         match session_id {
-            Some(id) => cache.remove(id).map(|m| m.into_values().collect()).unwrap_or_default(),
+            Some(id) => cache
+                .remove(id)
+                .map(|m| m.into_values().collect())
+                .unwrap_or_default(),
             None => cache.drain().flat_map(|(_, m)| m.into_values()).collect(),
         }
     };
@@ -939,7 +1097,9 @@ fn record_websocket_sse_fallback(session_id: Option<&str>) {
 
 fn record_websocket_failure(session_id: Option<&str>, error: &anyhow::Error) {
     let Some(id) = session_id else { return };
-    WEBSOCKET_SSE_FALLBACK_SESSIONS.lock().insert(id.to_string());
+    WEBSOCKET_SSE_FALLBACK_SESSIONS
+        .lock()
+        .insert(id.to_string());
     with_debug_stats(id, |stats| {
         stats.websocket_failures += 1;
         stats.last_websocket_error = Some(error.to_string());
@@ -964,7 +1124,9 @@ fn schedule_session_websocket_expiry(session_id: String, account_id: String, ent
         guard.idle_generation += 1;
         guard.idle_generation
     };
-    let Ok(handle) = tokio::runtime::Handle::try_current() else { return };
+    let Ok(handle) = tokio::runtime::Handle::try_current() else {
+        return;
+    };
     handle.spawn(async move {
         tokio::time::sleep(Duration::from_millis(SESSION_WEBSOCKET_CACHE_TTL_MS)).await;
         let socket = {
@@ -984,7 +1146,10 @@ fn schedule_session_websocket_expiry(session_id: String, account_id: String, ent
 fn remove_cached_entry(session_id: &str, account_id: &str, entry: &CachedEntry) {
     let mut cache = WEBSOCKET_SESSION_CACHE.lock();
     if let Some(accounts) = cache.get_mut(session_id) {
-        if accounts.get(account_id).is_some_and(|current| Arc::ptr_eq(current, entry)) {
+        if accounts
+            .get(account_id)
+            .is_some_and(|current| Arc::ptr_eq(current, entry))
+        {
             accounts.remove(account_id);
         }
         if accounts.is_empty() {
@@ -996,37 +1161,65 @@ fn remove_cached_entry(session_id: &str, account_id: &str, entry: &CachedEntry) 
 fn websocket_error_message(error: &tokio_tungstenite::tungstenite::Error) -> String {
     use tokio_tungstenite::tungstenite::Error;
     match error {
-        Error::Http(response) => format!("Unexpected server response: {}", response.status().as_u16()),
+        Error::Http(response) => {
+            format!("Unexpected server response: {}", response.status().as_u16())
+        }
         other => {
             let text = other.to_string();
-            if text.is_empty() { "WebSocket error".to_string() } else { text }
+            if text.is_empty() {
+                "WebSocket error".to_string()
+            } else {
+                text
+            }
         }
     }
 }
 
 fn close_error(frame: Option<&CloseFrame>) -> WebSocketCloseError {
     let code = frame.map(|f| u16::from(f.code));
-    let reason = frame.map(|f| f.reason.to_string()).filter(|r| !r.is_empty());
+    let reason = frame
+        .map(|f| f.reason.to_string())
+        .filter(|r| !r.is_empty());
     let code_text = code.map(|c| format!(" {c}")).unwrap_or_default();
     let mut reason_text = reason.as_ref().map(|r| format!(" {r}")).unwrap_or_default();
     if reason_text.is_empty() && code == Some(WEBSOCKET_MESSAGE_TOO_BIG_CLOSE_CODE) {
         reason_text = " message too big".to_string();
     }
-    WebSocketCloseError { message: format!("WebSocket closed{code_text}{reason_text}").trim().to_string(), code, reason }
+    WebSocketCloseError {
+        message: format!("WebSocket closed{code_text}{reason_text}")
+            .trim()
+            .to_string(),
+        code,
+        reason,
+    }
 }
 
 /// Open a TCP connection to `host:port`, tunneling through an HTTP proxy when configured.
-async fn open_tcp(target_url: &url::Url, env: Option<&ProviderEnv>) -> anyhow::Result<Box<dyn AsyncIo>> {
-    let host = target_url.host_str().ok_or_else(|| anyhow::anyhow!("Invalid WebSocket URL"))?.to_string();
+async fn open_tcp(
+    target_url: &url::Url,
+    env: Option<&ProviderEnv>,
+) -> anyhow::Result<Box<dyn AsyncIo>> {
+    let host = target_url
+        .host_str()
+        .ok_or_else(|| anyhow::anyhow!("Invalid WebSocket URL"))?
+        .to_string();
     let port = target_url.port_or_known_default().unwrap_or(443);
-    let http_target = target_url.as_str().replacen("wss:", "https:", 1).replacen("ws:", "http:", 1);
-    if let Some(proxy) = get_proxy_url_for_target(&http_target, env).and_then(|p| url::Url::parse(&p).ok())
+    let http_target = target_url
+        .as_str()
+        .replacen("wss:", "https:", 1)
+        .replacen("ws:", "http:", 1);
+    if let Some(proxy) =
+        get_proxy_url_for_target(&http_target, env).and_then(|p| url::Url::parse(&p).ok())
         && matches!(proxy.scheme(), "http" | "https")
     {
         let proxy_host = proxy.host_str().unwrap_or_default().to_string();
         let proxy_port = proxy.port_or_known_default().unwrap_or(80);
         let mut stream = tokio::net::TcpStream::connect((proxy_host.as_str(), proxy_port)).await?;
-        let host_port = if host.contains(':') { format!("[{host}]:{port}") } else { format!("{host}:{port}") };
+        let host_port = if host.contains(':') {
+            format!("[{host}]:{port}")
+        } else {
+            format!("{host}:{port}")
+        };
         let mut request = format!("CONNECT {host_port} HTTP/1.1\r\nHost: {host_port}\r\n");
         if !proxy.username().is_empty() {
             let user = percent_decode(proxy.username());
@@ -1050,7 +1243,10 @@ async fn open_tcp(target_url: &url::Url, env: Option<&ProviderEnv>) -> anyhow::R
         let head = String::from_utf8_lossy(&response);
         let status = head.split_whitespace().nth(1).unwrap_or_default();
         if status != "200" {
-            anyhow::bail!("Proxy CONNECT failed: {}", head.lines().next().unwrap_or_default());
+            anyhow::bail!(
+                "Proxy CONNECT failed: {}",
+                head.lines().next().unwrap_or_default()
+            );
         }
         return Ok(Box::new(stream));
     }
@@ -1078,12 +1274,15 @@ async fn connect_websocket(
         let mut request = url.into_client_request()?;
         for (name, value) in headers.entries() {
             let name = reqwest::header::HeaderName::from_bytes(name.to_lowercase().as_bytes())?;
-            request.headers_mut().insert(name, reqwest::header::HeaderValue::from_str(value)?);
+            request
+                .headers_mut()
+                .insert(name, reqwest::header::HeaderValue::from_str(value)?);
         }
         let stream = open_tcp(&parsed, env).await?;
-        let (socket, _) = tokio_tungstenite::client_async_tls_with_config(request, stream, None, None)
-            .await
-            .map_err(|e| anyhow::anyhow!(websocket_error_message(&e)))?;
+        let (socket, _) =
+            tokio_tungstenite::client_async_tls_with_config(request, stream, None, None)
+                .await
+                .map_err(|e| anyhow::anyhow!(websocket_error_message(&e)))?;
         Ok::<WsStream, anyhow::Error>(socket)
     };
     let timeout = async {
@@ -1113,7 +1312,11 @@ enum Release {
     /// Close the socket when done.
     OneShot,
     /// Return the socket to (or drop it from) the session cache.
-    Cached { session_id: String, account_id: String, entry: CachedEntry },
+    Cached {
+        session_id: String,
+        account_id: String,
+        entry: CachedEntry,
+    },
 }
 
 struct AcquiredSocket {
@@ -1127,7 +1330,11 @@ impl AcquiredSocket {
     fn release(self, keep: bool) {
         match self.release {
             Release::OneShot => close_websocket_silently(self.socket, 1000, "done"),
-            Release::Cached { session_id, account_id, entry } => {
+            Release::Cached {
+                session_id,
+                account_id,
+                entry,
+            } => {
                 let mut socket = self.socket;
                 if !keep || !is_websocket_reusable(&mut socket) {
                     close_websocket_silently(socket, 1000, "done");
@@ -1157,16 +1364,26 @@ async fn acquire_websocket(
 ) -> anyhow::Result<AcquiredSocket> {
     let Some(session_id) = session_id else {
         let socket = connect_websocket(url, headers, signal, connect_timeout_ms, env).await?;
-        return Ok(AcquiredSocket { socket, entry: None, reused: false, release: Release::OneShot });
+        return Ok(AcquiredSocket {
+            socket,
+            entry: None,
+            reused: false,
+            release: Release::OneShot,
+        });
     };
 
-    let cached = WEBSOCKET_SESSION_CACHE.lock().get(session_id).and_then(|m| m.get(account_id)).cloned();
+    let cached = WEBSOCKET_SESSION_CACHE
+        .lock()
+        .get(session_id)
+        .and_then(|m| m.get(account_id))
+        .cloned();
     if let Some(cached) = cached {
         let mut connect_one_shot = false;
         {
             let mut guard = cached.lock();
             guard.idle_generation += 1;
-            let expired = guard.created_at.elapsed() >= Duration::from_millis(SESSION_WEBSOCKET_MAX_AGE_MS);
+            let expired =
+                guard.created_at.elapsed() >= Duration::from_millis(SESSION_WEBSOCKET_MAX_AGE_MS);
             if !guard.busy && expired {
                 if let Some(socket) = guard.socket.take() {
                     close_websocket_silently(socket, 1000, "connection_age_limit");
@@ -1201,7 +1418,12 @@ async fn acquire_websocket(
         }
         if connect_one_shot {
             let socket = connect_websocket(url, headers, signal, connect_timeout_ms, env).await?;
-            return Ok(AcquiredSocket { socket, entry: None, reused: false, release: Release::OneShot });
+            return Ok(AcquiredSocket {
+                socket,
+                entry: None,
+                reused: false,
+                release: Release::OneShot,
+            });
         }
     }
 
@@ -1222,7 +1444,11 @@ async fn acquire_websocket(
         socket,
         entry: Some(entry.clone()),
         reused: false,
-        release: Release::Cached { session_id: session_id.to_string(), account_id: account_id.to_string(), entry },
+        release: Release::Cached {
+            session_id: session_id.to_string(),
+            account_id: account_id.to_string(),
+            entry,
+        },
     })
 }
 
@@ -1234,11 +1460,19 @@ fn request_body_without_input(body: &Value) -> String {
 }
 
 fn input_of(body: &Value) -> Vec<Value> {
-    body.get("input").and_then(Value::as_array).cloned().unwrap_or_default()
+    body.get("input")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
 }
 
-fn get_cached_websocket_input_delta(body: &Value, continuation: &ContinuationState) -> Option<Vec<Value>> {
-    if request_body_without_input(body) != request_body_without_input(&continuation.last_request_body) {
+fn get_cached_websocket_input_delta(
+    body: &Value,
+    continuation: &ContinuationState,
+) -> Option<Vec<Value>> {
+    if request_body_without_input(body)
+        != request_body_without_input(&continuation.last_request_body)
+    {
         return None;
     }
     let current = input_of(body);
@@ -1256,12 +1490,17 @@ fn get_cached_websocket_input_delta(body: &Value, continuation: &ContinuationSta
 
 fn build_cached_websocket_request_body(entry: &CachedEntry, body: &Value) -> Value {
     let mut guard = entry.lock();
-    let Some(continuation) = guard.continuation.clone() else { return body.clone() };
+    let Some(continuation) = guard.continuation.clone() else {
+        return body.clone();
+    };
     let delta = get_cached_websocket_input_delta(body, &continuation);
     match delta {
         Some(delta) if !continuation.last_response_id.is_empty() => {
             let mut map = body.as_object().cloned().unwrap_or_default();
-            map.insert("previous_response_id".into(), json!(continuation.last_response_id));
+            map.insert(
+                "previous_response_id".into(),
+                json!(continuation.last_response_id),
+            );
             map.insert("input".into(), Value::Array(delta));
             Value::Object(map)
         }
@@ -1318,7 +1557,11 @@ async fn read_websocket_event(
         }
         return match serde_json::from_str::<Value>(&text) {
             Ok(value) => Ok(SocketRead::Event(value)),
-            Err(cause) => Err(CodexProtocolError { message: format!("Invalid Codex WebSocket JSON: {cause}"), payload: Some(text) }.into()),
+            Err(cause) => Err(CodexProtocolError {
+                message: format!("Invalid Codex WebSocket JSON: {cause}"),
+                payload: Some(text),
+            }
+            .into()),
         };
     }
 }
@@ -1340,8 +1583,16 @@ async fn process_websocket_stream(
     options: &StreamOptions,
 ) -> anyhow::Result<()> {
     let signal = options.signal.as_ref();
-    let mut acquired =
-        acquire_websocket(url, headers, cache_session_id, account_id, signal, connect_timeout_ms, options.env.as_ref()).await?;
+    let mut acquired = acquire_websocket(
+        url,
+        headers,
+        cache_session_id,
+        account_id,
+        signal,
+        connect_timeout_ms,
+        options.env.as_ref(),
+    )
+    .await?;
     let transport = options.transport.unwrap_or(Transport::Auto);
     let use_cached_context = matches!(transport, Transport::WebsocketCached | Transport::Auto);
     let request_body = match (&acquired.entry, use_cached_context) {
@@ -1363,9 +1614,17 @@ async fn process_websocket_stream(
             if request_body.get("store") == Some(&json!(true)) {
                 stats.store_true_requests += 1;
             }
-            let items = request_body.get("input").and_then(Value::as_array).map(Vec::len).unwrap_or(0);
+            let items = request_body
+                .get("input")
+                .and_then(Value::as_array)
+                .map(Vec::len)
+                .unwrap_or(0);
             stats.last_input_items = items;
-            match request_body.get("previous_response_id").and_then(Value::as_str).filter(|s| !s.is_empty()) {
+            match request_body
+                .get("previous_response_id")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+            {
                 Some(previous) => {
                     stats.delta_requests += 1;
                     stats.last_delta_input_items = Some(items);
@@ -1382,7 +1641,10 @@ async fn process_websocket_stream(
 
     let pricing_model = model.clone();
     let apply = move |usage: &mut Usage, tier: Option<&str>| {
-        apply_service_tier_multiplier(usage, get_service_tier_cost_multiplier(&pricing_model, tier));
+        apply_service_tier_multiplier(
+            usage,
+            get_service_tier_cost_multiplier(&pricing_model, tier),
+        );
     };
     let result: anyhow::Result<()> = async {
         let mut frame = Map::new();
@@ -1429,8 +1691,11 @@ async fn process_websocket_stream(
             let mut keep = true;
             if signal.is_some_and(|s| s.is_cancelled()) {
                 keep = false;
-            } else if let (true, Some(entry), Some(response_id)) = (use_cached_context, &acquired.entry, output.response_id.clone())
-            {
+            } else if let (true, Some(entry), Some(response_id)) = (
+                use_cached_context,
+                &acquired.entry,
+                output.response_id.clone(),
+            ) {
                 let replay = transcript_from_messages(vec![Message::Assistant(output.clone())]);
                 let items = convert_responses_messages(
                     model,
@@ -1444,7 +1709,10 @@ async fn process_websocket_stream(
                 )?
                 .into_iter()
                 .filter(|item| {
-                    !matches!(item.get("type").and_then(Value::as_str), Some("function_call_output" | "custom_tool_call_output"))
+                    !matches!(
+                        item.get("type").and_then(Value::as_str),
+                        Some("function_call_output" | "custom_tool_call_output")
+                    )
                 })
                 .collect();
                 entry.lock().continuation = Some(ContinuationState {
@@ -1478,7 +1746,11 @@ async fn send_sse_request(
     http_timeout_ms: Option<u64>,
     signal: Option<&CancellationToken>,
 ) -> anyhow::Result<reqwest::Response> {
-    let request = client.post(url).headers(headers.to_header_map()?).body(body.to_vec()).send();
+    let request = client
+        .post(url)
+        .headers(headers.to_header_map()?)
+        .body(body.to_vec())
+        .send();
     let timeout = async {
         match http_timeout_ms.filter(|t| *t > 0) {
             Some(ms) => tokio::time::sleep(Duration::from_millis(ms)).await,
@@ -1498,7 +1770,12 @@ async fn send_sse_request(
     }
 }
 
-async fn run_stream(model: Model, context: TranscriptContext, options: StreamOptions, sender: AssistantMessageEventSender) {
+async fn run_stream(
+    model: Model,
+    context: TranscriptContext,
+    options: StreamOptions,
+    sender: AssistantMessageEventSender,
+) {
     Lazy::force(&CLEANUP_REGISTERED);
     let compat = model.compat();
     let normalized = resolve_transcript(&context, compat.supports_mid_convo_system_messages);
@@ -1522,17 +1799,29 @@ async fn run_stream(model: Model, context: TranscriptContext, options: StreamOpt
             &get_declared_tools(&normalized.messages),
             compat.supports_openai_grammar_tools.unwrap_or(false),
         )?;
-        let cache_session_id =
-            if options.cache_retention == Some(CacheRetention::None) { None } else { options.session_id.clone() };
+        let cache_session_id = if options.cache_retention == Some(CacheRetention::None) {
+            None
+        } else {
+            options.session_id.clone()
+        };
         let codex_session_id = clamp_openai_prompt_cache_key(cache_session_id.as_deref());
-        let mut body = build_request_body(&model, &normalized, &options, codex_session_id.as_deref(), &grammar)?;
+        let mut body = build_request_body(
+            &model,
+            &normalized,
+            &options,
+            codex_session_id.as_deref(),
+            &grammar,
+        )?;
         if let Some(on_payload) = &options.on_payload
             && let Some(next) = on_payload(body.clone(), model.clone()).await
         {
             body = next;
         }
         let websocket_request_id = codex_session_id.clone().unwrap_or_else(uuidv7);
-        let target = ClientIdentityTarget { provider: &model.provider, base_url: &model.base_url };
+        let target = ClientIdentityTarget {
+            provider: &model.provider,
+            base_url: &model.base_url,
+        };
         let mut identity_headers: Vec<(String, String)> = vec![("originator".into(), "pi".into())];
         for (name, value) in get_identity_headers(target, options.identity.as_ref()) {
             identity_headers.retain(|(n, _)| !n.eq_ignore_ascii_case(&name));
@@ -1556,11 +1845,13 @@ async fn run_stream(model: Model, context: TranscriptContext, options: StreamOpt
         );
         let body_json = body.to_string();
         let http_timeout_ms = options.timeout_ms;
-        let websocket_connect_timeout_ms = options.websocket_connect_timeout_ms.unwrap_or(DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS);
+        let websocket_connect_timeout_ms = options
+            .websocket_connect_timeout_ms
+            .unwrap_or(DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS);
         let transport = options.transport.unwrap_or(Transport::Auto);
         let mut start_emitted = false;
-        let websocket_disabled =
-            transport != Transport::Sse && is_websocket_sse_fallback_active(cache_session_id.as_deref());
+        let websocket_disabled = transport != Transport::Sse
+            && is_websocket_sse_fallback_active(cache_session_id.as_deref());
         if websocket_disabled {
             record_websocket_sse_fallback(cache_session_id.as_deref());
         }
@@ -1579,7 +1870,9 @@ async fn run_stream(model: Model, context: TranscriptContext, options: StreamOpt
                         *started_flag = true;
                         if !*emitted_flag {
                             *emitted_flag = true;
-                            sender_ref.push(AssistantMessageEvent::Start { partial: partial.clone() });
+                            sender_ref.push(AssistantMessageEvent::Start {
+                                partial: partial.clone(),
+                            });
                         }
                     };
                     process_websocket_stream(
@@ -1605,36 +1898,54 @@ async fn run_stream(model: Model, context: TranscriptContext, options: StreamOpt
                             return Err(aborted_error());
                         }
                         assert_successful_output(&output)?;
-                        sender.push(AssistantMessageEvent::Done { reason: output.stop_reason, message: output.clone() });
+                        sender.push(AssistantMessageEvent::Done {
+                            reason: output.stop_reason,
+                            message: output.clone(),
+                        });
                         sender.end(None);
                         return Ok(());
                     }
                     Err(error) => {
                         let is_aborted = aborted();
                         let code = codex_error_code(&error);
-                        let connection_limit_before_start =
-                            !websocket_started && code == Some(WEBSOCKET_CONNECTION_LIMIT_REACHED_CODE);
-                        let previous_response_not_found = code == Some(PREVIOUS_RESPONSE_NOT_FOUND_CODE);
-                        if !is_aborted && previous_response_not_found && !retried_missing_continuation {
+                        let connection_limit_before_start = !websocket_started
+                            && code == Some(WEBSOCKET_CONNECTION_LIMIT_REACHED_CODE);
+                        let previous_response_not_found =
+                            code == Some(PREVIOUS_RESPONSE_NOT_FOUND_CODE);
+                        if !is_aborted
+                            && previous_response_not_found
+                            && !retried_missing_continuation
+                        {
                             retried_missing_continuation = true;
                             continue;
                         }
-                        if !is_aborted && connection_limit_before_start && !retried_connection_limit {
+                        if !is_aborted && connection_limit_before_start && !retried_connection_limit
+                        {
                             retried_connection_limit = true;
                             continue;
                         }
-                        if is_aborted || (is_codex_non_transport_error(&error) && !connection_limit_before_start) {
+                        if is_aborted
+                            || (is_codex_non_transport_error(&error)
+                                && !connection_limit_before_start)
+                        {
                             return Err(error);
                         }
                         let mut details = Map::new();
-                        details.insert("configuredTransport".into(), serde_json::to_value(transport)?);
+                        details.insert(
+                            "configuredTransport".into(),
+                            serde_json::to_value(transport)?,
+                        );
                         if !websocket_started {
                             details.insert("fallbackTransport".into(), json!("sse"));
                         }
                         details.insert("eventsEmitted".into(), json!(websocket_started));
                         details.insert(
                             "phase".into(),
-                            json!(if websocket_started { "after_message_stream_start" } else { "before_message_stream_start" }),
+                            json!(if websocket_started {
+                                "after_message_stream_start"
+                            } else {
+                                "before_message_stream_start"
+                            }),
                         );
                         details.insert("requestBytes".into(), json!(body_json.len()));
                         append_assistant_message_diagnostic(
@@ -1673,10 +1984,21 @@ async fn run_stream(model: Model, context: TranscriptContext, options: StreamOpt
                 return Err(aborted_error());
             }
             let outcome: anyhow::Result<Option<reqwest::Response>> = async {
-                let resp = send_sse_request(&client, &url, &sse_headers, &sse_body, http_timeout_ms, signal.as_ref()).await?;
+                let resp = send_sse_request(
+                    &client,
+                    &url,
+                    &sse_headers,
+                    &sse_body,
+                    http_timeout_ms,
+                    signal.as_ref(),
+                )
+                .await?;
                 if let Some(on_response) = &options.on_response {
                     on_response(
-                        ProviderResponse { status: resp.status().as_u16(), headers: headers_to_record(resp.headers()) },
+                        ProviderResponse {
+                            status: resp.status().as_u16(),
+                            headers: headers_to_record(resp.headers()),
+                        },
                         model.clone(),
                     )
                     .await;
@@ -1695,8 +2017,11 @@ async fn run_stream(model: Model, context: TranscriptContext, options: StreamOpt
                     sleep(delay, signal.as_ref()).await?;
                     return Ok(None);
                 }
-                let info =
-                    parse_error_response(status.as_u16(), status.canonical_reason().unwrap_or_default(), &error_text);
+                let info = parse_error_response(
+                    status.as_u16(),
+                    status.canonical_reason().unwrap_or_default(),
+                    &error_text,
+                );
                 anyhow::bail!("{}", info.friendly_message.unwrap_or(info.message))
             }
             .await;
@@ -1731,47 +2056,83 @@ async fn run_stream(model: Model, context: TranscriptContext, options: StreamOpt
         };
 
         if !start_emitted {
-            sender.push(AssistantMessageEvent::Start { partial: output.clone() });
+            sender.push(AssistantMessageEvent::Start {
+                partial: output.clone(),
+            });
         }
         let pricing_model = model.clone();
         let apply = move |usage: &mut Usage, tier: Option<&str>| {
-            apply_service_tier_multiplier(usage, get_service_tier_cost_multiplier(&pricing_model, tier));
+            apply_service_tier_multiplier(
+                usage,
+                get_service_tier_cost_multiplier(&pricing_model, tier),
+            );
         };
         let mut pipeline = CodexEventPipeline::new(&model, &options, &grammar, &apply);
-        process_sse_stream(response, &mut output, &sender, &mut pipeline, signal.as_ref()).await?;
+        process_sse_stream(
+            response,
+            &mut output,
+            &sender,
+            &mut pipeline,
+            signal.as_ref(),
+        )
+        .await?;
         if aborted() {
             return Err(aborted_error());
         }
         assert_successful_output(&output)?;
-        sender.push(AssistantMessageEvent::Done { reason: output.stop_reason, message: output.clone() });
+        sender.push(AssistantMessageEvent::Done {
+            reason: output.stop_reason,
+            message: output.clone(),
+        });
         sender.end(None);
         Ok(())
     }
     .await;
 
     if let Err(error) = result {
-        output.stop_reason = if aborted() { StopReason::Aborted } else { StopReason::Error };
+        output.stop_reason = if aborted() {
+            StopReason::Aborted
+        } else {
+            StopReason::Error
+        };
         output.error_message = Some(error_message_of(&error, None));
-        sender.push(AssistantMessageEvent::Error { reason: output.stop_reason, error: output.clone() });
+        sender.push(AssistantMessageEvent::Error {
+            reason: output.stop_reason,
+            error: output.clone(),
+        });
         sender.end(None);
     }
 }
 
 /// Stream an OpenAI Codex response.
-pub fn stream(model: &Model, context: &TranscriptContext, options: StreamOptions) -> AssistantMessageEventStream {
+pub fn stream(
+    model: &Model,
+    context: &TranscriptContext,
+    options: StreamOptions,
+) -> AssistantMessageEventStream {
     let (sender, stream) = AssistantMessageEventStream::new();
     tokio::spawn(run_stream(model.clone(), context.clone(), options, sender));
     stream
 }
 
 /// Stream with provider-neutral reasoning options.
-pub fn stream_simple(model: &Model, context: &TranscriptContext, options: StreamOptions) -> AssistantMessageEventStream {
+pub fn stream_simple(
+    model: &Model,
+    context: &TranscriptContext,
+    options: StreamOptions,
+) -> AssistantMessageEventStream {
     let Some(api_key) = options.api_key.clone().filter(|k| !k.is_empty()) else {
-        return super::lazy::error_stream(model, anyhow::anyhow!("No API key for provider: {}", model.provider));
+        return super::lazy::error_stream(
+            model,
+            anyhow::anyhow!("No API key for provider: {}", model.provider),
+        );
     };
     let mut base = build_base_options(model, context, &options, Some(&api_key));
     if let Some(choice) = options.tool_choice {
-        base.extra.insert("toolChoice".into(), serde_json::to_value(choice).unwrap_or(Value::Null));
+        base.extra.insert(
+            "toolChoice".into(),
+            serde_json::to_value(choice).unwrap_or(Value::Null),
+        );
     }
     if let Some(effort) = simple_reasoning_effort(model, &options) {
         base.extra.insert("reasoningEffort".into(), json!(effort));
@@ -1783,11 +2144,21 @@ pub fn stream_simple(model: &Model, context: &TranscriptContext, options: Stream
 pub struct OpenAICodexResponsesApi;
 
 impl ProviderStreams for OpenAICodexResponsesApi {
-    fn stream(&self, model: &Model, context: &TranscriptContext, options: StreamOptions) -> AssistantMessageEventStream {
+    fn stream(
+        &self,
+        model: &Model,
+        context: &TranscriptContext,
+        options: StreamOptions,
+    ) -> AssistantMessageEventStream {
         stream(model, context, options)
     }
 
-    fn stream_simple(&self, model: &Model, context: &TranscriptContext, options: StreamOptions) -> AssistantMessageEventStream {
+    fn stream_simple(
+        &self,
+        model: &Model,
+        context: &TranscriptContext,
+        options: StreamOptions,
+    ) -> AssistantMessageEventStream {
         stream_simple(model, context, options)
     }
 }
@@ -1798,21 +2169,45 @@ mod tests {
 
     #[test]
     fn resolves_urls() {
-        assert_eq!(resolve_codex_url(None), "https://chatgpt.com/backend-api/codex/responses");
-        assert_eq!(resolve_codex_url(Some("https://x.test/codex/")), "https://x.test/codex/responses");
-        assert_eq!(resolve_codex_url(Some("https://x.test/codex/responses")), "https://x.test/codex/responses");
-        assert_eq!(resolve_codex_websocket_url(Some("http://127.0.0.1:9")), "ws://127.0.0.1:9/codex/responses");
-        assert_eq!(resolve_codex_websocket_url(None), "wss://chatgpt.com/backend-api/codex/responses");
+        assert_eq!(
+            resolve_codex_url(None),
+            "https://chatgpt.com/backend-api/codex/responses"
+        );
+        assert_eq!(
+            resolve_codex_url(Some("https://x.test/codex/")),
+            "https://x.test/codex/responses"
+        );
+        assert_eq!(
+            resolve_codex_url(Some("https://x.test/codex/responses")),
+            "https://x.test/codex/responses"
+        );
+        assert_eq!(
+            resolve_codex_websocket_url(Some("http://127.0.0.1:9")),
+            "ws://127.0.0.1:9/codex/responses"
+        );
+        assert_eq!(
+            resolve_codex_websocket_url(None),
+            "wss://chatgpt.com/backend-api/codex/responses"
+        );
     }
 
     #[test]
     fn extracts_account_ids() {
         let payload = base64::engine::general_purpose::STANDARD
             .encode(r#"{"https://api.openai.com/auth":{"chatgpt_account_id":"acc_test"}}"#);
-        assert_eq!(extract_account_id(&format!("aaa.{payload}.bbb")).unwrap(), "acc_test");
+        assert_eq!(
+            extract_account_id(&format!("aaa.{payload}.bbb")).unwrap(),
+            "acc_test"
+        );
         let unpadded = payload.trim_end_matches('=');
-        assert_eq!(extract_account_id(&format!("aaa.{unpadded}.bbb")).unwrap(), "acc_test");
-        assert_eq!(extract_account_id("nope").unwrap_err().to_string(), "Failed to extract accountId from token");
+        assert_eq!(
+            extract_account_id(&format!("aaa.{unpadded}.bbb")).unwrap(),
+            "acc_test"
+        );
+        assert_eq!(
+            extract_account_id("nope").unwrap_err().to_string(),
+            "Failed to extract accountId from token"
+        );
     }
 
     #[test]
@@ -1830,7 +2225,10 @@ mod tests {
             "Too Many Requests",
             r#"{"error":{"code":"usage_limit_reached","plan_type":"PLUS","message":"Limit"}}"#,
         );
-        assert_eq!(info.friendly_message.as_deref(), Some("You have hit your ChatGPT usage limit (plus plan)."));
+        assert_eq!(
+            info.friendly_message.as_deref(),
+            Some("You have hit your ChatGPT usage limit (plus plan).")
+        );
         assert_eq!(info.message, "Limit");
         let plain = parse_error_response(500, "Internal Server Error", "");
         assert_eq!(plain.message, "Internal Server Error");
@@ -1840,7 +2238,9 @@ mod tests {
     #[test]
     fn codex_sse_decoder_handles_eof_without_blank_line() {
         let mut decoder = CodexSseDecoder::default();
-        let first = decoder.push(b"data: {\"type\":\"a\"}\n\ndata: {\"type\":", false).unwrap();
+        let first = decoder
+            .push(b"data: {\"type\":\"a\"}\n\ndata: {\"type\":", false)
+            .unwrap();
         assert_eq!(first.len(), 1);
         let rest = decoder.push(b"\"b\"}", true).unwrap();
         assert_eq!(rest[0]["type"], "b");
@@ -1866,8 +2266,14 @@ mod tests {
             last_response_items: vec![json!({ "type": "message" })],
         };
         let body = json!({ "model": "m", "input": [{ "role": "user" }, { "type": "message" }, { "role": "user", "n": 2 }] });
-        assert_eq!(get_cached_websocket_input_delta(&body, &continuation), Some(vec![json!({ "role": "user", "n": 2 })]));
+        assert_eq!(
+            get_cached_websocket_input_delta(&body, &continuation),
+            Some(vec![json!({ "role": "user", "n": 2 })])
+        );
         let changed = json!({ "model": "other", "input": [] });
-        assert_eq!(get_cached_websocket_input_delta(&changed, &continuation), None);
+        assert_eq!(
+            get_cached_websocket_input_delta(&changed, &continuation),
+            None
+        );
     }
 }

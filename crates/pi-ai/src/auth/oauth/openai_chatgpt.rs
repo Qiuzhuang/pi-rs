@@ -18,7 +18,8 @@ use super::callback_server::{SharedListener, read_request_line, send_page};
 use super::http::{OAuthFetch, OAuthHttpRequest, current_oauth_fetch, send};
 use super::pkce::{base64url_encode, generate_pkce};
 use crate::auth::types::{
-    AuthEvent, AuthPrompt, AuthPromptKind, LoginOptions, ModelAuth, OAuthAuth, OAuthCredential, ProviderAuthInteraction,
+    AuthEvent, AuthPrompt, AuthPromptKind, LoginOptions, ModelAuth, OAuthAuth, OAuthCredential,
+    ProviderAuthInteraction,
 };
 use crate::utils::oauth_page::{oauth_error_html, oauth_success_html};
 use crate::utils::provider_env::get_provider_env_value;
@@ -56,21 +57,40 @@ fn random_value() -> String {
     base64url_encode(&bytes)
 }
 
-fn authorization_result_from_callback(url: &url::Url, expected_state: &str) -> anyhow::Result<AuthorizationResult> {
-    let param = |name: &str| url.query_pairs().find(|(k, _)| k == name).map(|(_, v)| v.into_owned());
-    let Some(code) = param("code").filter(|c| !c.is_empty()) else { anyhow::bail!("Missing authorization code") };
-    let Some(state) = param("state").filter(|s| !s.is_empty()) else { anyhow::bail!("Missing OAuth state") };
+fn authorization_result_from_callback(
+    url: &url::Url,
+    expected_state: &str,
+) -> anyhow::Result<AuthorizationResult> {
+    let param = |name: &str| {
+        url.query_pairs()
+            .find(|(k, _)| k == name)
+            .map(|(_, v)| v.into_owned())
+    };
+    let Some(code) = param("code").filter(|c| !c.is_empty()) else {
+        anyhow::bail!("Missing authorization code")
+    };
+    let Some(state) = param("state").filter(|s| !s.is_empty()) else {
+        anyhow::bail!("Missing OAuth state")
+    };
     if state != expected_state {
         anyhow::bail!("OAuth state mismatch");
     }
-    let Some(client_id) = param("client_id").map(|c| c.trim().to_string()).filter(|c| !c.is_empty()) else {
+    let Some(client_id) = param("client_id")
+        .map(|c| c.trim().to_string())
+        .filter(|c| !c.is_empty())
+    else {
         anyhow::bail!("OpenAI OAuth registration callback did not contain an issued client ID");
     };
     Ok(AuthorizationResult { code, client_id })
 }
 
-fn authorization_result_from_manual_input(input: &str, expected_state: &str) -> anyhow::Result<AuthorizationResult> {
-    let Ok(url) = url::Url::parse(input.trim()) else { anyhow::bail!("Paste the full callback URL from the browser") };
+fn authorization_result_from_manual_input(
+    input: &str,
+    expected_state: &str,
+) -> anyhow::Result<AuthorizationResult> {
+    let Ok(url) = url::Url::parse(input.trim()) else {
+        anyhow::bail!("Paste the full callback URL from the browser")
+    };
     let expected = url::Url::parse(REDIRECT_URI).expect("valid redirect URI");
     if url.origin() != expected.origin() || url.path() != expected.path() {
         anyhow::bail!("The pasted callback URL must start with {REDIRECT_URI}");
@@ -89,7 +109,11 @@ struct CallbackServer {
     connections: Arc<Mutex<Vec<tokio::task::AbortHandle>>>,
 }
 
-fn close_server(shutdown: &CancellationToken, listener: &SharedListener, connections: &Mutex<Vec<tokio::task::AbortHandle>>) {
+fn close_server(
+    shutdown: &CancellationToken,
+    listener: &SharedListener,
+    connections: &Mutex<Vec<tokio::task::AbortHandle>>,
+) {
     listener.close();
     shutdown.cancel();
     // Also drop spare connections the browser opened ahead of time, so a later login's
@@ -131,14 +155,28 @@ async fn start_callback_server(expected_state: String) -> anyhow::Result<Callbac
             let tx = tx.clone();
             let expected_state = expected_state.clone();
             let handle = tokio::spawn(async move {
-                let Some((_, target)) = read_request_line(&mut socket).await else { return };
-                let Ok(url) = url::Url::parse(REDIRECT_URI).and_then(|base| base.join(&target)) else {
-                    send_page(&mut socket, 500, &oauth_error_html("Internal error while processing the callback.", None), false)
-                        .await;
+                let Some((_, target)) = read_request_line(&mut socket).await else {
+                    return;
+                };
+                let Ok(url) = url::Url::parse(REDIRECT_URI).and_then(|base| base.join(&target))
+                else {
+                    send_page(
+                        &mut socket,
+                        500,
+                        &oauth_error_html("Internal error while processing the callback.", None),
+                        false,
+                    )
+                    .await;
                     return;
                 };
                 if url.path() != CALLBACK_PATH {
-                    send_page(&mut socket, 404, &oauth_error_html("Callback route not found.", None), false).await;
+                    send_page(
+                        &mut socket,
+                        404,
+                        &oauth_error_html("Callback route not found.", None),
+                        false,
+                    )
+                    .await;
                     return;
                 }
                 if let Some((_, error)) = url.query_pairs().find(|(k, _)| k == "error") {
@@ -146,7 +184,10 @@ async fn start_callback_server(expected_state: String) -> anyhow::Result<Callbac
                     send_page(
                         &mut socket,
                         400,
-                        &oauth_error_html("ChatGPT was not connected.", Some(&format!("Error: {error}"))),
+                        &oauth_error_html(
+                            "ChatGPT was not connected.",
+                            Some(&format!("Error: {error}")),
+                        ),
                         false,
                     )
                     .await;
@@ -157,13 +198,21 @@ async fn start_callback_server(expected_state: String) -> anyhow::Result<Callbac
                 }
                 match authorization_result_from_callback(&url, &expected_state) {
                     Err(error) => {
-                        send_page(&mut socket, 400, &oauth_error_html(&error.to_string(), None), false).await;
+                        send_page(
+                            &mut socket,
+                            400,
+                            &oauth_error_html(&error.to_string(), None),
+                            false,
+                        )
+                        .await;
                     }
                     Ok(result) => {
                         send_page(
                             &mut socket,
                             200,
-                            &oauth_success_html("ChatGPT authentication completed. You can close this window."),
+                            &oauth_success_html(
+                                "ChatGPT authentication completed. You can close this window.",
+                            ),
                             false,
                         )
                         .await;
@@ -176,18 +225,34 @@ async fn start_callback_server(expected_state: String) -> anyhow::Result<Callbac
             accept_connections.lock().push(handle.abort_handle());
         }
     });
-    Ok(CallbackServer { result: rx, shutdown, listener, connections })
+    Ok(CallbackServer {
+        result: rx,
+        shutdown,
+        listener,
+        connections,
+    })
 }
 
-async fn request_token(fetch: &OAuthFetch, fields: &[(&str, &str)], signal: &CancellationToken) -> anyhow::Result<Map<String, Value>> {
+async fn request_token(
+    fetch: &OAuthFetch,
+    fields: &[(&str, &str)],
+    signal: &CancellationToken,
+) -> anyhow::Result<Map<String, Value>> {
     let request = OAuthHttpRequest::post(TOKEN_URL)
         .header("accept", "application/json")
         .header("content-type", "application/x-www-form-urlencoded")
         .form(fields);
     let response = send(fetch, request, Some(signal), None).await?;
     if !response.ok() {
-        let text = if response.body.is_empty() { response.status_text.clone() } else { response.body.clone() };
-        anyhow::bail!("OpenAI OAuth token request failed ({}): {text}", response.status);
+        let text = if response.body.is_empty() {
+            response.status_text.clone()
+        } else {
+            response.body.clone()
+        };
+        anyhow::bail!(
+            "OpenAI OAuth token request failed ({}): {text}",
+            response.status
+        );
     }
     match response.json()? {
         Value::Object(map) => Ok(map),
@@ -202,11 +267,18 @@ fn require_token_string(token: &Map<String, Value>, field: &str) -> anyhow::Resu
     }
 }
 
-fn credential_from_token_response(token: &Map<String, Value>, client_id: &str) -> anyhow::Result<OAuthCredential> {
+fn credential_from_token_response(
+    token: &Map<String, Value>,
+    client_id: &str,
+) -> anyhow::Result<OAuthCredential> {
     let access = require_token_string(token, "access_token")?;
     let refresh = require_token_string(token, "refresh_token")?;
     let scope = require_token_string(token, "scope")?;
-    let Some(expires_in) = token.get("expires_in").and_then(Value::as_f64).filter(|e| e.is_finite() && *e > 0.0) else {
+    let Some(expires_in) = token
+        .get("expires_in")
+        .and_then(Value::as_f64)
+        .filter(|e| e.is_finite() && *e > 0.0)
+    else {
         anyhow::bail!("OpenAI OAuth token response has invalid expires_in");
     };
     let scopes: Vec<String> = scope.split_whitespace().map(str::to_string).collect();
@@ -258,7 +330,9 @@ async fn refresh_access_token(
 ) -> anyhow::Result<OAuthCredential> {
     let client_id = match credential.extra.get("clientId") {
         Some(Value::String(id)) if !id.trim().is_empty() => id.clone(),
-        _ => anyhow::bail!("Stored OpenAI OAuth credential does not contain an issued client ID; reconnect ChatGPT"),
+        _ => anyhow::bail!(
+            "Stored OpenAI OAuth credential does not contain an issued client ID; reconnect ChatGPT"
+        ),
     };
     let token = request_token(
         fetch,
@@ -277,16 +351,25 @@ async fn refresh_access_token(
 /// OpenAI identifies each installation ("agent host") by a stable `urn:uuid:<uuid>` URI.
 fn agent_host_id(device_id: Option<String>) -> anyhow::Result<String> {
     static UUID: once_cell::sync::Lazy<regex::Regex> = once_cell::sync::Lazy::new(|| {
-        regex::Regex::new(r"(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$").unwrap()
+        regex::Regex::new(r"(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+            .unwrap()
     });
     match device_id {
         Some(id) if UUID.is_match(&id) => Ok(format!("urn:uuid:{}", id.to_lowercase())),
-        _ => anyhow::bail!("Sign in with ChatGPT requires a device ID (UUID) for this installation"),
+        _ => {
+            anyhow::bail!("Sign in with ChatGPT requires a device ID (UUID) for this installation")
+        }
     }
 }
 
 /// The authorization URL for a login.
-fn authorization_url(host_id: &str, agent_name: &str, state: &str, challenge: &str, nonce: &str) -> String {
+fn authorization_url(
+    host_id: &str,
+    agent_name: &str,
+    state: &str,
+    challenge: &str,
+    nonce: &str,
+) -> String {
     let mut url = url::Url::parse(AUTHORIZE_URL).expect("valid authorize URL");
     url.query_pairs_mut()
         .append_pair("client_id", DYNAMIC_CLIENT_ID)
@@ -308,12 +391,20 @@ async fn login_openai_chatgpt(
     options: Option<LoginOptions>,
 ) -> anyhow::Result<OAuthCredential> {
     let fetch = current_oauth_fetch();
-    let host_id = agent_host_id(options.as_ref().and_then(|o| o.get_device_id.as_ref()).map(|f| f()))?;
+    let host_id = agent_host_id(
+        options
+            .as_ref()
+            .and_then(|o| o.get_device_id.as_ref())
+            .map(|f| f()),
+    )?;
     let pkce = generate_pkce();
     let state = random_value();
     let nonce = random_value();
     let callback = start_callback_server(state.clone()).await?;
-    let agent_name = options.as_ref().and_then(|o| o.agent_name.clone()).unwrap_or_else(|| AGENT_NAME_HINT.into());
+    let agent_name = options
+        .as_ref()
+        .and_then(|o| o.agent_name.clone())
+        .unwrap_or_else(|| AGENT_NAME_HINT.into());
     interaction.interaction.notify(AuthEvent::AuthUrl {
         url: authorization_url(&host_id, &agent_name, &state, &pkce.challenge, &nonce),
         instructions: Some(
@@ -328,7 +419,12 @@ async fn login_openai_chatgpt(
         options: Vec::new(),
         signal: Some(manual_abort.clone()),
     };
-    let CallbackServer { result: callback_result, shutdown, listener, connections } = callback;
+    let CallbackServer {
+        result: callback_result,
+        shutdown,
+        listener,
+        connections,
+    } = callback;
     let outcome = async {
         let manual = async {
             let input = interaction.interaction.prompt(prompt).await?;
@@ -344,8 +440,17 @@ async fn login_openai_chatgpt(
             result = callback => result?,
             result = manual => result?,
         };
-        interaction.interaction.notify(AuthEvent::Progress { message: "Exchanging authorization code for tokens...".into() });
-        exchange_authorization_code(&fetch, &result.code, &pkce.verifier, &result.client_id, &interaction.signal).await
+        interaction.interaction.notify(AuthEvent::Progress {
+            message: "Exchanging authorization code for tokens...".into(),
+        });
+        exchange_authorization_code(
+            &fetch,
+            &result.code,
+            &pkce.verifier,
+            &result.client_id,
+            &interaction.signal,
+        )
+        .await
     }
     .await;
     manual_abort.cancel();
@@ -370,14 +475,25 @@ impl OAuthAuth for OpenAIChatGPTOAuth {
     fn login_label(&self) -> Option<&str> {
         Some("Sign in with ChatGPT")
     }
-    async fn login(&self, interaction: ProviderAuthInteraction, options: Option<LoginOptions>) -> anyhow::Result<OAuthCredential> {
+    async fn login(
+        &self,
+        interaction: ProviderAuthInteraction,
+        options: Option<LoginOptions>,
+    ) -> anyhow::Result<OAuthCredential> {
         login_openai_chatgpt(interaction, options).await
     }
-    async fn refresh(&self, credential: OAuthCredential, signal: CancellationToken) -> anyhow::Result<OAuthCredential> {
+    async fn refresh(
+        &self,
+        credential: OAuthCredential,
+        signal: CancellationToken,
+    ) -> anyhow::Result<OAuthCredential> {
         refresh_access_token(&current_oauth_fetch(), &credential, &signal).await
     }
     async fn to_auth(&self, credential: &OAuthCredential) -> anyhow::Result<ModelAuth> {
-        Ok(ModelAuth { api_key: Some(credential.access.clone()), ..Default::default() })
+        Ok(ModelAuth {
+            api_key: Some(credential.access.clone()),
+            ..Default::default()
+        })
     }
 }
 
@@ -392,21 +508,39 @@ mod tests {
     #[test]
     fn manual_input_validation() {
         assert_eq!(
-            authorization_result_from_manual_input("not a url", "s").unwrap_err().to_string(),
+            authorization_result_from_manual_input("not a url", "s")
+                .unwrap_err()
+                .to_string(),
             "Paste the full callback URL from the browser"
         );
         assert_eq!(
-            authorization_result_from_manual_input("http://localhost:1455/auth/callback?code=c&state=s", "s")
-                .unwrap_err()
-                .to_string(),
+            authorization_result_from_manual_input(
+                "http://localhost:1455/auth/callback?code=c&state=s",
+                "s"
+            )
+            .unwrap_err()
+            .to_string(),
             format!("The pasted callback URL must start with {REDIRECT_URI}")
         );
-        let ok = authorization_result_from_manual_input(&format!("{REDIRECT_URI}?code=c&state=s&client_id=%20cid%20"), "s").unwrap();
-        assert_eq!(ok, AuthorizationResult { code: "c".into(), client_id: "cid".into() });
+        let ok = authorization_result_from_manual_input(
+            &format!("{REDIRECT_URI}?code=c&state=s&client_id=%20cid%20"),
+            "s",
+        )
+        .unwrap();
         assert_eq!(
-            authorization_result_from_manual_input(&format!("{REDIRECT_URI}?code=c&state=x&client_id=cid"), "s")
-                .unwrap_err()
-                .to_string(),
+            ok,
+            AuthorizationResult {
+                code: "c".into(),
+                client_id: "cid".into()
+            }
+        );
+        assert_eq!(
+            authorization_result_from_manual_input(
+                &format!("{REDIRECT_URI}?code=c&state=x&client_id=cid"),
+                "s"
+            )
+            .unwrap_err()
+            .to_string(),
             "OAuth state mismatch"
         );
     }

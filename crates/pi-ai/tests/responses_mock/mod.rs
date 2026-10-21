@@ -9,7 +9,9 @@ use parking_lot::Mutex;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::tungstenite::Message;
-use tokio_tungstenite::tungstenite::handshake::server::{Request as WsRequest, Response as WsResponse};
+use tokio_tungstenite::tungstenite::handshake::server::{
+    Request as WsRequest, Response as WsResponse,
+};
 
 #[derive(Debug, Clone, Default)]
 pub struct Request {
@@ -21,7 +23,10 @@ pub struct Request {
 
 impl Request {
     pub fn header(&self, name: &str) -> Option<&str> {
-        self.headers.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str())
+        self.headers
+            .iter()
+            .find(|(n, _)| n.eq_ignore_ascii_case(name))
+            .map(|(_, v)| v.as_str())
     }
     pub fn text(&self) -> String {
         String::from_utf8_lossy(&self.body).into_owned()
@@ -32,7 +37,8 @@ impl Request {
     /// JSON body, decompressing zstd when `content-encoding: zstd`.
     pub fn decoded_json(&self) -> serde_json::Value {
         if self.header("content-encoding") == Some("zstd") {
-            let mut decoder = ruzstd::decoding::StreamingDecoder::new(self.body.as_slice()).expect("zstd body");
+            let mut decoder =
+                ruzstd::decoding::StreamingDecoder::new(self.body.as_slice()).expect("zstd body");
             let mut out = Vec::new();
             std::io::Read::read_to_end(&mut decoder, &mut out).unwrap();
             serde_json::from_slice(&out).expect("JSON body")
@@ -109,7 +115,11 @@ pub async fn serve_sequence(replies: Vec<Reply>) -> MockHttp {
     let replies = Arc::new(Mutex::new(replies));
     serve(Arc::new(move |_req: &Request| {
         let mut replies = replies.lock();
-        if replies.len() > 1 { replies.remove(0) } else { replies[0].clone() }
+        if replies.len() > 1 {
+            replies.remove(0)
+        } else {
+            replies[0].clone()
+        }
     }))
     .await
 }
@@ -121,13 +131,18 @@ pub async fn serve(handler: Handler) -> MockHttp {
     let captured = requests.clone();
     tokio::spawn(async move {
         loop {
-            let Ok((socket, _)) = listener.accept().await else { return };
+            let Ok((socket, _)) = listener.accept().await else {
+                return;
+            };
             let handler = handler.clone();
             let captured = captured.clone();
             tokio::spawn(async move { handle_connection(socket, handler, captured).await });
         }
     });
-    MockHttp { base_url: format!("http://{addr}"), requests }
+    MockHttp {
+        base_url: format!("http://{addr}"),
+        requests,
+    }
 }
 
 async fn read_request(socket: &mut TcpStream) -> Option<Request> {
@@ -150,7 +165,10 @@ async fn read_request(socket: &mut TcpStream) -> Option<Request> {
     let path = parts.next().unwrap_or_default().to_string();
     let headers: Vec<(String, String)> = lines
         .filter(|l| !l.is_empty())
-        .filter_map(|l| l.split_once(':').map(|(k, v)| (k.trim().to_string(), v.trim().to_string())))
+        .filter_map(|l| {
+            l.split_once(':')
+                .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
+        })
         .collect();
     let length: usize = headers
         .iter()
@@ -165,17 +183,31 @@ async fn read_request(socket: &mut TcpStream) -> Option<Request> {
         buffer.extend_from_slice(&chunk[..n]);
     }
     let body = buffer[header_end..(header_end + length).min(buffer.len())].to_vec();
-    Some(Request { method, path, headers, body })
+    Some(Request {
+        method,
+        path,
+        headers,
+        body,
+    })
 }
 
-async fn handle_connection(mut socket: TcpStream, handler: Handler, captured: Arc<Mutex<Vec<Request>>>) {
-    let Some(request) = read_request(&mut socket).await else { return };
+async fn handle_connection(
+    mut socket: TcpStream,
+    handler: Handler,
+    captured: Arc<Mutex<Vec<Request>>>,
+) {
+    let Some(request) = read_request(&mut socket).await else {
+        return;
+    };
     captured.lock().push(request.clone());
     let reply = handler(&request);
     if reply.header_delay_ms > 0 {
         tokio::time::sleep(Duration::from_millis(reply.header_delay_ms)).await;
     }
-    let mut head = format!("HTTP/1.1 {} X\r\ntransfer-encoding: chunked\r\nconnection: close\r\n", reply.status);
+    let mut head = format!(
+        "HTTP/1.1 {} X\r\ntransfer-encoding: chunked\r\nconnection: close\r\n",
+        reply.status
+    );
     for (k, v) in &reply.headers {
         head.push_str(&format!("{k}: {v}\r\n"));
     }
@@ -190,7 +222,12 @@ async fn handle_connection(mut socket: TcpStream, handler: Handler, captured: Ar
         if bytes.is_empty() {
             continue;
         }
-        let frame = [format!("{:x}\r\n", bytes.len()).into_bytes(), bytes.clone(), b"\r\n".to_vec()].concat();
+        let frame = [
+            format!("{:x}\r\n", bytes.len()).into_bytes(),
+            bytes.clone(),
+            b"\r\n".to_vec(),
+        ]
+        .concat();
         if socket.write_all(&frame).await.is_err() {
             return;
         }
@@ -222,7 +259,10 @@ pub struct WsConnection {
 
 impl WsConnection {
     pub fn header(&self, name: &str) -> Option<&str> {
-        self.headers.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str())
+        self.headers
+            .iter()
+            .find(|(n, _)| n.eq_ignore_ascii_case(name))
+            .map(|(_, v)| v.as_str())
     }
 }
 
@@ -246,7 +286,9 @@ pub async fn serve_ws(handler: WsHandler, accept_delay_ms: u64) -> MockWs {
     let captured = connections.clone();
     tokio::spawn(async move {
         loop {
-            let Ok((socket, _)) = listener.accept().await else { return };
+            let Ok((socket, _)) = listener.accept().await else {
+                return;
+            };
             let handler = handler.clone();
             let captured = captured.clone();
             tokio::spawn(async move {
@@ -259,18 +301,30 @@ pub async fn serve_ws(handler: WsHandler, accept_delay_ms: u64) -> MockWs {
                     *header_sink.lock() = request
                         .headers()
                         .iter()
-                        .map(|(k, v)| (k.as_str().to_string(), v.to_str().unwrap_or_default().to_string()))
+                        .map(|(k, v)| {
+                            (
+                                k.as_str().to_string(),
+                                v.to_str().unwrap_or_default().to_string(),
+                            )
+                        })
                         .collect();
                     Ok(response)
                 };
-                let Ok(mut ws) = tokio_tungstenite::accept_hdr_async(socket, callback).await else { return };
+                let Ok(mut ws) = tokio_tungstenite::accept_hdr_async(socket, callback).await else {
+                    return;
+                };
                 let index = {
                     let mut list = captured.lock();
-                    list.push(WsConnection { headers: headers.lock().clone(), messages: Vec::new() });
+                    list.push(WsConnection {
+                        headers: headers.lock().clone(),
+                        messages: Vec::new(),
+                    });
                     list.len() - 1
                 };
                 while let Some(Ok(message)) = ws.next().await {
-                    let Message::Text(text) = message else { continue };
+                    let Message::Text(text) = message else {
+                        continue;
+                    };
                     let value: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
                     captured.lock()[index].messages.push(value.clone());
                     for action in handler(index, &value) {
@@ -288,14 +342,19 @@ pub async fn serve_ws(handler: WsHandler, accept_delay_ms: u64) -> MockWs {
                                 let _ = ws.close(Some(frame)).await;
                                 return;
                             }
-                            WsAction::Sleep(ms) => tokio::time::sleep(Duration::from_millis(ms)).await,
+                            WsAction::Sleep(ms) => {
+                                tokio::time::sleep(Duration::from_millis(ms)).await
+                            }
                         }
                     }
                 }
             });
         }
     });
-    MockWs { base_url: format!("http://{addr}"), connections }
+    MockWs {
+        base_url: format!("http://{addr}"),
+        connections,
+    }
 }
 
 /// `data: <json>` frames joined by blank lines.
@@ -305,7 +364,10 @@ pub fn data_sse(events: &[serde_json::Value]) -> String {
 
 /// An HTTP client whose connections always fail (for payload-only tests).
 pub fn refusing_client() -> reqwest::Client {
-    reqwest::Client::builder().proxy(reqwest::Proxy::all("http://127.0.0.1:1").unwrap()).build().unwrap()
+    reqwest::Client::builder()
+        .proxy(reqwest::Proxy::all("http://127.0.0.1:1").unwrap())
+        .build()
+        .unwrap()
 }
 
 /// One port serving both plain HTTP requests and WebSocket upgrades (the Codex endpoint shape).
@@ -327,7 +389,9 @@ impl MockCodex {
 async fn is_websocket_upgrade(socket: &TcpStream) -> bool {
     let mut buffer = vec![0u8; 16384];
     for _ in 0..200 {
-        let Ok(n) = socket.peek(&mut buffer).await else { return false };
+        let Ok(n) = socket.peek(&mut buffer).await else {
+            return false;
+        };
         if n == 0 {
             return false;
         }
@@ -348,9 +412,12 @@ pub async fn serve_codex(http: Handler, ws: WsHandler, ws_accept_delay_ms: u64) 
     let (captured_requests, captured_connections) = (requests.clone(), connections.clone());
     tokio::spawn(async move {
         loop {
-            let Ok((socket, _)) = listener.accept().await else { return };
+            let Ok((socket, _)) = listener.accept().await else {
+                return;
+            };
             let (http, ws) = (http.clone(), ws.clone());
-            let (captured_requests, captured_connections) = (captured_requests.clone(), captured_connections.clone());
+            let (captured_requests, captured_connections) =
+                (captured_requests.clone(), captured_connections.clone());
             tokio::spawn(async move {
                 if is_websocket_upgrade(&socket).await {
                     handle_ws(socket, ws, captured_connections, ws_accept_delay_ms).await;
@@ -360,10 +427,19 @@ pub async fn serve_codex(http: Handler, ws: WsHandler, ws_accept_delay_ms: u64) 
             });
         }
     });
-    MockCodex { base_url: format!("http://{addr}"), requests, connections }
+    MockCodex {
+        base_url: format!("http://{addr}"),
+        requests,
+        connections,
+    }
 }
 
-async fn handle_ws(socket: TcpStream, handler: WsHandler, captured: Arc<Mutex<Vec<WsConnection>>>, accept_delay_ms: u64) {
+async fn handle_ws(
+    socket: TcpStream,
+    handler: WsHandler,
+    captured: Arc<Mutex<Vec<WsConnection>>>,
+    accept_delay_ms: u64,
+) {
     if accept_delay_ms > 0 {
         tokio::time::sleep(Duration::from_millis(accept_delay_ms)).await;
     }
@@ -373,18 +449,30 @@ async fn handle_ws(socket: TcpStream, handler: WsHandler, captured: Arc<Mutex<Ve
         *header_sink.lock() = request
             .headers()
             .iter()
-            .map(|(k, v)| (k.as_str().to_string(), v.to_str().unwrap_or_default().to_string()))
+            .map(|(k, v)| {
+                (
+                    k.as_str().to_string(),
+                    v.to_str().unwrap_or_default().to_string(),
+                )
+            })
             .collect();
         Ok(response)
     };
-    let Ok(mut ws) = tokio_tungstenite::accept_hdr_async(socket, callback).await else { return };
+    let Ok(mut ws) = tokio_tungstenite::accept_hdr_async(socket, callback).await else {
+        return;
+    };
     let index = {
         let mut list = captured.lock();
-        list.push(WsConnection { headers: headers.lock().clone(), messages: Vec::new() });
+        list.push(WsConnection {
+            headers: headers.lock().clone(),
+            messages: Vec::new(),
+        });
         list.len() - 1
     };
     while let Some(Ok(message)) = ws.next().await {
-        let Message::Text(text) = message else { continue };
+        let Message::Text(text) = message else {
+            continue;
+        };
         let value: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
         captured.lock()[index].messages.push(value.clone());
         for action in handler(index, &value) {
@@ -395,8 +483,10 @@ async fn handle_ws(socket: TcpStream, handler: WsHandler, captured: Arc<Mutex<Ve
                     }
                 }
                 WsAction::Close(code, reason) => {
-                    let frame =
-                        tokio_tungstenite::tungstenite::protocol::CloseFrame { code: code.into(), reason: reason.into() };
+                    let frame = tokio_tungstenite::tungstenite::protocol::CloseFrame {
+                        code: code.into(),
+                        reason: reason.into(),
+                    };
                     let _ = ws.close(Some(frame)).await;
                     return;
                 }

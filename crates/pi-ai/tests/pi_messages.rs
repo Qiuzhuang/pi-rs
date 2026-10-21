@@ -20,7 +20,11 @@ fn model(base_url: &str) -> Model {
 }
 
 fn context() -> Context {
-    Context { system_prompt: None, messages: vec![Message::User(UserMessage::new("Hello", 1))], tools: None }
+    Context {
+        system_prompt: None,
+        messages: vec![Message::User(UserMessage::new("Hello", 1))],
+        tools: None,
+    }
 }
 
 fn usage() -> Value {
@@ -32,7 +36,10 @@ async fn sse_server(events: Vec<Value>) -> MockHttp {
 }
 
 fn key(key: &str) -> StreamOptions {
-    StreamOptions { api_key: Some(key.into()), ..Default::default() }
+    StreamOptions {
+        api_key: Some(key.into()),
+        ..Default::default()
+    }
 }
 
 #[tokio::test]
@@ -57,14 +64,19 @@ async fn streams_text_and_tool_calls() {
     let mut headers = ProviderHeaders::new();
     headers.insert("x-custom".into(), Some("1".into()));
     options.headers = Some(headers);
-    let (events, message) = pi_messages::stream(&model, &normalize_context(&context()), options).collect_all().await;
+    let (events, message) = pi_messages::stream(&model, &normalize_context(&context()), options)
+        .collect_all()
+        .await;
 
     assert_eq!(events[0].message().stop_reason, StopReason::Pending);
     assert_eq!(message.stop_reason, StopReason::ToolUse);
     assert_eq!(serde_json::to_value(&message.usage).unwrap(), usage());
     assert_eq!(message.response_id.as_deref(), Some("resp_1"));
     assert_eq!(message.provider_thinking_level.as_deref(), Some("high"));
-    assert_eq!((message.model.as_str(), message.provider.as_str()), ("auto", "radius"));
+    assert_eq!(
+        (message.model.as_str(), message.provider.as_str()),
+        ("auto", "radius")
+    );
     assert_eq!(
         serde_json::to_value(&message.content).unwrap(),
         json!([
@@ -73,7 +85,13 @@ async fn streams_text_and_tool_calls() {
         ])
     );
     assert!(events.iter().any(|e| e.type_name() == "text_delta"));
-    assert_eq!(events.iter().filter(|e| e.type_name() == "toolcall_end").count(), 1);
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| e.type_name() == "toolcall_end")
+            .count(),
+        1
+    );
 
     let requests = server.requests();
     assert_eq!(requests.len(), 1);
@@ -104,18 +122,27 @@ async fn forwards_wire_events_in_order() {
     let received: Arc<Mutex<Vec<Value>>> = Arc::default();
     let sink = received.clone();
     let mut options = key("test-key");
-    options.on_provider_stream_event = Some(Arc::new(move |event: &Value, _m: &Model| sink.lock().push(event.clone())));
-    let message = pi_messages::stream_simple(&model, &normalize_context(&context()), options).result().await;
+    options.on_provider_stream_event = Some(Arc::new(move |event: &Value, _m: &Model| {
+        sink.lock().push(event.clone())
+    }));
+    let message = pi_messages::stream_simple(&model, &normalize_context(&context()), options)
+        .result()
+        .await;
     assert_eq!(*received.lock(), wire);
     assert_eq!(message.stop_reason, StopReason::Stop);
-    assert_eq!(serde_json::to_value(&message.content).unwrap(), json!([{ "type": "text", "text": "Hello" }]));
+    assert_eq!(
+        serde_json::to_value(&message.content).unwrap(),
+        json!([{ "type": "text", "text": "Hello" }])
+    );
 }
 
 #[tokio::test]
 async fn debug_query_and_on_response_headers() {
     let server = serve_sequence(vec![
-        Reply::sse(data_sse(&[json!({ "type": "done", "reason": "stop", "usage": usage() })]))
-            .header("x-pi-gateway-upstream-provider", "anthropic"),
+        Reply::sse(data_sse(&[
+            json!({ "type": "done", "reason": "stop", "usage": usage() }),
+        ]))
+        .header("x-pi-gateway-upstream-provider", "anthropic"),
     ])
     .await;
     let model = model(&format!("{}/v1", server.base_url));
@@ -126,21 +153,38 @@ async fn debug_query_and_on_response_headers() {
         *sink.lock() = Some(response);
         Box::pin(async {})
     }));
-    let message = pi_messages::stream_simple(&model, &normalize_context(&context()), options).result().await;
+    let message = pi_messages::stream_simple(&model, &normalize_context(&context()), options)
+        .result()
+        .await;
     assert_eq!(message.stop_reason, StopReason::Stop);
     assert_eq!(server.requests()[0].path, "/v1/messages?debug=1");
     let observed = observed.lock().clone().unwrap();
-    assert_eq!(observed.headers.get("x-pi-gateway-upstream-provider").map(String::as_str), Some("anthropic"));
+    assert_eq!(
+        observed
+            .headers
+            .get("x-pi-gateway-upstream-provider")
+            .map(String::as_str),
+        Some("anthropic")
+    );
 }
 
 #[tokio::test]
 async fn backend_errors_carry_diagnostics() {
-    let server = serve_sequence(vec![Reply::json(401, json!({ "error": { "message": "Token expired", "code": "unauthorized" } }).to_string())]).await;
+    let server = serve_sequence(vec![Reply::json(
+        401,
+        json!({ "error": { "message": "Token expired", "code": "unauthorized" } }).to_string(),
+    )])
+    .await;
     let model = model(&format!("{}/v1", server.base_url));
-    let message = pi_messages::stream(&model, &normalize_context(&context()), key("stale")).result().await;
+    let message = pi_messages::stream(&model, &normalize_context(&context()), key("stale"))
+        .result()
+        .await;
     assert_eq!(message.stop_reason, StopReason::Error);
     let error = message.error_message.clone().unwrap();
-    assert!(error.contains("401") && error.contains("Token expired") && error.contains("unauthorized"), "{error}");
+    assert!(
+        error.contains("401") && error.contains("Token expired") && error.contains("unauthorized"),
+        "{error}"
+    );
     let diagnostic = &message.diagnostics.unwrap()[0];
     assert_eq!(diagnostic.diagnostic_type, "pi_messages_response_failure");
     assert_eq!(diagnostic.details.as_ref().unwrap()["status"], 401);
@@ -154,15 +198,26 @@ async fn server_error_events_missing_key_and_truncated_streams() {
     ])
     .await;
     let model_a = model(&format!("{}/v1", server.base_url));
-    let message = pi_messages::stream(&model_a, &normalize_context(&context()), key("test-key")).result().await;
+    let message = pi_messages::stream(&model_a, &normalize_context(&context()), key("test-key"))
+        .result()
+        .await;
     assert_eq!(message.stop_reason, StopReason::Error);
     assert_eq!(message.error_message.as_deref(), Some("Upstream failed"));
     assert_eq!(serde_json::to_value(&message.usage).unwrap(), usage());
 
-    let message = pi_messages::stream(&model("http://127.0.0.1:1/v1"), &normalize_context(&context()), StreamOptions::default())
-        .result()
-        .await;
-    assert!(message.error_message.unwrap().contains("No API key provided"));
+    let message = pi_messages::stream(
+        &model("http://127.0.0.1:1/v1"),
+        &normalize_context(&context()),
+        StreamOptions::default(),
+    )
+    .result()
+    .await;
+    assert!(
+        message
+            .error_message
+            .unwrap()
+            .contains("No API key provided")
+    );
 
     let server = sse_server(vec![
         json!({ "type": "start" }),
@@ -171,15 +226,29 @@ async fn server_error_events_missing_key_and_truncated_streams() {
     ])
     .await;
     let model_b = model(&format!("{}/v1", server.base_url));
-    let message = pi_messages::stream(&model_b, &normalize_context(&context()), key("test-key")).result().await;
+    let message = pi_messages::stream(&model_b, &normalize_context(&context()), key("test-key"))
+        .result()
+        .await;
     assert_eq!(message.stop_reason, StopReason::Error);
-    assert!(message.error_message.unwrap().contains("stream ended without a terminal event"));
+    assert!(
+        message
+            .error_message
+            .unwrap()
+            .contains("stream ended without a terminal event")
+    );
 }
 
 #[test]
 fn registered_as_builtin_api() {
     assert!(pi_ai::api::registry::resolve_builtin_api("pi-messages").is_some());
-    for api in ["openai-responses", "azure-openai-responses", "openai-codex-responses"] {
-        assert!(pi_ai::api::registry::resolve_builtin_api(api).is_some(), "{api}");
+    for api in [
+        "openai-responses",
+        "azure-openai-responses",
+        "openai-codex-responses",
+    ] {
+        assert!(
+            pi_ai::api::registry::resolve_builtin_api(api).is_some(),
+            "{api}"
+        );
     }
 }

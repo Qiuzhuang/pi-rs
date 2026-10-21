@@ -12,10 +12,14 @@ use async_trait::async_trait;
 use serde_json::{Map, Value};
 use tokio_util::sync::CancellationToken;
 
-use super::device_code::{OAuthDeviceCodePollOptions, OAuthDeviceCodePollResult, poll_oauth_device_code_flow};
+use super::device_code::{
+    OAuthDeviceCodePollOptions, OAuthDeviceCodePollResult, poll_oauth_device_code_flow,
+};
 use super::http::{OAuthFetch, OAuthHttpRequest, current_oauth_fetch, send};
 use super::{positive_number, trusted_http_url};
-use crate::auth::types::{AuthEvent, LoginOptions, ModelAuth, OAuthAuth, OAuthCredential, ProviderAuthInteraction};
+use crate::auth::types::{
+    AuthEvent, LoginOptions, ModelAuth, OAuthAuth, OAuthCredential, ProviderAuthInteraction,
+};
 
 /// Muse Code CLI client id.
 const CLIENT_ID: &str = "1031625952748946";
@@ -35,7 +39,10 @@ struct DeviceAuthorization {
 
 fn error_detail(json: &Option<Map<String, Value>>) -> String {
     for key in ["error_description", "detail", "message", "error"] {
-        if let Some(value) = json.as_ref().and_then(|j| j.get(key)).and_then(Value::as_str)
+        if let Some(value) = json
+            .as_ref()
+            .and_then(|j| j.get(key))
+            .and_then(Value::as_str)
             && !value.trim().is_empty()
         {
             return format!(": {}", value.trim());
@@ -45,7 +52,9 @@ fn error_detail(json: &Option<Map<String, Value>>) -> String {
 }
 
 fn json_text(json: &Option<Map<String, Value>>) -> String {
-    json.as_ref().map(|m| Value::Object(m.clone()).to_string()).unwrap_or_else(|| "null".into())
+    json.as_ref()
+        .map(|m| Value::Object(m.clone()).to_string())
+        .unwrap_or_else(|| "null".into())
 }
 
 fn form_request(url: &str, fields: &[(&str, &str)]) -> OAuthHttpRequest {
@@ -55,21 +64,41 @@ fn form_request(url: &str, fields: &[(&str, &str)]) -> OAuthHttpRequest {
         .form(fields)
 }
 
-async fn start_device_authorization(fetch: &OAuthFetch, signal: &CancellationToken) -> anyhow::Result<DeviceAuthorization> {
-    let response =
-        send(fetch, form_request(DEVICE_AUTHORIZATION_URL, &[("client_id", CLIENT_ID)]), Some(signal), Some(REQUEST_TIMEOUT_MS))
-            .await?;
+async fn start_device_authorization(
+    fetch: &OAuthFetch,
+    signal: &CancellationToken,
+) -> anyhow::Result<DeviceAuthorization> {
+    let response = send(
+        fetch,
+        form_request(DEVICE_AUTHORIZATION_URL, &[("client_id", CLIENT_ID)]),
+        Some(signal),
+        Some(REQUEST_TIMEOUT_MS),
+    )
+    .await?;
     let json = response.json_object();
     if !response.ok() {
-        anyhow::bail!("Meta device authorization failed with status {}{}", response.status, error_detail(&json));
+        anyhow::bail!(
+            "Meta device authorization failed with status {}{}",
+            response.status,
+            error_detail(&json)
+        );
     }
     let field = |name: &str| json.as_ref().and_then(|j| j.get(name));
-    let device_code = field("device_code").and_then(Value::as_str).filter(|s| !s.is_empty());
-    let user_code = field("user_code").and_then(Value::as_str).filter(|s| !s.is_empty());
-    let verification_uri =
-        trusted_http_url(field("verification_uri_complete")).or_else(|| trusted_http_url(field("verification_uri")));
-    let (Some(device_code), Some(user_code), Some(verification_uri)) = (device_code, user_code, verification_uri) else {
-        anyhow::bail!("Invalid Meta device authorization response: {}", json_text(&json));
+    let device_code = field("device_code")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty());
+    let user_code = field("user_code")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty());
+    let verification_uri = trusted_http_url(field("verification_uri_complete"))
+        .or_else(|| trusted_http_url(field("verification_uri")));
+    let (Some(device_code), Some(user_code), Some(verification_uri)) =
+        (device_code, user_code, verification_uri)
+    else {
+        anyhow::bail!(
+            "Invalid Meta device authorization response: {}",
+            json_text(&json)
+        );
     };
     Ok(DeviceAuthorization {
         device_code: device_code.to_string(),
@@ -80,7 +109,11 @@ async fn start_device_authorization(fetch: &OAuthFetch, signal: &CancellationTok
     })
 }
 
-async fn poll_for_identity_token(fetch: &OAuthFetch, device: &DeviceAuthorization, signal: &CancellationToken) -> anyhow::Result<String> {
+async fn poll_for_identity_token(
+    fetch: &OAuthFetch,
+    device: &DeviceAuthorization,
+    signal: &CancellationToken,
+) -> anyhow::Result<String> {
     poll_oauth_device_code_flow(
         OAuthDeviceCodePollOptions {
             interval_seconds: device.interval_seconds,
@@ -101,19 +134,29 @@ async fn poll_for_identity_token(fetch: &OAuthFetch, device: &DeviceAuthorizatio
             let json = response.json_object();
             let field = |name: &str| json.as_ref().and_then(|j| j.get(name));
             if response.ok()
-                && let Some(token) = field("access_token").and_then(Value::as_str).filter(|s| !s.is_empty())
+                && let Some(token) = field("access_token")
+                    .and_then(Value::as_str)
+                    .filter(|s| !s.is_empty())
             {
                 return Ok(OAuthDeviceCodePollResult::Complete(token.to_string()));
             }
             Ok(match field("error").and_then(Value::as_str) {
                 Some("authorization_pending") => OAuthDeviceCodePollResult::Pending,
-                Some("slow_down") => OAuthDeviceCodePollResult::SlowDown { interval_seconds: positive_number(field("interval")) },
-                Some("access_denied") => OAuthDeviceCodePollResult::Failed { message: "Meta login was denied.".into() },
+                Some("slow_down") => OAuthDeviceCodePollResult::SlowDown {
+                    interval_seconds: positive_number(field("interval")),
+                },
+                Some("access_denied") => OAuthDeviceCodePollResult::Failed {
+                    message: "Meta login was denied.".into(),
+                },
                 Some("expired_token") => OAuthDeviceCodePollResult::Failed {
                     message: "Meta device authorization expired. Please restart login.".into(),
                 },
                 _ => OAuthDeviceCodePollResult::Failed {
-                    message: format!("Meta device token request failed with status {}{}", response.status, error_detail(&json)),
+                    message: format!(
+                        "Meta device token request failed with status {}{}",
+                        response.status,
+                        error_detail(&json)
+                    ),
                 },
             })
         },
@@ -122,7 +165,11 @@ async fn poll_for_identity_token(fetch: &OAuthFetch, device: &DeviceAuthorizatio
 }
 
 /// Exchange an identity token for a Model API key. Keys are valid for about a day.
-async fn mint_api_key(fetch: &OAuthFetch, identity_token: &str, signal: &CancellationToken) -> anyhow::Result<OAuthCredential> {
+async fn mint_api_key(
+    fetch: &OAuthFetch,
+    identity_token: &str,
+    signal: &CancellationToken,
+) -> anyhow::Result<OAuthCredential> {
     let request = OAuthHttpRequest::post(API_KEY_MINT_URL)
         .header("Accept", "application/json")
         .header("Authorization", &format!("Bearer {identity_token}"))
@@ -139,11 +186,20 @@ async fn mint_api_key(fetch: &OAuthFetch, identity_token: &str, signal: &Cancell
         );
     }
     if !response.ok() {
-        anyhow::bail!("Meta API key mint failed with status {}{}", response.status, error_detail(&json));
+        anyhow::bail!(
+            "Meta API key mint failed with status {}{}",
+            response.status,
+            error_detail(&json)
+        );
     }
     let field = |name: &str| json.as_ref().and_then(|j| j.get(name));
-    let Some(api_key) = field("api_key").and_then(Value::as_str).filter(|s| !s.is_empty()) else {
-        let action = trusted_http_url(field("action_url")).map(|url| format!(" Complete setup at {url}")).unwrap_or_default();
+    let Some(api_key) = field("api_key")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+    else {
+        let action = trusted_http_url(field("action_url"))
+            .map(|url| format!(" Complete setup at {url}"))
+            .unwrap_or_default();
         anyhow::bail!("Meta did not issue an API key.{action}");
     };
     Ok(OAuthCredential {
@@ -168,7 +224,11 @@ impl OAuthAuth for MetaOAuth {
     fn login_label(&self) -> Option<&str> {
         Some("Sign in with Meta")
     }
-    async fn login(&self, interaction: ProviderAuthInteraction, _options: Option<LoginOptions>) -> anyhow::Result<OAuthCredential> {
+    async fn login(
+        &self,
+        interaction: ProviderAuthInteraction,
+        _options: Option<LoginOptions>,
+    ) -> anyhow::Result<OAuthCredential> {
         let fetch = current_oauth_fetch();
         let signal = interaction.signal.clone();
         let result = async {
@@ -180,7 +240,9 @@ impl OAuthAuth for MetaOAuth {
                 expires_in_seconds: device.expires_in_seconds.map(|e| e as u64),
             });
             let identity_token = poll_for_identity_token(&fetch, &device, &signal).await?;
-            interaction.interaction.notify(AuthEvent::Progress { message: "Enabling Meta Model API access...".into() });
+            interaction.interaction.notify(AuthEvent::Progress {
+                message: "Enabling Meta Model API access...".into(),
+            });
             mint_api_key(&fetch, &identity_token, &signal).await
         }
         .await;
@@ -189,11 +251,18 @@ impl OAuthAuth for MetaOAuth {
             other => other,
         }
     }
-    async fn refresh(&self, credential: OAuthCredential, signal: CancellationToken) -> anyhow::Result<OAuthCredential> {
+    async fn refresh(
+        &self,
+        credential: OAuthCredential,
+        signal: CancellationToken,
+    ) -> anyhow::Result<OAuthCredential> {
         mint_api_key(&current_oauth_fetch(), &credential.refresh, &signal).await
     }
     async fn to_auth(&self, credential: &OAuthCredential) -> anyhow::Result<ModelAuth> {
-        Ok(ModelAuth { api_key: Some(credential.access.clone()), ..Default::default() })
+        Ok(ModelAuth {
+            api_key: Some(credential.access.clone()),
+            ..Default::default()
+        })
     }
 }
 

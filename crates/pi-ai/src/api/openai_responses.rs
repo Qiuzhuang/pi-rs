@@ -17,16 +17,19 @@ use super::github_copilot_headers::{build_copilot_dynamic_headers, has_copilot_v
 use super::openai_prompt_cache::clamp_openai_prompt_cache_key;
 use super::openai_responses_shared::{
     ConvertResponsesMessagesOptions, ConvertResponsesToolsOptions, OpenAIResponsesStreamOptions,
-    apply_service_tier_multiplier, convert_responses_messages, convert_responses_tools, get_responses_tool_support,
-    process_responses_stream,
+    apply_service_tier_multiplier, convert_responses_messages, convert_responses_tools,
+    get_responses_tool_support, process_responses_stream,
 };
 use super::simple_options::{build_base_options, resolve_sampling_params};
 use crate::models::{ProviderStreams, clamp_thinking_level};
 use crate::types::{
-    AssistantMessage, AssistantMessageEvent, CacheRetention, Model, ModelThinkingLevel, ProviderEnv, ProviderHeaders,
-    ProviderResponse, SessionAffinityFormat, StopReason, StreamOptions, TranscriptContext, Usage,
+    AssistantMessage, AssistantMessageEvent, CacheRetention, Model, ModelThinkingLevel,
+    ProviderEnv, ProviderHeaders, ProviderResponse, SessionAffinityFormat, StopReason,
+    StreamOptions, TranscriptContext, Usage,
 };
-use crate::utils::error_body::{ProviderHttpError, SdkErrorStyle, format_provider_error, normalize_provider_error};
+use crate::utils::error_body::{
+    ProviderHttpError, SdkErrorStyle, format_provider_error, normalize_provider_error,
+};
 use crate::utils::event_stream::{AssistantMessageEventSender, AssistantMessageEventStream};
 use crate::utils::headers::headers_to_record;
 use crate::utils::http::{HeaderList, client_for, post_json, stainless_headers};
@@ -51,16 +54,24 @@ const CONFIGURATION_UPDATE_REQUEST_EFFORT: &str = "medium";
 /// OpenAI API keys start with `sk-`; a different credential sent directly to OpenAI is a
 /// Sign in with ChatGPT access token.
 fn is_chatgpt_sign_in(model: &Model, api_key: Option<&str>) -> bool {
-    model.provider == "openai" && model.base_url == "https://api.openai.com/v1" && api_key.is_some_and(|k| !k.starts_with("sk-"))
+    model.provider == "openai"
+        && model.base_url == "https://api.openai.com/v1"
+        && api_key.is_some_and(|k| !k.starts_with("sk-"))
 }
 
 fn has_header(headers: Option<&ProviderHeaders>, name: &str) -> bool {
     headers.is_some_and(|h| {
-        h.iter().any(|(k, v)| k.eq_ignore_ascii_case(name) && v.as_ref().is_some_and(|v| !v.trim().is_empty()))
+        h.iter().any(|(k, v)| {
+            k.eq_ignore_ascii_case(name) && v.as_ref().is_some_and(|v| !v.trim().is_empty())
+        })
     })
 }
 
-fn get_client_api_key(provider: &str, api_key: Option<&str>, headers: Option<&ProviderHeaders>) -> anyhow::Result<String> {
+fn get_client_api_key(
+    provider: &str,
+    api_key: Option<&str>,
+    headers: Option<&ProviderHeaders>,
+) -> anyhow::Result<String> {
     if let Some(key) = api_key.filter(|k| !k.is_empty()) {
         return Ok(key.to_string());
     }
@@ -71,7 +82,10 @@ fn get_client_api_key(provider: &str, api_key: Option<&str>, headers: Option<&Pr
 }
 
 /// Resolve cache retention: defaults to short; `PI_CACHE_RETENTION=long` opts in.
-pub(crate) fn resolve_cache_retention(cache_retention: Option<CacheRetention>, env: Option<&ProviderEnv>) -> CacheRetention {
+pub(crate) fn resolve_cache_retention(
+    cache_retention: Option<CacheRetention>,
+    env: Option<&ProviderEnv>,
+) -> CacheRetention {
     if let Some(retention) = cache_retention {
         return retention;
     }
@@ -120,12 +134,18 @@ fn get_compat(model: &Model) -> ResponsesCompat {
 /// `model.thinkingLevelMap?.[level]`: `None` when absent, `Some(None)` when mapped to null.
 pub(crate) fn thinking_level_entry(model: &Model, level: &str) -> Option<Option<String>> {
     let level: ModelThinkingLevel = serde_json::from_value(json!(level)).ok()?;
-    model.thinking_level_map.as_ref().and_then(|m| m.get(&level)).cloned()
+    model
+        .thinking_level_map
+        .as_ref()
+        .and_then(|m| m.get(&level))
+        .cloned()
 }
 
 /// `model.thinkingLevelMap?.[level] ?? level`.
 pub(crate) fn mapped_thinking_level(model: &Model, level: &str) -> String {
-    thinking_level_entry(model, level).flatten().unwrap_or_else(|| level.to_string())
+    thinking_level_entry(model, level)
+        .flatten()
+        .unwrap_or_else(|| level.to_string())
 }
 
 /// Typed view of the Responses-specific options carried in `StreamOptions.extra`.
@@ -140,10 +160,22 @@ struct ResponsesOptions {
 impl ResponsesOptions {
     fn from(options: &StreamOptions) -> Self {
         Self {
-            reasoning_effort: options.extra_str("reasoningEffort").filter(|s| !s.is_empty()).map(str::to_string),
-            reasoning_summary: options.extra_str("reasoningSummary").filter(|s| !s.is_empty()).map(str::to_string),
-            service_tier: options.extra_value("serviceTier").and_then(Value::as_str).map(str::to_string),
-            tool_choice: options.extra_value("toolChoice").filter(|v| !v.is_null()).cloned(),
+            reasoning_effort: options
+                .extra_str("reasoningEffort")
+                .filter(|s| !s.is_empty())
+                .map(str::to_string),
+            reasoning_summary: options
+                .extra_str("reasoningSummary")
+                .filter(|s| !s.is_empty())
+                .map(str::to_string),
+            service_tier: options
+                .extra_value("serviceTier")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            tool_choice: options
+                .extra_value("toolChoice")
+                .filter(|v| !v.is_null())
+                .cloned(),
         }
     }
 }
@@ -161,8 +193,13 @@ fn get_configuration_update_effort(
     Some(mapped_thinking_level(model, effort))
 }
 
-fn get_prompt_cache_retention(compat: &ResponsesCompat, retention: CacheRetention) -> Option<&'static str> {
-    (retention == CacheRetention::Long && compat.supports_long_cache_retention && !compat.supports_explicit_prompt_cache_mode)
+fn get_prompt_cache_retention(
+    compat: &ResponsesCompat,
+    retention: CacheRetention,
+) -> Option<&'static str> {
+    (retention == CacheRetention::Long
+        && compat.supports_long_cache_retention
+        && !compat.supports_explicit_prompt_cache_mode)
         .then_some("24h")
 }
 
@@ -172,7 +209,9 @@ fn get_prompt_cache_options(compat: &ResponsesCompat, retention: CacheRetention)
     }
     match retention {
         CacheRetention::None => Some(json!({ "mode": "explicit" })),
-        CacheRetention::Long if compat.supports_long_cache_retention => Some(json!({ "ttl": "30m" })),
+        CacheRetention::Long if compat.supports_long_cache_retention => {
+            Some(json!({ "ttl": "30m" }))
+        }
         _ => None,
     }
 }
@@ -219,9 +258,10 @@ fn build_params(
     params.insert("input".into(), Value::Array(messages));
     params.insert("stream".into(), json!(true));
     if retention != CacheRetention::None
-        && let Some(key) = clamp_openai_prompt_cache_key(options.session_id.as_deref()) {
-            params.insert("prompt_cache_key".into(), json!(key));
-        }
+        && let Some(key) = clamp_openai_prompt_cache_key(options.session_id.as_deref())
+    {
+        params.insert("prompt_cache_key".into(), json!(key));
+    }
     if !omit_unsupported_fields {
         if let Some(value) = get_prompt_cache_retention(compat, retention) {
             params.insert("prompt_cache_retention".into(), json!(value));
@@ -233,35 +273,55 @@ fn build_params(
     params.insert("store".into(), json!(false));
 
     if let Some(max_tokens) = options.max_tokens.filter(|m| *m > 0)
-        && compat.supports_max_output_tokens && !omit_unsupported_fields {
-            params.insert("max_output_tokens".into(), json!(max_tokens.max(OPENAI_RESPONSES_MIN_OUTPUT_TOKENS)));
-        }
+        && compat.supports_max_output_tokens
+        && !omit_unsupported_fields
+    {
+        params.insert(
+            "max_output_tokens".into(),
+            json!(max_tokens.max(OPENAI_RESPONSES_MIN_OUTPUT_TOKENS)),
+        );
+    }
     if let Some(temperature) = options.temperature
-        && !omit_unsupported_fields {
-            params.insert("temperature".into(), crate::serde_util::js_number(temperature));
-        }
+        && !omit_unsupported_fields
+    {
+        params.insert(
+            "temperature".into(),
+            crate::serde_util::js_number(temperature),
+        );
+    }
     if let Some(tier) = options.extra_value("serviceTier").filter(|v| !v.is_null()) {
         params.insert("service_tier".into(), tier.clone());
     }
     if !transcript_tools.request_tools.is_empty() {
-        params.insert("tools".into(), Value::Array(convert_responses_tools(&transcript_tools.request_tools, &tool_options)?));
+        params.insert(
+            "tools".into(),
+            Value::Array(convert_responses_tools(
+                &transcript_tools.request_tools,
+                &tool_options,
+            )?),
+        );
     }
     if let Some(choice) = &responses.tool_choice {
         params.insert("tool_choice".into(), choice.clone());
     }
 
-    let reasoning_effort = responses
-        .reasoning_effort
-        .clone()
-        .or_else(|| responses.reasoning_summary.as_ref().map(|_| "medium".to_string()));
+    let reasoning_effort = responses.reasoning_effort.clone().or_else(|| {
+        responses
+            .reasoning_summary
+            .as_ref()
+            .map(|_| "medium".to_string())
+    });
     if model.reasoning {
         if let Some(effort) = &reasoning_effort {
             let requested = match &responses.reasoning_effort {
                 Some(requested) => mapped_thinking_level(model, requested),
                 None => effort.clone(),
             };
-            let effort =
-                if configuration_update_effort.is_none() { requested } else { CONFIGURATION_UPDATE_REQUEST_EFFORT.to_string() };
+            let effort = if configuration_update_effort.is_none() {
+                requested
+            } else {
+                CONFIGURATION_UPDATE_REQUEST_EFFORT.to_string()
+            };
             params.insert(
                 "reasoning".into(),
                 json!({ "effort": effort, "summary": responses.reasoning_summary.clone().unwrap_or_else(|| "auto".into()) }),
@@ -287,7 +347,8 @@ fn build_params(
         .as_deref()
         .and_then(|e| serde_json::from_value::<ModelThinkingLevel>(json!(e)).ok())
         .unwrap_or(ModelThinkingLevel::Off);
-    if let Some(sampling) = resolve_sampling_params(model, level, options.sampling_params.as_ref()) {
+    if let Some(sampling) = resolve_sampling_params(model, level, options.sampling_params.as_ref())
+    {
         for (k, v) in sampling {
             params.insert(k, v);
         }
@@ -307,13 +368,19 @@ fn build_headers(
 ) -> HeaderList {
     let mut headers = openai_sdk_base_headers(timeout_ms);
     headers.set("Authorization", Some(&format!("Bearer {api_key}")));
-    let target = ClientIdentityTarget { provider: &model.provider, base_url: &model.base_url };
+    let target = ClientIdentityTarget {
+        provider: &model.provider,
+        base_url: &model.base_url,
+    };
     headers.extend_strings(&get_identity_headers(target, options.identity.as_ref()));
     if let Some(model_headers) = &model.headers {
         headers.extend_strings(model_headers);
     }
     if model.provider == "github-copilot" {
-        let dynamic = build_copilot_dynamic_headers(&context.messages, has_copilot_vision_input(&context.messages));
+        let dynamic = build_copilot_dynamic_headers(
+            &context.messages,
+            has_copilot_vision_input(&context.messages),
+        );
         headers.extend_strings(&dynamic);
     }
     if let Some(session_id) = session_id.filter(|s| !s.is_empty()) {
@@ -337,7 +404,10 @@ fn build_headers(
 pub(crate) fn openai_sdk_base_headers(timeout_ms: u64) -> HeaderList {
     let mut headers = HeaderList::new();
     headers.set("Accept", Some("application/json"));
-    headers.set("User-Agent", Some(&format!("OpenAI/JS {OPENAI_SDK_VERSION}")));
+    headers.set(
+        "User-Agent",
+        Some(&format!("OpenAI/JS {OPENAI_SDK_VERSION}")),
+    );
     for (name, value) in stainless_headers(OPENAI_SDK_VERSION, timeout_ms) {
         headers.set(&name, Some(&value));
     }
@@ -360,41 +430,50 @@ pub(crate) fn openai_sse_events(
 ) -> impl Stream<Item = anyhow::Result<Value>> + Unpin + Send {
     let headers = response.headers().clone();
     let reader = sse_reader(response, signal);
-    Box::pin(futures::stream::unfold((reader, headers, false), |(mut reader, headers, done)| async move {
-        if done {
-            return None;
-        }
-        loop {
-            match reader.next_event().await {
-                Err(error) => return Some((Err(error), (reader, headers, true))),
-                Ok(None) => return None,
-                Ok(Some(sse)) => {
-                    if sse.data.starts_with("[DONE]") {
-                        return None;
-                    }
-                    if sse.event.as_deref().is_some_and(|e| e.starts_with("thread.")) {
-                        continue;
-                    }
-                    let data: Value = match serde_json::from_str(&sse.data) {
-                        Ok(data) => data,
-                        Err(error) => return Some((Err(error.into()), (reader, headers, true))),
-                    };
-                    if let Some(error) = data.get("error").filter(|e| truthy(e)) {
-                        let http = ProviderHttpError {
-                            status: None,
-                            headers: Some(headers.clone()),
-                            message: sdk_error_message(error),
-                            body: None,
-                            error: Some(error.clone()),
-                            name: "APIError".to_string(),
+    Box::pin(futures::stream::unfold(
+        (reader, headers, false),
+        |(mut reader, headers, done)| async move {
+            if done {
+                return None;
+            }
+            loop {
+                match reader.next_event().await {
+                    Err(error) => return Some((Err(error), (reader, headers, true))),
+                    Ok(None) => return None,
+                    Ok(Some(sse)) => {
+                        if sse.data.starts_with("[DONE]") {
+                            return None;
+                        }
+                        if sse
+                            .event
+                            .as_deref()
+                            .is_some_and(|e| e.starts_with("thread."))
+                        {
+                            continue;
+                        }
+                        let data: Value = match serde_json::from_str(&sse.data) {
+                            Ok(data) => data,
+                            Err(error) => {
+                                return Some((Err(error.into()), (reader, headers, true)));
+                            }
                         };
-                        return Some((Err(http.into()), (reader, headers, true)));
+                        if let Some(error) = data.get("error").filter(|e| truthy(e)) {
+                            let http = ProviderHttpError {
+                                status: None,
+                                headers: Some(headers.clone()),
+                                message: sdk_error_message(error),
+                                body: None,
+                                error: Some(error.clone()),
+                                name: "APIError".to_string(),
+                            };
+                            return Some((Err(http.into()), (reader, headers, true)));
+                        }
+                        return Some((Ok(data), (reader, headers, false)));
                     }
-                    return Some((Ok(data), (reader, headers, false)));
                 }
             }
-        }
-    }))
+        },
+    ))
 }
 
 fn truthy(value: &Value) -> bool {
@@ -423,19 +502,29 @@ fn get_service_tier_cost_multiplier(model: &Model, service_tier: Option<&str>) -
 
 /// Error text as surfaced on the assistant message.
 pub(crate) fn error_message_of(error: &anyhow::Error, prefix: Option<&str>) -> String {
-    if error.downcast_ref::<crate::utils::provider_retry::AbortError>().is_some()
-        || error.downcast_ref::<crate::utils::sse::StreamAborted>().is_some()
+    if error
+        .downcast_ref::<crate::utils::provider_retry::AbortError>()
+        .is_some()
+        || error
+            .downcast_ref::<crate::utils::sse::StreamAborted>()
+            .is_some()
     {
         return "Request was aborted".to_string();
     }
     format_provider_error(&normalize_provider_error(error), prefix)
 }
 
-async fn run_stream(model: Model, context: TranscriptContext, options: StreamOptions, sender: AssistantMessageEventSender) {
+async fn run_stream(
+    model: Model,
+    context: TranscriptContext,
+    options: StreamOptions,
+    sender: AssistantMessageEventSender,
+) {
     let compat = get_compat(&model);
     let normalized = resolve_transcript(&context, Some(compat.supports_mid_convo_system_messages));
     let responses = ResponsesOptions::from(&options);
-    let configuration_update_effort = get_configuration_update_effort(&model, &options, &responses, &compat);
+    let configuration_update_effort =
+        get_configuration_update_effort(&model, &options, &responses, &compat);
     let mut output = AssistantMessage {
         api: model.api.clone(),
         provider: model.provider.clone(),
@@ -449,15 +538,31 @@ async fn run_stream(model: Model, context: TranscriptContext, options: StreamOpt
     let aborted = || signal.as_ref().is_some_and(|s| s.is_cancelled());
 
     let result: anyhow::Result<()> = async {
-        let api_key = get_client_api_key(&model.provider, options.api_key.as_deref(), options.headers.as_ref())?;
+        let api_key = get_client_api_key(
+            &model.provider,
+            options.api_key.as_deref(),
+            options.headers.as_ref(),
+        )?;
         let retention = resolve_cache_retention(options.cache_retention, options.env.as_ref());
-        let cache_session_id = if retention == CacheRetention::None { None } else { options.session_id.as_deref() };
+        let cache_session_id = if retention == CacheRetention::None {
+            None
+        } else {
+            options.session_id.as_deref()
+        };
         let grammar_props = create_grammar_tool_input_properties(
             &get_declared_tools(&normalized.messages),
             compat.supports_openai_grammar_tools,
         )?;
         let timeout_ms = options.timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS);
-        let headers = build_headers(&model, &normalized, &api_key, &options, cache_session_id, &compat, timeout_ms);
+        let headers = build_headers(
+            &model,
+            &normalized,
+            &api_key,
+            &options,
+            cache_session_id,
+            &compat,
+            timeout_ms,
+        );
         let mut params = build_params(
             &model,
             &normalized,
@@ -468,9 +573,10 @@ async fn run_stream(model: Model, context: TranscriptContext, options: StreamOpt
             configuration_update_effort.as_deref(),
         )?;
         if let Some(on_payload) = &options.on_payload
-            && let Some(next) = on_payload(params.clone(), model.clone()).await {
-                params = next;
-            }
+            && let Some(next) = on_payload(params.clone(), model.clone()).await
+        {
+            params = next;
+        }
         let url = format!("{}/responses", model.base_url.trim_end_matches('/'));
         let client = match &options.http_client {
             Some(client) => client.clone(),
@@ -483,22 +589,40 @@ async fn run_stream(model: Model, context: TranscriptContext, options: StreamOpt
             no_retry_statuses: Vec::new(),
         };
         let response = retry_provider_request(
-            || post_json(&client, &url, &headers, &params, Some(timeout_ms), signal.as_ref(), SdkErrorStyle::OpenAI),
+            || {
+                post_json(
+                    &client,
+                    &url,
+                    &headers,
+                    &params,
+                    Some(timeout_ms),
+                    signal.as_ref(),
+                    SdkErrorStyle::OpenAI,
+                )
+            },
             &retry,
         )
         .await?;
         if let Some(on_response) = &options.on_response {
             on_response(
-                ProviderResponse { status: response.status().as_u16(), headers: headers_to_record(response.headers()) },
+                ProviderResponse {
+                    status: response.status().as_u16(),
+                    headers: headers_to_record(response.headers()),
+                },
                 model.clone(),
             )
             .await;
         }
-        sender.push(AssistantMessageEvent::Start { partial: output.clone() });
+        sender.push(AssistantMessageEvent::Start {
+            partial: output.clone(),
+        });
 
         let pricing_model = model.clone();
         let apply = move |usage: &mut Usage, tier: Option<&str>| {
-            apply_service_tier_multiplier(usage, get_service_tier_cost_multiplier(&pricing_model, tier));
+            apply_service_tier_multiplier(
+                usage,
+                get_service_tier_cost_multiplier(&pricing_model, tier),
+            );
         };
         process_responses_stream(
             openai_sse_events(response, signal.clone()),
@@ -519,36 +643,69 @@ async fn run_stream(model: Model, context: TranscriptContext, options: StreamOpt
             anyhow::bail!("Request was aborted");
         }
         match output.stop_reason {
-            StopReason::Pending => anyhow::bail!("OpenAI Responses stream ended without a stop reason"),
+            StopReason::Pending => {
+                anyhow::bail!("OpenAI Responses stream ended without a stop reason")
+            }
             StopReason::Aborted | StopReason::Error => {
-                anyhow::bail!("{}", output.error_message.clone().unwrap_or_else(|| "An unknown error occurred".into()))
+                anyhow::bail!(
+                    "{}",
+                    output
+                        .error_message
+                        .clone()
+                        .unwrap_or_else(|| "An unknown error occurred".into())
+                )
             }
             _ => {}
         }
-        sender.push(AssistantMessageEvent::Done { reason: output.stop_reason, message: output.clone() });
+        sender.push(AssistantMessageEvent::Done {
+            reason: output.stop_reason,
+            message: output.clone(),
+        });
         sender.end(None);
         Ok(())
     }
     .await;
 
     if let Err(error) = result {
-        output.stop_reason = if aborted() { StopReason::Aborted } else { StopReason::Error };
-        let prefix = format!("{} API error", if model.provider == "openai" { "OpenAI" } else { model.provider.as_str() });
-        let message = error_message_of(&error, Some(&prefix));
-        output.error_message = Some(if message.contains("subscription_sharing_usage_limit_exceeded") {
-            format!("{message}\nCheck your ChatGPT usage: {CHATGPT_USAGE_URL}")
-        } else if message.contains("subscription_sharing_workplace_individual_usage_limit_exceeded") {
-            format!("{message}\n{CHATGPT_WORKSPACE_LIMIT_HINT}")
+        output.stop_reason = if aborted() {
+            StopReason::Aborted
         } else {
-            message
+            StopReason::Error
+        };
+        let prefix = format!(
+            "{} API error",
+            if model.provider == "openai" {
+                "OpenAI"
+            } else {
+                model.provider.as_str()
+            }
+        );
+        let message = error_message_of(&error, Some(&prefix));
+        output.error_message = Some(
+            if message.contains("subscription_sharing_usage_limit_exceeded") {
+                format!("{message}\nCheck your ChatGPT usage: {CHATGPT_USAGE_URL}")
+            } else if message
+                .contains("subscription_sharing_workplace_individual_usage_limit_exceeded")
+            {
+                format!("{message}\n{CHATGPT_WORKSPACE_LIMIT_HINT}")
+            } else {
+                message
+            },
+        );
+        sender.push(AssistantMessageEvent::Error {
+            reason: output.stop_reason,
+            error: output.clone(),
         });
-        sender.push(AssistantMessageEvent::Error { reason: output.stop_reason, error: output.clone() });
         sender.end(None);
     }
 }
 
 /// Stream an OpenAI Responses response.
-pub fn stream(model: &Model, context: &TranscriptContext, options: StreamOptions) -> AssistantMessageEventStream {
+pub fn stream(
+    model: &Model,
+    context: &TranscriptContext,
+    options: StreamOptions,
+) -> AssistantMessageEventStream {
     let (sender, stream) = AssistantMessageEventStream::new();
     tokio::spawn(run_stream(model.clone(), context.clone(), options, sender));
     stream
@@ -561,13 +718,24 @@ pub(crate) fn simple_reasoning_effort(model: &Model, options: &StreamOptions) ->
 }
 
 /// Stream with provider-neutral reasoning options.
-pub fn stream_simple(model: &Model, context: &TranscriptContext, options: StreamOptions) -> AssistantMessageEventStream {
-    if let Err(error) = get_client_api_key(&model.provider, options.api_key.as_deref(), options.headers.as_ref()) {
+pub fn stream_simple(
+    model: &Model,
+    context: &TranscriptContext,
+    options: StreamOptions,
+) -> AssistantMessageEventStream {
+    if let Err(error) = get_client_api_key(
+        &model.provider,
+        options.api_key.as_deref(),
+        options.headers.as_ref(),
+    ) {
         return super::lazy::error_stream(model, error);
     }
     let mut base = build_base_options(model, context, &options, options.api_key.as_deref());
     if let Some(choice) = options.tool_choice {
-        base.extra.insert("toolChoice".into(), serde_json::to_value(choice).unwrap_or(Value::Null));
+        base.extra.insert(
+            "toolChoice".into(),
+            serde_json::to_value(choice).unwrap_or(Value::Null),
+        );
     }
     if let Some(effort) = simple_reasoning_effort(model, &options) {
         base.extra.insert("reasoningEffort".into(), json!(effort));
@@ -579,11 +747,21 @@ pub fn stream_simple(model: &Model, context: &TranscriptContext, options: Stream
 pub struct OpenAIResponsesApi;
 
 impl ProviderStreams for OpenAIResponsesApi {
-    fn stream(&self, model: &Model, context: &TranscriptContext, options: StreamOptions) -> AssistantMessageEventStream {
+    fn stream(
+        &self,
+        model: &Model,
+        context: &TranscriptContext,
+        options: StreamOptions,
+    ) -> AssistantMessageEventStream {
         stream(model, context, options)
     }
 
-    fn stream_simple(&self, model: &Model, context: &TranscriptContext, options: StreamOptions) -> AssistantMessageEventStream {
+    fn stream_simple(
+        &self,
+        model: &Model,
+        context: &TranscriptContext,
+        options: StreamOptions,
+    ) -> AssistantMessageEventStream {
         stream_simple(model, context, options)
     }
 }
@@ -606,8 +784,14 @@ mod tests {
 
     #[test]
     fn service_tier_multipliers() {
-        let model = Model { id: "gpt-5.5".into(), ..Default::default() };
-        assert_eq!(get_service_tier_cost_multiplier(&model, Some("priority")), 2.5);
+        let model = Model {
+            id: "gpt-5.5".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            get_service_tier_cost_multiplier(&model, Some("priority")),
+            2.5
+        );
         assert_eq!(get_service_tier_cost_multiplier(&model, Some("flex")), 0.5);
         assert_eq!(get_service_tier_cost_multiplier(&model, None), 1.0);
     }

@@ -6,15 +6,16 @@ mod responses_mock;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use responses_mock::*;
 use parking_lot::Mutex;
 use pi_ai::api::openai_responses_shared::{
-    ConvertResponsesMessagesOptions, OpenAIResponsesStreamOptions, convert_responses_messages, process_responses_stream,
+    ConvertResponsesMessagesOptions, OpenAIResponsesStreamOptions, convert_responses_messages,
+    process_responses_stream,
 };
 use pi_ai::api::{azure_openai_responses, openai_responses};
 use pi_ai::providers::all::get_builtin_model;
 use pi_ai::utils::hash::short_hash;
 use pi_ai::*;
+use responses_mock::*;
 use serde_json::{Value, json};
 
 const OPENAI_PROVIDERS: [&str; 3] = ["openai", "openai-codex", "opencode"];
@@ -44,15 +45,27 @@ fn user(text: &str) -> Message {
     Message::User(UserMessage::new(text, 0))
 }
 
-fn ctx(system: Option<&str>, messages: Vec<Message>, tools: Option<Vec<Tool>>) -> TranscriptContext {
-    normalize_context(&Context { system_prompt: system.map(str::to_string), messages, tools })
+fn ctx(
+    system: Option<&str>,
+    messages: Vec<Message>,
+    tools: Option<Vec<Tool>>,
+) -> TranscriptContext {
+    normalize_context(&Context {
+        system_prompt: system.map(str::to_string),
+        messages,
+        tools,
+    })
 }
 
 async fn run_events(
     model: &Model,
     events: Vec<Value>,
     options: OpenAIResponsesStreamOptions<'_>,
-) -> (anyhow::Result<()>, AssistantMessage, Vec<AssistantMessageEvent>) {
+) -> (
+    anyhow::Result<()>,
+    AssistantMessage,
+    Vec<AssistantMessageEvent>,
+) {
     let mut output = output_for(model);
     let (sender, mut stream) = AssistantMessageEventStream::new();
     let result = process_responses_stream(
@@ -83,7 +96,10 @@ fn function_call_events(arguments: &str) -> Vec<Value> {
 }
 
 fn tool_call_block(output: &AssistantMessage, index: usize) -> ToolCall {
-    output.content[index].as_tool_call().cloned().expect("tool call block")
+    output.content[index]
+        .as_tool_call()
+        .cloned()
+        .expect("tool call block")
 }
 
 // ---------------------------------------------------------------------------
@@ -115,9 +131,18 @@ fn empty_tool_results_use_placeholder() {
             timestamp: 3,
             ..Default::default()
         };
-        let context = ctx(None, vec![user("Run the command"), assistant.into(), result.into()], None);
-        let input = convert_responses_messages(&model, &context, &OPENAI_PROVIDERS, &Default::default()).unwrap();
-        let output = input.iter().find(|i| i["type"] == "function_call_output").unwrap();
+        let context = ctx(
+            None,
+            vec![user("Run the command"), assistant.into(), result.into()],
+            None,
+        );
+        let input =
+            convert_responses_messages(&model, &context, &OPENAI_PROVIDERS, &Default::default())
+                .unwrap();
+        let output = input
+            .iter()
+            .find(|i| i["type"] == "function_call_output")
+            .unwrap();
         assert_eq!(output["output"], "(no tool output)");
     }
 }
@@ -130,7 +155,10 @@ fn foreign_copilot_item_ids_are_hashed() {
         content: vec![AssistantContent::ToolCall(ToolCall {
             id: raw.into(),
             name: "edit".into(),
-            arguments: json!({ "path": "src/styles/app.css" }).as_object().cloned().unwrap(),
+            arguments: json!({ "path": "src/styles/app.css" })
+                .as_object()
+                .cloned()
+                .unwrap(),
             ..Default::default()
         })],
         api: "openai-responses".into(),
@@ -147,8 +175,14 @@ fn foreign_copilot_item_ids_are_hashed() {
         timestamp: 3,
         ..Default::default()
     };
-    let context = ctx(Some("You are concise."), vec![user("Use the tool."), assistant.into(), result.into()], None);
-    let input = convert_responses_messages(&model, &context, &OPENAI_PROVIDERS, &Default::default()).unwrap();
+    let context = ctx(
+        Some("You are concise."),
+        vec![user("Use the tool."), assistant.into(), result.into()],
+        None,
+    );
+    let input =
+        convert_responses_messages(&model, &context, &OPENAI_PROVIDERS, &Default::default())
+            .unwrap();
     let call = input.iter().find(|i| i["type"] == "function_call").unwrap();
     let expected = format!("fc_{}", short_hash(raw.split('|').nth(1).unwrap()));
     assert_eq!(call["id"], json!(expected));
@@ -170,9 +204,19 @@ fn unique_fallback_message_ids() {
         timestamp: 2,
         ..Default::default()
     };
-    let context = ctx(Some("You are concise."), vec![user("hello"), assistant.into()], None);
-    let input = convert_responses_messages(&model, &context, &OPENAI_PROVIDERS, &Default::default()).unwrap();
-    let ids: Vec<&str> = input.iter().filter(|i| i["type"] == "message").filter_map(|i| i["id"].as_str()).collect();
+    let context = ctx(
+        Some("You are concise."),
+        vec![user("hello"), assistant.into()],
+        None,
+    );
+    let input =
+        convert_responses_messages(&model, &context, &OPENAI_PROVIDERS, &Default::default())
+            .unwrap();
+    let ids: Vec<&str> = input
+        .iter()
+        .filter(|i| i["type"] == "message")
+        .filter_map(|i| i["id"].as_str())
+        .collect();
     assert_eq!(ids, vec!["msg_pi_1", "msg_pi_1_1"]);
 }
 
@@ -184,11 +228,15 @@ fn unique_fallback_message_ids() {
 async fn partial_json_is_not_persisted_and_arguments_parse() {
     let model = base_model();
     let args = r#"{"path":"README.md","content":"updated"}"#;
-    let (result, output, events) = run_events(&model, function_call_events(args), Default::default()).await;
+    let (result, output, events) =
+        run_events(&model, function_call_events(args), Default::default()).await;
     result.unwrap();
     assert_eq!(output.content.len(), 1);
     let call = tool_call_block(&output, 0);
-    assert_eq!(Value::Object(call.arguments.clone()), json!({ "path": "README.md", "content": "updated" }));
+    assert_eq!(
+        Value::Object(call.arguments.clone()),
+        json!({ "path": "README.md", "content": "updated" })
+    );
     let end = events.iter().find_map(|e| match e {
         AssistantMessageEvent::ToolCallEnd { tool_call, .. } => Some(tool_call.clone()),
         _ => None,
@@ -204,7 +252,11 @@ async fn malformed_final_arguments_are_marked() {
     let (_, output, _) = run_events(&model, function_call_events(args), Default::default()).await;
     let call = tool_call_block(&output, 0);
     assert!(call.arguments.is_empty());
-    assert!(call.arguments_error.unwrap().ends_with(&format!("Received arguments:\n{args}")));
+    assert!(
+        call.arguments_error
+            .unwrap()
+            .ends_with(&format!("Received arguments:\n{args}"))
+    );
 }
 
 fn early_eof_events() -> Vec<Value> {
@@ -219,7 +271,10 @@ fn early_eof_events() -> Vec<Value> {
 async fn rejects_streams_without_terminal_event() {
     let model = base_model();
     let (result, _, _) = run_events(&model, early_eof_events(), Default::default()).await;
-    assert_eq!(result.unwrap_err().to_string(), "OpenAI Responses stream ended before a terminal response event");
+    assert_eq!(
+        result.unwrap_err().to_string(),
+        "OpenAI Responses stream ended before a terminal response event"
+    );
 }
 
 #[tokio::test]
@@ -274,49 +329,105 @@ fn phased_events(phases: [&str; 2], incomplete: bool) -> Vec<Value> {
 async fn tracks_message_phases() {
     let model = base_model();
     for (phases, expected) in [
-        (["commentary", "commentary"], [StopReason::Pending, StopReason::Pending]),
-        (["final_answer", "final_answer"], [StopReason::Stop, StopReason::Stop]),
-        (["commentary", "final_answer"], [StopReason::Pending, StopReason::Stop]),
+        (
+            ["commentary", "commentary"],
+            [StopReason::Pending, StopReason::Pending],
+        ),
+        (
+            ["final_answer", "final_answer"],
+            [StopReason::Stop, StopReason::Stop],
+        ),
+        (
+            ["commentary", "final_answer"],
+            [StopReason::Pending, StopReason::Stop],
+        ),
     ] {
-        let (result, output, events) = run_events(&model, phased_events(phases, false), Default::default()).await;
+        let (result, output, events) =
+            run_events(&model, phased_events(phases, false), Default::default()).await;
         result.unwrap();
-        let observed: Vec<StopReason> = events.iter().filter(|e| !e.is_terminal()).map(|e| e.message().stop_reason).collect();
+        let observed: Vec<StopReason> = events
+            .iter()
+            .filter(|e| !e.is_terminal())
+            .map(|e| e.message().stop_reason)
+            .collect();
         assert_eq!(observed, expected.to_vec());
         assert_eq!(output.stop_reason, StopReason::Stop);
-        let signature = output.content[0].as_text().unwrap().text_signature.clone().unwrap();
-        assert_eq!(signature, json!({ "v": 1, "id": "msg_phase", "phase": phases[1] }).to_string());
+        let signature = output.content[0]
+            .as_text()
+            .unwrap()
+            .text_signature
+            .clone()
+            .unwrap();
+        assert_eq!(
+            signature,
+            json!({ "v": 1, "id": "msg_phase", "phase": phases[1] }).to_string()
+        );
     }
-    let (_, output, _) = run_events(&model, phased_events(["final_answer", "final_answer"], true), Default::default()).await;
+    let (_, output, _) = run_events(
+        &model,
+        phased_events(["final_answer", "final_answer"], true),
+        Default::default(),
+    )
+    .await;
     assert_eq!(output.stop_reason, StopReason::Length);
 }
 
 #[tokio::test]
 async fn finalizes_terminal_events() {
     let model = base_model();
-    let completed = vec![json!({ "type": "response.completed", "response": { "id": "resp_completed", "status": "completed", "usage": { "input_tokens": 20, "output_tokens": 7, "total_tokens": 27, "input_tokens_details": { "cached_tokens": 2, "cache_write_tokens": 3 } } } })];
+    let completed = vec![
+        json!({ "type": "response.completed", "response": { "id": "resp_completed", "status": "completed", "usage": { "input_tokens": 20, "output_tokens": 7, "total_tokens": 27, "input_tokens_details": { "cached_tokens": 2, "cache_write_tokens": 3 } } } }),
+    ];
     let (result, output, _) = run_events(&model, completed, Default::default()).await;
     result.unwrap();
     assert_eq!(output.response_id.as_deref(), Some("resp_completed"));
     assert_eq!(output.stop_reason, StopReason::Stop);
     assert_eq!(output.raw_stop_reason.as_deref(), Some("completed"));
-    assert_eq!((output.usage.input, output.usage.output, output.usage.cache_read, output.usage.cache_write, output.usage.total_tokens), (15, 7, 2, 3, 27));
+    assert_eq!(
+        (
+            output.usage.input,
+            output.usage.output,
+            output.usage.cache_read,
+            output.usage.cache_write,
+            output.usage.total_tokens
+        ),
+        (15, 7, 2, 3, 27)
+    );
     assert!(output.error_message.is_none());
 
     let incomplete = |reason: &str| {
-        vec![json!({ "type": "response.incomplete", "response": { "id": "resp_incomplete", "status": "incomplete", "incomplete_details": { "reason": reason }, "usage": { "input_tokens": 30, "output_tokens": 12, "total_tokens": 42, "input_tokens_details": { "cached_tokens": 5 } } } })]
+        vec![
+            json!({ "type": "response.incomplete", "response": { "id": "resp_incomplete", "status": "incomplete", "incomplete_details": { "reason": reason }, "usage": { "input_tokens": 30, "output_tokens": 12, "total_tokens": 42, "input_tokens_details": { "cached_tokens": 5 } } } }),
+        ]
     };
-    let (_, output, _) = run_events(&model, incomplete("max_output_tokens"), Default::default()).await;
+    let (_, output, _) =
+        run_events(&model, incomplete("max_output_tokens"), Default::default()).await;
     assert_eq!(output.stop_reason, StopReason::Length);
-    assert_eq!(output.raw_stop_reason.as_deref(), Some("incomplete.max_output_tokens"));
-    assert_eq!((output.usage.input, output.usage.cache_read, output.usage.total_tokens), (25, 5, 42));
+    assert_eq!(
+        output.raw_stop_reason.as_deref(),
+        Some("incomplete.max_output_tokens")
+    );
+    assert_eq!(
+        (
+            output.usage.input,
+            output.usage.cache_read,
+            output.usage.total_tokens
+        ),
+        (25, 5, 42)
+    );
     for reason in ["content_filter", "max_time_limit"] {
         let (_, output, _) = run_events(&model, incomplete(reason), Default::default()).await;
         assert_eq!(output.stop_reason, StopReason::Error);
         assert_eq!(output.raw_stop_reason, Some(format!("incomplete.{reason}")));
-        assert_eq!(output.error_message, Some(format!("Response incomplete: {reason}")));
+        assert_eq!(
+            output.error_message,
+            Some(format!("Response incomplete: {reason}"))
+        );
     }
 
-    let failed = vec![json!({ "type": "response.failed", "response": { "id": "resp_failed", "status": "failed", "error": { "code": "server_error", "message": "boom" } } })];
+    let failed = vec![
+        json!({ "type": "response.failed", "response": { "id": "resp_failed", "status": "failed", "error": { "code": "server_error", "message": "boom" } } }),
+    ];
     let (result, output, _) = run_events(&model, failed, Default::default()).await;
     assert_eq!(result.unwrap_err().to_string(), "server_error: boom");
     assert_eq!(output.raw_stop_reason.as_deref(), Some("failed"));
@@ -337,7 +448,8 @@ async fn namespaces_round_trip() {
     assert_eq!(call.id, "call_test|fc_test");
     assert_eq!(call.namespace.as_deref(), Some("dynamic_tools"));
     let replay = transcript_from_messages(vec![output.clone().into()]);
-    let items = convert_responses_messages(&model, &replay, &["openai"], &Default::default()).unwrap();
+    let items =
+        convert_responses_messages(&model, &replay, &["openai"], &Default::default()).unwrap();
     let item = items.iter().find(|i| i["type"] == "function_call").unwrap();
     assert_eq!(
         item,
@@ -353,12 +465,18 @@ async fn namespaces_round_trip() {
     let (result, output, events) = run_events(
         &model,
         custom_events,
-        OpenAIResponsesStreamOptions { grammar_tool_input_properties: Some(&grammar), ..Default::default() },
+        OpenAIResponsesStreamOptions {
+            grammar_tool_input_properties: Some(&grammar),
+            ..Default::default()
+        },
     )
     .await;
     result.unwrap();
     let call = tool_call_block(&output, 0);
-    assert_eq!(Value::Object(call.arguments.clone()), json!({ "input": "hello" }));
+    assert_eq!(
+        Value::Object(call.arguments.clone()),
+        json!({ "input": "hello" })
+    );
     let deltas: Vec<String> = events
         .iter()
         .filter_map(|e| match e {
@@ -368,9 +486,15 @@ async fn namespaces_round_trip() {
         .collect();
     assert_eq!(deltas.concat(), "{\"input\":\"hello\"}");
     let replay = transcript_from_messages(vec![output.clone().into()]);
-    let options = ConvertResponsesMessagesOptions { grammar_tool_input_properties: Some(&grammar), ..Default::default() };
+    let options = ConvertResponsesMessagesOptions {
+        grammar_tool_input_properties: Some(&grammar),
+        ..Default::default()
+    };
     let items = convert_responses_messages(&model, &replay, &["openai"], &options).unwrap();
-    let item = items.iter().find(|i| i["type"] == "custom_tool_call").unwrap();
+    let item = items
+        .iter()
+        .find(|i| i["type"] == "custom_tool_call")
+        .unwrap();
     assert_eq!(
         item,
         &json!({ "type": "custom_tool_call", "id": "ctc_test", "call_id": "call_test", "name": "query", "input": "hello", "namespace": "dynamic_tools" })
@@ -402,7 +526,10 @@ async fn namespaces_round_trip() {
         let replay = transcript_from_messages(vec![output.clone().into()]);
         let items = convert_responses_messages(&target, &replay, &["openai"], &options).unwrap();
         let function = items.iter().find(|i| i["type"] == "function_call").unwrap();
-        let custom = items.iter().find(|i| i["type"] == "custom_tool_call").unwrap();
+        let custom = items
+            .iter()
+            .find(|i| i["type"] == "custom_tool_call")
+            .unwrap();
         assert!(function.get("namespace").is_none());
         assert!(custom.get("namespace").is_none());
     }
@@ -413,10 +540,15 @@ async fn azure_reasoning_replay_backfills_encrypted_content() {
     let mut model = base_model();
     model.api = "azure-openai-responses".into();
     model.provider = "azure".into();
-    for (done_encrypted, expected) in
-        [(Some("from-output-item-done"), "from-output-item-done"), (None, "from-response-completed")]
-    {
-        let id = if done_encrypted.is_some() { "rs_done" } else { "rs_missing" };
+    for (done_encrypted, expected) in [
+        (Some("from-output-item-done"), "from-output-item-done"),
+        (None, "from-response-completed"),
+    ] {
+        let id = if done_encrypted.is_some() {
+            "rs_done"
+        } else {
+            "rs_missing"
+        };
         let mut done_item = json!({ "type": "reasoning", "id": id, "summary": [] });
         if let Some(encrypted) = done_encrypted {
             done_item["encrypted_content"] = json!(encrypted);
@@ -430,8 +562,13 @@ async fn azure_reasoning_replay_backfills_encrypted_content() {
         ];
         let (result, output, _) = run_events(&model, events, Default::default()).await;
         result.unwrap();
-        let context = ctx(None, vec![user("first"), output.into(), user("follow-up")], None);
-        let items = convert_responses_messages(&model, &context, &["azure"], &Default::default()).unwrap();
+        let context = ctx(
+            None,
+            vec![user("first"), output.into(), user("follow-up")],
+            None,
+        );
+        let items =
+            convert_responses_messages(&model, &context, &["azure"], &Default::default()).unwrap();
         let reasoning = items.iter().find(|i| i["type"] == "reasoning").unwrap();
         assert_eq!(reasoning["id"], id);
         assert_eq!(reasoning["encrypted_content"], expected);
@@ -458,26 +595,42 @@ fn done_sse() -> Reply {
     Reply::sse("data: [DONE]\n\n")
 }
 
-async fn run_with_server(model: &Model, context: &TranscriptContext, mut options: StreamOptions, reply: Reply) -> (AssistantMessage, Option<Value>, Vec<Request>) {
+async fn run_with_server(
+    model: &Model,
+    context: &TranscriptContext,
+    mut options: StreamOptions,
+    reply: Reply,
+) -> (AssistantMessage, Option<Value>, Vec<Request>) {
     let server = serve_sequence(vec![reply]).await;
     let mut model = model.clone();
     model.base_url = server.base_url.clone();
     let captured = capture_payload(&mut options);
-    let result = openai_responses::stream(&model, context, options).result().await;
+    let result = openai_responses::stream(&model, context, options)
+        .result()
+        .await;
     let payload = captured.lock().clone();
     (result, payload, server.requests())
 }
 
-async fn payload_only(model: &Model, context: &TranscriptContext, mut options: StreamOptions) -> Value {
+async fn payload_only(
+    model: &Model,
+    context: &TranscriptContext,
+    mut options: StreamOptions,
+) -> Value {
     options.http_client = Some(refusing_client());
     let captured = capture_payload(&mut options);
-    let _ = openai_responses::stream(model, context, options).result().await;
+    let _ = openai_responses::stream(model, context, options)
+        .result()
+        .await;
     let payload = captured.lock().clone();
     payload.expect("payload captured")
 }
 
 fn api_key(key: &str) -> StreamOptions {
-    StreamOptions { api_key: Some(key.into()), ..Default::default() }
+    StreamOptions {
+        api_key: Some(key.into()),
+        ..Default::default()
+    }
 }
 
 fn hi() -> TranscriptContext {
@@ -494,9 +647,22 @@ async fn copilot_omits_reasoning_without_request() {
 #[tokio::test]
 async fn forwards_required_tool_choice_with_additional_tools() {
     let model = get_builtin_model("openai", "gpt-5.4").unwrap();
-    let tools = vec![Tool::new("ping", "Ping", json!({ "type": "object", "properties": { "value": { "type": "string" } }, "required": ["value"] }))];
-    let context = ctx(None, vec![user("Do not call ping. Respond with text instead.")], Some(tools));
-    let payload = payload_only(&model, &context, api_key("sk-test-key").with_extra("toolChoice", "required")).await;
+    let tools = vec![Tool::new(
+        "ping",
+        "Ping",
+        json!({ "type": "object", "properties": { "value": { "type": "string" } }, "required": ["value"] }),
+    )];
+    let context = ctx(
+        None,
+        vec![user("Do not call ping. Respond with text instead.")],
+        Some(tools),
+    );
+    let payload = payload_only(
+        &model,
+        &context,
+        api_key("sk-test-key").with_extra("toolChoice", "required"),
+    )
+    .await;
     assert_eq!(payload["tool_choice"], "required");
     assert_eq!(payload["input"][0]["type"], "additional_tools");
     assert_eq!(payload["input"][0]["tools"][0]["name"], "ping");
@@ -505,19 +671,36 @@ async fn forwards_required_tool_choice_with_additional_tools() {
 #[tokio::test]
 async fn cloudflare_strict_mode_tools() {
     let model = get_builtin_model("cloudflare-ai-gateway", "gpt-5.6-sol").unwrap();
-    assert_eq!(model.compat.as_ref().and_then(|c| c.supports_strict_mode), Some(true));
-    let mut constrained = Tool::new("constrained", "A constrained tool", json!({ "type": "object", "properties": { "value": { "type": "string" } }, "required": ["value"] }));
+    assert_eq!(
+        model.compat.as_ref().and_then(|c| c.supports_strict_mode),
+        Some(true)
+    );
+    let mut constrained = Tool::new(
+        "constrained",
+        "A constrained tool",
+        json!({ "type": "object", "properties": { "value": { "type": "string" } }, "required": ["value"] }),
+    );
     constrained.constrained_sampling =
         Some(serde_json::from_value(json!({ "type": "json_schema", "strict": "prefer" })).unwrap());
     let tools = vec![
-        Tool::new("ordinary", "An ordinary tool", json!({ "type": "object", "properties": { "path": { "type": "string" }, "offset": { "type": "number" } }, "required": ["path"] })),
+        Tool::new(
+            "ordinary",
+            "An ordinary tool",
+            json!({ "type": "object", "properties": { "path": { "type": "string" }, "offset": { "type": "number" } }, "required": ["path"] }),
+        ),
         constrained,
     ];
     let context = ctx(None, vec![user("Use a tool.")], Some(tools));
     let payload = payload_only(&model, &context, api_key("sk-test-key")).await;
     let tools = payload["tools"].as_array().unwrap();
-    assert_eq!((tools[0]["name"].clone(), tools[0]["strict"].clone()), (json!("ordinary"), json!(false)));
-    assert_eq!((tools[1]["name"].clone(), tools[1]["strict"].clone()), (json!("constrained"), json!(true)));
+    assert_eq!(
+        (tools[0]["name"].clone(), tools[0]["strict"].clone()),
+        (json!("ordinary"), json!(false))
+    );
+    assert_eq!(
+        (tools[1]["name"].clone(), tools[1]["strict"].clone()),
+        (json!("constrained"), json!(true))
+    );
 }
 
 #[tokio::test]
@@ -546,7 +729,10 @@ async fn prompt_cache_key_and_max_output_tokens() {
     assert_eq!(payload["store"], false);
 
     let mut no_max = model.clone();
-    no_max.compat.get_or_insert_with(Default::default).supports_max_output_tokens = Some(false);
+    no_max
+        .compat
+        .get_or_insert_with(Default::default)
+        .supports_max_output_tokens = Some(false);
     let mut options = api_key("sk-test-key");
     options.max_tokens = Some(1024);
     let payload = payload_only(&no_max, &hi(), options).await;
@@ -563,14 +749,22 @@ async fn chatgpt_sign_in_omits_rejected_fields() {
         options.cache_retention = Some(CacheRetention::Long);
         options
     };
-    let context = ctx(None, vec![Message::User(UserMessage::new(vec![UserContentBlock::text("hi")], 0))], Some(vec![]));
+    let context = ctx(
+        None,
+        vec![Message::User(UserMessage::new(
+            vec![UserContentBlock::text("hi")],
+            0,
+        ))],
+        Some(vec![]),
+    );
     let payload = payload_only(&model, &context, with("chatgpt-access-token")).await;
     assert!(payload.get("max_output_tokens").is_none());
     assert!(payload.get("temperature").is_none());
     assert!(payload.get("prompt_cache_retention").is_none());
 
     let mut explicit = model.clone();
-    explicit.compat = Some(serde_json::from_value(json!({ "supportsExplicitPromptCacheMode": true })).unwrap());
+    explicit.compat =
+        Some(serde_json::from_value(json!({ "supportsExplicitPromptCacheMode": true })).unwrap());
     let sign_in = payload_only(&explicit, &context, with("chatgpt-access-token")).await;
     let key = payload_only(&explicit, &context, with("sk-proj-test")).await;
     assert!(sign_in.get("prompt_cache_options").is_none());
@@ -601,7 +795,10 @@ async fn session_affinity_headers() {
     assert_eq!(request.header("x-client-request-id"), Some("session-123"));
     assert_eq!(request.header("authorization"), Some("Bearer sk-test-key"));
     assert_eq!(request.path, "/responses");
-    assert_eq!(request.header("user-agent").map(str::to_string), Some(format_user_agent(None)));
+    assert_eq!(
+        request.header("user-agent").map(str::to_string),
+        Some(format_user_agent(None))
+    );
 
     let mut openrouter = base.clone();
     openrouter.provider = "openrouter".into();
@@ -615,7 +812,9 @@ async fn session_affinity_headers() {
 
     let mut nosession = base.clone();
     nosession.provider = "proxy".into();
-    nosession.compat = Some(serde_json::from_value(json!({ "sessionAffinityFormat": "openai-nosession" })).unwrap());
+    nosession.compat = Some(
+        serde_json::from_value(json!({ "sessionAffinityFormat": "openai-nosession" })).unwrap(),
+    );
     let mut options = api_key("sk-test-key");
     options.session_id = Some("session-proxy".into());
     let (request, _) = headers_for(nosession, options).await;
@@ -627,12 +826,18 @@ async fn session_affinity_headers() {
     options.session_id = Some("session-123".into());
     let mut headers = ProviderHeaders::new();
     headers.insert("session_id".into(), Some("override-session".into()));
-    headers.insert("x-client-request-id".into(), Some("override-request".into()));
+    headers.insert(
+        "x-client-request-id".into(),
+        Some("override-request".into()),
+    );
     headers.insert("User-Agent".into(), Some("custom-agent".into()));
     options.headers = Some(headers);
     let (request, _) = headers_for(base.clone(), options).await;
     assert_eq!(request.header("session_id"), Some("override-session"));
-    assert_eq!(request.header("x-client-request-id"), Some("override-request"));
+    assert_eq!(
+        request.header("x-client-request-id"),
+        Some("override-request")
+    );
     assert_eq!(request.header("user-agent"), Some("custom-agent"));
 
     let mut options = api_key("sk-test-key");
@@ -656,14 +861,32 @@ async fn service_tier_cost_multipliers() {
         let model = get_builtin_model("openai", id).unwrap();
         let tokens = 100_000u64;
         let scale = tokens as f64 / 1_000_000.0;
-        let sse = data_sse(&[json!({ "type": "response.completed", "response": { "status": "completed", "service_tier": response_tier, "usage": { "input_tokens": tokens, "output_tokens": tokens, "total_tokens": tokens * 2, "input_tokens_details": { "cached_tokens": 0 } } } })]);
-        let (result, payload, _) =
-            run_with_server(&model, &hi(), api_key("sk-test-key").with_extra("serviceTier", tier), Reply::sse(sse)).await;
+        let sse = data_sse(&[
+            json!({ "type": "response.completed", "response": { "status": "completed", "service_tier": response_tier, "usage": { "input_tokens": tokens, "output_tokens": tokens, "total_tokens": tokens * 2, "input_tokens_details": { "cached_tokens": 0 } } } }),
+        ]);
+        let (result, payload, _) = run_with_server(
+            &model,
+            &hi(),
+            api_key("sk-test-key").with_extra("serviceTier", tier),
+            Reply::sse(sse),
+        )
+        .await;
         assert_eq!(payload.unwrap()["service_tier"], tier);
-        assert_eq!(result.stop_reason, StopReason::Stop, "{:?}", result.error_message);
+        assert_eq!(
+            result.stop_reason,
+            StopReason::Stop,
+            "{:?}",
+            result.error_message
+        );
         let rates = model.cost.rates();
-        assert!((result.usage.cost.input - rates.input * multiplier * scale).abs() < 1e-9, "{id}");
-        assert!((result.usage.cost.output - rates.output * multiplier * scale).abs() < 1e-9, "{id}");
+        assert!(
+            (result.usage.cost.input - rates.input * multiplier * scale).abs() < 1e-9,
+            "{id}"
+        );
+        assert!(
+            (result.usage.cost.output - rates.output * multiplier * scale).abs() < 1e-9,
+            "{id}"
+        );
     }
 }
 
@@ -672,10 +895,19 @@ async fn usage_limit_errors_link_to_chatgpt_usage() {
     let model = base_model();
     let context = ctx(None, vec![user("hi")], None);
     let error = json!({ "error": { "code": "subscription_sharing_usage_limit_exceeded", "message": "Usage limit reached.", "type": "rate_limit_error" } });
-    let (result, _, _) = run_with_server(&model, &context, api_key("test"), Reply::json(429, error.to_string())).await;
+    let (result, _, _) = run_with_server(
+        &model,
+        &context,
+        api_key("test"),
+        Reply::json(429, error.to_string()),
+    )
+    .await;
     assert_eq!(result.stop_reason, StopReason::Error);
     let message = result.error_message.unwrap();
-    assert!(message.contains("subscription_sharing_usage_limit_exceeded"), "{message}");
+    assert!(
+        message.contains("subscription_sharing_usage_limit_exceeded"),
+        "{message}"
+    );
     assert!(message.contains("Check your ChatGPT usage: https://chatgpt.com/settings/usage"));
 
     let event = json!({ "type": "response.failed", "sequence_number": 0, "response": { "id": "resp_failed", "status": "failed", "error": { "code": "subscription_sharing_usage_limit_exceeded", "message": "Usage limit reached." } } });
@@ -693,26 +925,55 @@ async fn early_eof_streams_error_and_forward_provider_events() {
     let sink = events.clone();
     let mut options = api_key("test");
     options.on_provider_stream_event = Some(Arc::new(move |event: &Value, _model: &Model| {
-        sink.lock().push(event["type"].as_str().unwrap_or_default().to_string());
+        sink.lock()
+            .push(event["type"].as_str().unwrap_or_default().to_string());
     }));
     let server = serve_sequence(vec![Reply::sse(data_sse(&early_eof_events()))]).await;
     let mut model = model;
     model.base_url = server.base_url.clone();
-    let (all, result) = openai_responses::stream(&model, &hi(), options).collect_all().await;
-    assert_eq!(all.first().unwrap().message().stop_reason, StopReason::Pending);
+    let (all, result) = openai_responses::stream(&model, &hi(), options)
+        .collect_all()
+        .await;
+    assert_eq!(
+        all.first().unwrap().message().stop_reason,
+        StopReason::Pending
+    );
     assert_eq!(all.last().unwrap().type_name(), "error");
-    assert_eq!(result.error_message.as_deref(), Some("OpenAI Responses stream ended before a terminal response event"));
-    assert_eq!(*events.lock(), vec!["response.created", "response.output_item.added", "response.reasoning_text.delta"]);
+    assert_eq!(
+        result.error_message.as_deref(),
+        Some("OpenAI Responses stream ended before a terminal response event")
+    );
+    assert_eq!(
+        *events.lock(),
+        vec![
+            "response.created",
+            "response.output_item.added",
+            "response.reasoning_text.delta"
+        ]
+    );
 }
 
 #[tokio::test]
 async fn http_error_formatting() {
     let model = base_model();
-    let (result, _, _) =
-        run_with_server(&model, &hi(), api_key("sk-x"), Reply::json(400, r#"{"error":{"message":"Bad things","code":null}}"#)).await;
-    assert_eq!(result.error_message.as_deref(), Some(r#"OpenAI API error (400): {"message":"Bad things","code":null}"#));
-    let missing = openai_responses::stream_simple(&model, &hi(), StreamOptions::default()).result().await;
-    assert_eq!(missing.error_message.as_deref(), Some("No API key for provider: openai"));
+    let (result, _, _) = run_with_server(
+        &model,
+        &hi(),
+        api_key("sk-x"),
+        Reply::json(400, r#"{"error":{"message":"Bad things","code":null}}"#),
+    )
+    .await;
+    assert_eq!(
+        result.error_message.as_deref(),
+        Some(r#"OpenAI API error (400): {"message":"Bad things","code":null}"#)
+    );
+    let missing = openai_responses::stream_simple(&model, &hi(), StreamOptions::default())
+        .result()
+        .await;
+    assert_eq!(
+        missing.error_message.as_deref(),
+        Some("No API key for provider: openai")
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -734,7 +995,12 @@ fn update(effort: &str) -> Value {
     json!({ "type": "configuration_update", "reasoning": { "effort": effort } })
 }
 
-async fn run_luna(messages: Vec<Message>, effort: Option<&str>, model: &Model, with_tool_call: bool) -> (Value, AssistantMessage) {
+async fn run_luna(
+    messages: Vec<Message>,
+    effort: Option<&str>,
+    model: &Model,
+    with_tool_call: bool,
+) -> (Value, AssistantMessage) {
     let item = if with_tool_call {
         json!({ "type": "function_call", "id": "fc_1", "call_id": "call_1", "name": "lookup", "arguments": "{}", "status": "completed" })
     } else {
@@ -750,8 +1016,14 @@ async fn run_luna(messages: Vec<Message>, effort: Option<&str>, model: &Model, w
     if let Some(effort) = effort {
         options = options.with_extra("reasoningEffort", effort);
     }
-    let (message, payload, _) = run_with_server(model, &ctx(None, messages, None), options, Reply::sse(sse)).await;
-    assert_ne!(message.stop_reason, StopReason::Error, "{:?}", message.error_message);
+    let (message, payload, _) =
+        run_with_server(model, &ctx(None, messages, None), options, Reply::sse(sse)).await;
+    assert_ne!(
+        message.stop_reason,
+        StopReason::Error,
+        "{:?}",
+        message.error_message
+    );
     (payload.unwrap(), message)
 }
 
@@ -785,23 +1057,40 @@ async fn configuration_update_keeps_effort_constant() {
     let third_input = third_payload["input"].as_array().unwrap();
     assert_eq!(&second_input[..first_input.len()], first_input.as_slice());
     assert_eq!(&third_input[..second_input.len()], second_input.as_slice());
-    let updates: Vec<&Value> = third_input.iter().filter(|i| i["type"] == "configuration_update").collect();
-    assert_eq!(updates, vec![&update("high"), &update("high"), &update("low")]);
+    let updates: Vec<&Value> = third_input
+        .iter()
+        .filter(|i| i["type"] == "configuration_update")
+        .collect();
+    assert_eq!(
+        updates,
+        vec![&update("high"), &update("high"), &update("low")]
+    );
     assert_eq!(third_input.last().unwrap(), &update("low"));
-    let levels: Vec<Option<String>> =
-        [first, second, third].iter().map(|m| m.provider_thinking_level.clone()).collect();
-    assert_eq!(levels, vec![Some("high".into()), Some("high".into()), Some("low".into())]);
+    let levels: Vec<Option<String>> = [first, second, third]
+        .iter()
+        .map(|m| m.provider_thinking_level.clone())
+        .collect();
+    assert_eq!(
+        levels,
+        vec![Some("high".into()), Some("high".into()), Some("low".into())]
+    );
 
     // A level change during a tool loop applies to the next reply.
-    let (tool_payload, tool_message) = run_luna(vec![user("one")], Some("high"), &model, true).await;
+    let (tool_payload, tool_message) =
+        run_luna(vec![user("one")], Some("high"), &model, true).await;
     let result = ToolResultMessage {
         tool_call_id: "call_1|fc_1".into(),
         tool_name: "lookup".into(),
         content: vec![UserContentBlock::text("result")],
         ..Default::default()
     };
-    let (after_payload, after) =
-        run_luna(vec![user("one"), tool_message.into(), result.into()], Some("low"), &model, false).await;
+    let (after_payload, after) = run_luna(
+        vec![user("one"), tool_message.into(), result.into()],
+        Some("low"),
+        &model,
+        false,
+    )
+    .await;
     let tool_input = tool_payload["input"].as_array().unwrap();
     let after_input = after_payload["input"].as_array().unwrap();
     assert_eq!(&after_input[..tool_input.len()], tool_input.as_slice());
@@ -813,9 +1102,21 @@ async fn configuration_update_keeps_effort_constant() {
 
     // Thinking off and compat off send reasoning.effort directly.
     let (_, first) = run_luna(vec![user("one")], Some("high"), &model, false).await;
-    let (payload, message) = run_luna(vec![user("one"), first.into(), user("two")], None, &model, false).await;
+    let (payload, message) = run_luna(
+        vec![user("one"), first.into(), user("two")],
+        None,
+        &model,
+        false,
+    )
+    .await;
     assert_eq!(payload["reasoning"]["effort"], "none");
-    assert!(!payload["input"].as_array().unwrap().iter().any(|i| i["type"] == "configuration_update"));
+    assert!(
+        !payload["input"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|i| i["type"] == "configuration_update")
+    );
     assert!(message.provider_thinking_level.is_none());
     let compat_off = luna(json!({ "supportsMidConvoEffort": false }));
     let (payload, message) = run_luna(vec![user("one")], Some("low"), &compat_off, false).await;
@@ -826,9 +1127,20 @@ async fn configuration_update_keeps_effort_constant() {
 #[tokio::test]
 async fn configuration_update_disabled_for_chatgpt_sign_in() {
     let model = luna(json!({ "supportsMidConvoEffort": true }));
-    let payload = payload_only(&model, &ctx(None, vec![user("one")], None), api_key("chatgpt-access-token").with_extra("reasoningEffort", "low")).await;
+    let payload = payload_only(
+        &model,
+        &ctx(None, vec![user("one")], None),
+        api_key("chatgpt-access-token").with_extra("reasoningEffort", "low"),
+    )
+    .await;
     assert_eq!(payload["reasoning"]["effort"], "low");
-    assert!(!payload["input"].as_array().unwrap().iter().any(|i| i["type"] == "configuration_update"));
+    assert!(
+        !payload["input"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|i| i["type"] == "configuration_update")
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -839,18 +1151,37 @@ async fn configuration_update_disabled_for_chatgpt_sign_in() {
 async fn xai_responses_request_fields() {
     let model = get_builtin_model("xai", "grok-4.5").unwrap();
     assert_eq!(model.api, "openai-responses");
-    let completed = data_sse(&[json!({ "type": "response.completed", "sequence_number": 0, "response": { "id": "resp_xai_test", "status": "completed", "output": [], "usage": { "input_tokens": 1, "output_tokens": 1, "total_tokens": 2, "input_tokens_details": { "cached_tokens": 0 } } } })]);
+    let completed = data_sse(&[
+        json!({ "type": "response.completed", "sequence_number": 0, "response": { "id": "resp_xai_test", "status": "completed", "output": [], "usage": { "input_tokens": 1, "output_tokens": 1, "total_tokens": 2, "input_tokens_details": { "cached_tokens": 0 } } } }),
+    ]);
     let mut options = api_key("xai-test-token");
     options.session_id = Some("pi-session-123".into());
     options.cache_retention = Some(CacheRetention::Long);
-    let context = ctx(Some("You are a careful coding assistant."), vec![user("hello")], None);
-    let (result, payload, requests) =
-        run_with_server(&model, &context, options.with_extra("reasoningEffort", "medium"), Reply::sse(completed.clone())).await;
-    assert_eq!(result.stop_reason, StopReason::Stop, "{:?}", result.error_message);
+    let context = ctx(
+        Some("You are a careful coding assistant."),
+        vec![user("hello")],
+        None,
+    );
+    let (result, payload, requests) = run_with_server(
+        &model,
+        &context,
+        options.with_extra("reasoningEffort", "medium"),
+        Reply::sse(completed.clone()),
+    )
+    .await;
+    assert_eq!(
+        result.stop_reason,
+        StopReason::Stop,
+        "{:?}",
+        result.error_message
+    );
     let payload = payload.unwrap();
     let request = &requests[0];
     assert_eq!(request.path, "/responses");
-    assert_eq!(request.header("authorization"), Some("Bearer xai-test-token"));
+    assert_eq!(
+        request.header("authorization"),
+        Some("Bearer xai-test-token")
+    );
     assert_eq!(request.header("session_id"), Some("pi-session-123"));
     assert_eq!(payload["model"], "grok-4.5");
     assert_eq!(payload["store"], false);
@@ -858,10 +1189,17 @@ async fn xai_responses_request_fields() {
     assert_eq!(payload["reasoning"]["effort"], "medium");
     assert_eq!(payload["include"], json!(["reasoning.encrypted_content"]));
     assert!(payload.get("prompt_cache_retention").is_none());
-    assert!(payload["input"].as_array().unwrap().contains(&json!({ "role": "developer", "content": "You are a careful coding assistant." })));
+    assert!(payload["input"].as_array().unwrap().contains(
+        &json!({ "role": "developer", "content": "You are a careful coding assistant." })
+    ));
 
-    let (_, payload, _) =
-        run_with_server(&model, &ctx(None, vec![user("hello")], None), api_key("xai-test-token"), Reply::sse(completed)).await;
+    let (_, payload, _) = run_with_server(
+        &model,
+        &ctx(None, vec![user("hello")], None),
+        api_key("xai-test-token"),
+        Reply::sse(completed),
+    )
+    .await;
     let payload = payload.unwrap();
     assert_eq!(payload["include"], json!(["reasoning.encrypted_content"]));
     assert!(payload.get("reasoning").is_none());
@@ -877,7 +1215,12 @@ fn azure_model(base_url: &str) -> Model {
     model
 }
 
-async fn azure_payload(model: &Model, context: &TranscriptContext, mut options: StreamOptions, simple: bool) -> Value {
+async fn azure_payload(
+    model: &Model,
+    context: &TranscriptContext,
+    mut options: StreamOptions,
+    simple: bool,
+) -> Value {
     options.http_client = Some(refusing_client());
     let captured = capture_payload(&mut options);
     let stream = if simple {
@@ -902,9 +1245,18 @@ async fn azure_requests_use_api_key_and_api_version() {
     let sink = events.clone();
     let mut options = api_key("azure-key");
     options.session_id = Some("x".repeat(70));
-    options.on_provider_stream_event = Some(Arc::new(move |event: &Value, _m: &Model| sink.lock().push(event.clone())));
-    let result = azure_openai_responses::stream(&model, &hi(), options).result().await;
-    assert_eq!(result.stop_reason, StopReason::Stop, "{:?}", result.error_message);
+    options.on_provider_stream_event = Some(Arc::new(move |event: &Value, _m: &Model| {
+        sink.lock().push(event.clone())
+    }));
+    let result = azure_openai_responses::stream(&model, &hi(), options)
+        .result()
+        .await;
+    assert_eq!(
+        result.stop_reason,
+        StopReason::Stop,
+        "{:?}",
+        result.error_message
+    );
     assert_eq!(result.response_id.as_deref(), Some("resp_azure"));
     assert_eq!(events.lock().len(), 2);
     let request = &server.requests()[0];
@@ -920,14 +1272,31 @@ async fn azure_requests_use_api_key_and_api_version() {
 #[tokio::test]
 async fn azure_base_url_errors_and_tool_choice() {
     let model = azure_model("not a url");
-    let result = azure_openai_responses::stream(&model, &hi(), api_key("k")).result().await;
+    let result = azure_openai_responses::stream(&model, &hi(), api_key("k"))
+        .result()
+        .await;
     assert_eq!(result.stop_reason, StopReason::Error);
-    assert!(result.error_message.unwrap().contains("Invalid Azure OpenAI base URL"));
+    assert!(
+        result
+            .error_message
+            .unwrap()
+            .contains("Invalid Azure OpenAI base URL")
+    );
 
     let model = azure_model("https://my-resource.openai.azure.com");
-    let tools = vec![Tool::new("ping", "Ping", json!({ "type": "object", "properties": {}, "required": [] }))];
+    let tools = vec![Tool::new(
+        "ping",
+        "Ping",
+        json!({ "type": "object", "properties": {}, "required": [] }),
+    )];
     let context = ctx(Some("sys"), vec![user("hi")], Some(tools));
-    let payload = azure_payload(&model, &context, api_key("k").with_extra("toolChoice", "required"), false).await;
+    let payload = azure_payload(
+        &model,
+        &context,
+        api_key("k").with_extra("toolChoice", "required"),
+        false,
+    )
+    .await;
     assert_eq!(payload["tool_choice"], "required");
     assert_eq!(payload["tools"].as_array().unwrap().len(), 1);
     assert_eq!(payload["tools"][0]["strict"], false);
@@ -937,7 +1306,8 @@ async fn azure_base_url_errors_and_tool_choice() {
     assert_eq!(payload["tool_choice"], "none");
 
     let mut no_strict = model.clone();
-    no_strict.compat = Some(serde_json::from_value(json!({ "supportsStrictMode": false })).unwrap());
+    no_strict.compat =
+        Some(serde_json::from_value(json!({ "supportsStrictMode": false })).unwrap());
     let payload = azure_payload(&no_strict, &context, api_key("k"), false).await;
     assert!(payload["tools"][0].get("strict").is_none());
 }

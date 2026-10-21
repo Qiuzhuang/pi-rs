@@ -15,12 +15,13 @@ use serde_json::{Map, Value, json};
 
 use crate::models::ProviderStreams;
 use crate::types::{
-    AssistantContent, AssistantMessage, AssistantMessageEvent, CacheRetention, JsonObject, Model, ProviderEnv,
-    ProviderHeaders, ProviderResponse, StopReason, StreamOptions, TextContent, ThinkingContent, ToolCall,
-    TranscriptContext, Usage,
+    AssistantContent, AssistantMessage, AssistantMessageEvent, CacheRetention, JsonObject, Model,
+    ProviderEnv, ProviderHeaders, ProviderResponse, StopReason, StreamOptions, TextContent,
+    ThinkingContent, ToolCall, TranscriptContext, Usage,
 };
 use crate::utils::diagnostics::{
-    AssistantMessageDiagnostic, DiagnosticErrorInfo, append_assistant_message_diagnostic, create_assistant_message_diagnostic,
+    AssistantMessageDiagnostic, DiagnosticErrorInfo, append_assistant_message_diagnostic,
+    create_assistant_message_diagnostic,
 };
 use crate::utils::event_stream::{AssistantMessageEventSender, AssistantMessageEventStream};
 use crate::utils::headers::{headers_to_record, provider_headers_to_record, to_provider_headers};
@@ -72,14 +73,26 @@ fn status_text(status: reqwest::StatusCode) -> String {
     status.canonical_reason().unwrap_or_default().to_string()
 }
 
-fn create_pi_messages_response_error(model: &Model, url: &str, status: reqwest::StatusCode, body: &str) -> PiMessagesResponseError {
+fn create_pi_messages_response_error(
+    model: &Model,
+    url: &str,
+    status: reqwest::StatusCode,
+    body: &str,
+) -> PiMessagesResponseError {
     let error_body = parse_pi_messages_error_body(body);
     let error = error_body.as_ref().and_then(|b| b.get("error"));
     let message = error.and_then(|e| e.get("message")).and_then(Value::as_str);
-    let code = error.and_then(|e| e.get("code")).and_then(Value::as_str).map(str::to_string);
+    let code = error
+        .and_then(|e| e.get("code"))
+        .and_then(Value::as_str)
+        .map(str::to_string);
     let suffix = message.unwrap_or(body);
     let code_suffix = code.as_ref().map(|c| format!(" ({c})")).unwrap_or_default();
-    let text = format!("{} {}: {suffix}{code_suffix}", status.as_u16(), status_text(status));
+    let text = format!(
+        "{} {}: {suffix}{code_suffix}",
+        status.as_u16(),
+        status_text(status)
+    );
     let mut details = Map::new();
     details.insert("version".into(), json!(1));
     details.insert("provider".into(), json!(model.provider));
@@ -94,11 +107,17 @@ fn create_pi_messages_response_error(model: &Model, url: &str, status: reqwest::
         details.insert("body".into(), json!(truncate_diagnostic_string(body)));
     }
     details.insert("timestampMs".into(), json!(crate::utils::now_ms()));
-    PiMessagesResponseError { message: text, code, diagnostic_details: details }
+    PiMessagesResponseError {
+        message: text,
+        code,
+        diagnostic_details: details,
+    }
 }
 
 fn append_rewrite_diagnostic(message: &mut AssistantMessage, rewrite: Option<&Value>) {
-    let Some(Value::Object(rewrite)) = rewrite else { return };
+    let Some(Value::Object(rewrite)) = rewrite else {
+        return;
+    };
     append_assistant_message_diagnostic(
         &mut message.diagnostics,
         AssistantMessageDiagnostic {
@@ -117,11 +136,18 @@ struct EventConverter {
 }
 
 fn index_of(event: &Value) -> usize {
-    event.get("contentIndex").and_then(Value::as_u64).unwrap_or(0) as usize
+    event
+        .get("contentIndex")
+        .and_then(Value::as_u64)
+        .unwrap_or(0) as usize
 }
 
 fn str_field(event: &Value, key: &str) -> String {
-    event.get(key).and_then(Value::as_str).unwrap_or_default().to_string()
+    event
+        .get(key)
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string()
 }
 
 fn opt_str(event: &Value, key: &str) -> Option<String> {
@@ -152,9 +178,17 @@ impl EventConverter {
     }
 
     fn apply_terminal(&mut self, event: &Value) -> StopReason {
-        let reason: StopReason = event.get("reason").cloned().and_then(|r| serde_json::from_value(r).ok()).unwrap_or(StopReason::Error);
+        let reason: StopReason = event
+            .get("reason")
+            .cloned()
+            .and_then(|r| serde_json::from_value(r).ok())
+            .unwrap_or(StopReason::Error);
         self.partial.stop_reason = reason;
-        self.partial.usage = event.get("usage").cloned().and_then(|u| serde_json::from_value::<Usage>(u).ok()).unwrap_or_default();
+        self.partial.usage = event
+            .get("usage")
+            .cloned()
+            .and_then(|u| serde_json::from_value::<Usage>(u).ok())
+            .unwrap_or_default();
         self.partial.response_id = opt_str(event, "responseId");
         if let Some(level) = opt_str(event, "providerThinkingLevel") {
             self.partial.provider_thinking_level = Some(level);
@@ -164,29 +198,48 @@ impl EventConverter {
 
     fn convert(&mut self, event: &Value) -> Option<AssistantMessageEvent> {
         let index = index_of(event);
-        match event.get("type").and_then(Value::as_str).unwrap_or_default() {
+        match event
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+        {
             "done" => {
                 let reason = self.apply_terminal(event);
                 append_rewrite_diagnostic(&mut self.partial, event.get("rewrite"));
-                Some(AssistantMessageEvent::Done { reason, message: self.partial.clone() })
+                Some(AssistantMessageEvent::Done {
+                    reason,
+                    message: self.partial.clone(),
+                })
             }
             "error" => {
                 let reason = self.apply_terminal(event);
                 self.partial.error_message = opt_str(event, "errorMessage");
                 append_rewrite_diagnostic(&mut self.partial, event.get("rewrite"));
-                Some(AssistantMessageEvent::Error { reason, error: self.partial.clone() })
+                Some(AssistantMessageEvent::Error {
+                    reason,
+                    error: self.partial.clone(),
+                })
             }
-            "start" => Some(AssistantMessageEvent::Start { partial: self.partial.clone() }),
+            "start" => Some(AssistantMessageEvent::Start {
+                partial: self.partial.clone(),
+            }),
             "text_start" => {
                 self.set_block(index, AssistantContent::Text(TextContent::new("")));
-                Some(AssistantMessageEvent::TextStart { content_index: index, partial: self.partial.clone() })
+                Some(AssistantMessageEvent::TextStart {
+                    content_index: index,
+                    partial: self.partial.clone(),
+                })
             }
             "text_delta" => {
                 let delta = str_field(event, "delta");
                 if let Some(AssistantContent::Text(block)) = self.partial.content.get_mut(index) {
                     block.text.push_str(&delta);
                 }
-                Some(AssistantMessageEvent::TextDelta { content_index: index, delta, partial: self.partial.clone() })
+                Some(AssistantMessageEvent::TextDelta {
+                    content_index: index,
+                    delta,
+                    partial: self.partial.clone(),
+                })
             }
             "text_end" => {
                 let content = str_field(event, "content");
@@ -194,27 +247,44 @@ impl EventConverter {
                     block.text = content.clone();
                     block.text_signature = opt_str(event, "contentSignature");
                 }
-                Some(AssistantMessageEvent::TextEnd { content_index: index, content, partial: self.partial.clone() })
+                Some(AssistantMessageEvent::TextEnd {
+                    content_index: index,
+                    content,
+                    partial: self.partial.clone(),
+                })
             }
             "thinking_start" => {
                 self.set_block(index, AssistantContent::Thinking(ThinkingContent::new("")));
-                Some(AssistantMessageEvent::ThinkingStart { content_index: index, partial: self.partial.clone() })
+                Some(AssistantMessageEvent::ThinkingStart {
+                    content_index: index,
+                    partial: self.partial.clone(),
+                })
             }
             "thinking_delta" => {
                 let delta = str_field(event, "delta");
-                if let Some(AssistantContent::Thinking(block)) = self.partial.content.get_mut(index) {
+                if let Some(AssistantContent::Thinking(block)) = self.partial.content.get_mut(index)
+                {
                     block.thinking.push_str(&delta);
                 }
-                Some(AssistantMessageEvent::ThinkingDelta { content_index: index, delta, partial: self.partial.clone() })
+                Some(AssistantMessageEvent::ThinkingDelta {
+                    content_index: index,
+                    delta,
+                    partial: self.partial.clone(),
+                })
             }
             "thinking_end" => {
                 let content = str_field(event, "content");
-                if let Some(AssistantContent::Thinking(block)) = self.partial.content.get_mut(index) {
+                if let Some(AssistantContent::Thinking(block)) = self.partial.content.get_mut(index)
+                {
                     block.thinking = content.clone();
                     block.thinking_signature = opt_str(event, "contentSignature");
                     block.redacted = event.get("redacted").and_then(Value::as_bool);
                 }
-                Some(AssistantMessageEvent::ThinkingEnd { content_index: index, content, partial: self.partial.clone() })
+                Some(AssistantMessageEvent::ThinkingEnd {
+                    content_index: index,
+                    content,
+                    partial: self.partial.clone(),
+                })
             }
             "toolcall_start" => {
                 self.set_block(
@@ -227,23 +297,34 @@ impl EventConverter {
                     }),
                 );
                 self.tool_json.insert(index, String::new());
-                Some(AssistantMessageEvent::ToolCallStart { content_index: index, partial: self.partial.clone() })
+                Some(AssistantMessageEvent::ToolCallStart {
+                    content_index: index,
+                    partial: self.partial.clone(),
+                })
             }
             "toolcall_delta" => {
                 let delta = str_field(event, "delta");
                 let json = self.tool_json.entry(index).or_default();
                 json.push_str(&delta);
                 let arguments = parse_streaming_json_object(Some(json));
-                if let Some(AssistantContent::ToolCall(block)) = self.partial.content.get_mut(index) {
+                if let Some(AssistantContent::ToolCall(block)) = self.partial.content.get_mut(index)
+                {
                     block.arguments = arguments;
                 }
-                Some(AssistantMessageEvent::ToolCallDelta { content_index: index, delta, partial: self.partial.clone() })
+                Some(AssistantMessageEvent::ToolCallDelta {
+                    content_index: index,
+                    delta,
+                    partial: self.partial.clone(),
+                })
             }
             "toolcall_end" => {
                 if let (Some(AssistantContent::ToolCall(block)), Some(Value::Object(update))) =
                     (self.partial.content.get_mut(index), event.get("toolCall"))
                 {
-                    let mut merged = serde_json::to_value(&*block).ok().and_then(|v| v.as_object().cloned()).unwrap_or_default();
+                    let mut merged = serde_json::to_value(&*block)
+                        .ok()
+                        .and_then(|v| v.as_object().cloned())
+                        .unwrap_or_default();
                     for (key, value) in update {
                         merged.insert(key.clone(), value.clone());
                     }
@@ -256,7 +337,11 @@ impl EventConverter {
                     Some(AssistantContent::ToolCall(call)) => call.clone(),
                     _ => ToolCall::default(),
                 };
-                Some(AssistantMessageEvent::ToolCallEnd { content_index: index, tool_call, partial: self.partial.clone() })
+                Some(AssistantMessageEvent::ToolCallEnd {
+                    content_index: index,
+                    tool_call,
+                    partial: self.partial.clone(),
+                })
             }
             _ => None,
         }
@@ -265,7 +350,10 @@ impl EventConverter {
 
 /// Parse one raw SSE frame: the first `data:` line, ignoring `[DONE]`.
 fn parse_pi_messages_event(raw: &str) -> anyhow::Result<Option<Value>> {
-    let data = raw.split('\n').find(|line| line.starts_with("data:")).map(|line| line[5..].trim());
+    let data = raw
+        .split('\n')
+        .find(|line| line.starts_with("data:"))
+        .map(|line| line[5..].trim());
     match data {
         Some(data) if !data.is_empty() && data != "[DONE]" => Ok(Some(serde_json::from_str(data)?)),
         _ => Ok(None),
@@ -292,7 +380,8 @@ impl FrameDecoder {
             }
         };
         let rest = self.pending.split_off(valid);
-        let text = String::from_utf8(std::mem::replace(&mut self.pending, rest)).unwrap_or_default();
+        let text =
+            String::from_utf8(std::mem::replace(&mut self.pending, rest)).unwrap_or_default();
         self.push_text(&text)
     }
 
@@ -326,8 +415,16 @@ impl FrameDecoder {
     }
 }
 
-fn create_error_event(model: &Model, error: &anyhow::Error, aborted: bool) -> AssistantMessageEvent {
-    let reason = if aborted { StopReason::Aborted } else { StopReason::Error };
+fn create_error_event(
+    model: &Model,
+    error: &anyhow::Error,
+    aborted: bool,
+) -> AssistantMessageEvent {
+    let reason = if aborted {
+        StopReason::Aborted
+    } else {
+        StopReason::Error
+    };
     let mut message = AssistantMessage {
         api: model.api.clone(),
         provider: model.provider.clone(),
@@ -337,9 +434,7 @@ fn create_error_event(model: &Model, error: &anyhow::Error, aborted: bool) -> As
         timestamp: crate::utils::now_ms(),
         ..Default::default()
     };
-    if !aborted
-        && let Some(response_error) = error.downcast_ref::<PiMessagesResponseError>()
-    {
+    if !aborted && let Some(response_error) = error.downcast_ref::<PiMessagesResponseError>() {
         append_assistant_message_diagnostic(
             &mut message.diagnostics,
             create_assistant_message_diagnostic(
@@ -348,20 +443,30 @@ fn create_error_event(model: &Model, error: &anyhow::Error, aborted: bool) -> As
                     name: Some("PiMessagesResponseError".into()),
                     message: response_error.message.clone(),
                     stack: None,
-                    code: response_error.code.clone().map(crate::utils::diagnostics::DiagnosticErrorCode::String),
+                    code: response_error
+                        .code
+                        .clone()
+                        .map(crate::utils::diagnostics::DiagnosticErrorCode::String),
                 },
                 Some(response_error.diagnostic_details.clone()),
             ),
         );
     }
-    AssistantMessageEvent::Error { reason, error: message }
+    AssistantMessageEvent::Error {
+        reason,
+        error: message,
+    }
 }
 
-fn resolve_cache_retention(cache_retention: Option<CacheRetention>, env: Option<&ProviderEnv>) -> Option<CacheRetention> {
+fn resolve_cache_retention(
+    cache_retention: Option<CacheRetention>,
+    env: Option<&ProviderEnv>,
+) -> Option<CacheRetention> {
     if cache_retention.is_some() {
         return cache_retention;
     }
-    (get_provider_env_value("PI_CACHE_RETENTION", env).as_deref() == Some("long")).then_some(CacheRetention::Long)
+    (get_provider_env_value("PI_CACHE_RETENTION", env).as_deref() == Some("long"))
+        .then_some(CacheRetention::Long)
 }
 
 async fn with_signal<T>(
@@ -382,14 +487,22 @@ async fn with_signal<T>(
     }
 }
 
-async fn run_stream(model: Model, context: TranscriptContext, options: StreamOptions, sender: AssistantMessageEventSender) {
+async fn run_stream(
+    model: Model,
+    context: TranscriptContext,
+    options: StreamOptions,
+    sender: AssistantMessageEventSender,
+) {
     let mut converter = EventConverter::new(&model);
     let signal = options.signal.clone();
     let result: anyhow::Result<()> = async {
         let Some(api_key) = options.api_key.clone().filter(|k| !k.is_empty()) else {
             anyhow::bail!("No API key provided for provider \"{}\"", model.provider);
         };
-        let mut url = url::Url::parse(&format!("{}/messages", model.base_url.trim_end_matches('/')))?;
+        let mut url = url::Url::parse(&format!(
+            "{}/messages",
+            model.base_url.trim_end_matches('/')
+        ))?;
         if options.extra_bool("debug") == Some(true) {
             url.query_pairs_mut().append_pair("debug", "1");
         }
@@ -397,7 +510,10 @@ async fn run_stream(model: Model, context: TranscriptContext, options: StreamOpt
 
         let mut request_options = Map::new();
         if let Some(temperature) = options.temperature {
-            request_options.insert("temperature".into(), crate::serde_util::js_number(temperature));
+            request_options.insert(
+                "temperature".into(),
+                crate::serde_util::js_number(temperature),
+            );
         }
         if let Some(max_tokens) = options.max_tokens {
             request_options.insert("maxTokens".into(), json!(max_tokens));
@@ -405,7 +521,9 @@ async fn run_stream(model: Model, context: TranscriptContext, options: StreamOpt
         if let Some(reasoning) = options.reasoning {
             request_options.insert("reasoning".into(), json!(reasoning.as_str()));
         }
-        if let Some(retention) = resolve_cache_retention(options.cache_retention, options.env.as_ref()) {
+        if let Some(retention) =
+            resolve_cache_retention(options.cache_retention, options.env.as_ref())
+        {
             request_options.insert("cacheRetention".into(), serde_json::to_value(retention)?);
         }
         if let Some(session_id) = &options.session_id {
@@ -415,24 +533,38 @@ async fn run_stream(model: Model, context: TranscriptContext, options: StreamOpt
             .extra_value("toolChoice")
             .filter(|v| !v.is_null())
             .cloned()
-            .or_else(|| options.tool_choice.and_then(|c| serde_json::to_value(c).ok()));
+            .or_else(|| {
+                options
+                    .tool_choice
+                    .and_then(|c| serde_json::to_value(c).ok())
+            });
         if let Some(choice) = tool_choice {
             request_options.insert("toolChoice".into(), choice);
         }
-        let mut payload = json!({ "model": model.id, "context": context, "options": request_options });
+        let mut payload =
+            json!({ "model": model.id, "context": context, "options": request_options });
         if let Some(on_payload) = &options.on_payload
             && let Some(next) = on_payload(payload.clone(), model.clone()).await
         {
             payload = next;
         }
 
-        let target = ClientIdentityTarget { provider: &model.provider, base_url: &model.base_url };
-        let identity: ProviderHeaders = to_provider_headers(&get_identity_headers(target, options.identity.as_ref()));
+        let target = ClientIdentityTarget {
+            provider: &model.provider,
+            base_url: &model.base_url,
+        };
+        let identity: ProviderHeaders =
+            to_provider_headers(&get_identity_headers(target, options.identity.as_ref()));
         let mut defaults: ProviderHeaders = ProviderHeaders::new();
         defaults.insert("authorization".into(), Some(format!("Bearer {api_key}")));
         defaults.insert("accept".into(), Some("text/event-stream".into()));
         defaults.insert("content-type".into(), Some("application/json".into()));
-        let headers = provider_headers_to_record(&[Some(&identity), Some(&defaults), options.headers.as_ref()]).unwrap_or_default();
+        let headers = provider_headers_to_record(&[
+            Some(&identity),
+            Some(&defaults),
+            options.headers.as_ref(),
+        ])
+        .unwrap_or_default();
 
         let client = match &options.http_client {
             Some(client) => client.clone(),
@@ -445,14 +577,19 @@ async fn run_stream(model: Model, context: TranscriptContext, options: StreamOpt
         let response = with_signal(signal.as_ref(), request.send()).await??;
         if let Some(on_response) = &options.on_response {
             on_response(
-                ProviderResponse { status: response.status().as_u16(), headers: headers_to_record(response.headers()) },
+                ProviderResponse {
+                    status: response.status().as_u16(),
+                    headers: headers_to_record(response.headers()),
+                },
                 model.clone(),
             )
             .await;
         }
         let status = response.status();
         if !status.is_success() {
-            let body = with_signal(signal.as_ref(), response.text()).await?.unwrap_or_default();
+            let body = with_signal(signal.as_ref(), response.text())
+                .await?
+                .unwrap_or_default();
             return Err(create_pi_messages_response_error(&model, &url, status, &body).into());
         }
 
@@ -470,7 +607,9 @@ async fn run_stream(model: Model, context: TranscriptContext, options: StreamOpt
                 if let Some(observer) = &options.on_provider_stream_event {
                     observer(&pi_event, &model);
                 }
-                let Some(event) = converter.convert(&pi_event) else { continue };
+                let Some(event) = converter.convert(&pi_event) else {
+                    continue;
+                };
                 let terminal = event.is_terminal();
                 sender.push(event);
                 if terminal {
@@ -494,14 +633,22 @@ async fn run_stream(model: Model, context: TranscriptContext, options: StreamOpt
 }
 
 /// Stream a pi-messages response.
-pub fn stream(model: &Model, context: &TranscriptContext, options: StreamOptions) -> AssistantMessageEventStream {
+pub fn stream(
+    model: &Model,
+    context: &TranscriptContext,
+    options: StreamOptions,
+) -> AssistantMessageEventStream {
     let (sender, stream) = AssistantMessageEventStream::new();
     tokio::spawn(run_stream(model.clone(), context.clone(), options, sender));
     stream
 }
 
 /// Stream with provider-neutral options (`reasoning`, `toolChoice` and `debug` pass through).
-pub fn stream_simple(model: &Model, context: &TranscriptContext, options: StreamOptions) -> AssistantMessageEventStream {
+pub fn stream_simple(
+    model: &Model,
+    context: &TranscriptContext,
+    options: StreamOptions,
+) -> AssistantMessageEventStream {
     stream(model, context, options)
 }
 
@@ -509,11 +656,21 @@ pub fn stream_simple(model: &Model, context: &TranscriptContext, options: Stream
 pub struct PiMessagesApi;
 
 impl ProviderStreams for PiMessagesApi {
-    fn stream(&self, model: &Model, context: &TranscriptContext, options: StreamOptions) -> AssistantMessageEventStream {
+    fn stream(
+        &self,
+        model: &Model,
+        context: &TranscriptContext,
+        options: StreamOptions,
+    ) -> AssistantMessageEventStream {
         stream(model, context, options)
     }
 
-    fn stream_simple(&self, model: &Model, context: &TranscriptContext, options: StreamOptions) -> AssistantMessageEventStream {
+    fn stream_simple(
+        &self,
+        model: &Model,
+        context: &TranscriptContext,
+        options: StreamOptions,
+    ) -> AssistantMessageEventStream {
         stream_simple(model, context, options)
     }
 }

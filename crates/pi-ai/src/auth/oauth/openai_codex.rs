@@ -9,13 +9,18 @@ use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
 
 use super::callback_server::{
-    CallbackOrManual, OAuthCallbackServerOptions, start_oauth_callback_server, wait_for_callback_or_manual_input,
+    CallbackOrManual, OAuthCallbackServerOptions, start_oauth_callback_server,
+    wait_for_callback_or_manual_input,
 };
-use super::device_code::{OAuthDeviceCodePollOptions, OAuthDeviceCodePollResult, poll_oauth_device_code_flow};
+use super::device_code::{
+    OAuthDeviceCodePollOptions, OAuthDeviceCodePollResult, poll_oauth_device_code_flow,
+};
 use super::http::{OAuthFetch, OAuthHttpRequest, OAuthHttpResponse, current_oauth_fetch, send};
 use super::pkce::generate_pkce;
 use super::{parse_authorization_input, select_prompt};
-use crate::auth::types::{AuthEvent, LoginOptions, ModelAuth, OAuthAuth, OAuthCredential, ProviderAuthInteraction};
+use crate::auth::types::{
+    AuthEvent, LoginOptions, ModelAuth, OAuthAuth, OAuthCredential, ProviderAuthInteraction,
+};
 use crate::utils::provider_env::get_provider_env_value;
 
 pub const CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
@@ -73,7 +78,12 @@ fn decode_jwt(token: &str) -> Option<Value> {
 
 fn get_account_id(access_token: &str) -> Option<String> {
     let payload = decode_jwt(access_token)?;
-    payload.get(JWT_CLAIM_PATH)?.get("chatgpt_account_id")?.as_str().filter(|s| !s.is_empty()).map(str::to_string)
+    payload
+        .get(JWT_CLAIM_PATH)?
+        .get("chatgpt_account_id")?
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
 }
 
 async fn fetch_with_login_cancellation(
@@ -88,14 +98,30 @@ async fn fetch_with_login_cancellation(
     }
 }
 
-fn read_token_response(response: &OAuthHttpResponse, operation: &str) -> anyhow::Result<OAuthToken> {
+fn read_token_response(
+    response: &OAuthHttpResponse,
+    operation: &str,
+) -> anyhow::Result<OAuthToken> {
     if !response.ok() {
-        let text = if response.body.is_empty() { response.status_text.clone() } else { response.body.clone() };
-        anyhow::bail!("OpenAI Codex token {operation} failed ({}): {text}", response.status);
+        let text = if response.body.is_empty() {
+            response.status_text.clone()
+        } else {
+            response.body.clone()
+        };
+        anyhow::bail!(
+            "OpenAI Codex token {operation} failed ({}): {text}",
+            response.status
+        );
     }
     let json = response.json()?;
-    let access = json.get("access_token").and_then(Value::as_str).filter(|s| !s.is_empty());
-    let refresh = json.get("refresh_token").and_then(Value::as_str).filter(|s| !s.is_empty());
+    let access = json
+        .get("access_token")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty());
+    let refresh = json
+        .get("refresh_token")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty());
     let expires_in = json.get("expires_in").and_then(Value::as_f64);
     let (Some(access), Some(refresh), Some(expires_in)) = (access, refresh, expires_in) else {
         anyhow::bail!("OpenAI Codex token {operation} response missing fields: {json}");
@@ -114,30 +140,41 @@ async fn exchange_authorization_code(
     redirect_uri: &str,
     signal: &CancellationToken,
 ) -> anyhow::Result<OAuthToken> {
-    let request = OAuthHttpRequest::post(TOKEN_URL).header("Content-Type", "application/x-www-form-urlencoded").form(&[
-        ("grant_type", "authorization_code"),
-        ("client_id", CLIENT_ID),
-        ("code", code),
-        ("code_verifier", verifier),
-        ("redirect_uri", redirect_uri),
-    ]);
+    let request = OAuthHttpRequest::post(TOKEN_URL)
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .form(&[
+            ("grant_type", "authorization_code"),
+            ("client_id", CLIENT_ID),
+            ("code", code),
+            ("code_verifier", verifier),
+            ("redirect_uri", redirect_uri),
+        ]);
     let response = fetch_with_login_cancellation(fetch, request, signal).await?;
     read_token_response(&response, "exchange")
 }
 
-async fn refresh_access_token(fetch: &OAuthFetch, refresh_token: &str, signal: &CancellationToken) -> anyhow::Result<OAuthToken> {
-    let request = OAuthHttpRequest::post(TOKEN_URL).header("Content-Type", "application/x-www-form-urlencoded").form(&[
-        ("grant_type", "refresh_token"),
-        ("refresh_token", refresh_token),
-        ("client_id", CLIENT_ID),
-    ]);
+async fn refresh_access_token(
+    fetch: &OAuthFetch,
+    refresh_token: &str,
+    signal: &CancellationToken,
+) -> anyhow::Result<OAuthToken> {
+    let request = OAuthHttpRequest::post(TOKEN_URL)
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .form(&[
+            ("grant_type", "refresh_token"),
+            ("refresh_token", refresh_token),
+            ("client_id", CLIENT_ID),
+        ]);
     let response = send(fetch, request, Some(signal), None)
         .await
         .map_err(|error| anyhow::anyhow!("OpenAI Codex token refresh error: {error}"))?;
     read_token_response(&response, "refresh")
 }
 
-async fn start_device_auth(fetch: &OAuthFetch, signal: &CancellationToken) -> anyhow::Result<DeviceAuthInfo> {
+async fn start_device_auth(
+    fetch: &OAuthFetch,
+    signal: &CancellationToken,
+) -> anyhow::Result<DeviceAuthInfo> {
     let request = OAuthHttpRequest::post(DEVICE_USER_CODE_URL)
         .header("Content-Type", "application/json")
         .body(json!({ "client_id": CLIENT_ID }).to_string());
@@ -148,21 +185,42 @@ async fn start_device_auth(fetch: &OAuthFetch, signal: &CancellationToken) -> an
                 "OpenAI Codex device code login is not enabled for this server. Use browser login or verify the server URL."
             );
         }
-        let suffix = if response.body.is_empty() { String::new() } else { format!(": {}", response.body) };
-        anyhow::bail!("OpenAI Codex device code request failed with status {}{suffix}", response.status);
+        let suffix = if response.body.is_empty() {
+            String::new()
+        } else {
+            format!(": {}", response.body)
+        };
+        anyhow::bail!(
+            "OpenAI Codex device code request failed with status {}{suffix}",
+            response.status
+        );
     }
     let json = response.json()?;
     let interval = match json.get("interval") {
         Some(Value::String(s)) => {
             let trimmed = s.trim();
-            if trimmed.is_empty() { Some(0.0) } else { trimmed.parse::<f64>().ok() }
+            if trimmed.is_empty() {
+                Some(0.0)
+            } else {
+                trimmed.parse::<f64>().ok()
+            }
         }
         Some(Value::Number(n)) => n.as_f64(),
         _ => None,
     };
-    let device_auth_id = json.get("device_auth_id").and_then(Value::as_str).filter(|s| !s.is_empty());
-    let user_code = json.get("user_code").and_then(Value::as_str).filter(|s| !s.is_empty());
-    match (device_auth_id, user_code, interval.filter(|i| i.is_finite() && *i >= 0.0)) {
+    let device_auth_id = json
+        .get("device_auth_id")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty());
+    let user_code = json
+        .get("user_code")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty());
+    match (
+        device_auth_id,
+        user_code,
+        interval.filter(|i| i.is_finite() && *i >= 0.0),
+    ) {
         (Some(device_auth_id), Some(user_code), Some(interval_seconds)) => Ok(DeviceAuthInfo {
             device_auth_id: device_auth_id.to_string(),
             user_code: user_code.to_string(),
@@ -172,7 +230,11 @@ async fn start_device_auth(fetch: &OAuthFetch, signal: &CancellationToken) -> an
     }
 }
 
-async fn poll_device_auth(fetch: &OAuthFetch, device: &DeviceAuthInfo, signal: &CancellationToken) -> anyhow::Result<(String, String)> {
+async fn poll_device_auth(
+    fetch: &OAuthFetch,
+    device: &DeviceAuthInfo,
+    signal: &CancellationToken,
+) -> anyhow::Result<(String, String)> {
     poll_oauth_device_code_flow(
         OAuthDeviceCodePollOptions {
             interval_seconds: Some(device.interval_seconds),
@@ -227,7 +289,12 @@ fn credentials_from_token(token: OAuthToken) -> anyhow::Result<OAuthCredential> 
     };
     let mut extra = Map::new();
     extra.insert("accountId".into(), json!(account_id));
-    Ok(OAuthCredential { access: token.access, refresh: token.refresh, expires: token.expires, extra })
+    Ok(OAuthCredential {
+        access: token.access,
+        refresh: token.refresh,
+        expires: token.expires,
+        extra,
+    })
 }
 
 /// The browser authorization URL for a PKCE challenge and state.
@@ -247,7 +314,10 @@ pub fn create_authorization_url(challenge: &str, state: &str, originator: &str) 
     url.to_string()
 }
 
-async fn login_device_code(fetch: OAuthFetch, interaction: &ProviderAuthInteraction) -> anyhow::Result<OAuthCredential> {
+async fn login_device_code(
+    fetch: OAuthFetch,
+    interaction: &ProviderAuthInteraction,
+) -> anyhow::Result<OAuthCredential> {
     let device = start_device_auth(&fetch, &interaction.signal).await?;
     interaction.interaction.notify(AuthEvent::DeviceCode {
         user_code: device.user_code.clone(),
@@ -256,7 +326,16 @@ async fn login_device_code(fetch: OAuthFetch, interaction: &ProviderAuthInteract
         expires_in_seconds: Some(DEVICE_CODE_TIMEOUT_SECONDS as u64),
     });
     let (code, verifier) = poll_device_auth(&fetch, &device, &interaction.signal).await?;
-    credentials_from_token(exchange_authorization_code(&fetch, &code, &verifier, DEVICE_REDIRECT_URI, &interaction.signal).await?)
+    credentials_from_token(
+        exchange_authorization_code(
+            &fetch,
+            &code,
+            &verifier,
+            DEVICE_REDIRECT_URI,
+            &interaction.signal,
+        )
+        .await?,
+    )
 }
 
 async fn login_browser(
@@ -266,7 +345,9 @@ async fn login_browser(
 ) -> anyhow::Result<OAuthCredential> {
     let pkce = generate_pkce();
     let state = create_state();
-    let originator = options.and_then(|o| o.agent_name.clone()).unwrap_or_else(|| "pi".into());
+    let originator = options
+        .and_then(|o| o.agent_name.clone())
+        .unwrap_or_else(|| "pi".into());
     let url = create_authorization_url(&pkce.challenge, &state, &originator);
     // Port 1455 is shared with the Codex CLI; when it is taken, fall back to the pasted redirect URL.
     let callback = start_oauth_callback_server(OAuthCallbackServerOptions::<String> {
@@ -304,8 +385,19 @@ async fn login_browser(
                 parsed.code
             }
         };
-        let Some(code) = code.filter(|c| !c.is_empty()) else { anyhow::bail!("Missing authorization code") };
-        credentials_from_token(exchange_authorization_code(&fetch, &code, &pkce.verifier, REDIRECT_URI, &interaction.signal).await?)
+        let Some(code) = code.filter(|c| !c.is_empty()) else {
+            anyhow::bail!("Missing authorization code")
+        };
+        credentials_from_token(
+            exchange_authorization_code(
+                &fetch,
+                &code,
+                &pkce.verifier,
+                REDIRECT_URI,
+                &interaction.signal,
+            )
+            .await?,
+        )
     }
     .await;
     if let Some(callback) = &callback {
@@ -325,13 +417,20 @@ impl OAuthAuth for OpenAICodexOAuth {
     fn is_subscription(&self) -> Option<bool> {
         Some(true)
     }
-    async fn login(&self, interaction: ProviderAuthInteraction, options: Option<LoginOptions>) -> anyhow::Result<OAuthCredential> {
+    async fn login(
+        &self,
+        interaction: ProviderAuthInteraction,
+        options: Option<LoginOptions>,
+    ) -> anyhow::Result<OAuthCredential> {
         let fetch = current_oauth_fetch();
         let method = interaction
             .interaction
             .prompt(select_prompt(
                 "Select OpenAI Codex login method:",
-                &[(BROWSER_LOGIN_METHOD, "Browser login (default)"), (DEVICE_CODE_LOGIN_METHOD, "Device code login (headless)")],
+                &[
+                    (BROWSER_LOGIN_METHOD, "Browser login (default)"),
+                    (DEVICE_CODE_LOGIN_METHOD, "Device code login (headless)"),
+                ],
             ))
             .await?;
         match method.as_str() {
@@ -340,11 +439,20 @@ impl OAuthAuth for OpenAICodexOAuth {
             other => anyhow::bail!("Unknown OpenAI Codex login method: {other}"),
         }
     }
-    async fn refresh(&self, credential: OAuthCredential, signal: CancellationToken) -> anyhow::Result<OAuthCredential> {
-        credentials_from_token(refresh_access_token(&current_oauth_fetch(), &credential.refresh, &signal).await?)
+    async fn refresh(
+        &self,
+        credential: OAuthCredential,
+        signal: CancellationToken,
+    ) -> anyhow::Result<OAuthCredential> {
+        credentials_from_token(
+            refresh_access_token(&current_oauth_fetch(), &credential.refresh, &signal).await?,
+        )
     }
     async fn to_auth(&self, credential: &OAuthCredential) -> anyhow::Result<ModelAuth> {
-        Ok(ModelAuth { api_key: Some(credential.access.clone()), ..Default::default() })
+        Ok(ModelAuth {
+            api_key: Some(credential.access.clone()),
+            ..Default::default()
+        })
     }
 }
 

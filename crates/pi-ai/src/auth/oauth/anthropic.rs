@@ -8,18 +8,22 @@ use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
 
 use super::callback_server::{
-    CallbackOrManual, OAuthCallbackServerOptions, start_oauth_callback_server, wait_for_callback_or_manual_input,
+    CallbackOrManual, OAuthCallbackServerOptions, start_oauth_callback_server,
+    wait_for_callback_or_manual_input,
 };
 use super::http::{OAuthFetch, OAuthHttpRequest, current_oauth_fetch, form_urlencode, send};
 use super::pkce::generate_pkce;
 use super::{parse_authorization_input, select_prompt};
 use crate::auth::types::{
-    AuthEvent, AuthPrompt, AuthPromptKind, LoginOptions, ModelAuth, OAuthAuth, OAuthCredential, ProviderAuthInteraction,
+    AuthEvent, AuthPrompt, AuthPromptKind, LoginOptions, ModelAuth, OAuthAuth, OAuthCredential,
+    ProviderAuthInteraction,
 };
 use crate::utils::provider_env::get_provider_env_value;
 
 fn client_id() -> String {
-    let bytes = base64::engine::general_purpose::STANDARD.decode("OWQxYzI1MGEtZTYxYi00NGQ5LTg4ZWQtNTk0NGQxOTYyZjVl").unwrap_or_default();
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode("OWQxYzI1MGEtZTYxYi00NGQ5LTg4ZWQtNTk0NGQxOTYyZjVl")
+        .unwrap_or_default();
     String::from_utf8(bytes).unwrap_or_default()
 }
 
@@ -31,8 +35,7 @@ const CALLBACK_PATH: &str = "/callback";
 const COPY_CODE_REDIRECT_URI: &str = "https://platform.claude.com/oauth/code/callback";
 const BROWSER_LOGIN_METHOD: &str = "browser";
 const COPY_CODE_LOGIN_METHOD: &str = "copy_code";
-const SCOPES: &str =
-    "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload";
+const SCOPES: &str = "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload";
 
 fn callback_host() -> String {
     get_provider_env_value("PI_OAUTH_CALLBACK_HOST", None).unwrap_or_else(|| "127.0.0.1".into())
@@ -50,26 +53,52 @@ fn format_error_details(error: &anyhow::Error) -> String {
     details.join("; ")
 }
 
-async fn post_json(fetch: &OAuthFetch, url: &str, body: &Value, signal: &CancellationToken) -> anyhow::Result<String> {
+async fn post_json(
+    fetch: &OAuthFetch,
+    url: &str,
+    body: &Value,
+    signal: &CancellationToken,
+) -> anyhow::Result<String> {
     let request = OAuthHttpRequest::post(url)
         .header("Content-Type", "application/json")
         .header("Accept", "application/json")
         .body(body.to_string());
     let response = send(fetch, request, Some(signal), Some(30_000)).await?;
     if !response.ok() {
-        anyhow::bail!("HTTP request failed. status={}; url={url}; body={}", response.status, response.body);
+        anyhow::bail!(
+            "HTTP request failed. status={}; url={url}; body={}",
+            response.status,
+            response.body
+        );
     }
     Ok(response.body)
 }
 
-fn credential_from_tokens(body: &str, url: &str, invalid_prefix: &str) -> anyhow::Result<OAuthCredential> {
+fn credential_from_tokens(
+    body: &str,
+    url: &str,
+    invalid_prefix: &str,
+) -> anyhow::Result<OAuthCredential> {
     let data: Value = serde_json::from_str(body).map_err(|e| {
-        anyhow::anyhow!("{invalid_prefix} returned invalid JSON. url={url}; body={body}; details=Error: {e}")
+        anyhow::anyhow!(
+            "{invalid_prefix} returned invalid JSON. url={url}; body={body}; details=Error: {e}"
+        )
     })?;
-    let expires_in = data.get("expires_in").and_then(Value::as_f64).unwrap_or(f64::NAN);
+    let expires_in = data
+        .get("expires_in")
+        .and_then(Value::as_f64)
+        .unwrap_or(f64::NAN);
     Ok(OAuthCredential {
-        refresh: data.get("refresh_token").and_then(Value::as_str).unwrap_or_default().to_string(),
-        access: data.get("access_token").and_then(Value::as_str).unwrap_or_default().to_string(),
+        refresh: data
+            .get("refresh_token")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        access: data
+            .get("access_token")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
         expires: (crate::utils::now_ms() as f64 + expires_in * 1000.0 - 5.0 * 60.0 * 1000.0) as i64,
         extra: Map::new(),
     })
@@ -117,7 +146,10 @@ fn authorize_url(challenge: &str, verifier: &str, redirect_uri: &str) -> String 
     )
 }
 
-async fn login_browser(fetch: OAuthFetch, interaction: &ProviderAuthInteraction) -> anyhow::Result<OAuthCredential> {
+async fn login_browser(
+    fetch: OAuthFetch,
+    interaction: &ProviderAuthInteraction,
+) -> anyhow::Result<OAuthCredential> {
     let pkce = generate_pkce();
     let start = |port: u16| {
         start_oauth_callback_server(OAuthCallbackServerOptions::<String> {
@@ -136,7 +168,10 @@ async fn login_browser(fetch: OAuthFetch, interaction: &ProviderAuthInteraction)
         Ok(server) => Some(server),
         Err(_) => start(0).await.ok(),
     };
-    let redirect_uri = callback.as_ref().map(|c| c.redirect_uri.clone()).unwrap_or_else(redirect_uri);
+    let redirect_uri = callback
+        .as_ref()
+        .map(|c| c.redirect_uri.clone())
+        .unwrap_or_else(redirect_uri);
     let result = async {
         interaction.interaction.notify(AuthEvent::AuthUrl {
             url: authorize_url(&pkce.challenge, &pkce.verifier, &redirect_uri),
@@ -173,11 +208,17 @@ async fn login_browser(fetch: OAuthFetch, interaction: &ProviderAuthInteraction)
     result
 }
 
-async fn login_copy_code(fetch: OAuthFetch, interaction: &ProviderAuthInteraction) -> anyhow::Result<OAuthCredential> {
+async fn login_copy_code(
+    fetch: OAuthFetch,
+    interaction: &ProviderAuthInteraction,
+) -> anyhow::Result<OAuthCredential> {
     let pkce = generate_pkce();
     interaction.interaction.notify(AuthEvent::AuthUrl {
         url: authorize_url(&pkce.challenge, &pkce.verifier, COPY_CODE_REDIRECT_URI),
-        instructions: Some("Complete login in your browser, then copy the code Anthropic shows and paste it here.".into()),
+        instructions: Some(
+            "Complete login in your browser, then copy the code Anthropic shows and paste it here."
+                .into(),
+        ),
     });
     let input = interaction
         .interaction
@@ -193,17 +234,38 @@ async fn login_copy_code(fetch: OAuthFetch, interaction: &ProviderAuthInteractio
     if parsed.state.as_ref().is_some_and(|s| *s != pkce.verifier) {
         anyhow::bail!("OAuth state mismatch");
     }
-    let Some(code) = parsed.code.filter(|c| !c.is_empty()) else { anyhow::bail!("Missing authorization code") };
-    interaction.interaction.notify(AuthEvent::Progress { message: "Exchanging authorization code for tokens...".into() });
+    let Some(code) = parsed.code.filter(|c| !c.is_empty()) else {
+        anyhow::bail!("Missing authorization code")
+    };
+    interaction.interaction.notify(AuthEvent::Progress {
+        message: "Exchanging authorization code for tokens...".into(),
+    });
     let state = parsed.state.unwrap_or_else(|| pkce.verifier.clone());
-    exchange_authorization_code(&fetch, &code, &state, &pkce.verifier, COPY_CODE_REDIRECT_URI, &interaction.signal).await
+    exchange_authorization_code(
+        &fetch,
+        &code,
+        &state,
+        &pkce.verifier,
+        COPY_CODE_REDIRECT_URI,
+        &interaction.signal,
+    )
+    .await
 }
 
-async fn refresh_anthropic_token(fetch: &OAuthFetch, refresh_token: &str, signal: &CancellationToken) -> anyhow::Result<OAuthCredential> {
+async fn refresh_anthropic_token(
+    fetch: &OAuthFetch,
+    refresh_token: &str,
+    signal: &CancellationToken,
+) -> anyhow::Result<OAuthCredential> {
     let body = json!({ "grant_type": "refresh_token", "client_id": client_id(), "refresh_token": refresh_token });
-    let response = post_json(fetch, TOKEN_URL, &body, signal).await.map_err(|error| {
-        anyhow::anyhow!("Anthropic token refresh request failed. url={TOKEN_URL}; details={}", format_error_details(&error))
-    })?;
+    let response = post_json(fetch, TOKEN_URL, &body, signal)
+        .await
+        .map_err(|error| {
+            anyhow::anyhow!(
+                "Anthropic token refresh request failed. url={TOKEN_URL}; details={}",
+                format_error_details(&error)
+            )
+        })?;
     credential_from_tokens(&response, TOKEN_URL, "Anthropic token refresh")
 }
 
@@ -218,13 +280,20 @@ impl OAuthAuth for AnthropicOAuth {
     fn is_subscription(&self) -> Option<bool> {
         Some(true)
     }
-    async fn login(&self, interaction: ProviderAuthInteraction, _options: Option<LoginOptions>) -> anyhow::Result<OAuthCredential> {
+    async fn login(
+        &self,
+        interaction: ProviderAuthInteraction,
+        _options: Option<LoginOptions>,
+    ) -> anyhow::Result<OAuthCredential> {
         let fetch = current_oauth_fetch();
         let method = interaction
             .interaction
             .prompt(select_prompt(
                 "Select Anthropic login method:",
-                &[(BROWSER_LOGIN_METHOD, "Browser login (default)"), (COPY_CODE_LOGIN_METHOD, "Copy code login (headless)")],
+                &[
+                    (BROWSER_LOGIN_METHOD, "Browser login (default)"),
+                    (COPY_CODE_LOGIN_METHOD, "Copy code login (headless)"),
+                ],
             ))
             .await?;
         match method.as_str() {
@@ -233,11 +302,18 @@ impl OAuthAuth for AnthropicOAuth {
             other => anyhow::bail!("Unknown Anthropic login method: {other}"),
         }
     }
-    async fn refresh(&self, credential: OAuthCredential, signal: CancellationToken) -> anyhow::Result<OAuthCredential> {
+    async fn refresh(
+        &self,
+        credential: OAuthCredential,
+        signal: CancellationToken,
+    ) -> anyhow::Result<OAuthCredential> {
         refresh_anthropic_token(&current_oauth_fetch(), &credential.refresh, &signal).await
     }
     async fn to_auth(&self, credential: &OAuthCredential) -> anyhow::Result<ModelAuth> {
-        Ok(ModelAuth { api_key: Some(credential.access.clone()), ..Default::default() })
+        Ok(ModelAuth {
+            api_key: Some(credential.access.clone()),
+            ..Default::default()
+        })
     }
 }
 

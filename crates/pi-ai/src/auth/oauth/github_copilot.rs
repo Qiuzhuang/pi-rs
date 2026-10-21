@@ -7,15 +7,20 @@ use base64::Engine;
 use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
 
-use super::device_code::{OAuthDeviceCodePollOptions, OAuthDeviceCodePollResult, poll_oauth_device_code_flow};
+use super::device_code::{
+    OAuthDeviceCodePollOptions, OAuthDeviceCodePollResult, poll_oauth_device_code_flow,
+};
 use super::http::{OAuthFetch, OAuthHttpRequest, OAuthHttpResponse, current_oauth_fetch, send};
 use crate::auth::types::{
-    AuthEvent, AuthPrompt, AuthPromptKind, LoginOptions, ModelAuth, OAuthAuth, OAuthCredential, ProviderAuthInteraction,
+    AuthEvent, AuthPrompt, AuthPromptKind, LoginOptions, ModelAuth, OAuthAuth, OAuthCredential,
+    ProviderAuthInteraction,
 };
 use crate::models_generated::CATALOG;
 
 fn client_id() -> String {
-    let bytes = base64::engine::general_purpose::STANDARD.decode("SXYxLmI1MDdhMDhjODdlY2ZlOTg=").unwrap_or_default();
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode("SXYxLmI1MDdhMDhjODdlY2ZlOTg=")
+        .unwrap_or_default();
     String::from_utf8(bytes).unwrap_or_default()
 }
 
@@ -49,7 +54,11 @@ pub fn normalize_domain(input: &str) -> Option<String> {
     if trimmed.is_empty() {
         return None;
     }
-    let url = if trimmed.contains("://") { url::Url::parse(trimmed) } else { url::Url::parse(&format!("https://{trimmed}")) };
+    let url = if trimmed.contains("://") {
+        url::Url::parse(trimmed)
+    } else {
+        url::Url::parse(&format!("https://{trimmed}"))
+    };
     url.ok().and_then(|u| u.host_str().map(str::to_string))
 }
 
@@ -74,7 +83,10 @@ fn get_base_url_from_token(token: &str) -> Option<String> {
     if proxy_host.is_empty() {
         return None;
     }
-    let api_host = proxy_host.strip_prefix("proxy.").map(|rest| format!("api.{rest}")).unwrap_or(proxy_host);
+    let api_host = proxy_host
+        .strip_prefix("proxy.")
+        .map(|rest| format!("api.{rest}"))
+        .unwrap_or(proxy_host);
     Some(format!("https://{api_host}"))
 }
 
@@ -116,7 +128,11 @@ fn parse_model_catalog(raw: &Value, allow_policy_fallback: bool) -> anyhow::Resu
             Some(AccountModel {
                 id,
                 picker_enabled: item.get("model_picker_enabled") == Some(&Value::Bool(true)),
-                policy_state: item.get("policy").and_then(|p| p.get("state")).and_then(Value::as_str).map(str::to_string),
+                policy_state: item
+                    .get("policy")
+                    .and_then(|p| p.get("state"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
             })
         })
         .collect();
@@ -129,7 +145,11 @@ fn parse_model_catalog(raw: &Value, allow_policy_fallback: bool) -> anyhow::Resu
     let available_model_ids = if !picker_ids.is_empty() || !allow_policy_fallback {
         picker_ids
     } else {
-        account_models.iter().filter(|m| m.policy_state.as_deref() == Some("enabled")).map(|m| m.id.clone()).collect()
+        account_models
+            .iter()
+            .filter(|m| m.policy_state.as_deref() == Some("enabled"))
+            .map(|m| m.id.clone())
+            .collect()
     };
     let known = CATALOG.chat.get("github-copilot");
     let policy_model_ids = account_models
@@ -141,7 +161,10 @@ fn parse_model_catalog(raw: &Value, allow_policy_fallback: bool) -> anyhow::Resu
         })
         .map(|m| m.id.clone())
         .collect();
-    Ok(ModelCatalog { available_model_ids, policy_model_ids })
+    Ok(ModelCatalog {
+        available_model_ids,
+        policy_model_ids,
+    })
 }
 
 fn with_copilot_headers(mut request: OAuthHttpRequest) -> OAuthHttpRequest {
@@ -161,9 +184,11 @@ fn parse_http_date_ms(text: &str) -> Option<f64> {
         return None;
     }
     let day: i64 = parts[1].parse().ok()?;
-    let month = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-        .iter()
-        .position(|m| *m == parts[2])? as i64
+    let month = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ]
+    .iter()
+    .position(|m| *m == parts[2])? as i64
         + 1;
     let year: i64 = parts[3].parse().ok()?;
     let hms: Vec<i64> = parts[4].split(':').filter_map(|p| p.parse().ok()).collect();
@@ -210,7 +235,9 @@ async fn fetch_with_rate_limit_retry(
             if let Some(retry_after) = response.header("retry-after") {
                 let seconds = js_parse_float(retry_after);
                 delay_ms = if seconds.is_nan() {
-                    parse_http_date_ms(retry_after).map(|d| d - crate::utils::now_ms() as f64).unwrap_or(f64::NAN)
+                    parse_http_date_ms(retry_after)
+                        .map(|d| d - crate::utils::now_ms() as f64)
+                        .unwrap_or(f64::NAN)
                 } else {
                     seconds * 1000.0
                 };
@@ -220,7 +247,10 @@ async fn fetch_with_rate_limit_retry(
             }
             let delay_ms = delay_ms.max(0.0);
             if let Some(deadline) = budget {
-                let remaining = deadline.saturating_duration_since(tokio::time::Instant::now()).as_secs_f64() * 1000.0;
+                let remaining = deadline
+                    .saturating_duration_since(tokio::time::Instant::now())
+                    .as_secs_f64()
+                    * 1000.0;
                 if delay_ms >= remaining {
                     return Ok(response);
                 }
@@ -255,20 +285,38 @@ async fn fetch_github_copilot_models(
     .header("X-GitHub-Api-Version", COPILOT_API_VERSION);
     let response = fetch_with_rate_limit_retry(fetch, request, signal, policy).await?;
     if !response.ok() {
-        anyhow::bail!("{} {}: {}", response.status, response.status_text, response.body);
+        anyhow::bail!(
+            "{} {}: {}",
+            response.status,
+            response.status_text,
+            response.body
+        );
     }
     parse_model_catalog(&response.json()?, allow_policy_fallback)
 }
 
-async fn fetch_json(fetch: &OAuthFetch, request: OAuthHttpRequest, signal: &CancellationToken) -> anyhow::Result<Value> {
+async fn fetch_json(
+    fetch: &OAuthFetch,
+    request: OAuthHttpRequest,
+    signal: &CancellationToken,
+) -> anyhow::Result<Value> {
     let response = send(fetch, request, Some(signal), None).await?;
     if !response.ok() {
-        anyhow::bail!("{} {}: {}", response.status, response.status_text, response.body);
+        anyhow::bail!(
+            "{} {}: {}",
+            response.status,
+            response.status_text,
+            response.body
+        );
     }
     response.json()
 }
 
-async fn start_device_flow(fetch: &OAuthFetch, domain: &str, signal: &CancellationToken) -> anyhow::Result<DeviceCodeResponse> {
+async fn start_device_flow(
+    fetch: &OAuthFetch,
+    domain: &str,
+    signal: &CancellationToken,
+) -> anyhow::Result<DeviceCodeResponse> {
     let urls = get_urls(domain);
     let request = OAuthHttpRequest::post(urls.device_code_url)
         .header("Accept", "application/json")
@@ -276,20 +324,27 @@ async fn start_device_flow(fetch: &OAuthFetch, domain: &str, signal: &Cancellati
         .header("User-Agent", "GitHubCopilotChat/0.35.0")
         .form(&[("client_id", &client_id()), ("scope", "read:user")]);
     let data = fetch_json(fetch, request, signal).await?;
-    let Some(object) = data.as_object() else { anyhow::bail!("Invalid device code response") };
+    let Some(object) = data.as_object() else {
+        anyhow::bail!("Invalid device code response")
+    };
     let device_code = object.get("device_code").and_then(Value::as_str);
     let user_code = object.get("user_code").and_then(Value::as_str);
     let verification_uri = object.get("verification_uri").and_then(Value::as_str);
     let interval = object.get("interval");
     let expires_in = object.get("expires_in").and_then(Value::as_f64);
     let interval_valid = interval.is_none_or(|i| i.is_number());
-    let (Some(device_code), Some(user_code), Some(verification_uri), true, Some(expires_in)) =
-        (device_code, user_code, verification_uri, interval_valid, expires_in)
-    else {
+    let (Some(device_code), Some(user_code), Some(verification_uri), true, Some(expires_in)) = (
+        device_code,
+        user_code,
+        verification_uri,
+        interval_valid,
+        expires_in,
+    ) else {
         anyhow::bail!("Invalid device code response fields");
     };
     // The verification URI is opened in the user's browser; force it to be an http(s) URL.
-    let parsed = url::Url::parse(verification_uri).map_err(|_| anyhow::anyhow!("Untrusted verification_uri in device code response"))?;
+    let parsed = url::Url::parse(verification_uri)
+        .map_err(|_| anyhow::anyhow!("Untrusted verification_uri in device code response"))?;
     if !matches!(parsed.scheme(), "http" | "https") {
         anyhow::bail!("Untrusted verification_uri in device code response");
     }
@@ -343,11 +398,15 @@ async fn poll_for_github_access_token(
                             .filter(|d| !d.is_empty())
                             .map(|d| format!(": {d}"))
                             .unwrap_or_default();
-                        OAuthDeviceCodePollResult::Failed { message: format!("Device flow failed: {error}{suffix}") }
+                        OAuthDeviceCodePollResult::Failed {
+                            message: format!("Device flow failed: {error}{suffix}"),
+                        }
                     }
                 });
             }
-            Ok(OAuthDeviceCodePollResult::Failed { message: "Invalid device token response".into() })
+            Ok(OAuthDeviceCodePollResult::Failed {
+                message: "Invalid device token response".into(),
+            })
         },
     )
     .await
@@ -359,7 +418,9 @@ async fn refresh_github_copilot_access_token(
     enterprise_domain: Option<&str>,
     signal: &CancellationToken,
 ) -> anyhow::Result<OAuthCredential> {
-    let domain = enterprise_domain.filter(|d| !d.is_empty()).unwrap_or("github.com");
+    let domain = enterprise_domain
+        .filter(|d| !d.is_empty())
+        .unwrap_or("github.com");
     let urls = get_urls(domain);
     let request = with_copilot_headers(
         OAuthHttpRequest::get(urls.copilot_token_url)
@@ -370,9 +431,10 @@ async fn refresh_github_copilot_access_token(
     if !raw.is_object() {
         anyhow::bail!("Invalid Copilot token response");
     }
-    let (Some(token), Some(expires_at)) =
-        (raw.get("token").and_then(Value::as_str), raw.get("expires_at").and_then(Value::as_f64))
-    else {
+    let (Some(token), Some(expires_at)) = (
+        raw.get("token").and_then(Value::as_str),
+        raw.get("expires_at").and_then(Value::as_f64),
+    ) else {
         anyhow::bail!("Invalid Copilot token response fields");
     };
     let mut extra = Map::new();
@@ -393,16 +455,24 @@ async fn refresh_github_copilot_token(
     enterprise_domain: Option<&str>,
     signal: &CancellationToken,
 ) -> anyhow::Result<OAuthCredential> {
-    let mut credential = refresh_github_copilot_access_token(fetch, refresh_token, enterprise_domain, signal).await?;
+    let mut credential =
+        refresh_github_copilot_access_token(fetch, refresh_token, enterprise_domain, signal)
+            .await?;
     let catalog = fetch_github_copilot_models(
         fetch,
         &credential.access,
         enterprise_domain,
         signal,
-        RetryPolicy { max_retries: 0, max_elapsed_ms: 0 },
+        RetryPolicy {
+            max_retries: 0,
+            max_elapsed_ms: 0,
+        },
     )
     .await?;
-    credential.extra.insert("availableModelIds".into(), json!(catalog.available_model_ids));
+    credential.extra.insert(
+        "availableModelIds".into(),
+        json!(catalog.available_model_ids),
+    );
     Ok(credential)
 }
 
@@ -423,18 +493,32 @@ async fn enable_github_copilot_model(
     .header("openai-intent", "chat-policy")
     .header("x-interaction-type", "chat-policy")
     .body(json!({ "state": "enabled" }).to_string());
-    let response =
-        match fetch_with_rate_limit_retry(fetch, request, signal, RetryPolicy { max_retries: 2, max_elapsed_ms: 5000 }).await {
-            Ok(response) => response,
-            Err(error) => {
-                if signal.is_cancelled() {
-                    return Err(error);
-                }
-                return Ok(false);
+    let response = match fetch_with_rate_limit_retry(
+        fetch,
+        request,
+        signal,
+        RetryPolicy {
+            max_retries: 2,
+            max_elapsed_ms: 5000,
+        },
+    )
+    .await
+    {
+        Ok(response) => response,
+        Err(error) => {
+            if signal.is_cancelled() {
+                return Err(error);
             }
-        };
+            return Ok(false);
+        }
+    };
     if response.status == 429 {
-        anyhow::bail!("{} {}: {}", response.status, response.status_text, response.body);
+        anyhow::bail!(
+            "{} {}: {}",
+            response.status,
+            response.status_text,
+            response.body
+        );
     }
     Ok(response.ok())
 }
@@ -463,7 +547,9 @@ async fn enable_github_copilot_models(
     Ok(enabled)
 }
 
-async fn login_github_copilot(interaction: ProviderAuthInteraction) -> anyhow::Result<OAuthCredential> {
+async fn login_github_copilot(
+    interaction: ProviderAuthInteraction,
+) -> anyhow::Result<OAuthCredential> {
     let fetch = current_oauth_fetch();
     let input = interaction
         .interaction
@@ -483,7 +569,9 @@ async fn login_github_copilot(interaction: ProviderAuthInteraction) -> anyhow::R
     if !trimmed.is_empty() && enterprise_domain.is_none() {
         anyhow::bail!("Invalid GitHub Enterprise URL/domain");
     }
-    let domain = enterprise_domain.clone().unwrap_or_else(|| "github.com".into());
+    let domain = enterprise_domain
+        .clone()
+        .unwrap_or_else(|| "github.com".into());
     let signal = &interaction.signal;
     let device = start_device_flow(&fetch, &domain, signal).await?;
     interaction.interaction.notify(AuthEvent::DeviceCode {
@@ -492,20 +580,31 @@ async fn login_github_copilot(interaction: ProviderAuthInteraction) -> anyhow::R
         interval_seconds: device.interval.map(|i| i as u64),
         expires_in_seconds: Some(device.expires_in as u64),
     });
-    let github_access_token = poll_for_github_access_token(&fetch, &domain, &device, signal).await?;
-    let mut credential =
-        refresh_github_copilot_access_token(&fetch, &github_access_token, enterprise_domain.as_deref(), signal).await?;
+    let github_access_token =
+        poll_for_github_access_token(&fetch, &domain, &device, signal).await?;
+    let mut credential = refresh_github_copilot_access_token(
+        &fetch,
+        &github_access_token,
+        enterprise_domain.as_deref(),
+        signal,
+    )
+    .await?;
     let models = fetch_github_copilot_models(
         &fetch,
         &credential.access,
         enterprise_domain.as_deref(),
         signal,
-        RetryPolicy { max_retries: 2, max_elapsed_ms: 5000 },
+        RetryPolicy {
+            max_retries: 2,
+            max_elapsed_ms: 5000,
+        },
     )
     .await?;
     let mut enabled = Vec::new();
     if !models.policy_model_ids.is_empty() {
-        interaction.interaction.notify(AuthEvent::Progress { message: "Enabling models...".into() });
+        interaction.interaction.notify(AuthEvent::Progress {
+            message: "Enabling models...".into(),
+        });
         enabled = enable_github_copilot_models(
             &fetch,
             &credential.access,
@@ -521,7 +620,9 @@ async fn login_github_copilot(interaction: ProviderAuthInteraction) -> anyhow::R
             available.push(id);
         }
     }
-    credential.extra.insert("availableModelIds".into(), json!(available));
+    credential
+        .extra
+        .insert("availableModelIds".into(), json!(available));
     Ok(credential)
 }
 
@@ -543,19 +644,36 @@ impl OAuthAuth for GitHubCopilotOAuth {
     fn is_subscription(&self) -> Option<bool> {
         Some(true)
     }
-    async fn login(&self, interaction: ProviderAuthInteraction, _options: Option<LoginOptions>) -> anyhow::Result<OAuthCredential> {
+    async fn login(
+        &self,
+        interaction: ProviderAuthInteraction,
+        _options: Option<LoginOptions>,
+    ) -> anyhow::Result<OAuthCredential> {
         login_github_copilot(interaction).await
     }
-    async fn refresh(&self, credential: OAuthCredential, signal: CancellationToken) -> anyhow::Result<OAuthCredential> {
+    async fn refresh(
+        &self,
+        credential: OAuthCredential,
+        signal: CancellationToken,
+    ) -> anyhow::Result<OAuthCredential> {
         let domain = copilot_enterprise_domain(&credential);
-        refresh_github_copilot_token(&current_oauth_fetch(), &credential.refresh, domain.as_deref(), &signal).await
+        refresh_github_copilot_token(
+            &current_oauth_fetch(),
+            &credential.refresh,
+            domain.as_deref(),
+            &signal,
+        )
+        .await
     }
     /// Derive the credential-specific proxy endpoint for each request.
     async fn to_auth(&self, credential: &OAuthCredential) -> anyhow::Result<ModelAuth> {
         let domain = copilot_enterprise_domain(credential);
         Ok(ModelAuth {
             api_key: Some(credential.access.clone()),
-            base_url: Some(get_github_copilot_base_url(Some(&credential.access), domain.as_deref())),
+            base_url: Some(get_github_copilot_base_url(
+                Some(&credential.access),
+                domain.as_deref(),
+            )),
             ..Default::default()
         })
     }
@@ -572,13 +690,25 @@ mod tests {
     #[test]
     fn base_urls() {
         assert_eq!(
-            get_github_copilot_base_url(Some("tid=1;exp=2;proxy-ep=proxy.business.githubcopilot.com;x=y"), None),
+            get_github_copilot_base_url(
+                Some("tid=1;exp=2;proxy-ep=proxy.business.githubcopilot.com;x=y"),
+                None
+            ),
             "https://api.business.githubcopilot.com"
         );
-        assert_eq!(get_github_copilot_base_url(Some("tid=1"), Some("ghe.example.com")), "https://copilot-api.ghe.example.com");
+        assert_eq!(
+            get_github_copilot_base_url(Some("tid=1"), Some("ghe.example.com")),
+            "https://copilot-api.ghe.example.com"
+        );
         assert_eq!(get_github_copilot_base_url(None, None), INDIVIDUAL_BASE_URL);
-        assert_eq!(normalize_domain("https://company.ghe.com/path").as_deref(), Some("company.ghe.com"));
-        assert_eq!(normalize_domain("company.ghe.com").as_deref(), Some("company.ghe.com"));
+        assert_eq!(
+            normalize_domain("https://company.ghe.com/path").as_deref(),
+            Some("company.ghe.com")
+        );
+        assert_eq!(
+            normalize_domain("company.ghe.com").as_deref(),
+            Some("company.ghe.com")
+        );
         assert_eq!(normalize_domain("  "), None);
     }
 }

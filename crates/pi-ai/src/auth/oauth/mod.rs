@@ -33,18 +33,34 @@ pub use callback_server::{
     CallbackOrManual, OAuthCallbackServer, OAuthCallbackServerOptions, start_oauth_callback_server,
     wait_for_callback_or_manual_input,
 };
-pub use device_code::{OAuthDeviceCodePollOptions, OAuthDeviceCodePollResult, abortable_sleep, poll_oauth_device_code_flow};
+pub use device_code::{
+    OAuthDeviceCodePollOptions, OAuthDeviceCodePollResult, abortable_sleep,
+    poll_oauth_device_code_flow,
+};
 pub use http::{
-    OAuthFetch, OAuthFetchError, OAuthHttpRequest, OAuthHttpResponse, current_oauth_fetch, default_oauth_fetch, with_oauth_fetch,
+    OAuthFetch, OAuthFetchError, OAuthHttpRequest, OAuthHttpResponse, current_oauth_fetch,
+    default_oauth_fetch, with_oauth_fetch,
 };
 pub use pkce::{Pkce, generate_pkce};
 
 /// Keys of the built-in OAuth flows (`OAuthFlowLoaders`).
-pub const BUILTIN_OAUTH_FLOW_KEYS: [&str; 9] =
-    ["anthropic", "openaiCodex", "openaiChatGPT", "githubCopilot", "openrouter", "kimiCoding", "meta", "xai", "radius"];
+pub const BUILTIN_OAUTH_FLOW_KEYS: [&str; 9] = [
+    "anthropic",
+    "openaiCodex",
+    "openaiChatGPT",
+    "githubCopilot",
+    "openrouter",
+    "kimiCoding",
+    "meta",
+    "xai",
+    "radius",
+];
 
 /// Resolve a built-in OAuth flow by key (`load.ts`). `None` for unknown keys.
-pub fn builtin_oauth_flow(key: &str, args: &OAuthFlowArgs) -> Option<anyhow::Result<Arc<dyn OAuthAuth>>> {
+pub fn builtin_oauth_flow(
+    key: &str,
+    args: &OAuthFlowArgs,
+) -> Option<anyhow::Result<Arc<dyn OAuthAuth>>> {
     Some(Ok(match key {
         "anthropic" => anthropic::anthropic_oauth(),
         "openaiCodex" => openai_codex::openai_codex_oauth(),
@@ -56,7 +72,9 @@ pub fn builtin_oauth_flow(key: &str, args: &OAuthFlowArgs) -> Option<anyhow::Res
         "xai" => xai::xai_oauth(),
         "radius" => {
             let (Some(name), Some(gateway)) = (args.name.clone(), args.gateway.clone()) else {
-                return Some(Err(anyhow::anyhow!("Radius OAuth requires a name and gateway")));
+                return Some(Err(anyhow::anyhow!(
+                    "Radius OAuth requires a name and gateway"
+                )));
             };
             radius::create_radius_oauth(radius::RadiusOAuthOptions { name, gateway })
         }
@@ -73,7 +91,8 @@ pub fn register_builtin_oauth_flows() {
         super::oauth_load::register_oauth_flow_loader(
             key,
             Arc::new(move |args: &OAuthFlowArgs| {
-                builtin_oauth_flow(key, args).unwrap_or_else(|| Err(anyhow::anyhow!("Unknown OAuth flow: {key}")))
+                builtin_oauth_flow(key, args)
+                    .unwrap_or_else(|| Err(anyhow::anyhow!("Unknown OAuth flow: {key}")))
             }),
         );
     }
@@ -87,7 +106,11 @@ pub(crate) fn select_prompt(message: &str, options: &[(&str, &str)]) -> AuthProm
         placeholder: None,
         options: options
             .iter()
-            .map(|(id, label)| AuthSelectOption { id: id.to_string(), label: label.to_string(), description: None })
+            .map(|(id, label)| AuthSelectOption {
+                id: id.to_string(),
+                label: label.to_string(),
+                description: None,
+            })
             .collect(),
         signal: None,
     }
@@ -106,19 +129,42 @@ pub(crate) fn parse_authorization_input(input: &str) -> AuthorizationInput {
         return AuthorizationInput::default();
     }
     if let Ok(url) = url::Url::parse(value) {
-        let param = |name: &str| url.query_pairs().find(|(k, _)| k == name).map(|(_, v)| v.into_owned());
-        return AuthorizationInput { code: param("code"), state: param("state") };
+        let param = |name: &str| {
+            url.query_pairs()
+                .find(|(k, _)| k == name)
+                .map(|(_, v)| v.into_owned())
+        };
+        return AuthorizationInput {
+            code: param("code"),
+            state: param("state"),
+        };
     }
     if let Some((code, state)) = value.split_once('#') {
         let state = state.split('#').next().unwrap_or_default();
-        return AuthorizationInput { code: Some(code.to_string()), state: Some(state.to_string()) };
+        return AuthorizationInput {
+            code: Some(code.to_string()),
+            state: Some(state.to_string()),
+        };
     }
     if value.contains("code=") {
-        let params: Vec<(String, String)> = url::form_urlencoded::parse(value.as_bytes()).into_owned().collect();
-        let param = |name: &str| params.iter().find(|(k, _)| k == name).map(|(_, v)| v.clone());
-        return AuthorizationInput { code: param("code"), state: param("state") };
+        let params: Vec<(String, String)> = url::form_urlencoded::parse(value.as_bytes())
+            .into_owned()
+            .collect();
+        let param = |name: &str| {
+            params
+                .iter()
+                .find(|(k, _)| k == name)
+                .map(|(_, v)| v.clone())
+        };
+        return AuthorizationInput {
+            code: param("code"),
+            state: param("state"),
+        };
     }
-    AuthorizationInput { code: Some(value.to_string()), state: None }
+    AuthorizationInput {
+        code: Some(value.to_string()),
+        state: None,
+    }
 }
 
 /// The verification URI is opened in the user's browser; only http(s) URLs are trusted.
@@ -130,7 +176,9 @@ pub(crate) fn trusted_http_url(value: Option<&serde_json::Value>) -> Option<Stri
 
 /// A finite positive number field.
 pub(crate) fn positive_number(value: Option<&serde_json::Value>) -> Option<f64> {
-    value.and_then(serde_json::Value::as_f64).filter(|v| v.is_finite() && *v > 0.0)
+    value
+        .and_then(serde_json::Value::as_f64)
+        .filter(|v| v.is_finite() && *v > 0.0)
 }
 
 /// Open a URL in the user's browser (port of coding-agent `utils/open-browser.ts`).
@@ -167,27 +215,49 @@ mod tests {
     fn parses_authorization_input() {
         assert_eq!(
             parse_authorization_input("http://localhost:1/cb?code=abc&state=xyz"),
-            AuthorizationInput { code: Some("abc".into()), state: Some("xyz".into()) }
+            AuthorizationInput {
+                code: Some("abc".into()),
+                state: Some("xyz".into())
+            }
         );
         assert_eq!(
             parse_authorization_input("abc#xyz"),
-            AuthorizationInput { code: Some("abc".into()), state: Some("xyz".into()) }
+            AuthorizationInput {
+                code: Some("abc".into()),
+                state: Some("xyz".into())
+            }
         );
         assert_eq!(
             parse_authorization_input("code=abc&state=xyz"),
-            AuthorizationInput { code: Some("abc".into()), state: Some("xyz".into()) }
+            AuthorizationInput {
+                code: Some("abc".into()),
+                state: Some("xyz".into())
+            }
         );
-        assert_eq!(parse_authorization_input(" abc "), AuthorizationInput { code: Some("abc".into()), state: None });
+        assert_eq!(
+            parse_authorization_input(" abc "),
+            AuthorizationInput {
+                code: Some("abc".into()),
+                state: None
+            }
+        );
         assert_eq!(parse_authorization_input(""), AuthorizationInput::default());
     }
 
     #[test]
     fn resolves_builtin_flows() {
         for key in BUILTIN_OAUTH_FLOW_KEYS {
-            let args = OAuthFlowArgs { name: Some("Radius".into()), gateway: Some("https://radius.example".into()) };
+            let args = OAuthFlowArgs {
+                name: Some("Radius".into()),
+                gateway: Some("https://radius.example".into()),
+            };
             assert!(builtin_oauth_flow(key, &args).unwrap().is_ok(), "{key}");
         }
         assert!(builtin_oauth_flow("nope", &OAuthFlowArgs::default()).is_none());
-        assert!(builtin_oauth_flow("radius", &OAuthFlowArgs::default()).unwrap().is_err());
+        assert!(
+            builtin_oauth_flow("radius", &OAuthFlowArgs::default())
+                .unwrap()
+                .is_err()
+        );
     }
 }

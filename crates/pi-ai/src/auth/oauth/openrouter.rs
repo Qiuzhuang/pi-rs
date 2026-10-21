@@ -11,11 +11,16 @@ use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
 
 use super::callback_server::{
-    CallbackOrManual, OAuthCallbackServerOptions, start_oauth_callback_server, wait_for_callback_or_manual_input,
+    CallbackOrManual, OAuthCallbackServerOptions, start_oauth_callback_server,
+    wait_for_callback_or_manual_input,
 };
-use super::http::{OAuthFetch, OAuthFetchError, OAuthHttpRequest, current_oauth_fetch, form_urlencode, send};
+use super::http::{
+    OAuthFetch, OAuthFetchError, OAuthHttpRequest, current_oauth_fetch, form_urlencode, send,
+};
 use super::pkce::generate_pkce;
-use crate::auth::types::{AuthEvent, LoginOptions, ModelAuth, OAuthAuth, OAuthCredential, ProviderAuthInteraction};
+use crate::auth::types::{
+    AuthEvent, LoginOptions, ModelAuth, OAuthAuth, OAuthCredential, ProviderAuthInteraction,
+};
 use crate::utils::provider_env::get_provider_env_value;
 
 const AUTHORIZE_URL: &str = "https://openrouter.ai/auth";
@@ -35,10 +40,15 @@ fn parse_authorization_input(input: &str) -> Option<String> {
         return None;
     }
     if let Ok(url) = url::Url::parse(value) {
-        return url.query_pairs().find(|(k, _)| k == "code").map(|(_, v)| v.into_owned());
+        return url
+            .query_pairs()
+            .find(|(k, _)| k == "code")
+            .map(|(_, v)| v.into_owned());
     }
     if value.contains("code=") {
-        return url::form_urlencoded::parse(value.as_bytes()).find(|(k, _)| k == "code").map(|(_, v)| v.into_owned());
+        return url::form_urlencoded::parse(value.as_bytes())
+            .find(|(k, _)| k == "code")
+            .map(|(_, v)| v.into_owned());
     }
     Some(value.to_string())
 }
@@ -69,14 +79,27 @@ async fn exchange_authorization_code(
     let request = OAuthHttpRequest::post(TOKEN_URL)
         .header("accept", "application/json")
         .header("content-type", "application/json")
-        .body(json!({ "code": code, "code_verifier": verifier, "code_challenge_method": "S256" }).to_string());
-    let response = match send(fetch, request, Some(signal), Some(TOKEN_EXCHANGE_TIMEOUT_MS)).await {
+        .body(
+            json!({ "code": code, "code_verifier": verifier, "code_challenge_method": "S256" })
+                .to_string(),
+        );
+    let response = match send(
+        fetch,
+        request,
+        Some(signal),
+        Some(TOKEN_EXCHANGE_TIMEOUT_MS),
+    )
+    .await
+    {
         Ok(response) => response,
         Err(error) => {
             if signal.is_cancelled() {
                 anyhow::bail!("Login cancelled");
             }
-            if matches!(error.downcast_ref::<OAuthFetchError>(), Some(OAuthFetchError::Timeout)) {
+            if matches!(
+                error.downcast_ref::<OAuthFetchError>(),
+                Some(OAuthFetchError::Timeout)
+            ) {
                 anyhow::bail!("OpenRouter OAuth token exchange timed out");
             }
             return Err(error);
@@ -93,13 +116,21 @@ async fn exchange_authorization_code(
         }
     };
     if !response.ok() {
-        let detail = error_detail(&body).map(|d| format!(": {d}")).unwrap_or_default();
-        anyhow::bail!("OpenRouter OAuth key exchange failed (HTTP {}){detail}", response.status);
+        let detail = error_detail(&body)
+            .map(|d| format!(": {d}"))
+            .unwrap_or_default();
+        anyhow::bail!(
+            "OpenRouter OAuth key exchange failed (HTTP {}){detail}",
+            response.status
+        );
     }
     match body.get("key") {
-        Some(Value::String(key)) if !key.is_empty() => {
-            Ok(OAuthCredential { access: key.clone(), refresh: String::new(), expires: NEVER_EXPIRES, extra: Map::new() })
-        }
+        Some(Value::String(key)) if !key.is_empty() => Ok(OAuthCredential {
+            access: key.clone(),
+            refresh: String::new(),
+            expires: NEVER_EXPIRES,
+            extra: Map::new(),
+        }),
         _ => anyhow::bail!("OpenRouter OAuth response carries no \"key\""),
     }
 }
@@ -122,7 +153,9 @@ async fn login_openrouter(interaction: ProviderAuthInteraction) -> anyhow::Resul
             let fetch = complete_fetch.clone();
             let verifier = verifier.clone();
             let signal = signal.clone();
-            Box::pin(async move { exchange_authorization_code(&fetch, &code, &verifier, &signal).await })
+            Box::pin(
+                async move { exchange_authorization_code(&fetch, &code, &verifier, &signal).await },
+            )
         }),
         signal: Some(interaction.signal.clone()),
         timeout_ms: Some(LOGIN_TIMEOUT_MS),
@@ -184,14 +217,25 @@ impl OAuthAuth for OpenRouterOAuth {
     fn login_label(&self) -> Option<&str> {
         Some("Sign in with OpenRouter")
     }
-    async fn login(&self, interaction: ProviderAuthInteraction, _options: Option<LoginOptions>) -> anyhow::Result<OAuthCredential> {
+    async fn login(
+        &self,
+        interaction: ProviderAuthInteraction,
+        _options: Option<LoginOptions>,
+    ) -> anyhow::Result<OAuthCredential> {
         login_openrouter(interaction).await
     }
-    async fn refresh(&self, credential: OAuthCredential, _signal: CancellationToken) -> anyhow::Result<OAuthCredential> {
+    async fn refresh(
+        &self,
+        credential: OAuthCredential,
+        _signal: CancellationToken,
+    ) -> anyhow::Result<OAuthCredential> {
         Ok(credential)
     }
     async fn to_auth(&self, credential: &OAuthCredential) -> anyhow::Result<ModelAuth> {
-        Ok(ModelAuth { api_key: Some(credential.access.clone()), ..Default::default() })
+        Ok(ModelAuth {
+            api_key: Some(credential.access.clone()),
+            ..Default::default()
+        })
     }
 }
 

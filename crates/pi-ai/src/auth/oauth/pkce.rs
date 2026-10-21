@@ -27,7 +27,10 @@ pub fn generate_pkce() -> Pkce {
     rand::thread_rng().fill_bytes(&mut bytes);
     let verifier = base64url_encode(&bytes);
     let challenge = pkce_challenge(&verifier);
-    Pkce { verifier, challenge }
+    Pkce {
+        verifier,
+        challenge,
+    }
 }
 
 #[cfg(test)]
@@ -36,7 +39,10 @@ mod tests {
 
     #[test]
     fn rfc7636_example() {
-        assert_eq!(pkce_challenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"), "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM");
+        assert_eq!(
+            pkce_challenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"),
+            "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+        );
         let pkce = generate_pkce();
         assert_eq!(pkce.verifier.len(), 43);
         assert!(!pkce.verifier.contains(['+', '/', '=']));

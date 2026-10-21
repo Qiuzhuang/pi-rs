@@ -24,7 +24,11 @@ pub enum OAuthDeviceCodePollResult<T> {
 }
 
 /// Sleep `ms`, failing with `cancel_message` when `signal` aborts.
-pub async fn abortable_sleep(ms: f64, signal: &CancellationToken, cancel_message: &str) -> anyhow::Result<()> {
+pub async fn abortable_sleep(
+    ms: f64,
+    signal: &CancellationToken,
+    cancel_message: &str,
+) -> anyhow::Result<()> {
     if signal.is_cancelled() {
         anyhow::bail!("{cancel_message}");
     }
@@ -44,11 +48,17 @@ pub struct OAuthDeviceCodePollOptions {
 
 /// Milliseconds since `origin` on tokio's clock (so paused test time applies).
 fn elapsed_ms(origin: tokio::time::Instant) -> f64 {
-    tokio::time::Instant::now().saturating_duration_since(origin).as_secs_f64() * 1000.0
+    tokio::time::Instant::now()
+        .saturating_duration_since(origin)
+        .as_secs_f64()
+        * 1000.0
 }
 
 /// Poll until the device authorization completes, fails, expires or is cancelled.
-pub async fn poll_oauth_device_code_flow<T, F, Fut>(options: OAuthDeviceCodePollOptions, mut poll: F) -> anyhow::Result<T>
+pub async fn poll_oauth_device_code_flow<T, F, Fut>(
+    options: OAuthDeviceCodePollOptions,
+    mut poll: F,
+) -> anyhow::Result<T>
 where
     F: FnMut() -> Fut,
     Fut: Future<Output = anyhow::Result<OAuthDeviceCodePollResult<T>>>,
@@ -59,8 +69,13 @@ where
         Some(seconds) => seconds * 1000.0,
         None => f64::INFINITY,
     };
-    let mut interval_ms =
-        MINIMUM_INTERVAL_MS.max((options.interval_seconds.unwrap_or(DEFAULT_POLL_INTERVAL_SECONDS) * 1000.0).floor());
+    let mut interval_ms = MINIMUM_INTERVAL_MS.max(
+        (options
+            .interval_seconds
+            .unwrap_or(DEFAULT_POLL_INTERVAL_SECONDS)
+            * 1000.0)
+            .floor(),
+    );
     let mut slow_down_responses = 0u32;
     if options.wait_before_first_poll {
         let remaining = deadline - now_ms();
@@ -90,5 +105,12 @@ where
         }
         abortable_sleep(interval_ms.min(remaining), &options.signal, CANCEL_MESSAGE).await?;
     }
-    anyhow::bail!("{}", if slow_down_responses > 0 { SLOW_DOWN_TIMEOUT_MESSAGE } else { TIMEOUT_MESSAGE })
+    anyhow::bail!(
+        "{}",
+        if slow_down_responses > 0 {
+            SLOW_DOWN_TIMEOUT_MESSAGE
+        } else {
+            TIMEOUT_MESSAGE
+        }
+    )
 }

@@ -6,9 +6,13 @@ use async_trait::async_trait;
 use serde_json::{Map, Value};
 use tokio_util::sync::CancellationToken;
 
-use super::device_code::{OAuthDeviceCodePollOptions, OAuthDeviceCodePollResult, poll_oauth_device_code_flow};
+use super::device_code::{
+    OAuthDeviceCodePollOptions, OAuthDeviceCodePollResult, poll_oauth_device_code_flow,
+};
 use super::http::{OAuthFetch, OAuthHttpRequest, current_oauth_fetch, send};
-use crate::auth::types::{AuthEvent, LoginOptions, ModelAuth, OAuthAuth, OAuthCredential, ProviderAuthInteraction};
+use crate::auth::types::{
+    AuthEvent, LoginOptions, ModelAuth, OAuthAuth, OAuthCredential, ProviderAuthInteraction,
+};
 
 const XAI_CLIENT_ID: &str = "b1a00492-073a-47ea-816f-4c329264a828";
 const XAI_SCOPE: &str = "openid profile email offline_access grok-cli:access api:access";
@@ -55,7 +59,12 @@ fn validate_verification_uri(raw: &str) -> anyhow::Result<String> {
     }
 }
 
-async fn post_form(fetch: &OAuthFetch, url: &str, fields: &[(&str, &str)], signal: &CancellationToken) -> anyhow::Result<HttpResult> {
+async fn post_form(
+    fetch: &OAuthFetch,
+    url: &str,
+    fields: &[(&str, &str)],
+    signal: &CancellationToken,
+) -> anyhow::Result<HttpResult> {
     let request = OAuthHttpRequest::post(url)
         .header("Accept", "application/json")
         .header("Content-Type", "application/x-www-form-urlencoded")
@@ -75,20 +84,46 @@ async fn post_form(fetch: &OAuthFetch, url: &str, fields: &[(&str, &str)], signa
             anyhow::bail!("xAI OAuth returned invalid JSON (HTTP {})", response.status);
         }
     };
-    Ok(HttpResult { ok: response.ok(), status: response.status, body })
+    Ok(HttpResult {
+        ok: response.ok(),
+        status: response.status,
+        body,
+    })
 }
 
 fn request_failure(action: &str, response: &HttpResult) -> anyhow::Error {
-    let error = response.body.get("error").and_then(Value::as_str).filter(|s| !s.is_empty());
-    let description = response.body.get("error_description").and_then(Value::as_str).filter(|s| !s.is_empty());
-    let detail = [error, description].into_iter().flatten().collect::<Vec<_>>().join(": ");
-    let suffix = if detail.is_empty() { String::new() } else { format!(": {detail}") };
-    anyhow::anyhow!("xAI OAuth {action} failed (HTTP {}){suffix}", response.status)
+    let error = response
+        .body
+        .get("error")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty());
+    let description = response
+        .body
+        .get("error_description")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty());
+    let detail = [error, description]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(": ");
+    let suffix = if detail.is_empty() {
+        String::new()
+    } else {
+        format!(": {detail}")
+    };
+    anyhow::anyhow!(
+        "xAI OAuth {action} failed (HTTP {}){suffix}",
+        response.status
+    )
 }
 
 fn parse_device_code(body: &Map<String, Value>) -> anyhow::Result<XaiDeviceCode> {
     // RFC 8628 allows interval 0; fall back to the poller default for non-positive values.
-    let interval_seconds = body.get("interval").and_then(Value::as_f64).filter(|i| i.is_finite() && *i > 0.0);
+    let interval_seconds = body
+        .get("interval")
+        .and_then(Value::as_f64)
+        .filter(|i| i.is_finite() && *i > 0.0);
     let verification_uri_complete = match body.get("verification_uri_complete") {
         Some(Value::String(s)) if !s.is_empty() => Some(validate_verification_uri(s)?),
         _ => None,
@@ -103,15 +138,24 @@ fn parse_device_code(body: &Map<String, Value>) -> anyhow::Result<XaiDeviceCode>
     })
 }
 
-fn credentials_from_token_response(body: &Map<String, Value>, previous_refresh: Option<&str>) -> anyhow::Result<OAuthCredential> {
+fn credentials_from_token_response(
+    body: &Map<String, Value>,
+    previous_refresh: Option<&str>,
+) -> anyhow::Result<OAuthCredential> {
     let access = required_string(body, "access_token")?;
     // xAI may omit refresh_token on refresh when the token is not rotated.
-    let refresh = match (body.get("refresh_token"), previous_refresh.filter(|r| !r.is_empty())) {
+    let refresh = match (
+        body.get("refresh_token"),
+        previous_refresh.filter(|r| !r.is_empty()),
+    ) {
         (None, Some(previous)) => previous.to_string(),
         _ => required_string(body, "refresh_token")?,
     };
-    let expires_in =
-        if body.contains_key("expires_in") { positive_number(body, "expires_in")? } else { DEFAULT_TOKEN_LIFETIME_SECONDS };
+    let expires_in = if body.contains_key("expires_in") {
+        positive_number(body, "expires_in")?
+    } else {
+        DEFAULT_TOKEN_LIFETIME_SECONDS
+    };
     Ok(OAuthCredential {
         access,
         refresh,
@@ -120,11 +164,18 @@ fn credentials_from_token_response(body: &Map<String, Value>, previous_refresh: 
     })
 }
 
-async fn request_device_code(fetch: &OAuthFetch, signal: &CancellationToken) -> anyhow::Result<XaiDeviceCode> {
+async fn request_device_code(
+    fetch: &OAuthFetch,
+    signal: &CancellationToken,
+) -> anyhow::Result<XaiDeviceCode> {
     let response = post_form(
         fetch,
         XAI_DEVICE_CODE_URL,
-        &[("client_id", XAI_CLIENT_ID), ("scope", XAI_SCOPE), ("referrer", "pi")],
+        &[
+            ("client_id", XAI_CLIENT_ID),
+            ("scope", XAI_SCOPE),
+            ("referrer", "pi"),
+        ],
         signal,
     )
     .await?;
@@ -134,7 +185,11 @@ async fn request_device_code(fetch: &OAuthFetch, signal: &CancellationToken) -> 
     parse_device_code(&response.body)
 }
 
-async fn poll_for_tokens(fetch: &OAuthFetch, device: &XaiDeviceCode, signal: &CancellationToken) -> anyhow::Result<OAuthCredential> {
+async fn poll_for_tokens(
+    fetch: &OAuthFetch,
+    device: &XaiDeviceCode,
+    signal: &CancellationToken,
+) -> anyhow::Result<OAuthCredential> {
     poll_oauth_device_code_flow(
         OAuthDeviceCodePollOptions {
             interval_seconds: device.interval_seconds,
@@ -155,29 +210,45 @@ async fn poll_for_tokens(fetch: &OAuthFetch, device: &XaiDeviceCode, signal: &Ca
             )
             .await?;
             if response.ok {
-                return Ok(OAuthDeviceCodePollResult::Complete(credentials_from_token_response(&response.body, None)?));
+                return Ok(OAuthDeviceCodePollResult::Complete(
+                    credentials_from_token_response(&response.body, None)?,
+                ));
             }
             Ok(match response.body.get("error").and_then(Value::as_str) {
                 Some("authorization_pending") => OAuthDeviceCodePollResult::Pending,
-                Some("slow_down") => {
-                    OAuthDeviceCodePollResult::SlowDown { interval_seconds: response.body.get("interval").and_then(Value::as_f64) }
-                }
+                Some("slow_down") => OAuthDeviceCodePollResult::SlowDown {
+                    interval_seconds: response.body.get("interval").and_then(Value::as_f64),
+                },
                 Some("access_denied" | "authorization_denied") => {
-                    OAuthDeviceCodePollResult::Failed { message: "xAI device authorization was denied".into() }
+                    OAuthDeviceCodePollResult::Failed {
+                        message: "xAI device authorization was denied".into(),
+                    }
                 }
-                Some("expired_token") => OAuthDeviceCodePollResult::Failed { message: "xAI device code expired".into() },
-                _ => OAuthDeviceCodePollResult::Failed { message: request_failure("device token polling", &response).to_string() },
+                Some("expired_token") => OAuthDeviceCodePollResult::Failed {
+                    message: "xAI device code expired".into(),
+                },
+                _ => OAuthDeviceCodePollResult::Failed {
+                    message: request_failure("device token polling", &response).to_string(),
+                },
             })
         },
     )
     .await
 }
 
-async fn refresh_xai_token(fetch: &OAuthFetch, refresh: &str, signal: &CancellationToken) -> anyhow::Result<OAuthCredential> {
+async fn refresh_xai_token(
+    fetch: &OAuthFetch,
+    refresh: &str,
+    signal: &CancellationToken,
+) -> anyhow::Result<OAuthCredential> {
     let response = post_form(
         fetch,
         XAI_TOKEN_URL,
-        &[("grant_type", "refresh_token"), ("client_id", XAI_CLIENT_ID), ("refresh_token", refresh)],
+        &[
+            ("grant_type", "refresh_token"),
+            ("client_id", XAI_CLIENT_ID),
+            ("refresh_token", refresh),
+        ],
         signal,
     )
     .await?;
@@ -201,22 +272,36 @@ impl OAuthAuth for XaiOAuth {
     fn login_label(&self) -> Option<&str> {
         Some("Sign in with SuperGrok or X Premium")
     }
-    async fn login(&self, interaction: ProviderAuthInteraction, _options: Option<LoginOptions>) -> anyhow::Result<OAuthCredential> {
+    async fn login(
+        &self,
+        interaction: ProviderAuthInteraction,
+        _options: Option<LoginOptions>,
+    ) -> anyhow::Result<OAuthCredential> {
         let fetch = current_oauth_fetch();
         let device = request_device_code(&fetch, &interaction.signal).await?;
         interaction.interaction.notify(AuthEvent::DeviceCode {
             user_code: device.user_code.clone(),
-            verification_uri: device.verification_uri_complete.clone().unwrap_or_else(|| device.verification_uri.clone()),
+            verification_uri: device
+                .verification_uri_complete
+                .clone()
+                .unwrap_or_else(|| device.verification_uri.clone()),
             interval_seconds: device.interval_seconds.map(|i| i as u64),
             expires_in_seconds: Some(device.expires_in_seconds as u64),
         });
         poll_for_tokens(&fetch, &device, &interaction.signal).await
     }
-    async fn refresh(&self, credential: OAuthCredential, signal: CancellationToken) -> anyhow::Result<OAuthCredential> {
+    async fn refresh(
+        &self,
+        credential: OAuthCredential,
+        signal: CancellationToken,
+    ) -> anyhow::Result<OAuthCredential> {
         refresh_xai_token(&current_oauth_fetch(), &credential.refresh, &signal).await
     }
     async fn to_auth(&self, credential: &OAuthCredential) -> anyhow::Result<ModelAuth> {
-        Ok(ModelAuth { api_key: Some(credential.access.clone()), ..Default::default() })
+        Ok(ModelAuth {
+            api_key: Some(credential.access.clone()),
+            ..Default::default()
+        })
     }
 }
 

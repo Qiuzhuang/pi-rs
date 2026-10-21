@@ -7,10 +7,13 @@ use async_trait::async_trait;
 use futures::future::BoxFuture;
 use parking_lot::Mutex;
 use pi_ai::auth::oauth::{OAuthFetch, OAuthHttpRequest, OAuthHttpResponse};
-use pi_ai::auth::{AuthEvent, AuthInteraction, AuthPrompt, AuthPromptKind, ProviderAuthInteraction};
+use pi_ai::auth::{
+    AuthEvent, AuthInteraction, AuthPrompt, AuthPromptKind, ProviderAuthInteraction,
+};
 use tokio_util::sync::CancellationToken;
 
-pub type PromptHandler = Arc<dyn Fn(AuthPrompt, &Recorder) -> BoxFuture<'static, anyhow::Result<String>> + Send + Sync>;
+pub type PromptHandler =
+    Arc<dyn Fn(AuthPrompt, &Recorder) -> BoxFuture<'static, anyhow::Result<String>> + Send + Sync>;
 pub type NotifyHook = Arc<dyn Fn(&AuthEvent) + Send + Sync>;
 
 /// Records prompts and events.
@@ -28,10 +31,19 @@ impl Recorder {
         })
     }
     pub fn device_codes(&self) -> Vec<AuthEvent> {
-        self.events.lock().iter().filter(|e| matches!(e, AuthEvent::DeviceCode { .. })).cloned().collect()
+        self.events
+            .lock()
+            .iter()
+            .filter(|e| matches!(e, AuthEvent::DeviceCode { .. }))
+            .cloned()
+            .collect()
     }
     pub fn manual_signal(&self) -> Option<CancellationToken> {
-        self.prompts.lock().iter().find(|p| p.kind == AuthPromptKind::ManualCode).and_then(|p| p.signal.clone())
+        self.prompts
+            .lock()
+            .iter()
+            .find(|p| p.kind == AuthPromptKind::ManualCode)
+            .and_then(|p| p.signal.clone())
     }
 }
 
@@ -55,10 +67,24 @@ impl AuthInteraction for TestInteraction {
     }
 }
 
-pub fn interaction(handler: PromptHandler, notify: Option<NotifyHook>, signal: Option<CancellationToken>) -> (ProviderAuthInteraction, Arc<Recorder>) {
+pub fn interaction(
+    handler: PromptHandler,
+    notify: Option<NotifyHook>,
+    signal: Option<CancellationToken>,
+) -> (ProviderAuthInteraction, Arc<Recorder>) {
     let recorder = Arc::new(Recorder::default());
-    let interaction = TestInteraction { recorder: recorder.clone(), handler, notify_hook: notify };
-    (ProviderAuthInteraction { interaction: Arc::new(interaction), signal: signal.unwrap_or_default() }, recorder)
+    let interaction = TestInteraction {
+        recorder: recorder.clone(),
+        handler,
+        notify_hook: notify,
+    };
+    (
+        ProviderAuthInteraction {
+            interaction: Arc::new(interaction),
+            signal: signal.unwrap_or_default(),
+        },
+        recorder,
+    )
 }
 
 /// Answer select prompts with `select` and other prompts with `answer(prompt, recorder)`.
@@ -67,7 +93,11 @@ pub fn answering(
     answer: impl Fn(&AuthPrompt, &Recorder) -> anyhow::Result<String> + Send + Sync + 'static,
 ) -> PromptHandler {
     Arc::new(move |prompt, recorder| {
-        let result = if prompt.kind == AuthPromptKind::Select { Ok(select.to_string()) } else { answer(&prompt, recorder) };
+        let result = if prompt.kind == AuthPromptKind::Select {
+            Ok(select.to_string())
+        } else {
+            answer(&prompt, recorder)
+        };
         Box::pin(async move { result })
     })
 }
@@ -96,7 +126,12 @@ pub struct FetchStub {
     pub fetch: OAuthFetch,
 }
 
-pub fn stub_fetch(handler: impl Fn(&OAuthHttpRequest, usize) -> anyhow::Result<OAuthHttpResponse> + Send + Sync + 'static) -> FetchStub {
+pub fn stub_fetch(
+    handler: impl Fn(&OAuthHttpRequest, usize) -> anyhow::Result<OAuthHttpResponse>
+    + Send
+    + Sync
+    + 'static,
+) -> FetchStub {
     let requests: Arc<Mutex<Vec<OAuthHttpRequest>>> = Arc::default();
     let sink = requests.clone();
     let handler = Arc::new(handler);
@@ -125,7 +160,11 @@ pub async fn http_get(url: &str) -> (u16, String) {
 }
 
 pub fn query_param(url: &str, name: &str) -> Option<String> {
-    url::Url::parse(url).ok()?.query_pairs().find(|(k, _)| k == name).map(|(_, v)| v.into_owned())
+    url::Url::parse(url)
+        .ok()?
+        .query_pairs()
+        .find(|(k, _)| k == name)
+        .map(|(_, v)| v.into_owned())
 }
 
 /// A JWT-shaped token whose payload carries a ChatGPT account id.
@@ -133,8 +172,10 @@ pub fn access_token_for(account: &str) -> String {
     use base64::Engine;
     let engine = base64::engine::general_purpose::STANDARD;
     let header = engine.encode(r#"{"alg":"none"}"#);
-    let payload =
-        engine.encode(serde_json::json!({ "https://api.openai.com/auth": { "chatgpt_account_id": account } }).to_string());
+    let payload = engine.encode(
+        serde_json::json!({ "https://api.openai.com/auth": { "chatgpt_account_id": account } })
+            .to_string(),
+    );
     format!("{header}.{payload}.signature")
 }
 

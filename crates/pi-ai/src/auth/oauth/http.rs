@@ -24,11 +24,21 @@ pub struct OAuthHttpRequest {
 
 impl OAuthHttpRequest {
     pub fn get(url: impl Into<String>) -> Self {
-        Self { method: "GET".into(), url: url.into(), headers: Vec::new(), body: None }
+        Self {
+            method: "GET".into(),
+            url: url.into(),
+            headers: Vec::new(),
+            body: None,
+        }
     }
 
     pub fn post(url: impl Into<String>) -> Self {
-        Self { method: "POST".into(), url: url.into(), headers: Vec::new(), body: None }
+        Self {
+            method: "POST".into(),
+            url: url.into(),
+            headers: Vec::new(),
+            body: None,
+        }
     }
 
     pub fn header(mut self, name: &str, value: &str) -> Self {
@@ -47,16 +57,24 @@ impl OAuthHttpRequest {
     }
 
     pub fn header_value(&self, name: &str) -> Option<&str> {
-        self.headers.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str())
+        self.headers
+            .iter()
+            .find(|(n, _)| n.eq_ignore_ascii_case(name))
+            .map(|(_, v)| v.as_str())
     }
 
     /// Parsed form body fields.
     pub fn form_fields(&self) -> Vec<(String, String)> {
-        url::form_urlencoded::parse(self.body.as_deref().unwrap_or_default().as_bytes()).into_owned().collect()
+        url::form_urlencoded::parse(self.body.as_deref().unwrap_or_default().as_bytes())
+            .into_owned()
+            .collect()
     }
 
     pub fn form_field(&self, name: &str) -> Option<String> {
-        self.form_fields().into_iter().find(|(k, _)| k == name).map(|(_, v)| v)
+        self.form_fields()
+            .into_iter()
+            .find(|(k, _)| k == name)
+            .map(|(_, v)| v)
     }
 
     pub fn json_body(&self) -> Option<Value> {
@@ -89,12 +107,19 @@ impl OAuthHttpResponse {
             .and_then(|s| s.canonical_reason())
             .unwrap_or_default()
             .to_string();
-        Self { status, status_text, headers: Vec::new(), body: body.into() }
+        Self {
+            status,
+            status_text,
+            headers: Vec::new(),
+            body: body.into(),
+        }
     }
 
     pub fn json_response(status: u16, body: &Value) -> Self {
         let mut response = Self::new(status, body.to_string());
-        response.headers.push(("content-type".into(), "application/json".into()));
+        response
+            .headers
+            .push(("content-type".into(), "application/json".into()));
         response
     }
 
@@ -108,12 +133,16 @@ impl OAuthHttpResponse {
     }
 
     pub fn header(&self, name: &str) -> Option<&str> {
-        self.headers.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str())
+        self.headers
+            .iter()
+            .find(|(n, _)| n.eq_ignore_ascii_case(name))
+            .map(|(_, v)| v.as_str())
     }
 
     /// `response.json()`.
     pub fn json(&self) -> anyhow::Result<Value> {
-        serde_json::from_str(&self.body).map_err(|e| anyhow::anyhow!("Unexpected token in JSON: {e}"))
+        serde_json::from_str(&self.body)
+            .map_err(|e| anyhow::anyhow!("Unexpected token in JSON: {e}"))
     }
 
     /// `readJson`: the body as an object, `None` when it is not a JSON object.
@@ -139,7 +168,9 @@ pub enum OAuthFetchError {
     Network(String),
 }
 
-pub type OAuthFetch = Arc<dyn Fn(OAuthHttpRequest) -> BoxFuture<'static, anyhow::Result<OAuthHttpResponse>> + Send + Sync>;
+pub type OAuthFetch = Arc<
+    dyn Fn(OAuthHttpRequest) -> BoxFuture<'static, anyhow::Result<OAuthHttpResponse>> + Send + Sync,
+>;
 
 tokio::task_local! {
     static OAUTH_FETCH: OAuthFetch;
@@ -152,7 +183,9 @@ pub async fn with_oauth_fetch<F: Future>(fetch: OAuthFetch, future: F) -> F::Out
 
 /// The OAuth transport of the current task (reqwest unless overridden).
 pub fn current_oauth_fetch() -> OAuthFetch {
-    OAUTH_FETCH.try_with(Clone::clone).unwrap_or_else(|_| default_oauth_fetch())
+    OAUTH_FETCH
+        .try_with(Clone::clone)
+        .unwrap_or_else(|_| default_oauth_fetch())
 }
 
 /// The reqwest-backed transport (honors the proxy environment).
@@ -168,14 +201,25 @@ pub fn default_oauth_fetch() -> OAuthFetch {
             if let Some(body) = request.body {
                 builder = builder.body(body);
             }
-            let response = builder.send().await.map_err(|e| OAuthFetchError::Network(describe(&e)))?;
+            let response = builder
+                .send()
+                .await
+                .map_err(|e| OAuthFetchError::Network(describe(&e)))?;
             let status = response.status();
             let headers = response
                 .headers()
                 .iter()
-                .map(|(k, v)| (k.as_str().to_string(), String::from_utf8_lossy(v.as_bytes()).into_owned()))
+                .map(|(k, v)| {
+                    (
+                        k.as_str().to_string(),
+                        String::from_utf8_lossy(v.as_bytes()).into_owned(),
+                    )
+                })
                 .collect();
-            let body = response.text().await.map_err(|e| OAuthFetchError::Network(describe(&e)))?;
+            let body = response
+                .text()
+                .await
+                .map_err(|e| OAuthFetchError::Network(describe(&e)))?;
             Ok(OAuthHttpResponse {
                 status: status.as_u16(),
                 status_text: status.canonical_reason().unwrap_or_default().to_string(),
@@ -231,5 +275,8 @@ pub async fn send(
 
 /// Whether an error is a `fetch` abort or timeout.
 pub fn is_fetch_abort(error: &anyhow::Error) -> bool {
-    matches!(error.downcast_ref::<OAuthFetchError>(), Some(OAuthFetchError::Aborted | OAuthFetchError::Timeout))
+    matches!(
+        error.downcast_ref::<OAuthFetchError>(),
+        Some(OAuthFetchError::Aborted | OAuthFetchError::Timeout)
+    )
 }

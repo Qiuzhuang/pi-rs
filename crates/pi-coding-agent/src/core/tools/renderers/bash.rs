@@ -8,10 +8,10 @@ use pi_tui::tui::ComponentRef;
 use serde_json::Value;
 use std::sync::Arc;
 
-pub const BASH_UPDATE_THROTTLE_MS: u64 = 100;
+pub const BASH_UPDATE_THROTTLE_MS: i64 = 100;
 
 #[derive(Clone)]
-pub struct CreateShellRenderersCreateShellRenderersResult {
+pub struct EmptyCreateShellRenderersResult {
     /// Custom rendering for tool call display
     pub render_call:
         Option<Arc<dyn Fn(Value, Arc<Theme>, ToolRenderContext) -> ComponentRef + Send + Sync>>,
@@ -31,6 +31,6 @@ pub struct CreateShellRenderersCreateShellRenderersResult {
 }
 
 /// Shell renderers are shared by bash and powershell, which differ only in the prompt they display.
-pub fn create_shell_renderers(prompt: &str) -> CreateShellRenderersCreateShellRenderersResult {
+pub fn create_shell_renderers(prompt: &str) -> EmptyCreateShellRenderersResult {
     todo!("port core/tools/renderers/bash.ts:createShellRenderers")
 }

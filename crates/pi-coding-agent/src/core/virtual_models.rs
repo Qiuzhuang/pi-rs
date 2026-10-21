@@ -1,6 +1,7 @@
 //! Port of `packages/coding-agent/src/core/virtual-models.ts`.
 
 use crate::core::session_manager::SessionEntry;
+use futures::future::BoxFuture;
 use pi_agent::types::AgentMessage;
 use pi_ai::models::Provider;
 use pi_ai::providers::model_schema::ModelThinkingLevel;
@@ -121,42 +122,25 @@ impl VirtualModelDefinitionInput {
     }
 }
 
-#[async_trait::async_trait]
-pub trait VirtualModelDefinition: Send + Sync {
+#[derive(Clone)]
+pub struct VirtualModelDefinition {
     /// Provider the virtual model is listed under. May be a provider with physical models.
-    fn provider(&self) -> String;
-    fn set_provider(&self, value: String);
+    pub provider: String,
     /// Model id. Must not be the id of a physical model of `provider`.
-    fn id(&self) -> String;
-    fn set_id(&self, value: String);
-    fn name(&self) -> String;
-    fn set_name(&self, value: String);
+    pub id: String,
+    pub name: String,
     /// Thinking levels offered for selection. Defaults to `["off"]`.
-    /// Optional in TS: the default implementation means "not provided".
-    fn thinking_levels(&self) -> Option<Vec<ModelThinkingLevel>> {
-        None
-    }
-    fn set_thinking_levels(&self, value: Option<Vec<ModelThinkingLevel>>);
+    pub thinking_levels: Option<Vec<ModelThinkingLevel>>,
     /// Limits shown before the first response. Afterwards, Pi uses the limits of the physical model
     /// that answered. Unset limits are unknown (0).
-    /// Optional in TS: the default implementation means "not provided".
-    fn context_window(&self) -> Option<u64> {
-        None
-    }
-    fn set_context_window(&self, value: Option<u64>);
-    /// Optional in TS: the default implementation means "not provided".
-    fn max_tokens(&self) -> Option<u64> {
-        None
-    }
-    fn set_max_tokens(&self, value: Option<u64>);
+    pub context_window: Option<u64>,
+    pub max_tokens: Option<u64>,
     /// Input types accepted for selection. Defaults to text and images; routed models without image support get placeholders.
-    /// Optional in TS: the default implementation means "not provided".
-    fn input(&self) -> Option<Vec<VirtualModelDefinitionInput>> {
-        None
-    }
-    fn set_input(&self, value: Option<Vec<VirtualModelDefinitionInput>>);
+    pub input: Option<Vec<VirtualModelDefinitionInput>>,
     /// Pick the physical model, which must have credentials, and thinking level for one request.
-    async fn route(&self, request: &ModelRouteRequest) -> anyhow::Result<ModelRoute>;
+    pub route: Arc<
+        dyn Fn(ModelRouteRequest) -> BoxFuture<'static, anyhow::Result<ModelRoute>> + Send + Sync,
+    >,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -177,7 +161,7 @@ pub fn find_latest_response(messages: &[AgentMessage]) -> Option<AssistantMessag
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GetBranchSelectionGetBranchSelectionResult {
+pub struct EmptyGetBranchSelectionResult {
     pub provider: String,
     pub model_id: String,
 }
@@ -191,7 +175,7 @@ pub struct GetBranchSelectionGetBranchSelectionResult {
 pub fn get_branch_selection(
     branch: &[SessionEntry],
     get_model: Arc<dyn Fn(String, String) -> Option<Model> + Send + Sync>,
-) -> Option<GetBranchSelectionGetBranchSelectionResult> {
+) -> Option<EmptyGetBranchSelectionResult> {
     todo!("port core/virtual-models.ts:getBranchSelection")
 }
 

@@ -1,5 +1,6 @@
 //! Port of `packages/coding-agent/src/extensions/codemode/tool.ts`.
 
+use crate::compat::CodemodeJsonSchema;
 use crate::core::extensions::types::ToolDefinition;
 use crate::core::extensions::types::ToolNamespace;
 use crate::core::model_registry::ModelRegistry;
@@ -50,12 +51,10 @@ pub static CODEMODE_SCHEMA: LazyLock<Value> =
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CodemodeToolInputValue {
+pub struct CodemodeToolInput {
     /// Raw JavaScript source.
     pub code: String,
 }
-
-pub type CodemodeToolInput = CodemodeToolInputValue;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum CodemodeNestedCallStatus {
@@ -125,12 +124,12 @@ pub static CODEMODE_DOCS_PATH: LazyLock<Value> =
     LazyLock::new(|| todo!("port extensions/codemode/tool.ts:CODEMODE_DOCS_PATH"));
 
 /// Default for {@link CodemodeDescriptionOptions.inlineBudget}, in estimated tokens.
-pub static DEFAULT_CODEMODE_INLINE_BUDGET: LazyLock<f64> =
+pub static DEFAULT_CODEMODE_INLINE_BUDGET: LazyLock<i64> =
     LazyLock::new(|| todo!("port extensions/codemode/tool.ts:DEFAULT_CODEMODE_INLINE_BUDGET"));
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ToCodemodeDeclarationToCodemodeDeclarationResult {
+pub struct EmptyToCodemodeDeclarationResult {
     /// The script calls tools as `tools.<id>(args)`, where `<id>` is the name with characters that
     /// are not valid in identifiers replaced by `_` (see `toCodemodeIdentifier`), and also as
     /// `tools["<name>"](args)`. Globals are called as `<name>(args)` and must be identifiers, or
@@ -141,10 +140,10 @@ pub struct ToCodemodeDeclarationToCodemodeDeclarationResult {
     pub description: Option<String>,
     /// Schema of the single argument. Rendered as the parameter type; `unknown` when omitted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub input_schema: Option<Value /* TS: pi-codemode::CodemodeJsonSchema */>,
+    pub input_schema: Option<CodemodeJsonSchema>,
     /// Schema of the resolved value. Rendered as the promise type; `unknown` when omitted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub output_schema: Option<Value /* TS: pi-codemode::CodemodeJsonSchema */>,
+    pub output_schema: Option<CodemodeJsonSchema>,
     /// Globals only: `execute` receives all call arguments as an array instead of the first one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spread: Option<bool>,
@@ -159,7 +158,7 @@ pub struct ToCodemodeDeclarationToCodemodeDeclarationResult {
 pub fn to_codemode_declaration(
     tool: AgentToolRef,
     guidelines: Option<&[String]>,
-) -> ToCodemodeDeclarationToCodemodeDeclarationResult {
+) -> EmptyToCodemodeDeclarationResult {
     todo!("port extensions/codemode/tool.ts:toCodemodeDeclaration")
 }
 
@@ -217,9 +216,7 @@ pub fn create_codemode_description(
     todo!("port extensions/codemode/tool.ts:createCodemodeDescription")
 }
 
-pub fn create_codemode_tool_definition(
-    options: Option<&CodemodeToolOptions>,
-) -> Arc<dyn ToolDefinition> {
+pub fn create_codemode_tool_definition(options: Option<&CodemodeToolOptions>) -> ToolDefinition {
     todo!("port extensions/codemode/tool.ts:createCodemodeToolDefinition")
 }
 

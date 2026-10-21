@@ -15,7 +15,7 @@ pub static MODELS_JSON_SCHEMAS: LazyLock<Value> =
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ModelsJsonModelValueInputLimitsImagesResize {
+pub struct ModelsJsonModelInputLimitsImagesResize {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_width: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -29,9 +29,9 @@ pub struct ModelsJsonModelValueInputLimitsImagesResize {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ModelsJsonModelValueInputLimitsImages {
+pub struct ModelsJsonModelInputLimitsImages {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub resize: Option<ModelsJsonModelValueInputLimitsImagesResize>,
+    pub resize: Option<ModelsJsonModelInputLimitsImagesResize>,
     /// Maximum images accepted in one provider message.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_per_message: Option<i64>,
@@ -42,32 +42,32 @@ pub struct ModelsJsonModelValueInputLimitsImages {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ModelsJsonModelValueInputLimits {
+pub struct ModelsJsonModelInputLimits {
     /// Maximum serialized provider request size in bytes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_request_bytes: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub images: Option<ModelsJsonModelValueInputLimitsImages>,
+    pub images: Option<ModelsJsonModelInputLimitsImages>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ModelsJsonModelValueCostTiers {
+pub struct ModelsJsonModelCostTiers {
     /// Use this tier when total request input exceeds this token count.
     pub input_tokens_above: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ModelsJsonModelValueCost {
+pub struct ModelsJsonModelCost {
     /// Request-wide pricing tiers. The highest matching input threshold applies to the full request.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tiers: Option<Vec<ModelsJsonModelValueCostTiers>>,
+    pub tiers: Option<Vec<ModelsJsonModelCostTiers>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ModelsJsonModelValueSamplingParamsByThinkingLevel {
+pub struct ModelsJsonModelSamplingParamsByThinkingLevel {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub off: Option<IndexMap<String, Value>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -86,11 +86,11 @@ pub struct ModelsJsonModelValueSamplingParamsByThinkingLevel {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ModelsJsonModelValueCompat {}
+pub struct ModelsJsonModelCompat {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ModelsJsonModelValue {
+pub struct ModelsJsonModel {
     /// Model ID sent to the API.
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -109,9 +109,9 @@ pub struct ModelsJsonModelValue {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input: Option<Vec<Value>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub input_limits: Option<ModelsJsonModelValueInputLimits>,
+    pub input_limits: Option<ModelsJsonModelInputLimits>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cost: Option<ModelsJsonModelValueCost>,
+    pub cost: Option<ModelsJsonModelCost>,
     /// Best-effort prompt cache lifetime in seconds for the short and long retention tiers. Pi warms only tiers with a known lifetime.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt_cache: Option<IndexMap<String, f64>>,
@@ -124,21 +124,18 @@ pub struct ModelsJsonModelValue {
     pub sampling_params: Option<IndexMap<String, Value>>,
     /// samplingParams per thinking level, merged over samplingParams.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sampling_params_by_thinking_level:
-        Option<ModelsJsonModelValueSamplingParamsByThinkingLevel>,
+    pub sampling_params_by_thinking_level: Option<ModelsJsonModelSamplingParamsByThinkingLevel>,
     /// Request headers. Values resolve like apiKey.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub headers: Option<IndexMap<String, String>>,
     /// Provider and model compatibility overrides.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub compat: Option<ModelsJsonModelValueCompat>,
+    pub compat: Option<ModelsJsonModelCompat>,
 }
-
-pub type ModelsJsonModel = ModelsJsonModelValue;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ModelsJsonModelOverrideValueInputLimitsImagesResize {
+pub struct ModelsJsonModelOverrideInputLimitsImagesResize {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_width: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -152,9 +149,9 @@ pub struct ModelsJsonModelOverrideValueInputLimitsImagesResize {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ModelsJsonModelOverrideValueInputLimitsImages {
+pub struct ModelsJsonModelOverrideInputLimitsImages {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub resize: Option<ModelsJsonModelOverrideValueInputLimitsImagesResize>,
+    pub resize: Option<ModelsJsonModelOverrideInputLimitsImagesResize>,
     /// Maximum images accepted in one provider message.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_per_message: Option<i64>,
@@ -165,32 +162,32 @@ pub struct ModelsJsonModelOverrideValueInputLimitsImages {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ModelsJsonModelOverrideValueInputLimits {
+pub struct ModelsJsonModelOverrideInputLimits {
     /// Maximum serialized provider request size in bytes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_request_bytes: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub images: Option<ModelsJsonModelOverrideValueInputLimitsImages>,
+    pub images: Option<ModelsJsonModelOverrideInputLimitsImages>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ModelsJsonModelOverrideValueCostTiers {
+pub struct ModelsJsonModelOverrideCostTiers {
     /// Use this tier when total request input exceeds this token count.
     pub input_tokens_above: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ModelsJsonModelOverrideValueCost {
+pub struct ModelsJsonModelOverrideCost {
     /// Request-wide pricing tiers. The highest matching input threshold applies to the full request.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tiers: Option<Vec<ModelsJsonModelOverrideValueCostTiers>>,
+    pub tiers: Option<Vec<ModelsJsonModelOverrideCostTiers>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ModelsJsonModelOverrideValueSamplingParamsByThinkingLevel {
+pub struct ModelsJsonModelOverrideSamplingParamsByThinkingLevel {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub off: Option<IndexMap<String, Value>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -209,11 +206,11 @@ pub struct ModelsJsonModelOverrideValueSamplingParamsByThinkingLevel {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ModelsJsonModelOverrideValueCompat {}
+pub struct ModelsJsonModelOverrideCompat {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ModelsJsonModelOverrideValue {
+pub struct ModelsJsonModelOverride {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -224,9 +221,9 @@ pub struct ModelsJsonModelOverrideValue {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input: Option<Vec<Value>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub input_limits: Option<ModelsJsonModelOverrideValueInputLimits>,
+    pub input_limits: Option<ModelsJsonModelOverrideInputLimits>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cost: Option<ModelsJsonModelOverrideValueCost>,
+    pub cost: Option<ModelsJsonModelOverrideCost>,
     /// Best-effort prompt cache lifetime in seconds for the short and long retention tiers. Pi warms only tiers with a known lifetime.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt_cache: Option<IndexMap<String, f64>>,
@@ -240,24 +237,22 @@ pub struct ModelsJsonModelOverrideValue {
     /// samplingParams per thinking level, merged over samplingParams.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sampling_params_by_thinking_level:
-        Option<ModelsJsonModelOverrideValueSamplingParamsByThinkingLevel>,
+        Option<ModelsJsonModelOverrideSamplingParamsByThinkingLevel>,
     /// Request headers. Values resolve like apiKey.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub headers: Option<IndexMap<String, String>>,
     /// Provider and model compatibility overrides.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub compat: Option<ModelsJsonModelOverrideValueCompat>,
+    pub compat: Option<ModelsJsonModelOverrideCompat>,
 }
 
-pub type ModelsJsonModelOverride = ModelsJsonModelOverrideValue;
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelsJsonProviderCompat {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ModelsJsonProviderValueCompat {}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ModelsJsonProviderValue {
+pub struct ModelsJsonProvider {
     /// Display name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
@@ -278,7 +273,7 @@ pub struct ModelsJsonProviderValue {
     pub headers: Option<IndexMap<String, String>>,
     /// Provider and model compatibility overrides.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub compat: Option<ModelsJsonProviderValueCompat>,
+    pub compat: Option<ModelsJsonProviderCompat>,
     /// Whether to send the resolved API key as Authorization: Bearer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auth_header: Option<bool>,
@@ -287,8 +282,6 @@ pub struct ModelsJsonProviderValue {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_overrides: Option<IndexMap<String, ModelsJsonModelOverride>>,
 }
-
-pub type ModelsJsonProvider = ModelsJsonProviderValue;
 
 /// One immutable load of models.json.
 pub struct ModelConfig {

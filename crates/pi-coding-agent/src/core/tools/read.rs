@@ -15,7 +15,7 @@ pub static READ_TOOL_SYSTEM_PROMPT_CONTRIBUTION: LazyLock<Value> =
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ReadToolInputValue {
+pub struct ReadToolInput {
     /// Path to the file to read (relative or absolute)
     pub path: String,
     /// Line number to start reading from (1-indexed)
@@ -25,8 +25,6 @@ pub struct ReadToolInputValue {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<i64>,
 }
-
-pub type ReadToolInput = ReadToolInputValue;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -81,7 +79,7 @@ pub struct ReadToolOptions {
 pub fn create_read_tool_definition(
     cwd: &str,
     options: Option<&ReadToolOptions>,
-) -> anyhow::Result<Arc<dyn ToolDefinition>> {
+) -> anyhow::Result<ToolDefinition> {
     todo!("port core/tools/read.ts:createReadToolDefinition")
 }
 

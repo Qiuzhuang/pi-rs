@@ -141,14 +141,14 @@ pub struct LoadProjectContextFilesOptions {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct LoadProjectContextFilesLoadProjectContextFilesResult {
+pub struct EmptyLoadProjectContextFilesResult {
     pub path: String,
     pub content: String,
 }
 
 pub fn load_project_context_files(
     options: &LoadProjectContextFilesOptions,
-) -> Vec<LoadProjectContextFilesLoadProjectContextFilesResult> {
+) -> Vec<EmptyLoadProjectContextFilesResult> {
     todo!("port core/resource-loader.ts:loadProjectContextFiles")
 }
 

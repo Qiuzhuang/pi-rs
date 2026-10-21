@@ -252,7 +252,7 @@ pub struct AgentSessionConfig {
     /// Resource loader for extensions, skills, prompts, themes, context files, and system prompt
     pub resource_loader: Arc<dyn ResourceLoader>,
     /// SDK custom tools registered outside extensions
-    pub custom_tools: Option<Vec<Arc<dyn ToolDefinition>>>,
+    pub custom_tools: Option<Vec<ToolDefinition>>,
     /// Canonical model/auth runtime used by coding-agent internals.
     pub model_runtime: Arc<ModelRuntime>,
     /// Keeps the prompt cache entry of the last session request warm.
@@ -288,7 +288,7 @@ pub struct AgentSessionConfig {
 pub struct ExtensionBindings {
     pub ui_context: Option<Arc<dyn ExtensionUIContext>>,
     pub mode: Option<ExtensionMode>,
-    pub command_context_actions: Option<ExtensionCommandContextActions>,
+    pub command_context_actions: Option<Arc<dyn ExtensionCommandContextActions>>,
     pub abort_handler: Option<Arc<dyn Fn() + Send + Sync>>,
     pub shutdown_handler: Option<ShutdownHandler>,
     pub on_error: Option<ExtensionErrorListener>,
@@ -419,7 +419,7 @@ pub struct SessionStats {
 
 #[derive(Clone)]
 pub struct ToolDefinitionEntry {
-    pub definition: Arc<dyn ToolDefinition>,
+    pub definition: ToolDefinition,
     pub source_info: SourceInfo,
 }
 
@@ -724,7 +724,7 @@ impl AgentSession {
         todo!("port core/agent-session.ts:AgentSession.getAllTools")
     }
 
-    pub fn get_tool_definition(&self, name: &str) -> Option<Arc<dyn ToolDefinition>> {
+    pub fn get_tool_definition(&self, name: &str) -> Option<ToolDefinition> {
         todo!("port core/agent-session.ts:AgentSession.getToolDefinition")
     }
 
@@ -1146,7 +1146,7 @@ impl AgentSession {
         todo!("port core/agent-session.ts:AgentSession.getLastAssistantText")
     }
 
-    pub fn create_replaced_session_context(&self) -> Arc<dyn ReplacedSessionContext> {
+    pub fn create_replaced_session_context(&self) -> ReplacedSessionContext {
         todo!("port core/agent-session.ts:AgentSession.createReplacedSessionContext")
     }
 

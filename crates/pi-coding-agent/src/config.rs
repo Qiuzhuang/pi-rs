@@ -200,7 +200,7 @@ impl ResolveCodemodeWorkerSpecifierRuntime {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum ResolveCodemodeWorkerSpecifierResolveCodemodeWorkerSpecifierResult {
+pub enum EmptyResolveCodemodeWorkerSpecifierResult {
     String(String),
     String2(String),
 }
@@ -209,21 +209,20 @@ pub enum ResolveCodemodeWorkerSpecifierResolveCodemodeWorkerSpecifierResult {
 pub fn resolve_codemode_worker_specifier(
     runtime: ResolveCodemodeWorkerSpecifierRuntime,
     module_url: &str,
-) -> Option<ResolveCodemodeWorkerSpecifierResolveCodemodeWorkerSpecifierResult> {
+) -> Option<EmptyResolveCodemodeWorkerSpecifierResult> {
     todo!("port config.ts:resolveCodemodeWorkerSpecifier")
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum GetCodemodeWorkerSpecifierGetCodemodeWorkerSpecifierResult {
+pub enum EmptyGetCodemodeWorkerSpecifierResult {
     String(String),
     String2(String),
 }
 
 /// Get the codemode worker entry, or undefined to use the worker that ships next to pi-codemode.
 /// The Bun and Node release builds both pass the worker as an extra entrypoint.
-pub fn get_codemode_worker_specifier()
--> Option<GetCodemodeWorkerSpecifierGetCodemodeWorkerSpecifierResult> {
+pub fn get_codemode_worker_specifier() -> Option<EmptyGetCodemodeWorkerSpecifierResult> {
     todo!("port config.ts:getCodemodeWorkerSpecifier")
 }
 

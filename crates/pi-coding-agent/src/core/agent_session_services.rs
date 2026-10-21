@@ -245,7 +245,7 @@ pub struct CreateAgentSessionFromServicesOptions {
     pub tools: Option<Vec<String>>,
     pub exclude_tools: Option<Vec<String>>,
     pub no_tools: Option<CreateAgentSessionFromServicesOptionsNoTools>,
-    pub custom_tools: Option<Vec<Arc<dyn ToolDefinition>>>,
+    pub custom_tools: Option<Vec<ToolDefinition>>,
 }
 
 /// Coherent cwd-bound runtime services for one effective session cwd.

@@ -1,8 +1,8 @@
 //! Port of `packages/coding-agent/src/core/extensions/loader.ts`.
 
 use crate::core::event_bus::EventBus;
-use crate::core::extensions::types::Extension;
 use crate::core::extensions::types::ExtensionFactory;
+use crate::core::extensions::types::ExtensionRef;
 use crate::core::extensions::types::ExtensionRuntime;
 use crate::core::extensions::types::LoadExtensionsResult;
 use futures::future::BoxFuture;
@@ -27,7 +27,7 @@ pub fn clear_extension_cache() {
 
 /// Create a runtime with throwing stubs for action methods.
 /// Runner.bindCore() replaces these with real implementations.
-pub fn create_extension_runtime() -> anyhow::Result<ExtensionRuntime> {
+pub fn create_extension_runtime() -> anyhow::Result<Arc<ExtensionRuntime>> {
     todo!("port core/extensions/loader.ts:createExtensionRuntime")
 }
 
@@ -36,9 +36,9 @@ pub async fn load_extension_from_factory(
     factory: &ExtensionFactory,
     cwd: &str,
     event_bus: Arc<dyn EventBus>,
-    runtime: &ExtensionRuntime,
+    runtime: Arc<ExtensionRuntime>,
     extension_path: Option<&str>,
-) -> anyhow::Result<Extension> {
+) -> anyhow::Result<ExtensionRef> {
     todo!("port core/extensions/loader.ts:loadExtensionFromFactory")
 }
 
@@ -46,7 +46,7 @@ pub async fn load_extensions(
     paths: &[String],
     cwd: &str,
     event_bus: Option<Arc<dyn EventBus>>,
-    runtime: Option<&ExtensionRuntime>,
+    runtime: Option<Arc<ExtensionRuntime>>,
 ) -> anyhow::Result<LoadExtensionsResult> {
     todo!("port core/extensions/loader.ts:loadExtensions")
 }
@@ -55,7 +55,7 @@ pub async fn load_extensions_cached(
     paths: &[String],
     cwd: &str,
     event_bus: Option<Arc<dyn EventBus>>,
-    runtime: Option<&ExtensionRuntime>,
+    runtime: Option<Arc<ExtensionRuntime>>,
 ) -> anyhow::Result<LoadExtensionsResult> {
     todo!("port core/extensions/loader.ts:loadExtensionsCached")
 }

@@ -14,7 +14,7 @@ pub static GREP_TOOL_SYSTEM_PROMPT_CONTRIBUTION: LazyLock<Value> =
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GrepToolInputValue {
+pub struct GrepToolInput {
     /// Search pattern (regex or literal string)
     pub pattern: String,
     /// Directory or file to search (default: current directory)
@@ -40,8 +40,6 @@ pub struct GrepToolInputValue {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<i64>,
 }
-
-pub type GrepToolInput = GrepToolInputValue;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -70,10 +68,7 @@ pub struct GrepToolOptions {
     pub operations: Option<GrepOperations>,
 }
 
-pub fn create_grep_tool_definition(
-    cwd: &str,
-    options: Option<&GrepToolOptions>,
-) -> Arc<dyn ToolDefinition> {
+pub fn create_grep_tool_definition(cwd: &str, options: Option<&GrepToolOptions>) -> ToolDefinition {
     todo!("port core/tools/grep.ts:createGrepToolDefinition")
 }
 

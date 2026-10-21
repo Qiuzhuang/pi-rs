@@ -13,7 +13,7 @@ pub static EDIT_TOOL_SYSTEM_PROMPT_CONTRIBUTION: LazyLock<Value> =
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct EditToolInputValueEdits {
+pub struct EditToolInputEdits {
     /// Exact text for one targeted replacement. It must be unique in the original file and must not overlap with any other edits[].oldText in the same call.
     pub old_text: String,
     /// Replacement text for this targeted edit.
@@ -22,14 +22,12 @@ pub struct EditToolInputValueEdits {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct EditToolInputValue {
+pub struct EditToolInput {
     /// Path to the file to edit (relative or absolute)
     pub path: String,
     /// One or more targeted replacements. Each edit is matched against the original file, not incrementally. Do not include overlapping or nested edits. If two changes touch the same block or nearby lines, merge them into one edit instead.
-    pub edits: Vec<EditToolInputValueEdits>,
+    pub edits: Vec<EditToolInputEdits>,
 }
-
-pub type EditToolInput = EditToolInputValue;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -85,7 +83,7 @@ pub struct EditToolOptions {
 pub fn create_edit_tool_definition(
     cwd: &str,
     options: Option<&EditToolOptions>,
-) -> anyhow::Result<Arc<dyn ToolDefinition>> {
+) -> anyhow::Result<ToolDefinition> {
     todo!("port core/tools/edit.ts:createEditToolDefinition")
 }
 

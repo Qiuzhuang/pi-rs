@@ -1,5 +1,6 @@
 //! Port of `packages/coding-agent/src/core/model-runtime.ts`.
 
+use crate::compat::AuthOperationOptions;
 use crate::core::model_config::ModelConfig;
 use crate::core::provider_composer::AuthStatus;
 use crate::core::provider_composer::CompatibilityRequestConfig;
@@ -19,6 +20,7 @@ use pi_ai::auth::types::CredentialStore;
 use pi_ai::auth::types::LoginOptions;
 use pi_ai::models::ModelsRefreshOptions;
 use pi_ai::models::ModelsRefreshResult;
+use pi_ai::models::ModelsRequestOptions;
 use pi_ai::models::Provider;
 use pi_ai::models_store::ModelsStore;
 use pi_ai::providers::model_schema::ModelThinkingLevel;
@@ -223,7 +225,7 @@ impl ModelRuntime {
         &self,
         r#type: Value,
         provider_id: Option<&str>,
-        options: Option<Value /* TS: pi-ai::AuthOperationOptions */>,
+        options: Option<&AuthOperationOptions>,
     ) -> anyhow::Result<Vec<Value>> {
         todo!("port core/model-runtime.ts:ModelRuntime.getAvailableOfType")
     }
@@ -231,7 +233,7 @@ impl ModelRuntime {
     pub async fn get_all_available(
         &self,
         provider_id: Option<&str>,
-        options: Option<Value /* TS: pi-ai::AuthOperationOptions */>,
+        options: Option<&AuthOperationOptions>,
     ) -> anyhow::Result<Vec<AnyModel>> {
         todo!("port core/model-runtime.ts:ModelRuntime.getAllAvailable")
     }
@@ -239,7 +241,7 @@ impl ModelRuntime {
     pub async fn check_auth(
         &self,
         provider_id: &str,
-        options: Option<Value /* TS: pi-ai::AuthOperationOptions */>,
+        options: Option<&AuthOperationOptions>,
     ) -> anyhow::Result<Option<AuthCheck>> {
         todo!("port core/model-runtime.ts:ModelRuntime.checkAuth")
     }
@@ -247,7 +249,7 @@ impl ModelRuntime {
     pub async fn get_available(
         &self,
         provider_id: Option<&str>,
-        options: Option<Value /* TS: pi-ai::AuthOperationOptions */>,
+        options: Option<&AuthOperationOptions>,
     ) -> anyhow::Result<Vec<Model>> {
         todo!("port core/model-runtime.ts:ModelRuntime.getAvailable")
     }
@@ -260,10 +262,7 @@ impl ModelRuntime {
         todo!("port core/model-runtime.ts:ModelRuntime.getError")
     }
 
-    pub fn get_registered_provider_config(
-        &self,
-        provider_id: &str,
-    ) -> Option<Arc<dyn ProviderConfigInput>> {
+    pub fn get_registered_provider_config(&self, provider_id: &str) -> Option<ProviderConfigInput> {
         todo!("port core/model-runtime.ts:ModelRuntime.getRegisteredProviderConfig")
     }
 
@@ -304,7 +303,7 @@ impl ModelRuntime {
         &self,
         provider_id: &str,
         api_key: &str,
-        options: Option<Value /* TS: pi-ai::AuthOperationOptions */>,
+        options: Option<&AuthOperationOptions>,
     ) -> anyhow::Result<()> {
         todo!("port core/model-runtime.ts:ModelRuntime.setRuntimeApiKey")
     }
@@ -312,14 +311,14 @@ impl ModelRuntime {
     pub async fn remove_runtime_api_key(
         &self,
         provider_id: &str,
-        options: Option<Value /* TS: pi-ai::AuthOperationOptions */>,
+        options: Option<&AuthOperationOptions>,
     ) -> anyhow::Result<()> {
         todo!("port core/model-runtime.ts:ModelRuntime.removeRuntimeApiKey")
     }
 
     pub async fn list_credentials(
         &self,
-        options: Option<Value /* TS: pi-ai::AuthOperationOptions */>,
+        options: Option<&AuthOperationOptions>,
     ) -> anyhow::Result<Vec<CredentialInfo>> {
         todo!("port core/model-runtime.ts:ModelRuntime.listCredentials")
     }
@@ -332,7 +331,7 @@ impl ModelRuntime {
         &self,
         model: Model,
         context: Context,
-        options: Option<Value /* TS: pi-ai::ModelsApiStreamOptions */>,
+        options: Option<ModelsRequestOptions>,
     ) -> AssistantMessageEventStream {
         todo!("port core/model-runtime.ts:ModelRuntime.stream")
     }
@@ -341,7 +340,7 @@ impl ModelRuntime {
         &self,
         model: Model,
         context: Context,
-        options: Option<Value /* TS: pi-ai::ModelsApiStreamOptions */>,
+        options: Option<ModelsRequestOptions>,
     ) -> anyhow::Result<AssistantMessage> {
         todo!("port core/model-runtime.ts:ModelRuntime.complete")
     }
@@ -350,7 +349,7 @@ impl ModelRuntime {
         &self,
         model: Model,
         context: Context,
-        options: Option<Value /* TS: pi-ai::ModelsSimpleStreamOptions */>,
+        options: Option<ModelsRequestOptions>,
     ) -> AssistantMessageEventStream {
         todo!("port core/model-runtime.ts:ModelRuntime.streamSimple")
     }
@@ -359,7 +358,7 @@ impl ModelRuntime {
         &self,
         model: Model,
         context: Context,
-        options: Option<Value /* TS: pi-ai::ModelsSimpleStreamOptions */>,
+        options: Option<ModelsRequestOptions>,
     ) -> anyhow::Result<AssistantMessage> {
         todo!("port core/model-runtime.ts:ModelRuntime.completeSimple")
     }
@@ -368,7 +367,7 @@ impl ModelRuntime {
         &self,
         model: Model,
         handle: DeferredHandle,
-        options: Option<Value /* TS: pi-ai::ModelsDeferredFetchOptions */>,
+        options: Option<ModelsRequestOptions>,
     ) -> anyhow::Result<AssistantMessageEventStream> {
         todo!("port core/model-runtime.ts:ModelRuntime.streamDeferred")
     }
@@ -377,7 +376,7 @@ impl ModelRuntime {
         &self,
         model: Model,
         handle: DeferredHandle,
-        options: Option<Value /* TS: pi-ai::ModelsDeferredFetchOptions */>,
+        options: Option<ModelsRequestOptions>,
     ) -> anyhow::Result<AssistantMessage> {
         todo!("port core/model-runtime.ts:ModelRuntime.fetchDeferred")
     }
@@ -386,7 +385,7 @@ impl ModelRuntime {
         &self,
         model: Model,
         handle: DeferredHandle,
-        options: Option<Value /* TS: pi-ai::ModelsDeferredCancelOptions */>,
+        options: Option<ModelsRequestOptions>,
     ) -> anyhow::Result<()> {
         todo!("port core/model-runtime.ts:ModelRuntime.cancelDeferred")
     }
@@ -395,7 +394,7 @@ impl ModelRuntime {
         &self,
         model: ImageModel,
         context: ImagesContext,
-        options: Option<Value /* TS: pi-ai::ModelsImagesOptions */>,
+        options: Option<ModelsRequestOptions>,
     ) -> anyhow::Result<AssistantImages> {
         todo!("port core/model-runtime.ts:ModelRuntime.generateImages")
     }
@@ -404,7 +403,7 @@ impl ModelRuntime {
         &self,
         model: ClassifierModel,
         context: ClassifierContext,
-        options: Option<Value /* TS: pi-ai::ModelsClassifierOptions */>,
+        options: Option<ModelsRequestOptions>,
     ) -> anyhow::Result<ClassifierResult> {
         todo!("port core/model-runtime.ts:ModelRuntime.classify")
     }
@@ -422,7 +421,7 @@ impl ModelRuntime {
     pub async fn logout(
         &self,
         provider_id: &str,
-        options: Option<Value /* TS: pi-ai::AuthOperationOptions */>,
+        options: Option<&AuthOperationOptions>,
     ) -> anyhow::Result<()> {
         todo!("port core/model-runtime.ts:ModelRuntime.logout")
     }
@@ -441,7 +440,7 @@ impl ModelRuntime {
     pub fn register_provider(
         &self,
         provider_id: &str,
-        config: Arc<dyn ProviderConfigInput>,
+        config: &ProviderConfigInput,
     ) -> anyhow::Result<()> {
         todo!("port core/model-runtime.ts:ModelRuntime.registerProvider")
     }
@@ -455,7 +454,7 @@ impl ModelRuntime {
     /// Throws when the id belongs to a physical model of that provider.
     pub fn register_virtual_model(
         &self,
-        definition: Arc<dyn VirtualModelDefinition>,
+        definition: &VirtualModelDefinition,
     ) -> anyhow::Result<()> {
         todo!("port core/model-runtime.ts:ModelRuntime.registerVirtualModel")
     }

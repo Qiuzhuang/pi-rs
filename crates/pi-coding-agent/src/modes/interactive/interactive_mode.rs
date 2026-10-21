@@ -13,7 +13,11 @@ use pi_ai::types::SystemMessage;
 use pi_ai::types::ToolResultMessage;
 use pi_ai::types::Usage;
 use pi_ai::types::UserMessage;
+use pi_tui::components::editor::EditorComponent;
 use pi_tui::terminal::Terminal;
+use pi_tui::tui::Component;
+use pi_tui::tui::MouseEvent;
+use pi_tui::tui::MouseResult;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
@@ -33,16 +37,71 @@ pub struct ActiveEditorGetCursorResult {
     pub col: i64,
 }
 
-pub trait ActiveEditor: Send + Sync {
+pub trait ActiveEditor: EditorComponent + Send + Sync {
     /// Optional in TS: the default implementation means "not provided".
     fn get_cursor(&self) -> ActiveEditorGetCursorResult {
         todo!("optional method not provided")
     }
 }
 
-pub trait WorkingStatusEditor: Send + Sync {
+pub trait WorkingStatusEditor: EditorComponent + Send + Sync {
     fn embed_working_status(&self) -> bool;
     fn set_working_status_indicator(&self, indicator: Option<Arc<StatusIndicator>>);
+}
+
+/// TS: `extends ThemedText implements Expandable`
+pub struct ExpandableText {
+    // TODO(port): private state (interior mutability; methods take &self)
+}
+
+impl ExpandableText {
+    pub fn new(
+        get_collapsed_text: Arc<dyn Fn() -> String + Send + Sync>,
+        get_expanded_text: Arc<dyn Fn() -> String + Send + Sync>,
+        expanded: Option<bool>,
+        padding_x: Option<i64>,
+        padding_y: Option<i64>,
+    ) -> Self {
+        todo!("port modes/interactive/interactive-mode.ts:ExpandableText.constructor")
+    }
+}
+
+impl Expandable for ExpandableText {
+    fn set_expanded(&self, expanded: bool) {
+        todo!("port modes/interactive/interactive-mode.ts:ExpandableText.set_expanded")
+    }
+}
+
+impl Component for ExpandableText {
+    fn render(&self, width: usize) -> Vec<String> {
+        todo!("port modes/interactive/interactive-mode.ts:ExpandableText.render")
+    }
+}
+
+/// The built-in header. Clicking its logo (the first two lines, after one column of padding) plays an easter egg.
+/// TS: `extends ExpandableText`
+pub struct BuiltInHeader {
+    // TODO(port): private state (interior mutability; methods take &self)
+}
+
+impl BuiltInHeader {
+    pub fn new() -> Self {
+        todo!("port modes/interactive/interactive-mode.ts:BuiltInHeader.constructor")
+    }
+
+    pub fn on_logo_click(&self) -> Option<Arc<dyn Fn(i64, i64) + Send + Sync>> {
+        todo!("port modes/interactive/interactive-mode.ts:BuiltInHeader.onLogoClick")
+    }
+
+    pub fn set_on_logo_click(&self, value: Option<Arc<dyn Fn(i64, i64) + Send + Sync>>) {
+        todo!("port modes/interactive/interactive-mode.ts:BuiltInHeader.onLogoClick")
+    }
+}
+
+impl Component for BuiltInHeader {
+    fn render(&self, width: usize) -> Vec<String> {
+        todo!("port modes/interactive/interactive-mode.ts:BuiltInHeader.render")
+    }
 }
 
 // TS: Component & { dispose?(): void }
@@ -55,15 +114,7 @@ pub struct ExtensionDialogComponent {
     /// Optional handler for keyboard input when component has focus.
     pub handle_input: Option<Arc<dyn Fn(String) + Send + Sync>>,
     /// Optional normalized mouse handler.
-    pub handle_mouse: Option<
-        Arc<
-            dyn Fn(
-                    Value, /* TS: pi-tui::TuiMouseEvent */
-                ) -> Option<Value /* TS: pi-tui::TuiMouseEventResult */>
-                + Send
-                + Sync,
-        >,
-    >,
+    pub handle_mouse: Option<Arc<dyn Fn(MouseEvent) -> Option<Arc<MouseResult>> + Send + Sync>>,
     /// If true, component receives key release events (Kitty protocol).
     /// Default is false - release events are filtered out.
     pub wants_key_release: Option<bool>,

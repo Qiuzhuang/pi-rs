@@ -48,6 +48,6 @@ pub struct CreateMcpResourceToolDefinitionsOptions {
 /// The three resource tools. `servers` returns the servers whose resources they reach, at call time.
 pub fn create_mcp_resource_tool_definitions(
     options: &CreateMcpResourceToolDefinitionsOptions,
-) -> anyhow::Result<Vec<Arc<dyn ToolDefinition>>> {
+) -> anyhow::Result<Vec<ToolDefinition>> {
     todo!("port extensions/mcp/resources.ts:createMcpResourceToolDefinitions")
 }

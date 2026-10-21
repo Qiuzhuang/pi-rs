@@ -106,7 +106,7 @@ impl Component for McpManagerView {
 
 /// Run `manage` in the manager view until it returns.
 pub async fn show_mcp_manager(
-    ctx: Arc<dyn ExtensionCommandContext>,
+    ctx: &ExtensionCommandContext,
     manage: Arc<dyn Fn(Arc<dyn McpUi>) -> BoxFuture<'static, anyhow::Result<()>> + Send + Sync>,
 ) -> anyhow::Result<()> {
     todo!("port extensions/mcp/ui.ts:showMcpManager")

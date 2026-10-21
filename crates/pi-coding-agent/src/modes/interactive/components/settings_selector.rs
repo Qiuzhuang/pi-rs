@@ -1,5 +1,6 @@
 //! Port of `packages/coding-agent/src/modes/interactive/components/settings-selector.ts`.
 
+use crate::compat::WheelScrollLines;
 use crate::core::settings_schema::CacheWarmingMode;
 use crate::core::settings_schema::DefaultProjectTrust;
 use crate::core::settings_schema::FullscreenExitOutput;
@@ -18,7 +19,6 @@ use pi_tui::components::scroll_view::ScrollViewScrollbar;
 use pi_tui::components::settings_list::SettingsList;
 use pi_tui::tui::Component;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -100,7 +100,7 @@ pub struct SettingsConfig {
     pub fullscreen_exit_output: FullscreenExitOutput,
     pub fullscreen_scrollbar: ScrollViewScrollbar,
     pub fullscreen_copy_on_select: bool,
-    pub fullscreen_wheel_scroll_lines: Value, /* TS: pi-tui::WheelScrollLines */
+    pub fullscreen_wheel_scroll_lines: WheelScrollLines,
     pub warnings: WarningSettings,
 }
 
@@ -141,10 +141,80 @@ pub struct SettingsCallbacks {
     pub on_fullscreen_exit_output_change: Arc<dyn Fn(FullscreenExitOutput) + Send + Sync>,
     pub on_fullscreen_scrollbar_change: Arc<dyn Fn(ScrollViewScrollbar) + Send + Sync>,
     pub on_fullscreen_copy_on_select_change: Arc<dyn Fn(bool) + Send + Sync>,
-    pub on_fullscreen_wheel_scroll_lines_change:
-        Arc<dyn Fn(Value /* TS: pi-tui::WheelScrollLines */) + Send + Sync>,
+    pub on_fullscreen_wheel_scroll_lines_change: Arc<dyn Fn(WheelScrollLines) + Send + Sync>,
     pub on_warnings_change: Arc<dyn Fn(WarningSettings) + Send + Sync>,
     pub on_cancel: Arc<dyn Fn() + Send + Sync>,
+}
+
+/// A submenu component for selecting from a list of options.
+/// TS: `extends Container`
+pub struct WarningSettingsSubmenu {
+    // TODO(port): private state (interior mutability; methods take &self)
+}
+
+impl WarningSettingsSubmenu {
+    pub fn new(
+        warnings: &WarningSettings,
+        on_change: Arc<dyn Fn(WarningSettings) + Send + Sync>,
+        on_cancel: Arc<dyn Fn() + Send + Sync>,
+    ) -> Self {
+        todo!(
+            "port modes/interactive/components/settings-selector.ts:WarningSettingsSubmenu.constructor"
+        )
+    }
+}
+
+// TODO(port): impl pi-tui::Container for WarningSettingsSubmenu
+
+impl Component for WarningSettingsSubmenu {
+    fn render(&self, width: usize) -> Vec<String> {
+        todo!(
+            "port modes/interactive/components/settings-selector.ts:WarningSettingsSubmenu.render"
+        )
+    }
+
+    fn handle_input(&self, data: &str) {
+        todo!(
+            "port modes/interactive/components/settings-selector.ts:WarningSettingsSubmenu.handleInput"
+        )
+    }
+
+    fn handles_input(&self) -> bool {
+        true
+    }
+}
+
+/// TS: `extends Container`
+pub struct ThemeSubmenu {
+    // TODO(port): private state (interior mutability; methods take &self)
+}
+
+impl ThemeSubmenu {
+    pub fn new(
+        current_theme_setting: &str,
+        terminal_theme: &TerminalTheme,
+        available_themes: &[String],
+        callbacks: &SettingsCallbacks,
+        on_done: Arc<dyn Fn(Option<String>) + Send + Sync>,
+    ) -> Self {
+        todo!("port modes/interactive/components/settings-selector.ts:ThemeSubmenu.constructor")
+    }
+}
+
+// TODO(port): impl pi-tui::Container for ThemeSubmenu
+
+impl Component for ThemeSubmenu {
+    fn render(&self, width: usize) -> Vec<String> {
+        todo!("port modes/interactive/components/settings-selector.ts:ThemeSubmenu.render")
+    }
+
+    fn handle_input(&self, data: &str) {
+        todo!("port modes/interactive/components/settings-selector.ts:ThemeSubmenu.handleInput")
+    }
+
+    fn handles_input(&self) -> bool {
+        true
+    }
 }
 
 /// Main settings selector component.

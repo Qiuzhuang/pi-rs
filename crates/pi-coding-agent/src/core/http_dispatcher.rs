@@ -3,7 +3,7 @@
 use serde_json::Value;
 use std::sync::LazyLock;
 
-pub const DEFAULT_HTTP_IDLE_TIMEOUT_MS: u64 = 300000;
+pub const DEFAULT_HTTP_IDLE_TIMEOUT_MS: i64 = 300000;
 
 pub static HTTP_IDLE_TIMEOUT_CHOICES: LazyLock<Value> =
     LazyLock::new(|| todo!("port core/http-dispatcher.ts:HTTP_IDLE_TIMEOUT_CHOICES"));

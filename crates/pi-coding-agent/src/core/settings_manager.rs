@@ -1,5 +1,6 @@
 //! Port of `packages/coding-agent/src/core/settings-manager.ts`.
 
+use crate::compat::WheelScrollLines;
 use crate::modes::interactive::components::tree_selector::FilterMode;
 use indexmap::IndexMap;
 use pi_agent::types::ThinkingLevel;
@@ -722,14 +723,11 @@ impl SettingsManager {
         todo!("port core/settings-manager.ts:SettingsManager.setFullscreenCopyOnSelect")
     }
 
-    pub fn get_fullscreen_wheel_scroll_lines(&self) -> Value /* TS: pi-tui::WheelScrollLines */ {
+    pub fn get_fullscreen_wheel_scroll_lines(&self) -> WheelScrollLines {
         todo!("port core/settings-manager.ts:SettingsManager.getFullscreenWheelScrollLines")
     }
 
-    pub fn set_fullscreen_wheel_scroll_lines(
-        &self,
-        lines: Value, /* TS: pi-tui::WheelScrollLines */
-    ) {
+    pub fn set_fullscreen_wheel_scroll_lines(&self, lines: &WheelScrollLines) {
         todo!("port core/settings-manager.ts:SettingsManager.setFullscreenWheelScrollLines")
     }
 

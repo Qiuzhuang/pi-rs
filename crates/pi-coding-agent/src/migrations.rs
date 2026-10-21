@@ -27,7 +27,7 @@ pub async fn show_deprecation_warnings(warnings: &[String]) -> anyhow::Result<()
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RunMigrationsRunMigrationsResult {
+pub struct EmptyRunMigrationsResult {
     pub migrated_auth_providers: Vec<String>,
     pub deprecation_warnings: Vec<String>,
 }
@@ -35,6 +35,6 @@ pub struct RunMigrationsRunMigrationsResult {
 /// Run all migrations. Called once on startup.
 ///
 /// @returns Object with migration results and deprecation warnings
-pub fn run_migrations(cwd: &str) -> RunMigrationsRunMigrationsResult {
+pub fn run_migrations(cwd: &str) -> EmptyRunMigrationsResult {
     todo!("port migrations.ts:runMigrations")
 }

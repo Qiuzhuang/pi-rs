@@ -1,11 +1,14 @@
 //! Port of `packages/coding-agent/src/modes/interactive/theme/theme.ts`.
 
+use crate::compat::MarkdownTheme;
 use crate::core::source_info::SourceInfo;
 use crate::modes::interactive::theme::theme_schema::ValidatedThemeJson;
 use indexmap::IndexMap;
 use pi_agent::types::ThinkingLevel;
 use pi_tui::colors::Color;
+use pi_tui::colors::ColorValue;
 use pi_tui::colors::TerminalColorMode;
+use pi_tui::components::editor::EditorTheme;
 use pi_tui::components::select_list::SelectListTheme;
 use pi_tui::components::settings_list::SettingsListTheme;
 use pi_tui::terminal_colors::TerminalColors;
@@ -20,45 +23,34 @@ pub use crate::modes::interactive::theme::theme_tokens::ThemeBg;
 pub use crate::modes::interactive::theme::theme_tokens::ThemeColor;
 pub use crate::modes::interactive::theme::theme_tokens::ThemeToken;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
+#[derive(Debug, Clone)]
 pub enum ThemeStyleFg {
     ThemeColor(ThemeColor),
-    IndexedColor(Value /* TS: pi-tui::IndexedColor */),
-    RgbColorValue(Value /* TS: pi-tui::RgbColorValue */),
-    OklchColorValue(Value /* TS: pi-tui::OklchColorValue */),
+    ColorValue(ColorValue),
+    ColorValue2(ColorValue),
+    ColorValue3(ColorValue),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
+#[derive(Debug, Clone)]
 pub enum ThemeStyleBg {
     ThemeBg(ThemeBg),
-    IndexedColor(Value /* TS: pi-tui::IndexedColor */),
-    RgbColorValue(Value /* TS: pi-tui::RgbColorValue */),
-    OklchColorValue(Value /* TS: pi-tui::OklchColorValue */),
+    ColorValue(ColorValue),
+    ColorValue2(ColorValue),
+    ColorValue3(ColorValue),
 }
 
 /// Tokens are only accepted in their own slot, because "" (terminal default) means the default foreground
 /// or background depending on the slot. Use `theme.colors[token]` to use a token's color in the other slot.
 // TS: extends TextAttributes (inherited fields inlined)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone)]
 pub struct ThemeStyle {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bold: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dim: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub italic: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub underline: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inverse: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub strikethrough: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fg: Option<ThemeStyleFg>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bg: Option<ThemeStyleBg>,
 }
 
@@ -257,14 +249,14 @@ impl TerminalTheme {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ParseAutoThemeSettingParseAutoThemeSettingResult {
+pub struct EmptyParseAutoThemeSettingResult {
     pub light_theme: String,
     pub dark_theme: String,
 }
 
 pub fn parse_auto_theme_setting(
     theme_setting: Option<&str>,
-) -> Option<ParseAutoThemeSettingParseAutoThemeSettingResult> {
+) -> Option<EmptyParseAutoThemeSettingResult> {
     todo!("port modes/interactive/theme/theme.ts:parseAutoThemeSetting")
 }
 
@@ -313,13 +305,13 @@ pub fn init_theme(theme_name: Option<&str>, enable_watcher: Option<bool>) {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SetThemeSetThemeResult {
+pub struct EmptySetThemeResult {
     pub success: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
 
-pub fn set_theme(name: &str, enable_watcher: Option<bool>) -> SetThemeSetThemeResult {
+pub fn set_theme(name: &str, enable_watcher: Option<bool>) -> EmptySetThemeResult {
     todo!("port modes/interactive/theme/theme.ts:setTheme")
 }
 
@@ -348,7 +340,7 @@ pub fn is_light_theme(theme_name: Option<&str>) -> bool {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GetThemeExportColorsGetThemeExportColorsResult {
+pub struct EmptyGetThemeExportColorsResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub page_bg: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -359,9 +351,7 @@ pub struct GetThemeExportColorsGetThemeExportColorsResult {
 
 /// Get explicit export colors from theme JSON, if specified.
 /// Returns undefined for each color that isn't explicitly set.
-pub fn get_theme_export_colors(
-    theme_name: Option<&str>,
-) -> GetThemeExportColorsGetThemeExportColorsResult {
+pub fn get_theme_export_colors(theme_name: Option<&str>) -> EmptyGetThemeExportColorsResult {
     todo!("port modes/interactive/theme/theme.ts:getThemeExportColors")
 }
 
@@ -378,7 +368,7 @@ pub fn get_language_from_path(file_path: &str) -> Option<String> {
     todo!("port modes/interactive/theme/theme.ts:getLanguageFromPath")
 }
 
-pub fn get_markdown_theme() -> Value /* TS: pi-tui::MarkdownTheme */ {
+pub fn get_markdown_theme() -> MarkdownTheme {
     todo!("port modes/interactive/theme/theme.ts:getMarkdownTheme")
 }
 
@@ -386,7 +376,7 @@ pub fn get_select_list_theme() -> Arc<SelectListTheme> {
     todo!("port modes/interactive/theme/theme.ts:getSelectListTheme")
 }
 
-pub fn get_editor_theme() -> Value /* TS: pi-tui::EditorTheme */ {
+pub fn get_editor_theme() -> Arc<EditorTheme> {
     todo!("port modes/interactive/theme/theme.ts:getEditorTheme")
 }
 

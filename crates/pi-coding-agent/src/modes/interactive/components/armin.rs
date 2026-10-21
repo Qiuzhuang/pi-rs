@@ -5,9 +5,9 @@ use pi_tui::tui::Tui;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-pub const ARMIN_WIDTH: u64 = 31;
+pub const ARMIN_WIDTH: i64 = 31;
 
-pub const ARMIN_HEIGHT: u64 = 36;
+pub const ARMIN_HEIGHT: i64 = 36;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Effect {

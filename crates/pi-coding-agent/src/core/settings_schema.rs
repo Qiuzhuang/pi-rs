@@ -10,14 +10,14 @@ pub static SETTINGS_SCHEMA: LazyLock<Value> =
     LazyLock::new(|| todo!("port core/settings-schema.ts:SettingsSchema"));
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum SettingsInputValueSteeringMode {
+pub enum SettingsInputSteeringMode {
     #[serde(rename = "all")]
     All,
     #[serde(rename = "one-at-a-time")]
     OneAtATime,
 }
 
-impl SettingsInputValueSteeringMode {
+impl SettingsInputSteeringMode {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::All => "all",
@@ -28,7 +28,7 @@ impl SettingsInputValueSteeringMode {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SettingsInputValueRetry {
+pub struct SettingsInputRetry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -47,7 +47,7 @@ pub struct SettingsInputValueRetry {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum SettingsInputValueQuietStartup {
+pub enum SettingsInputQuietStartup {
     Bool(bool),
     /// Always "header".
     Header(String),
@@ -55,7 +55,7 @@ pub enum SettingsInputValueQuietStartup {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SettingsInputValueSkillsVariant2 {
+pub struct SettingsInputSkillsVariant2 {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enable_skill_commands: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -64,13 +64,13 @@ pub struct SettingsInputValueSkillsVariant2 {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum SettingsInputValueSkills {
+pub enum SettingsInputSkills {
     List(Vec<String>),
-    SettingsInputValueSkillsVariant2(SettingsInputValueSkillsVariant2),
+    SettingsInputSkillsVariant2(SettingsInputSkillsVariant2),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum SettingsInputValueDoubleEscapeAction {
+pub enum SettingsInputDoubleEscapeAction {
     #[serde(rename = "fork")]
     Fork,
     #[serde(rename = "tree")]
@@ -79,7 +79,7 @@ pub enum SettingsInputValueDoubleEscapeAction {
     None,
 }
 
-impl SettingsInputValueDoubleEscapeAction {
+impl SettingsInputDoubleEscapeAction {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Fork => "fork",
@@ -91,7 +91,7 @@ impl SettingsInputValueDoubleEscapeAction {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SettingsInputValueThinkingBudgets {
+pub struct SettingsInputThinkingBudgets {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub minimal: Option<i64>,
     #[serde(
@@ -116,14 +116,14 @@ pub struct SettingsInputValueThinkingBudgets {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum SettingsInputValueOutputPad {
+pub enum SettingsInputOutputPad {
     Number(i64),
     Number2(i64),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum SettingsInputValueHttpIdleTimeoutMs {
+pub enum SettingsInputHttpIdleTimeoutMs {
     Number(i64),
     /// Always "disabled".
     Disabled(String),
@@ -131,14 +131,14 @@ pub enum SettingsInputValueHttpIdleTimeoutMs {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum SettingsInputValueWebsocketConnectTimeoutMs {
+pub enum SettingsInputWebsocketConnectTimeoutMs {
     Number(i64),
     /// Always "disabled".
     Disabled(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum SettingsInputValueFullscreenScrollbar {
+pub enum SettingsInputFullscreenScrollbar {
     #[serde(rename = "auto")]
     Auto,
     #[serde(rename = "always")]
@@ -147,7 +147,7 @@ pub enum SettingsInputValueFullscreenScrollbar {
     Hidden,
 }
 
-impl SettingsInputValueFullscreenScrollbar {
+impl SettingsInputFullscreenScrollbar {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Auto => "auto",
@@ -159,7 +159,7 @@ impl SettingsInputValueFullscreenScrollbar {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum SettingsInputValueFullscreenWheelScrollLines {
+pub enum SettingsInputFullscreenWheelScrollLines {
     Number(i64),
     /// Always "auto".
     Auto(String),
@@ -167,7 +167,7 @@ pub enum SettingsInputValueFullscreenWheelScrollLines {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SettingsInputValue {
+pub struct SettingsInput {
     /// JSON Schema reference.
     #[serde(rename = "$schema", default, skip_serializing_if = "Option::is_none")]
     pub schema: Option<String>,
@@ -188,9 +188,9 @@ pub struct SettingsInputValue {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_share_destination: Option<SessionShareDestination>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub steering_mode: Option<SettingsInputValueSteeringMode>,
+    pub steering_mode: Option<SettingsInputSteeringMode>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub follow_up_mode: Option<SettingsInputValueSteeringMode>,
+    pub follow_up_mode: Option<SettingsInputSteeringMode>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub theme: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -198,7 +198,7 @@ pub struct SettingsInputValue {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub branch_summary: Option<BranchSummarySettings>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub retry: Option<SettingsInputValueRetry>,
+    pub retry: Option<SettingsInputRetry>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hide_thinking_block: Option<bool>,
     /// Show cache cost and provider recovery notices.
@@ -212,7 +212,7 @@ pub struct SettingsInputValue {
     pub shell_path: Option<String>,
     /// When true, hide all startup output. When "header", keep only the startup header.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub quiet_startup: Option<SettingsInputValueQuietStartup>,
+    pub quiet_startup: Option<SettingsInputQuietStartup>,
     /// Global setting only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_project_trust: Option<DefaultProjectTrust>,
@@ -245,7 +245,7 @@ pub struct SettingsInputValue {
     pub device_id: Option<String>,
     /// Local skill file paths or directories.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub skills: Option<SettingsInputValueSkills>,
+    pub skills: Option<SettingsInputSkills>,
     /// Local prompt template file paths or directories.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompts: Option<Vec<String>>,
@@ -267,18 +267,18 @@ pub struct SettingsInputValue {
     pub default_tools: Option<Vec<String>>,
     /// Action for double-escape with an empty editor.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub double_escape_action: Option<SettingsInputValueDoubleEscapeAction>,
+    pub double_escape_action: Option<SettingsInputDoubleEscapeAction>,
     /// Default filter when opening /tree.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tree_filter_mode: Option<FilterMode>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub thinking_budgets: Option<SettingsInputValueThinkingBudgets>,
+    pub thinking_budgets: Option<SettingsInputThinkingBudgets>,
     /// Horizontal padding for the input editor.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub editor_padding_x: Option<i64>,
     /// Horizontal padding for transcript content.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub output_pad: Option<SettingsInputValueOutputPad>,
+    pub output_pad: Option<SettingsInputOutputPad>,
     /// Maximum visible items in the autocomplete dropdown.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub autocomplete_max_visible: Option<i64>,
@@ -298,12 +298,12 @@ pub struct SettingsInputValue {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub http_proxy: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub http_idle_timeout_ms: Option<SettingsInputValueHttpIdleTimeoutMs>,
+    pub http_idle_timeout_ms: Option<SettingsInputHttpIdleTimeoutMs>,
     /// Cache-warming profile. "idle" also warms between agent runs. Global only because each refresh costs money.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_warming: Option<CacheWarmingMode>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub websocket_connect_timeout_ms: Option<SettingsInputValueWebsocketConnectTimeoutMs>,
+    pub websocket_connect_timeout_ms: Option<SettingsInputWebsocketConnectTimeoutMs>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tui_mode: Option<TuiMode>,
     /// No effect in regular TUI mode.
@@ -311,22 +311,20 @@ pub struct SettingsInputValue {
     pub fullscreen_exit_output: Option<FullscreenExitOutput>,
     /// No effect in regular TUI mode.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fullscreen_scrollbar: Option<SettingsInputValueFullscreenScrollbar>,
+    pub fullscreen_scrollbar: Option<SettingsInputFullscreenScrollbar>,
     /// No effect in regular TUI mode.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fullscreen_copy_on_select: Option<bool>,
     /// Lines scrolled per wheel event in fullscreen mode; numeric values are clamped from 1 to 100.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fullscreen_wheel_scroll_lines: Option<SettingsInputValueFullscreenWheelScrollLines>,
+    pub fullscreen_wheel_scroll_lines: Option<SettingsInputFullscreenWheelScrollLines>,
     /// Legacy setting migrated to steeringMode.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub queue_mode: Option<SettingsInputValueSteeringMode>,
+    pub queue_mode: Option<SettingsInputSteeringMode>,
     /// Legacy setting migrated to transport.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub websockets: Option<bool>,
 }
-
-pub type SettingsInput = SettingsInputValue;
 
 // TS: extends Static<typeof CompactionModelOverrideSchema> (inherited fields inlined)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -810,9 +808,9 @@ pub struct Settings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_share_destination: Option<SessionShareDestination>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub steering_mode: Option<SettingsInputValueSteeringMode>,
+    pub steering_mode: Option<SettingsInputSteeringMode>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub follow_up_mode: Option<SettingsInputValueSteeringMode>,
+    pub follow_up_mode: Option<SettingsInputSteeringMode>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub theme: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -884,7 +882,7 @@ pub struct Settings {
     pub default_tools: Option<Vec<String>>,
     /// Action for double-escape with an empty editor.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub double_escape_action: Option<SettingsInputValueDoubleEscapeAction>,
+    pub double_escape_action: Option<SettingsInputDoubleEscapeAction>,
     /// Default filter when opening /tree.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tree_filter_mode: Option<FilterMode>,
@@ -928,7 +926,7 @@ pub struct Settings {
     pub fullscreen_exit_output: Option<FullscreenExitOutput>,
     /// No effect in regular TUI mode.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fullscreen_scrollbar: Option<SettingsInputValueFullscreenScrollbar>,
+    pub fullscreen_scrollbar: Option<SettingsInputFullscreenScrollbar>,
     /// No effect in regular TUI mode.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fullscreen_copy_on_select: Option<bool>,

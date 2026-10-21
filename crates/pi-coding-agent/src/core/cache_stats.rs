@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 /// Prompt-cache TTL: idle gaps longer than this are worth mentioning as the
 /// likely cause of a miss. Anthropic's default cache TTL is 5 minutes.
-pub const CACHE_TTL_MS: u64 = 300000;
+pub const CACHE_TTL_MS: i64 = 300000;
 
 /// A counted cache miss on a single assistant message.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,8 +33,7 @@ pub struct CacheWasteTotals {
     #[serde(with = "pi_ai::serde_util::js_f64")]
     pub missed_cost: f64,
     /// Number of counted misses (turns above the noise floor).
-    #[serde(with = "pi_ai::serde_util::js_f64")]
-    pub miss_count: f64,
+    pub miss_count: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

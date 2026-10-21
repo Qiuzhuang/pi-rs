@@ -1,5 +1,6 @@
 //! Port of `packages/coding-agent/src/utils/image-convert.ts`.
 
+use crate::compat::ImageTranscoder;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
@@ -12,7 +13,7 @@ pub async fn convert_image_bytes_to_png(bytes: &[u8]) -> anyhow::Result<Option<V
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ConvertToPngConvertToPngResult {
+pub struct EmptyConvertToPngResult {
     pub data: String,
     pub mime_type: String,
 }
@@ -22,14 +23,13 @@ pub struct ConvertToPngConvertToPngResult {
 pub async fn convert_to_png(
     base64_data: &str,
     mime_type: &str,
-) -> anyhow::Result<Option<ConvertToPngConvertToPngResult>> {
+) -> anyhow::Result<Option<EmptyConvertToPngResult>> {
     todo!("port utils/image-convert.ts:convertToPng")
 }
 
 /// Load photon and return a synchronous PNG transcoder for pi-tui's Kitty image rendering.
 /// Returns undefined if photon cannot be loaded.
-pub async fn load_png_transcoder() -> anyhow::Result<Option<Value /* TS: pi-tui::ImageTranscoder */>>
-{
+pub async fn load_png_transcoder() -> anyhow::Result<Option<Arc<dyn ImageTranscoder>>> {
     todo!("port utils/image-convert.ts:loadPngTranscoder")
 }
 

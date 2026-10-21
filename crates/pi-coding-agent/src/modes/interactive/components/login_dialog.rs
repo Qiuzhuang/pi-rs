@@ -1,9 +1,9 @@
 //! Port of `packages/coding-agent/src/modes/interactive/components/login-dialog.ts`.
 
+use pi_ai::auth::extension_oauth_types::OAuthDeviceCodeInfo;
 use pi_ai::auth::types::AuthInfoLink;
 use pi_tui::tui::Component;
 use pi_tui::tui::Tui;
-use serde_json::Value;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
@@ -34,7 +34,7 @@ impl LoginDialogComponent {
     }
 
     /// Called by onDeviceCode callback - show URL and user code.
-    pub fn show_device_code(&self, info: Value /* TS: pi-ai::OAuthDeviceCodeInfo */) {
+    pub fn show_device_code(&self, info: OAuthDeviceCodeInfo) {
         todo!(
             "port modes/interactive/components/login-dialog.ts:LoginDialogComponent.showDeviceCode"
         )

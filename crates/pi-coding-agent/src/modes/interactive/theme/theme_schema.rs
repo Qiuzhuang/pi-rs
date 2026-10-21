@@ -23,39 +23,39 @@ pub static THEME_JSON_SCHEMA: LazyLock<Value> =
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum ValidatedThemeJsonValueExportPageBg {
+pub enum ValidatedThemeJsonExportPageBg {
     String(String),
     Number(i64),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum ValidatedThemeJsonValueExportCardBg {
+pub enum ValidatedThemeJsonExportCardBg {
     String(String),
     Number(i64),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum ValidatedThemeJsonValueExportInfoBg {
+pub enum ValidatedThemeJsonExportInfoBg {
     String(String),
     Number(i64),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ValidatedThemeJsonValueExport {
+pub struct ValidatedThemeJsonExport {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub page_bg: Option<ValidatedThemeJsonValueExportPageBg>,
+    pub page_bg: Option<ValidatedThemeJsonExportPageBg>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub card_bg: Option<ValidatedThemeJsonValueExportCardBg>,
+    pub card_bg: Option<ValidatedThemeJsonExportCardBg>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub info_bg: Option<ValidatedThemeJsonValueExportInfoBg>,
+    pub info_bg: Option<ValidatedThemeJsonExportInfoBg>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ValidatedThemeJsonValue {
+pub struct ValidatedThemeJson {
     /// JSON schema reference
     #[serde(rename = "$schema", default, skip_serializing_if = "Option::is_none")]
     pub schema: Option<String>,
@@ -70,10 +70,8 @@ pub struct ValidatedThemeJsonValue {
     pub colors: Value,
     /// Optional colors for HTML export (defaults derived from userMessageBg if not specified)
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub export: Option<ValidatedThemeJsonValueExport>,
+    pub export: Option<ValidatedThemeJsonExport>,
 }
-
-pub type ValidatedThemeJson = ValidatedThemeJsonValue;
 
 /// Validate one theme document, throwing a message that names the offending tokens.
 pub fn validate_theme_json(label: &str, json: Value) -> anyhow::Result<ValidatedThemeJson> {

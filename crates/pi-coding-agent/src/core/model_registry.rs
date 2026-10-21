@@ -1,5 +1,6 @@
 //! Port of `packages/coding-agent/src/core/model-registry.ts`.
 
+use crate::compat::AuthOperationOptions;
 use crate::core::model_runtime::ModelRuntime;
 use crate::core::provider_composer::AuthStatus;
 use crate::core::virtual_models::VirtualModelDefinition;
@@ -7,6 +8,7 @@ use indexmap::IndexMap;
 use pi_ai::auth::types::AuthResult;
 use pi_ai::models::ModelsRefreshOptions;
 use pi_ai::models::ModelsRefreshResult;
+use pi_ai::models::ModelsRequestOptions;
 use pi_ai::models::Provider;
 use pi_ai::types::AssistantImages;
 use pi_ai::types::AssistantMessage;
@@ -124,7 +126,7 @@ impl ModelRegistry {
         &self,
         model: Model,
         context: Context,
-        options: Option<Value /* TS: pi-ai::ModelsApiStreamOptions */>,
+        options: Option<ModelsRequestOptions>,
     ) -> AssistantMessageEventStream {
         todo!("port core/model-registry.ts:ModelRegistry.stream")
     }
@@ -134,7 +136,7 @@ impl ModelRegistry {
         &self,
         model: Model,
         context: Context,
-        options: Option<Value /* TS: pi-ai::ModelsSimpleStreamOptions */>,
+        options: Option<ModelsRequestOptions>,
     ) -> AssistantMessageEventStream {
         todo!("port core/model-registry.ts:ModelRegistry.streamSimple")
     }
@@ -143,7 +145,7 @@ impl ModelRegistry {
         &self,
         model: Model,
         context: Context,
-        options: Option<Value /* TS: pi-ai::ModelsApiStreamOptions */>,
+        options: Option<ModelsRequestOptions>,
     ) -> anyhow::Result<AssistantMessage> {
         todo!("port core/model-registry.ts:ModelRegistry.complete")
     }
@@ -158,7 +160,7 @@ impl ModelRegistry {
         &self,
         r#type: Value,
         provider: Option<&str>,
-        options: Option<Value /* TS: pi-ai::AuthOperationOptions */>,
+        options: Option<&AuthOperationOptions>,
     ) -> anyhow::Result<Vec<Value>> {
         todo!("port core/model-registry.ts:ModelRegistry.getAvailableOfType")
     }
@@ -177,7 +179,7 @@ impl ModelRegistry {
         &self,
         model: ClassifierModel,
         context: ClassifierContext,
-        options: Option<Value /* TS: pi-ai::ModelsClassifierOptions */>,
+        options: Option<ModelsRequestOptions>,
     ) -> anyhow::Result<ClassifierResult> {
         todo!("port core/model-registry.ts:ModelRegistry.classify")
     }
@@ -187,7 +189,7 @@ impl ModelRegistry {
         &self,
         model: ImageModel,
         context: ImagesContext,
-        options: Option<Value /* TS: pi-ai::ModelsImagesOptions */>,
+        options: Option<ModelsRequestOptions>,
     ) -> anyhow::Result<AssistantImages> {
         todo!("port core/model-registry.ts:ModelRegistry.generateImages")
     }
@@ -211,7 +213,7 @@ impl ModelRegistry {
     pub fn register_provider(
         &self,
         provider_or_name: &ModelRegistryProviderOrName,
-        config: Option<Arc<dyn ProviderConfigInput>>,
+        config: Option<&ProviderConfigInput>,
     ) -> anyhow::Result<()> {
         todo!("port core/model-registry.ts:ModelRegistry.registerProvider")
     }
@@ -220,7 +222,7 @@ impl ModelRegistry {
         todo!("port core/model-registry.ts:ModelRegistry.unregisterProvider")
     }
 
-    pub fn register_virtual_model(&self, definition: Arc<dyn VirtualModelDefinition>) {
+    pub fn register_virtual_model(&self, definition: &VirtualModelDefinition) {
         todo!("port core/model-registry.ts:ModelRegistry.registerVirtualModel")
     }
 
@@ -231,7 +233,7 @@ impl ModelRegistry {
     pub fn get_registered_provider_config(
         &self,
         provider_name: &str,
-    ) -> Option<Arc<dyn ProviderConfigInput>> {
+    ) -> Option<ProviderConfigInput> {
         todo!("port core/model-registry.ts:ModelRegistry.getRegisteredProviderConfig")
     }
 

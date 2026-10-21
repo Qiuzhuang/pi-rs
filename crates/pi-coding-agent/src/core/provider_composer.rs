@@ -2,7 +2,9 @@
 
 use crate::core::model_config::ModelConfig;
 use crate::core::model_config::ModelsJsonProvider;
+use futures::future::BoxFuture;
 use indexmap::IndexMap;
+use pi_ai::auth::extension_oauth_types::OAuthLoginCallbacks;
 use pi_ai::auth::types::OAuthCredentials;
 use pi_ai::models::Provider;
 use pi_ai::models::ProviderClassifier;
@@ -29,36 +31,29 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 use tokio_util::sync::CancellationToken;
 
-#[async_trait::async_trait]
-pub trait ExtensionOAuthConfig: Send + Sync {
-    fn name(&self) -> String;
-    fn set_name(&self, value: String);
+#[derive(Clone)]
+pub struct ExtensionOAuthConfig {
+    pub name: String,
     /// Whether access through this auth method is backed by a provider subscription.
-    /// Optional in TS: the default implementation means "not provided".
-    fn is_subscription(&self) -> Option<bool> {
-        None
-    }
-    fn set_is_subscription(&self, value: Option<bool>);
+    pub is_subscription: Option<bool>,
     /// @deprecated Retained for extension source compatibility; ignored by canonical auth flows.
-    /// Optional in TS: the default implementation means "not provided".
-    fn uses_callback_server(&self) -> Option<bool> {
-        None
-    }
-    fn set_uses_callback_server(&self, value: Option<bool>);
-    async fn login(
-        &self,
-        callbacks: Value, /* TS: pi-ai::OAuthLoginCallbacks */
-    ) -> anyhow::Result<OAuthCredentials>;
-    async fn refresh_token(
-        &self,
-        credentials: OAuthCredentials,
-        signal: CancellationToken,
-    ) -> anyhow::Result<OAuthCredentials>;
-    fn get_api_key(&self, credentials: OAuthCredentials) -> String;
-    /// Optional in TS: the default implementation means "not provided".
-    fn modify_models(&self, models: &[Model], credentials: OAuthCredentials) -> Vec<Model> {
-        todo!("optional method not provided")
-    }
+    pub uses_callback_server: Option<bool>,
+    pub login: Arc<
+        dyn Fn(Arc<dyn OAuthLoginCallbacks>) -> BoxFuture<'static, anyhow::Result<OAuthCredentials>>
+            + Send
+            + Sync,
+    >,
+    pub refresh_token: Arc<
+        dyn Fn(
+                OAuthCredentials,
+                CancellationToken,
+            ) -> BoxFuture<'static, anyhow::Result<OAuthCredentials>>
+            + Send
+            + Sync,
+    >,
+    pub get_api_key: Arc<dyn Fn(OAuthCredentials) -> String + Send + Sync>,
+    pub modify_models:
+        Option<Arc<dyn Fn(Vec<Model>, OAuthCredentials) -> Vec<Model> + Send + Sync>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -179,32 +174,13 @@ pub enum ProviderModelConfig {
 }
 
 /// Input type for the extension registerProvider API.
-#[async_trait::async_trait]
-pub trait ProviderConfigInput: Send + Sync {
-    /// Optional in TS: the default implementation means "not provided".
-    fn name(&self) -> Option<String> {
-        None
-    }
-    fn set_name(&self, value: Option<String>);
-    /// Optional in TS: the default implementation means "not provided".
-    fn base_url(&self) -> Option<String> {
-        None
-    }
-    fn set_base_url(&self, value: Option<String>);
-    /// Optional in TS: the default implementation means "not provided".
-    fn api_key(&self) -> Option<String> {
-        None
-    }
-    fn set_api_key(&self, value: Option<String>);
-    /// Optional in TS: the default implementation means "not provided".
-    fn api(&self) -> Option<Api> {
-        None
-    }
-    fn set_api(&self, value: Option<Api>);
-    /// Optional in TS: the default implementation means "not provided".
-    fn stream_simple(
-        &self,
-    ) -> Option<
+#[derive(Clone)]
+pub struct ProviderConfigInput {
+    pub name: Option<String>,
+    pub base_url: Option<String>,
+    pub api_key: Option<String>,
+    pub api: Option<Api>,
+    pub stream_simple: Option<
         Arc<
             dyn Fn(
                     Model,
@@ -214,46 +190,22 @@ pub trait ProviderConfigInput: Send + Sync {
                 + Send
                 + Sync,
         >,
-    > {
-        None
-    }
-    /// Optional in TS: the default implementation means "not provided".
-    fn images(&self) -> Option<IndexMap<ImageApi, Arc<dyn ProviderImages>>> {
-        None
-    }
-    fn set_images(&self, value: Option<IndexMap<ImageApi, Arc<dyn ProviderImages>>>);
-    /// Optional in TS: the default implementation means "not provided".
-    fn classifiers(&self) -> Option<IndexMap<ClassifierApi, Arc<dyn ProviderClassifier>>> {
-        None
-    }
-    fn set_classifiers(&self, value: Option<IndexMap<ClassifierApi, Arc<dyn ProviderClassifier>>>);
-    /// Optional in TS: the default implementation means "not provided".
-    fn headers(&self) -> Option<IndexMap<String, String>> {
-        None
-    }
-    fn set_headers(&self, value: Option<IndexMap<String, String>>);
-    /// Optional in TS: the default implementation means "not provided".
-    fn auth_header(&self) -> Option<bool> {
-        None
-    }
-    fn set_auth_header(&self, value: Option<bool>);
-    /// Optional in TS: the default implementation means "not provided".
-    fn oauth(&self) -> Option<Arc<dyn ExtensionOAuthConfig>> {
-        None
-    }
-    fn set_oauth(&self, value: Option<Arc<dyn ExtensionOAuthConfig>>);
-    /// Optional in TS: the default implementation means "not provided".
-    fn models(&self) -> Option<Vec<ProviderModelConfig>> {
-        None
-    }
-    fn set_models(&self, value: Option<Vec<ProviderModelConfig>>);
-    /// Optional in TS: the default implementation means "not provided".
-    async fn refresh_models(
-        &self,
-        context: RefreshModelsContext,
-    ) -> anyhow::Result<Vec<ProviderModelConfig>> {
-        todo!("optional method not provided")
-    }
+    >,
+    pub images: Option<IndexMap<ImageApi, Arc<dyn ProviderImages>>>,
+    pub classifiers: Option<IndexMap<ClassifierApi, Arc<dyn ProviderClassifier>>>,
+    pub headers: Option<IndexMap<String, String>>,
+    pub auth_header: Option<bool>,
+    pub oauth: Option<ExtensionOAuthConfig>,
+    pub models: Option<Vec<ProviderModelConfig>>,
+    pub refresh_models: Option<
+        Arc<
+            dyn Fn(
+                    RefreshModelsContext,
+                ) -> BoxFuture<'static, anyhow::Result<Vec<ProviderModelConfig>>>
+                + Send
+                + Sync,
+        >,
+    >,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -302,7 +254,7 @@ pub fn validate_extension_provider(
     provider_id: &str,
     base: Option<Arc<dyn Provider>>,
     models_config: Option<&ModelsJsonProvider>,
-    extension: Arc<dyn ProviderConfigInput>,
+    extension: &ProviderConfigInput,
 ) -> anyhow::Result<()> {
     todo!("port core/provider-composer.ts:validateExtensionProvider")
 }
@@ -312,7 +264,7 @@ pub fn compose_model_provider(
     provider_id: &str,
     base: Option<Arc<dyn Provider>>,
     model_config: Arc<ModelConfig>,
-    extension: Option<Arc<dyn ProviderConfigInput>>,
+    extension: Option<&ProviderConfigInput>,
 ) -> anyhow::Result<Arc<dyn Provider>> {
     todo!("port core/provider-composer.ts:composeModelProvider")
 }
@@ -320,7 +272,7 @@ pub fn compose_model_provider(
 pub fn resolve_configured_model_headers(
     model: AnyModel,
     config: Option<&ModelsJsonProvider>,
-    extension: Option<Arc<dyn ProviderConfigInput>>,
+    extension: Option<&ProviderConfigInput>,
     env: Option<IndexMap<String, String>>,
 ) -> Option<IndexMap<String, String>> {
     todo!("port core/provider-composer.ts:resolveConfiguredModelHeaders")
@@ -337,14 +289,14 @@ pub struct CompatibilityRequestConfig {
 pub fn resolve_compatibility_request_config(
     model: AnyModel,
     config: Option<&ModelsJsonProvider>,
-    extension: Option<Arc<dyn ProviderConfigInput>>,
+    extension: Option<&ProviderConfigInput>,
 ) -> CompatibilityRequestConfig {
     todo!("port core/provider-composer.ts:resolveCompatibilityRequestConfig")
 }
 
 pub fn configured_request_auth_status(
     config: Option<&ModelsJsonProvider>,
-    extension: Option<Arc<dyn ProviderConfigInput>>,
+    extension: Option<&ProviderConfigInput>,
 ) -> Option<AuthStatus> {
     todo!("port core/provider-composer.ts:configuredRequestAuthStatus")
 }

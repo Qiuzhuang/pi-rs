@@ -24,7 +24,7 @@ pub fn to_tool_exposure(exposure: &McpExposure) -> ToolExposure {
 }
 
 /// Model-facing text of an MCP result beyond this is cut in the middle.
-pub const MCP_OUTPUT_MAX_BYTES: u64 = 20480;
+pub const MCP_OUTPUT_MAX_BYTES: i64 = 20480;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -95,7 +95,7 @@ pub fn create_mcp_result_schema(
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct LimitMcpContentLimitMcpContentResult {
+pub struct EmptyLimitMcpContentResult {
     pub content: Vec<UserContentBlock>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub full_output_path: Option<String>,
@@ -106,7 +106,7 @@ pub struct LimitMcpContentLimitMcpContentResult {
 pub async fn limit_mcp_content(
     content: &[UserContentBlock],
     save_output: Option<&McpOutputSaver>,
-) -> anyhow::Result<LimitMcpContentLimitMcpContentResult> {
+) -> anyhow::Result<EmptyLimitMcpContentResult> {
     todo!("port extensions/mcp/tools.ts:limitMcpContent")
 }
 
@@ -151,9 +151,7 @@ pub struct CreateMcpToolDefinitionOptions {
     pub readable_resources: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
 }
 
-pub fn create_mcp_tool_definition(
-    options: &CreateMcpToolDefinitionOptions,
-) -> Arc<dyn ToolDefinition> {
+pub fn create_mcp_tool_definition(options: &CreateMcpToolDefinitionOptions) -> ToolDefinition {
     todo!("port extensions/mcp/tools.ts:createMcpToolDefinition")
 }
 

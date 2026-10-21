@@ -238,7 +238,7 @@ pub fn get_mcp_tool_exposure(config: &McpServerConfig, tool_name: &str) -> McpEx
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum ValidateMcpServerConfigValidateMcpServerConfigResult {
+pub enum EmptyValidateMcpServerConfigResult {
     McpStdioServerConfig(McpStdioServerConfig),
     McpHttpServerConfig(McpHttpServerConfig),
     String(String),
@@ -246,10 +246,7 @@ pub enum ValidateMcpServerConfigValidateMcpServerConfigResult {
 
 /// Validate one server entry of the `mcpServers` shape. Returns a copy of the config with exposure
 /// aliases resolved, or an error message.
-pub fn validate_mcp_server_config(
-    name: &str,
-    raw: Value,
-) -> ValidateMcpServerConfigValidateMcpServerConfigResult {
+pub fn validate_mcp_server_config(name: &str, raw: Value) -> EmptyValidateMcpServerConfigResult {
     todo!("port core/mcp-servers.ts:validateMcpServerConfig")
 }
 

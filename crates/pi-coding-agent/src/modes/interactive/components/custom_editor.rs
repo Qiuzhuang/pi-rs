@@ -4,10 +4,10 @@ use crate::core::keybindings::AppKeybinding;
 use crate::core::keybindings::KeybindingsManager;
 use crate::modes::interactive::components::status_indicator::StatusIndicator;
 use indexmap::IndexMap;
+use pi_tui::components::editor::EditorTheme;
 use pi_tui::tui::Component;
 use pi_tui::tui::Tui;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::sync::Arc;
 
 // TS: EditorOptions & { /** Render working, compaction, summarization, and retry status in the editor's top border. */ embedWorkingStatus?: boolean; }
@@ -32,7 +32,7 @@ pub struct CustomEditor {
 impl CustomEditor {
     pub fn new(
         tui: Arc<Tui>,
-        theme: Value, /* TS: pi-tui::EditorTheme */
+        theme: Arc<EditorTheme>,
         keybindings: Arc<KeybindingsManager>,
         options: Option<&CustomEditorOptions>,
     ) -> Self {

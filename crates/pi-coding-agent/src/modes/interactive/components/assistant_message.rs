@@ -1,9 +1,9 @@
 //! Port of `packages/coding-agent/src/modes/interactive/components/assistant-message.ts`.
 
+use crate::compat::MarkdownTheme;
 use crate::core::extensions::types::MarkdownTransformer;
 use pi_ai::types::AssistantMessage;
 use pi_tui::tui::Component;
-use serde_json::Value;
 
 /// Component that renders a complete assistant message
 /// TS: `extends Container`
@@ -15,7 +15,7 @@ impl AssistantMessageComponent {
     pub fn new(
         message: Option<AssistantMessage>,
         hide_thinking_block: Option<bool>,
-        markdown_theme: Option<Value /* TS: pi-tui::MarkdownTheme */>,
+        markdown_theme: Option<&MarkdownTheme>,
         hidden_thinking_label: Option<&str>,
         output_pad: Option<i64>,
         markdown_transformers: Option<&[MarkdownTransformer]>,

@@ -122,7 +122,7 @@ pub fn build_system_prompt_sections(
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct BuildSystemPromptStateBuildSystemPromptStateResult {
+pub struct EmptyBuildSystemPromptStateResult {
     pub content: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sections: Option<SystemPromptSections>,
@@ -132,7 +132,7 @@ pub struct BuildSystemPromptStateBuildSystemPromptStateResult {
 /// with no sections; otherwise `content` is empty and the structured sections carry the prompt.
 pub fn build_system_prompt_state(
     input: &BuildSystemPromptOptions,
-) -> BuildSystemPromptStateBuildSystemPromptStateResult {
+) -> EmptyBuildSystemPromptStateResult {
     todo!("port core/system-prompt.ts:buildSystemPromptState")
 }
 

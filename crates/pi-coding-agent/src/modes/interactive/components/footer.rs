@@ -22,7 +22,7 @@ pub struct SessionStats {
     pub session: Arc<AgentSession>,
     pub session_id: String,
     pub leaf_id: Option<String>,
-    pub entry_count: f64,
+    pub entry_count: i64,
     pub limits_model: Value,
     pub usage_totals: UsageTotals,
     pub latest_cache_hit_rate: Option<f64>,

@@ -1,6 +1,7 @@
 //! Port of `packages/coding-agent/src/modes/interactive/session-share.ts`.
 
 use crate::core::agent_session::AgentSession;
+use pi_tui::components::editor::EditorComponent;
 use pi_tui::tui::Container;
 use pi_tui::tui::Tui;
 use serde_json::Value;
@@ -11,7 +12,7 @@ pub struct SessionShareContext {
     pub session: Arc<AgentSession>,
     pub ui: Arc<Tui>,
     pub editor_container: Arc<Container>,
-    pub editor: Value, /* TS: pi-tui::EditorComponent */
+    pub editor: Arc<dyn EditorComponent>,
     pub show_status: Arc<dyn Fn(String) + Send + Sync>,
     pub show_error: Arc<dyn Fn(String) + Send + Sync>,
 }

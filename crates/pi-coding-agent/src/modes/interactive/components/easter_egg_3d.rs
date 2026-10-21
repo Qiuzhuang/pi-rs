@@ -3,6 +3,7 @@
 use pi_tui::tui::Component;
 use pi_tui::tui::Tui;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::sync::Arc;
 
 /// Fullscreen 3D easter eggs: the pi logo (header logo click) and Armin (/arminsayshi). Both are bitmaps built from
@@ -138,6 +139,76 @@ pub struct Face {
     pub green: f64,
     #[serde(with = "pi_ai::serde_util::js_f64")]
     pub blue: f64,
+}
+
+/// Renders the model's blocks into braille cells. Only faces that point at the camera and are not covered by a
+/// touching block are drawn. Each face is rasterized over its projected bounds by intersecting each dot's ray
+/// with the face's plane, with a depth buffer resolving overlaps. Buffers are reused between frames.
+pub struct BlockRaster {
+    // TODO(port): private state (interior mutability; methods take &self)
+}
+
+impl BlockRaster {
+    pub fn new(camera_distance: f64) -> Self {
+        todo!("port modes/interactive/components/easter-egg-3d.ts:BlockRaster.constructor")
+    }
+
+    /// Braille dot bits per cell.
+    pub fn bits(&self) -> Value {
+        todo!("port modes/interactive/components/easter-egg-3d.ts:BlockRaster.bits")
+    }
+
+    pub fn set_bits(&self, value: Value) {
+        todo!("port modes/interactive/components/easter-egg-3d.ts:BlockRaster.bits")
+    }
+
+    /// Lit dots per cell.
+    pub fn counts(&self) -> Value {
+        todo!("port modes/interactive/components/easter-egg-3d.ts:BlockRaster.counts")
+    }
+
+    pub fn set_counts(&self, value: Value) {
+        todo!("port modes/interactive/components/easter-egg-3d.ts:BlockRaster.counts")
+    }
+
+    /// Summed RGB of the lit dots per cell.
+    pub fn rgb(&self) -> Value {
+        todo!("port modes/interactive/components/easter-egg-3d.ts:BlockRaster.rgb")
+    }
+
+    pub fn set_rgb(&self, value: Value) {
+        todo!("port modes/interactive/components/easter-egg-3d.ts:BlockRaster.rgb")
+    }
+
+    /// Halo tint strength per cell, from 0 to 1. Only set when a halo was requested.
+    pub fn halo_amount(&self) -> Value {
+        todo!("port modes/interactive/components/easter-egg-3d.ts:BlockRaster.haloAmount")
+    }
+
+    pub fn set_halo_amount(&self, value: Value) {
+        todo!("port modes/interactive/components/easter-egg-3d.ts:BlockRaster.haloAmount")
+    }
+
+    /// Halo color per cell.
+    pub fn halo_rgb(&self) -> Value {
+        todo!("port modes/interactive/components/easter-egg-3d.ts:BlockRaster.haloRgb")
+    }
+
+    pub fn set_halo_rgb(&self, value: Value) {
+        todo!("port modes/interactive/components/easter-egg-3d.ts:BlockRaster.haloRgb")
+    }
+
+    pub fn render(
+        &self,
+        width: i64,
+        height: i64,
+        pose: &Pose,
+        boxes: &[Box],
+        background: &Rgb,
+        halo_strength: f64,
+    ) {
+        todo!("port modes/interactive/components/easter-egg-3d.ts:BlockRaster.render")
+    }
 }
 
 /// Which easter egg to play. The pi logo lifts off the header logo, whose top-left cell is at `column`, `row`.

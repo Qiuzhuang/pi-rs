@@ -50,7 +50,7 @@ pub struct ToolExecutionComponentResult {
 #[derive(Clone)]
 pub enum ToolExecutionComponentToolDefinition {
     ToolRenderers(ToolRenderers),
-    Arc(Arc<dyn ToolDefinition>),
+    ToolDefinition(ToolDefinition),
 }
 
 /// TS: `extends Container`

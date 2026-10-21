@@ -1,8 +1,8 @@
 //! Port of `packages/coding-agent/src/modes/interactive/components/compaction-summary-message.ts`.
 
+use crate::compat::MarkdownTheme;
 use crate::core::messages::CompactionSummaryMessage;
 use pi_tui::tui::Component;
-use serde_json::Value;
 
 /// Component that renders a compaction message with collapsed/expanded state.
 /// Uses same background color as custom messages for visual consistency.
@@ -14,7 +14,7 @@ pub struct CompactionSummaryMessageComponent {
 impl CompactionSummaryMessageComponent {
     pub fn new(
         message: &CompactionSummaryMessage,
-        markdown_theme: Option<Value /* TS: pi-tui::MarkdownTheme */>,
+        markdown_theme: Option<&MarkdownTheme>,
         output_pad: Option<i64>,
     ) -> Self {
         todo!(

@@ -17,7 +17,7 @@ use serde_json::Value;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
-pub const CURRENT_SESSION_VERSION: u64 = 3;
+pub const CURRENT_SESSION_VERSION: i64 = 3;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -381,8 +381,7 @@ pub struct SessionInfo {
     pub parent_session_path: Option<String>,
     pub created: chrono::DateTime<chrono::Utc>,
     pub modified: chrono::DateTime<chrono::Utc>,
-    #[serde(with = "pi_ai::serde_util::js_f64")]
-    pub message_count: f64,
+    pub message_count: i64,
     pub first_message: String,
     pub all_messages_text: String,
 }
@@ -448,6 +447,26 @@ pub fn build_session_context(
 
 pub fn get_default_session_dir(cwd: &str, agent_dir: Option<&str>) -> String {
     todo!("port core/session-manager.ts:getDefaultSessionDir")
+}
+
+/// TS: `extends Error`
+#[derive(Debug, Clone)]
+pub struct SessionHeaderScanLimitError {
+    pub message: String,
+}
+
+impl std::fmt::Display for SessionHeaderScanLimitError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for SessionHeaderScanLimitError {}
+
+impl SessionHeaderScanLimitError {
+    pub fn new(file_path: &str) -> Self {
+        todo!("port core/session-manager.ts:SessionHeaderScanLimitError.constructor")
+    }
 }
 
 /// Exported for testing

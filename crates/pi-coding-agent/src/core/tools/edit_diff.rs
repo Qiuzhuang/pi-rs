@@ -3,14 +3,14 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum DetectLineEndingDetectLineEndingResult {
+pub enum EmptyDetectLineEndingResult {
     #[serde(rename = "\r\n")]
     Empty,
     #[serde(rename = "\n")]
     Empty2,
 }
 
-impl DetectLineEndingDetectLineEndingResult {
+impl EmptyDetectLineEndingResult {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Empty => "\r\n",
@@ -19,7 +19,7 @@ impl DetectLineEndingDetectLineEndingResult {
     }
 }
 
-pub fn detect_line_ending(content: &str) -> DetectLineEndingDetectLineEndingResult {
+pub fn detect_line_ending(content: &str) -> EmptyDetectLineEndingResult {
     todo!("port core/tools/edit-diff.ts:detectLineEnding")
 }
 
@@ -27,7 +27,7 @@ pub fn normalize_to_lf(text: &str) -> String {
     todo!("port core/tools/edit-diff.ts:normalizeToLF")
 }
 
-pub fn restore_line_endings(text: &str, ending: DetectLineEndingDetectLineEndingResult) -> String {
+pub fn restore_line_endings(text: &str, ending: EmptyDetectLineEndingResult) -> String {
     todo!("port core/tools/edit-diff.ts:restoreLineEndings")
 }
 
@@ -50,10 +50,8 @@ pub struct LineSpan {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MatchedEdit {
-    #[serde(with = "pi_ai::serde_util::js_f64")]
-    pub edit_index: f64,
-    #[serde(with = "pi_ai::serde_util::js_f64")]
-    pub match_index: f64,
+    pub edit_index: i64,
+    pub match_index: i64,
     pub match_length: i64,
     pub new_text: String,
 }
@@ -62,8 +60,7 @@ pub struct MatchedEdit {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TextReplacement {
-    #[serde(with = "pi_ai::serde_util::js_f64")]
-    pub match_index: f64,
+    pub match_index: i64,
     pub match_length: i64,
     pub new_text: String,
 }
@@ -149,7 +146,7 @@ pub fn generate_unified_patch(
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GenerateDiffStringGenerateDiffStringResult {
+pub struct EmptyGenerateDiffStringResult {
     pub diff: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub first_changed_line: Option<i64>,
@@ -161,7 +158,7 @@ pub fn generate_diff_string(
     old_content: &str,
     new_content: &str,
     context_lines: Option<i64>,
-) -> GenerateDiffStringGenerateDiffStringResult {
+) -> EmptyGenerateDiffStringResult {
     todo!("port core/tools/edit-diff.ts:generateDiffString")
 }
 
@@ -181,7 +178,7 @@ pub struct EditDiffError {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum ComputeEditsDiffComputeEditsDiffResult {
+pub enum EmptyComputeEditsDiffResult {
     EditDiffResult(EditDiffResult),
     EditDiffError(EditDiffError),
 }
@@ -192,13 +189,13 @@ pub async fn compute_edits_diff(
     path: &str,
     edits: &[Edit],
     cwd: &str,
-) -> anyhow::Result<ComputeEditsDiffComputeEditsDiffResult> {
+) -> anyhow::Result<EmptyComputeEditsDiffResult> {
     todo!("port core/tools/edit-diff.ts:computeEditsDiff")
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum ComputeEditDiffComputeEditDiffResult {
+pub enum EmptyComputeEditDiffResult {
     EditDiffResult(EditDiffResult),
     EditDiffError(EditDiffError),
 }
@@ -210,6 +207,6 @@ pub async fn compute_edit_diff(
     old_text: &str,
     new_text: &str,
     cwd: &str,
-) -> anyhow::Result<ComputeEditDiffComputeEditDiffResult> {
+) -> anyhow::Result<EmptyComputeEditDiffResult> {
     todo!("port core/tools/edit-diff.ts:computeEditDiff")
 }

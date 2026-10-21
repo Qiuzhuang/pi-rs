@@ -88,7 +88,7 @@ pub struct CreateAgentSessionOptions {
     /// provided, MCP tools included.
     pub exclude_tools: Option<Vec<String>>,
     /// Custom tools to register (in addition to built-in tools).
-    pub custom_tools: Option<Vec<Arc<dyn ToolDefinition>>>,
+    pub custom_tools: Option<Vec<ToolDefinition>>,
     /// Resource loader. When omitted, DefaultResourceLoader is used.
     pub resource_loader: Option<Arc<dyn ResourceLoader>>,
     /// Session manager. Default: SessionManager.create(cwd)

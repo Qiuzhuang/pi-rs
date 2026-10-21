@@ -10,7 +10,7 @@ use std::sync::LazyLock;
 
 pub const TOOL_SEARCH_TOOL_NAME: &str = "tool_search";
 
-pub const DEFAULT_TOOL_SEARCH_LIMIT: u64 = 8;
+pub const DEFAULT_TOOL_SEARCH_LIMIT: i64 = 8;
 
 /// A tool as the ranker sees it: its name and the text built by {@link createToolSearchDocument}.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -109,14 +109,12 @@ pub static TOOL_SEARCH_SCHEMA: LazyLock<Value> =
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ToolSearchInputValue {
+pub struct ToolSearchInput {
     /// Search query for deferred tools.
     pub query: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<i64>,
 }
-
-pub type ToolSearchInput = ToolSearchInputValue;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -157,6 +155,6 @@ pub static TOOL_SEARCH_DESCRIPTION: LazyLock<String> =
 
 pub fn create_tool_search_tool_definition(
     options: Option<&ToolSearchToolOptions>,
-) -> anyhow::Result<Arc<dyn ToolDefinition>> {
+) -> anyhow::Result<ToolDefinition> {
     todo!("port extensions/tool-search/tool.ts:createToolSearchToolDefinition")
 }

@@ -18,6 +18,28 @@ pub struct ActiveModelCatalogRefresh {
     pub waiters: f64,
 }
 
+pub struct ModelCatalogRefreshCoordinator {
+    // TODO(port): private state (interior mutability; methods take &self)
+}
+
+impl ModelCatalogRefreshCoordinator {
+    pub fn new() -> Self {
+        todo!(
+            "port modes/interactive/model-catalog-refresh.ts:ModelCatalogRefreshCoordinator.constructor"
+        )
+    }
+
+    pub async fn refresh(
+        &self,
+        model_runtime: &ModelCatalogRuntime,
+        signal: CancellationToken,
+    ) -> anyhow::Result<ModelsRefreshResult> {
+        todo!(
+            "port modes/interactive/model-catalog-refresh.ts:ModelCatalogRefreshCoordinator.refresh"
+        )
+    }
+}
+
 /// Share concurrent interactive all-catalog refreshes while keeping each caller's cancellation independent.
 pub async fn refresh_model_catalogs(
     model_runtime: &ModelCatalogRuntime,

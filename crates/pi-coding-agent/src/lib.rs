@@ -6,6 +6,7 @@
 #![allow(dead_code, unused_variables)]
 
 pub mod cli;
+pub mod compat;
 pub mod config;
 pub mod core;
 pub mod extensions;
@@ -112,7 +113,6 @@ pub use crate::core::extensions::types::EditToolCallEvent;
 pub use crate::core::extensions::types::EntryRenderOptions;
 pub use crate::core::extensions::types::EntryRenderer;
 pub use crate::core::extensions::types::ExecuteToolOptions;
-pub use crate::core::extensions::types::Extension;
 pub use crate::core::extensions::types::ExtensionAPI;
 pub use crate::core::extensions::types::ExtensionActions;
 pub use crate::core::extensions::types::ExtensionCommandContext;
@@ -124,6 +124,7 @@ pub use crate::core::extensions::types::ExtensionEvent;
 pub use crate::core::extensions::types::ExtensionFactory;
 pub use crate::core::extensions::types::ExtensionFlag;
 pub use crate::core::extensions::types::ExtensionHandler;
+pub use crate::core::extensions::types::ExtensionRef as Extension;
 pub use crate::core::extensions::types::ExtensionRuntime;
 pub use crate::core::extensions::types::ExtensionShortcut;
 pub use crate::core::extensions::types::ExtensionToolContext;

@@ -14,7 +14,7 @@ pub static LS_TOOL_SYSTEM_PROMPT_CONTRIBUTION: LazyLock<Value> =
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct LsToolInputValue {
+pub struct LsToolInput {
     /// Directory to list (default: current directory)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
@@ -22,8 +22,6 @@ pub struct LsToolInputValue {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<i64>,
 }
-
-pub type LsToolInput = LsToolInputValue;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -59,10 +57,7 @@ pub struct LsToolOptions {
     pub operations: Option<LsOperations>,
 }
 
-pub fn create_ls_tool_definition(
-    cwd: &str,
-    options: Option<&LsToolOptions>,
-) -> Arc<dyn ToolDefinition> {
+pub fn create_ls_tool_definition(cwd: &str, options: Option<&LsToolOptions>) -> ToolDefinition {
     todo!("port core/tools/ls.ts:createLsToolDefinition")
 }
 

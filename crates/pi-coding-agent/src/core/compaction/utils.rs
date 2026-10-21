@@ -25,14 +25,14 @@ pub fn extract_file_ops_from_message(message: AgentMessage, file_ops: &FileOpera
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ComputeFileListsComputeFileListsResult {
+pub struct EmptyComputeFileListsResult {
     pub read_files: Vec<String>,
     pub modified_files: Vec<String>,
 }
 
 /// Compute final file lists from file operations.
 /// Returns readFiles (files only read, not modified) and modifiedFiles.
-pub fn compute_file_lists(file_ops: &FileOperations) -> ComputeFileListsComputeFileListsResult {
+pub fn compute_file_lists(file_ops: &FileOperations) -> EmptyComputeFileListsResult {
     todo!("port core/compaction/utils.ts:computeFileLists")
 }
 

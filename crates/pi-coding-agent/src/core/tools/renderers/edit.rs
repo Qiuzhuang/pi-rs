@@ -1,5 +1,6 @@
 //! Port of `packages/coding-agent/src/core/tools/renderers/edit.ts`.
 
+use crate::compat::RenderCache;
 use crate::core::extensions::types::ToolRenderContext;
 use crate::core::extensions::types::ToolRenderResultOptions;
 use crate::core::tools::edit::EditToolDetails;
@@ -9,6 +10,8 @@ use crate::core::tools::edit_diff::EditDiffResult;
 use crate::modes::interactive::theme::theme::Theme;
 use pi_agent::types::AgentToolResult;
 use pi_tui::tui::ComponentRef;
+use pi_tui::tui::MouseEvent;
+use pi_tui::tui::MouseResult;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
@@ -80,7 +83,7 @@ pub struct EditCallRenderComponent {
     pub padding_x: i64,
     pub padding_y: i64,
     pub bg_fn: Option<Arc<dyn Fn(String) -> String + Send + Sync>>,
-    pub cache: Option<Value /* TS: pi-tui::RenderCache */>,
+    pub cache: Option<Arc<RenderCache>>,
     pub mouse_layout: Option<EditCallRenderComponentMouseLayout>,
     pub add_child: Arc<dyn Fn(ComponentRef) + Send + Sync>,
     pub remove_child: Arc<dyn Fn(ComponentRef) + Send + Sync>,
@@ -90,13 +93,7 @@ pub struct EditCallRenderComponent {
     pub invalidate_cache: Arc<dyn Fn() + Send + Sync>,
     pub match_cache: Arc<dyn Fn(i64, Vec<String>, Option<String>) -> bool + Send + Sync>,
     pub invalidate: Arc<dyn Fn() + Send + Sync>,
-    pub handle_mouse: Arc<
-        dyn Fn(
-                Value, /* TS: pi-tui::TuiMouseEvent */
-            ) -> Option<Value /* TS: pi-tui::TuiMouseDispatchResult */>
-            + Send
-            + Sync,
-    >,
+    pub handle_mouse: Arc<dyn Fn(MouseEvent) -> Option<Arc<MouseResult>> + Send + Sync>,
     pub render: Arc<dyn Fn(i64) -> Vec<String> + Send + Sync>,
     pub apply_bg: Arc<dyn Fn(String, i64) -> String + Send + Sync>,
     pub preview: Option<EditPreview>,

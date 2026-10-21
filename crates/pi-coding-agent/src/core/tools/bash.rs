@@ -16,7 +16,7 @@ pub static BASH_TOOL_SYSTEM_PROMPT_CONTRIBUTION: LazyLock<Value> =
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct BashToolInputValue {
+pub struct BashToolInput {
     /// Shell command to execute
     pub command: String,
     /// Timeout in seconds (optional, no default timeout)
@@ -24,11 +24,9 @@ pub struct BashToolInputValue {
     pub timeout: Option<i64>,
 }
 
-pub type BashToolInput = BashToolInputValue;
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct BashToolOutputValue {
+pub struct BashToolOutput {
     /// Combined stdout and stderr, possibly truncated
     pub output: String,
     pub truncated: bool,
@@ -44,8 +42,6 @@ pub struct BashToolOutputValue {
     #[serde(rename = "wall_time_seconds")]
     pub wall_time_seconds: i64,
 }
-
-pub type BashToolOutput = BashToolOutputValue;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -165,14 +161,11 @@ pub fn create_shell_tool_definition(
     cwd: &str,
     config: &ShellToolConfig,
     options: Option<&BashToolOptions>,
-) -> anyhow::Result<Arc<dyn ToolDefinition>> {
+) -> anyhow::Result<ToolDefinition> {
     todo!("port core/tools/bash.ts:createShellToolDefinition")
 }
 
-pub fn create_bash_tool_definition(
-    cwd: &str,
-    options: Option<&BashToolOptions>,
-) -> Arc<dyn ToolDefinition> {
+pub fn create_bash_tool_definition(cwd: &str, options: Option<&BashToolOptions>) -> ToolDefinition {
     todo!("port core/tools/bash.ts:createBashToolDefinition")
 }
 

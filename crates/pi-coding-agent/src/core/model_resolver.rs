@@ -1,16 +1,18 @@
 //! Port of `packages/coding-agent/src/core/model-resolver.ts`.
 
+use crate::compat::AuthOperationOptions;
 use crate::core::model_runtime::ModelRuntime;
 use indexmap::IndexMap;
 use pi_agent::types::ThinkingLevel;
 use pi_ai::types::Model;
+use pi_ai::types::ProviderId;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
 /// Default chat model IDs for providers with built-in chat models.
-pub static DEFAULT_MODEL_PER_PROVIDER: LazyLock<IndexMap<String, String>> =
+pub static DEFAULT_MODEL_PER_PROVIDER: LazyLock<IndexMap<ProviderId, String>> =
     LazyLock::new(|| todo!("port core/model-resolver.ts:defaultModelPerProvider"));
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,8 +76,7 @@ pub enum ModelReferenceResult {
     #[serde(rename = "ambiguous")]
     Ambiguous {
         candidates: Vec<Model>,
-        #[serde(with = "pi_ai::serde_util::js_f64")]
-        usable_count: f64,
+        usable_count: i64,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         thinking_level: Option<ThinkingLevel>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -170,7 +171,7 @@ pub fn resolve_model_scope_from_models(
 pub async fn resolve_model_scope_with_diagnostics(
     patterns: &[String],
     model_runtime: Arc<ModelRuntime>,
-    options: Option<Value /* TS: pi-ai::AuthOperationOptions */>,
+    options: Option<&AuthOperationOptions>,
 ) -> anyhow::Result<ResolveModelScopeResult> {
     todo!("port core/model-resolver.ts:resolveModelScopeWithDiagnostics")
 }
@@ -178,7 +179,7 @@ pub async fn resolve_model_scope_with_diagnostics(
 pub async fn resolve_model_scope(
     patterns: &[String],
     model_runtime: Arc<ModelRuntime>,
-    options: Option<Value /* TS: pi-ai::AuthOperationOptions */>,
+    options: Option<&AuthOperationOptions>,
 ) -> anyhow::Result<Vec<ScopedModel>> {
     todo!("port core/model-resolver.ts:resolveModelScope")
 }
@@ -254,7 +255,7 @@ pub async fn find_initial_model(
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RestoreModelFromSessionRestoreModelFromSessionResult {
+pub struct EmptyRestoreModelFromSessionResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<Model>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -268,6 +269,6 @@ pub async fn restore_model_from_session(
     current_model: Option<Model>,
     should_print_messages: bool,
     model_runtime: Arc<ModelRuntime>,
-) -> anyhow::Result<RestoreModelFromSessionRestoreModelFromSessionResult> {
+) -> anyhow::Result<EmptyRestoreModelFromSessionResult> {
     todo!("port core/model-resolver.ts:restoreModelFromSession")
 }

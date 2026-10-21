@@ -1,8 +1,8 @@
 //! Port of `packages/coding-agent/src/modes/interactive/components/user-message.ts`.
 
+use crate::compat::MarkdownTheme;
 use crate::core::extensions::types::MarkdownTransformer;
 use pi_tui::tui::Component;
-use serde_json::Value;
 
 /// Component that renders a user message
 /// TS: `extends Container`
@@ -13,7 +13,7 @@ pub struct UserMessageComponent {
 impl UserMessageComponent {
     pub fn new(
         text: &str,
-        markdown_theme: Option<Value /* TS: pi-tui::MarkdownTheme */>,
+        markdown_theme: Option<&MarkdownTheme>,
         output_pad: Option<i64>,
         markdown_transformers: Option<&[MarkdownTransformer]>,
     ) -> Self {

@@ -2,8 +2,8 @@
 
 use futures::future::BoxFuture;
 use indexmap::IndexMap;
+use pi_ai::models::ModelsRequestOptions;
 use pi_ai::models_store::ModelsStoreEntry;
-use serde_json::Value;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
@@ -37,7 +37,7 @@ impl InMemoryCodingAgentModelsStore {
     pub async fn read(
         &self,
         provider_id: &str,
-        options: Option<Value /* TS: pi-ai::ModelsStoreOperationOptions */>,
+        options: Option<ModelsRequestOptions>,
     ) -> anyhow::Result<Option<ModelsStoreEntry>> {
         todo!("port core/models-store.ts:InMemoryCodingAgentModelsStore.read")
     }
@@ -46,7 +46,7 @@ impl InMemoryCodingAgentModelsStore {
         &self,
         provider_id: &str,
         entry: ModelsStoreEntry,
-        options: Option<Value /* TS: pi-ai::ModelsStoreOperationOptions */>,
+        options: Option<ModelsRequestOptions>,
     ) -> anyhow::Result<()> {
         todo!("port core/models-store.ts:InMemoryCodingAgentModelsStore.write")
     }
@@ -54,7 +54,7 @@ impl InMemoryCodingAgentModelsStore {
     pub async fn delete(
         &self,
         provider_id: &str,
-        options: Option<Value /* TS: pi-ai::ModelsStoreOperationOptions */>,
+        options: Option<ModelsRequestOptions>,
     ) -> anyhow::Result<()> {
         todo!("port core/models-store.ts:InMemoryCodingAgentModelsStore.delete")
     }
@@ -76,7 +76,7 @@ impl FileModelsStore {
     pub async fn read(
         &self,
         provider_id: &str,
-        options: Option<Value /* TS: pi-ai::ModelsStoreOperationOptions */>,
+        options: Option<ModelsRequestOptions>,
     ) -> anyhow::Result<Option<ModelsStoreEntry>> {
         todo!("port core/models-store.ts:FileModelsStore.read")
     }
@@ -85,7 +85,7 @@ impl FileModelsStore {
         &self,
         provider_id: &str,
         entry: ModelsStoreEntry,
-        options: Option<Value /* TS: pi-ai::ModelsStoreOperationOptions */>,
+        options: Option<ModelsRequestOptions>,
     ) -> anyhow::Result<()> {
         todo!("port core/models-store.ts:FileModelsStore.write")
     }
@@ -93,7 +93,7 @@ impl FileModelsStore {
     pub async fn delete(
         &self,
         provider_id: &str,
-        options: Option<Value /* TS: pi-ai::ModelsStoreOperationOptions */>,
+        options: Option<ModelsRequestOptions>,
     ) -> anyhow::Result<()> {
         todo!("port core/models-store.ts:FileModelsStore.delete")
     }

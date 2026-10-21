@@ -10,8 +10,7 @@ pub struct VisualTruncateResult {
     /// The visual lines to display
     pub visual_lines: Vec<String>,
     /// Number of visual lines that were skipped (hidden)
-    #[serde(with = "pi_ai::serde_util::js_f64")]
-    pub skipped_count: f64,
+    pub skipped_count: i64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

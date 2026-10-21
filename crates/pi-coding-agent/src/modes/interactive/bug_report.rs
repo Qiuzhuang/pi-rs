@@ -2,11 +2,13 @@
 
 use crate::core::agent_session::AgentSession;
 use crate::core::keybindings::KeybindingsManager;
+use pi_tui::components::editor::EditorComponent;
 use pi_tui::tui::ComponentRef;
 use pi_tui::tui::Container;
+use pi_tui::tui::MouseEvent;
+use pi_tui::tui::MouseResult;
 use pi_tui::tui::Tui;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -14,7 +16,7 @@ pub struct BugReportContext {
     pub session: Arc<AgentSession>,
     pub ui: Arc<Tui>,
     pub editor_container: Arc<Container>,
-    pub editor: Value, /* TS: pi-tui::EditorComponent */
+    pub editor: Arc<dyn EditorComponent>,
     pub keybindings: Arc<KeybindingsManager>,
     pub show_status: Arc<dyn Fn(String) + Send + Sync>,
     pub show_error: Arc<dyn Fn(String) + Send + Sync>,
@@ -68,13 +70,7 @@ pub struct Overlay {
     pub remove_child: Arc<dyn Fn(ComponentRef) + Send + Sync>,
     pub clear: Arc<dyn Fn() + Send + Sync>,
     pub invalidate: Arc<dyn Fn() + Send + Sync>,
-    pub handle_mouse: Arc<
-        dyn Fn(
-                Value, /* TS: pi-tui::TuiMouseEvent */
-            ) -> Option<Value /* TS: pi-tui::TuiMouseDispatchResult */>
-            + Send
-            + Sync,
-    >,
+    pub handle_mouse: Arc<dyn Fn(MouseEvent) -> Option<Arc<MouseResult>> + Send + Sync>,
     pub render: Arc<dyn Fn(i64) -> Vec<String> + Send + Sync>,
     pub dispose: Option<Arc<dyn Fn() + Send + Sync>>,
 }

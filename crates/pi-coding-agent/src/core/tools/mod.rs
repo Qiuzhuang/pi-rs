@@ -21,7 +21,6 @@ use crate::core::extensions::types::ToolDefinition;
 use indexmap::{IndexMap, IndexSet};
 use pi_agent::types::AgentToolRef;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 use std::sync::LazyLock;
 
 pub use crate::core::tools::bash::BashOperations;
@@ -89,7 +88,7 @@ pub use crate::core::tools::write::create_write_tool_definition;
 
 pub type Tool = AgentToolRef;
 
-pub type ToolDef = Arc<dyn ToolDefinition>;
+pub type ToolDef = ToolDefinition;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ToolName {

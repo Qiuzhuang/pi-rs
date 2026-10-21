@@ -1,10 +1,15 @@
 //! Port of `packages/coding-agent/src/extensions/llama/ui.ts`.
 
 use crate::core::extensions::types::ExtensionCommandContext;
+use crate::core::keybindings::KeybindingsManager;
 use crate::extensions::llama::client::LlamaModelInfo;
 use crate::extensions::llama::client::LlamaProgress;
 use crate::extensions::llama::huggingface::HuggingFaceModel;
+use crate::modes::interactive::theme::theme::Theme;
 use futures::future::BoxFuture;
+use indexmap::IndexMap;
+use pi_tui::tui::Component;
+use pi_tui::tui::Tui;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
@@ -85,8 +90,124 @@ pub trait LlamaUi: Send + Sync {
     fn update_progress(&self, state: &ProgressState);
 }
 
+/// TS: `extends Container implements Focusable`
+pub struct HuggingFaceSearch {
+    // TODO(port): private state (interior mutability; methods take &self)
+}
+
+impl HuggingFaceSearch {
+    pub fn new(
+        tui: Arc<Tui>,
+        theme: Arc<Theme>,
+        keybindings: Arc<KeybindingsManager>,
+        search: Arc<
+            dyn Fn(
+                    String,
+                    CancellationToken,
+                ) -> BoxFuture<'static, anyhow::Result<Vec<HuggingFaceModel>>>
+                + Send
+                + Sync,
+        >,
+        cache: IndexMap<String, Vec<HuggingFaceModel>>,
+        on_select_model: Arc<dyn Fn(Option<String>) + Send + Sync>,
+    ) -> Self {
+        todo!("port extensions/llama/ui.ts:HuggingFaceSearch.constructor")
+    }
+}
+
+// TODO(port): impl pi-tui::Container for HuggingFaceSearch
+
+impl Component for HuggingFaceSearch {
+    fn render(&self, width: usize) -> Vec<String> {
+        todo!("port extensions/llama/ui.ts:HuggingFaceSearch.render")
+    }
+
+    fn handle_input(&self, data: &str) {
+        todo!("port extensions/llama/ui.ts:HuggingFaceSearch.handleInput")
+    }
+
+    fn handles_input(&self) -> bool {
+        true
+    }
+}
+
+/// TS: `implements LlamaUi, Focusable`
+pub struct LlamaView {
+    // TODO(port): private state (interior mutability; methods take &self)
+}
+
+impl LlamaView {
+    pub fn new(tui: Arc<Tui>, theme: Arc<Theme>, keybindings: Arc<KeybindingsManager>) -> Self {
+        todo!("port extensions/llama/ui.ts:LlamaView.constructor")
+    }
+}
+
+#[async_trait::async_trait]
+impl LlamaUi for LlamaView {
+    async fn show_models(
+        &self,
+        server_url: &str,
+        models: &[LlamaModelInfo],
+    ) -> anyhow::Result<LlamaManagerAction> {
+        todo!("port extensions/llama/ui.ts:LlamaView.show_models")
+    }
+    async fn select(&self, title: &str, options: &[String]) -> anyhow::Result<Option<String>> {
+        todo!("port extensions/llama/ui.ts:LlamaView.select")
+    }
+    async fn confirm(&self, title: &str, message: &str) -> anyhow::Result<bool> {
+        todo!("port extensions/llama/ui.ts:LlamaView.confirm")
+    }
+    async fn connection_error(
+        &self,
+        server_url: &str,
+        message: &str,
+    ) -> anyhow::Result<LlamaUiConnectionErrorResult> {
+        todo!("port extensions/llama/ui.ts:LlamaView.connection_error")
+    }
+    async fn search_models(
+        &self,
+        search: Arc<
+            dyn Fn(
+                    String,
+                    CancellationToken,
+                ) -> BoxFuture<'static, anyhow::Result<Vec<HuggingFaceModel>>>
+                + Send
+                + Sync,
+        >,
+    ) -> anyhow::Result<Option<String>> {
+        todo!("port extensions/llama/ui.ts:LlamaView.search_models")
+    }
+    fn show_status(&self, title: &str, message: &str) {
+        todo!("port extensions/llama/ui.ts:LlamaView.show_status")
+    }
+    async fn progress(&self, state: &ProgressState) -> anyhow::Result<()> {
+        todo!("port extensions/llama/ui.ts:LlamaView.progress")
+    }
+    fn update_progress(&self, state: &ProgressState) {
+        todo!("port extensions/llama/ui.ts:LlamaView.update_progress")
+    }
+}
+
+impl Component for LlamaView {
+    fn render(&self, width: usize) -> Vec<String> {
+        todo!("port extensions/llama/ui.ts:LlamaView.render")
+    }
+
+    fn handle_input(&self, data: &str) {
+        todo!("port extensions/llama/ui.ts:LlamaView.handleInput")
+    }
+
+    fn handles_input(&self) -> bool {
+        true
+    }
+
+    fn invalidate(&self) {
+        todo!("port extensions/llama/ui.ts:LlamaView.invalidate")
+    }
+}
+
 pub async fn show_llama_ui(
-    ctx: Arc<dyn ExtensionCommandContext>,
+    ctx: &ExtensionCommandContext,
     run: Arc<dyn Fn(Arc<dyn LlamaUi>) -> BoxFuture<'static, anyhow::Result<()>> + Send + Sync>,
 ) -> anyhow::Result<()> {
     todo!("port extensions/llama/ui.ts:showLlamaUi")
@@ -112,27 +233,27 @@ pub struct RunWithProgressOptions {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RunWithProgressRunWithProgressResultVariant1 {
+pub struct EmptyRunWithProgressResultVariant1 {
     pub cancelled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RunWithProgressRunWithProgressResultVariant2 {
+pub struct EmptyRunWithProgressResultVariant2 {
     pub cancelled: bool,
     pub value: Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum RunWithProgressRunWithProgressResult {
-    RunWithProgressRunWithProgressResultVariant1(RunWithProgressRunWithProgressResultVariant1),
-    RunWithProgressRunWithProgressResultVariant2(RunWithProgressRunWithProgressResultVariant2),
+pub enum EmptyRunWithProgressResult {
+    EmptyRunWithProgressResultVariant1(EmptyRunWithProgressResultVariant1),
+    EmptyRunWithProgressResultVariant2(EmptyRunWithProgressResultVariant2),
 }
 
 pub async fn run_with_progress(
     ui: Arc<dyn LlamaUi>,
     options: &RunWithProgressOptions,
-) -> anyhow::Result<RunWithProgressRunWithProgressResult> {
+) -> anyhow::Result<EmptyRunWithProgressResult> {
     todo!("port extensions/llama/ui.ts:runWithProgress")
 }

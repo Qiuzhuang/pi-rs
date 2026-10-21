@@ -13,14 +13,12 @@ pub static WRITE_TOOL_SYSTEM_PROMPT_CONTRIBUTION: LazyLock<Value> =
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct WriteToolInputValue {
+pub struct WriteToolInput {
     /// Path to the file to write (relative or absolute)
     pub path: String,
     /// Content to write to the file
     pub content: String,
 }
-
-pub type WriteToolInput = WriteToolInputValue;
 
 /// Pluggable operations for the write tool.
 /// Override these to delegate file writing to remote systems (for example SSH).
@@ -42,7 +40,7 @@ pub struct WriteToolOptions {
 pub fn create_write_tool_definition(
     cwd: &str,
     options: Option<&WriteToolOptions>,
-) -> anyhow::Result<Arc<dyn ToolDefinition>> {
+) -> anyhow::Result<ToolDefinition> {
     todo!("port core/tools/write.ts:createWriteToolDefinition")
 }
 

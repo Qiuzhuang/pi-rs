@@ -58,7 +58,7 @@ pub async fn execute_codemode(
     input: &CodemodeToolInput,
     signal: Option<CancellationToken>,
     on_update: Option<Arc<dyn Fn(AgentToolResult) + Send + Sync>>,
-    ctx: Option<Arc<dyn ExtensionToolContext>>,
+    ctx: Option<&ExtensionToolContext>,
     options: Option<&CodemodeToolOptions>,
 ) -> anyhow::Result<AgentToolResult> {
     todo!("port extensions/codemode/execute.ts:executeCodemode")

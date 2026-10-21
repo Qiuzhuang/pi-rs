@@ -6,7 +6,7 @@ use pi_ai::models::RefreshModelsContext;
 use pi_ai::types::AnyModel;
 use std::sync::Arc;
 
-pub const REMOTE_CATALOG_REFRESH_INTERVAL_MS: u64 = 14400000;
+pub const REMOTE_CATALOG_REFRESH_INTERVAL_MS: i64 = 14400000;
 
 /// Model types this client can consume. Sent as `?types=` so the catalog server
 /// returns the full-type shard instead of the chat-only one served to clients

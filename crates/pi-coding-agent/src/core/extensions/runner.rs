@@ -6,7 +6,6 @@ use crate::core::diagnostics::ResourceDiagnostic;
 use crate::core::extensions::types::AgentActivityOutcome;
 use crate::core::extensions::types::BoundaryContextPreview;
 use crate::core::extensions::types::EntryRenderer;
-use crate::core::extensions::types::Extension;
 use crate::core::extensions::types::ExtensionActions;
 use crate::core::extensions::types::ExtensionCommandContext;
 use crate::core::extensions::types::ExtensionCommandContextActions;
@@ -16,6 +15,7 @@ use crate::core::extensions::types::ExtensionError;
 use crate::core::extensions::types::ExtensionEvent;
 use crate::core::extensions::types::ExtensionFlag;
 use crate::core::extensions::types::ExtensionMode;
+use crate::core::extensions::types::ExtensionRef;
 use crate::core::extensions::types::ExtensionRuntime;
 use crate::core::extensions::types::ExtensionShortcut;
 use crate::core::extensions::types::ExtensionToolContext;
@@ -186,11 +186,7 @@ pub struct NewSessionHandlerOptions {
         Arc<dyn Fn(Arc<SessionManager>) -> BoxFuture<'static, anyhow::Result<()>> + Send + Sync>,
     >,
     pub with_session: Option<
-        Arc<
-            dyn Fn(Arc<dyn ReplacedSessionContext>) -> BoxFuture<'static, anyhow::Result<()>>
-                + Send
-                + Sync,
-        >,
+        Arc<dyn Fn(ReplacedSessionContext) -> BoxFuture<'static, anyhow::Result<()>> + Send + Sync>,
     >,
 }
 
@@ -229,11 +225,7 @@ impl ForkHandlerOptionsPosition {
 pub struct ForkHandlerOptions {
     pub position: Option<ForkHandlerOptionsPosition>,
     pub with_session: Option<
-        Arc<
-            dyn Fn(Arc<dyn ReplacedSessionContext>) -> BoxFuture<'static, anyhow::Result<()>>
-                + Send
-                + Sync,
-        >,
+        Arc<dyn Fn(ReplacedSessionContext) -> BoxFuture<'static, anyhow::Result<()>> + Send + Sync>,
     >,
 }
 
@@ -283,11 +275,7 @@ pub type NavigateTreeHandler = Arc<
 #[derive(Clone)]
 pub struct SwitchSessionHandlerOptions {
     pub with_session: Option<
-        Arc<
-            dyn Fn(Arc<dyn ReplacedSessionContext>) -> BoxFuture<'static, anyhow::Result<()>>
-                + Send
-                + Sync,
-        >,
+        Arc<dyn Fn(ReplacedSessionContext) -> BoxFuture<'static, anyhow::Result<()>> + Send + Sync>,
     >,
 }
 
@@ -321,7 +309,7 @@ pub async fn emit_session_shutdown_event(
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct EmitProjectTrustEventEmitProjectTrustEventResult {
+pub struct EmptyEmitProjectTrustEventResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub result: Option<ProjectTrustEventResult>,
     pub errors: Vec<ExtensionError>,
@@ -331,16 +319,16 @@ pub async fn emit_project_trust_event(
     extensions_result: &LoadExtensionsResult,
     event: &ProjectTrustEvent,
     ctx: &ProjectTrustContext,
-) -> anyhow::Result<EmitProjectTrustEventEmitProjectTrustEventResult> {
+) -> anyhow::Result<EmptyEmitProjectTrustEventResult> {
     todo!("port core/extensions/runner.ts:emitProjectTrustEvent")
 }
 
 #[derive(Clone)]
 pub struct ExtensionRunnerProviderActions {
-    pub register_provider: Option<Arc<dyn Fn(String, Arc<dyn ProviderConfig>) + Send + Sync>>,
+    pub register_provider: Option<Arc<dyn Fn(String, ProviderConfig) + Send + Sync>>,
     pub register_native_provider: Option<Arc<dyn Fn(Arc<dyn Provider>) + Send + Sync>>,
     pub unregister_provider: Option<Arc<dyn Fn(String) + Send + Sync>>,
-    pub register_virtual_model: Option<Arc<dyn Fn(Arc<dyn VirtualModelDefinition>) + Send + Sync>>,
+    pub register_virtual_model: Option<Arc<dyn Fn(VirtualModelDefinition) + Send + Sync>>,
     pub unregister_virtual_model: Option<Arc<dyn Fn(String, String) + Send + Sync>>,
 }
 
@@ -427,8 +415,8 @@ pub struct ExtensionRunner {
 
 impl ExtensionRunner {
     pub fn new(
-        extensions: &[Extension],
-        runtime: &ExtensionRuntime,
+        extensions: &[ExtensionRef],
+        runtime: Arc<ExtensionRuntime>,
         cwd: &str,
         session_manager: Arc<SessionManager>,
         model_registry: Arc<ModelRegistry>,
@@ -438,14 +426,14 @@ impl ExtensionRunner {
 
     pub fn bind_core(
         &self,
-        actions: &ExtensionActions,
-        context_actions: &ExtensionContextActions,
+        actions: Arc<dyn ExtensionActions>,
+        context_actions: Arc<dyn ExtensionContextActions>,
         provider_actions: Option<&ExtensionRunnerProviderActions>,
     ) {
         todo!("port core/extensions/runner.ts:ExtensionRunner.bindCore")
     }
 
-    pub fn bind_command_context(&self, actions: Option<&ExtensionCommandContextActions>) {
+    pub fn bind_command_context(&self, actions: Option<Arc<dyn ExtensionCommandContextActions>>) {
         todo!("port core/extensions/runner.ts:ExtensionRunner.bindCommandContext")
     }
 
@@ -475,7 +463,7 @@ impl ExtensionRunner {
     }
 
     /// Get a tool definition by name. Returns undefined if not found.
-    pub fn get_tool_definition(&self, tool_name: &str) -> Option<Arc<dyn ToolDefinition>> {
+    pub fn get_tool_definition(&self, tool_name: &str) -> Option<ToolDefinition> {
         todo!("port core/extensions/runner.ts:ExtensionRunner.getToolDefinition")
     }
 
@@ -573,7 +561,7 @@ impl ExtensionRunner {
 
     /// Create an ExtensionContext for use in event handlers and tool execution.
     /// Context values are resolved at call time, so changes via bindCore/bindUI are reflected.
-    pub fn create_context(&self) -> Arc<dyn ExtensionContext> {
+    pub fn create_context(&self) -> ExtensionContext {
         todo!("port core/extensions/runner.ts:ExtensionRunner.createContext")
     }
 
@@ -583,11 +571,11 @@ impl ExtensionRunner {
         &self,
         tool_call_id: &str,
         signal: Option<CancellationToken>,
-    ) -> Arc<dyn ExtensionToolContext> {
+    ) -> ExtensionToolContext {
         todo!("port core/extensions/runner.ts:ExtensionRunner.createToolContext")
     }
 
-    pub fn create_command_context(&self) -> Arc<dyn ExtensionCommandContext> {
+    pub fn create_command_context(&self) -> ExtensionCommandContext {
         todo!("port core/extensions/runner.ts:ExtensionRunner.createCommandContext")
     }
 

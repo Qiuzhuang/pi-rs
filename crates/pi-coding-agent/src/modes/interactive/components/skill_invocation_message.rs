@@ -1,8 +1,8 @@
 //! Port of `packages/coding-agent/src/modes/interactive/components/skill-invocation-message.ts`.
 
+use crate::compat::MarkdownTheme;
 use crate::core::agent_session::ParsedSkillBlock;
 use pi_tui::tui::Component;
-use serde_json::Value;
 
 /// Component that renders a skill invocation message with collapsed/expanded state.
 /// Uses same background color as custom messages for visual consistency.
@@ -15,7 +15,7 @@ pub struct SkillInvocationMessageComponent {
 impl SkillInvocationMessageComponent {
     pub fn new(
         skill_block: &ParsedSkillBlock,
-        markdown_theme: Option<Value /* TS: pi-tui::MarkdownTheme */>,
+        markdown_theme: Option<&MarkdownTheme>,
         output_pad: Option<i64>,
     ) -> Self {
         todo!(

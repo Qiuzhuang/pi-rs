@@ -9,11 +9,11 @@ use serde::{Deserialize, Serialize};
 /// - Byte limit (default: 50KB)
 ///
 /// Never returns partial lines (except bash tail truncation edge case).
-pub const DEFAULT_MAX_LINES: u64 = 2000;
+pub const DEFAULT_MAX_LINES: i64 = 2000;
 
-pub const DEFAULT_MAX_BYTES: u64 = 51200;
+pub const DEFAULT_MAX_BYTES: i64 = 51200;
 
-pub const GREP_MAX_LINE_LENGTH: u64 = 500;
+pub const GREP_MAX_LINE_LENGTH: i64 = 500;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TruncationResultTruncatedBy {
@@ -95,14 +95,14 @@ pub fn truncate_tail(content: &str, options: Option<&TruncationOptions>) -> Trun
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TruncateLineTruncateLineResult {
+pub struct EmptyTruncateLineResult {
     pub text: String,
     pub was_truncated: bool,
 }
 
 /// Truncate a single line to max characters, adding [truncated] suffix.
 /// Used for grep match lines.
-pub fn truncate_line(line: &str, max_chars: Option<i64>) -> TruncateLineTruncateLineResult {
+pub fn truncate_line(line: &str, max_chars: Option<i64>) -> EmptyTruncateLineResult {
     todo!("port core/tools/truncate.ts:truncateLine")
 }
 

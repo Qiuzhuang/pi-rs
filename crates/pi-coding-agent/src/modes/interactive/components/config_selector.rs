@@ -8,7 +8,6 @@ use crate::core::source_info::SourceOrigin;
 use indexmap::IndexMap;
 use pi_tui::tui::Component;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -135,6 +134,113 @@ pub enum FlatEntry {
     Item { item: ResourceItem },
 }
 
+/// TS: `implements Component`
+pub struct ConfigSelectorHeader {
+    // TODO(port): private state (interior mutability; methods take &self)
+}
+
+impl ConfigSelectorHeader {
+    pub fn new(write_scope: &ConfigWriteScope, project_mode_available: bool) -> Self {
+        todo!(
+            "port modes/interactive/components/config-selector.ts:ConfigSelectorHeader.constructor"
+        )
+    }
+
+    pub fn set_write_scope(&self, write_scope: &ConfigWriteScope) {
+        todo!(
+            "port modes/interactive/components/config-selector.ts:ConfigSelectorHeader.setWriteScope"
+        )
+    }
+}
+
+impl Component for ConfigSelectorHeader {
+    fn render(&self, width: usize) -> Vec<String> {
+        todo!("port modes/interactive/components/config-selector.ts:ConfigSelectorHeader.render")
+    }
+
+    fn invalidate(&self) {
+        todo!(
+            "port modes/interactive/components/config-selector.ts:ConfigSelectorHeader.invalidate"
+        )
+    }
+}
+
+/// TS: `implements Component, Focusable`
+pub struct ResourceList {
+    // TODO(port): private state (interior mutability; methods take &self)
+}
+
+impl ResourceList {
+    pub fn new(
+        groups_by_scope: IndexMap<ConfigWriteScope, Vec<ResourceGroup>>,
+        settings_manager: Arc<SettingsManager>,
+        cwd: &str,
+        agent_dir: &str,
+        terminal_height: Option<i64>,
+        write_scope: Option<&ConfigWriteScope>,
+    ) -> Self {
+        todo!("port modes/interactive/components/config-selector.ts:ResourceList.constructor")
+    }
+
+    pub fn on_cancel(&self) -> Option<Arc<dyn Fn() + Send + Sync>> {
+        todo!("port modes/interactive/components/config-selector.ts:ResourceList.onCancel")
+    }
+
+    pub fn set_on_cancel(&self, value: Option<Arc<dyn Fn() + Send + Sync>>) {
+        todo!("port modes/interactive/components/config-selector.ts:ResourceList.onCancel")
+    }
+
+    pub fn on_exit(&self) -> Option<Arc<dyn Fn() + Send + Sync>> {
+        todo!("port modes/interactive/components/config-selector.ts:ResourceList.onExit")
+    }
+
+    pub fn set_on_exit(&self, value: Option<Arc<dyn Fn() + Send + Sync>>) {
+        todo!("port modes/interactive/components/config-selector.ts:ResourceList.onExit")
+    }
+
+    pub fn on_toggle(&self) -> Option<Arc<dyn Fn(ResourceItem, bool) + Send + Sync>> {
+        todo!("port modes/interactive/components/config-selector.ts:ResourceList.onToggle")
+    }
+
+    pub fn set_on_toggle(&self, value: Option<Arc<dyn Fn(ResourceItem, bool) + Send + Sync>>) {
+        todo!("port modes/interactive/components/config-selector.ts:ResourceList.onToggle")
+    }
+
+    pub fn on_switch_mode(&self) -> Option<Arc<dyn Fn() + Send + Sync>> {
+        todo!("port modes/interactive/components/config-selector.ts:ResourceList.onSwitchMode")
+    }
+
+    pub fn set_on_switch_mode(&self, value: Option<Arc<dyn Fn() + Send + Sync>>) {
+        todo!("port modes/interactive/components/config-selector.ts:ResourceList.onSwitchMode")
+    }
+
+    pub fn set_write_scope(&self, write_scope: &ConfigWriteScope) {
+        todo!("port modes/interactive/components/config-selector.ts:ResourceList.setWriteScope")
+    }
+
+    pub fn update_item(&self, item: &ResourceItem, enabled: bool) {
+        todo!("port modes/interactive/components/config-selector.ts:ResourceList.updateItem")
+    }
+}
+
+impl Component for ResourceList {
+    fn render(&self, width: usize) -> Vec<String> {
+        todo!("port modes/interactive/components/config-selector.ts:ResourceList.render")
+    }
+
+    fn handle_input(&self, data: &str) {
+        todo!("port modes/interactive/components/config-selector.ts:ResourceList.handleInput")
+    }
+
+    fn handles_input(&self) -> bool {
+        true
+    }
+
+    fn invalidate(&self) {
+        todo!("port modes/interactive/components/config-selector.ts:ResourceList.invalidate")
+    }
+}
+
 /// TS: `extends Container implements Focusable`
 pub struct ConfigSelectorComponent {
     // TODO(port): private state (interior mutability; methods take &self)
@@ -158,7 +264,7 @@ impl ConfigSelectorComponent {
         )
     }
 
-    pub fn get_resource_list(&self) -> Value /* TS: ResourceList */ {
+    pub fn get_resource_list(&self) -> Arc<ResourceList> {
         todo!(
             "port modes/interactive/components/config-selector.ts:ConfigSelectorComponent.getResourceList"
         )

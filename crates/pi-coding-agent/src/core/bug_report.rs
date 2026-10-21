@@ -1,7 +1,7 @@
 //! Port of `packages/coding-agent/src/core/bug-report.ts`.
 
 use crate::core::crash_log::CrashRecord;
-use crate::core::extensions::types::Extension;
+use crate::core::extensions::types::ExtensionRef;
 use crate::core::model_runtime::ModelRuntime;
 use crate::core::session_manager::ReadonlySessionManager;
 use crate::core::settings_schema::Settings;
@@ -43,11 +43,11 @@ pub struct CollectBugReportMetadataOptions {
     pub cwd: String,
     pub include_session: bool,
     pub include_summary: bool,
-    pub message_count: f64,
+    pub message_count: i64,
     pub model: Option<Model>,
     pub model_runtime: Arc<ModelRuntime>,
     pub thinking_level: ThinkingLevel,
-    pub extensions: Vec<Extension>,
+    pub extensions: Vec<ExtensionRef>,
     pub extension_errors: Vec<CollectBugReportMetadataOptionsExtensionErrors>,
     pub global_settings: Settings,
     pub project_settings: Settings,

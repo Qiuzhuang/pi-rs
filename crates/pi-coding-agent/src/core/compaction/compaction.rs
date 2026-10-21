@@ -72,8 +72,8 @@ pub struct ContextUsageEstimate {
     pub tokens: u64,
     pub usage_tokens: u64,
     pub trailing_tokens: u64,
-    #[serde(default, with = "pi_ai::serde_util::opt_js_f64")]
-    pub last_usage_index: Option<f64>,
+    #[serde(default)]
+    pub last_usage_index: Option<i64>,
 }
 
 /// Estimate context tokens from messages, using the last assistant usage when available.
@@ -107,7 +107,7 @@ pub fn estimate_tokens(message: AgentMessage) -> u64 {
 
 /// Find the context-visible user-role message that starts the turn containing the given entry index.
 /// Returns -1 if no turn start found before the index.
-pub fn find_turn_start_index(entries: &[SessionEntry], entry_index: f64, start_index: i64) -> i64 {
+pub fn find_turn_start_index(entries: &[SessionEntry], entry_index: i64, start_index: i64) -> i64 {
     todo!("port core/compaction/compaction.ts:findTurnStartIndex")
 }
 
@@ -115,8 +115,7 @@ pub fn find_turn_start_index(entries: &[SessionEntry], entry_index: f64, start_i
 #[serde(rename_all = "camelCase")]
 pub struct CutPointResult {
     /// Index of first entry to keep
-    #[serde(with = "pi_ai::serde_util::js_f64")]
-    pub first_kept_entry_index: f64,
+    pub first_kept_entry_index: i64,
     /// Index of user message that starts the turn being split, or -1 if not splitting
     pub turn_start_index: i64,
     /// Whether this cut splits a turn (cut point is not a user message)
@@ -191,7 +190,7 @@ pub async fn generate_summary(
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GenerateSummaryWithUsageGenerateSummaryWithUsageResult {
+pub struct EmptyGenerateSummaryWithUsageResult {
     pub text: String,
     pub usage: Usage,
 }
@@ -212,7 +211,7 @@ pub async fn generate_summary_with_usage(
     retry: Option<RetryPolicy>,
     callbacks: Option<RetryCallbacks>,
     session_id: Option<&str>,
-) -> anyhow::Result<GenerateSummaryWithUsageGenerateSummaryWithUsageResult> {
+) -> anyhow::Result<EmptyGenerateSummaryWithUsageResult> {
     todo!("port core/compaction/compaction.ts:generateSummaryWithUsage")
 }
 

@@ -23,7 +23,7 @@ pub static FIND_TOOL_SYSTEM_PROMPT_CONTRIBUTION: LazyLock<Value> =
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct FindToolInputValue {
+pub struct FindToolInput {
     /// Glob pattern to match files, e.g. '*.ts', '**/*.json', or 'src/**/*.spec.ts'
     pub pattern: String,
     /// Directory to search in (default: current directory)
@@ -33,8 +33,6 @@ pub struct FindToolInputValue {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<i64>,
 }
-
-pub type FindToolInput = FindToolInputValue;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -76,10 +74,7 @@ pub struct FindToolOptions {
     pub operations: Option<FindOperations>,
 }
 
-pub fn create_find_tool_definition(
-    cwd: &str,
-    options: Option<&FindToolOptions>,
-) -> Arc<dyn ToolDefinition> {
+pub fn create_find_tool_definition(cwd: &str, options: Option<&FindToolOptions>) -> ToolDefinition {
     todo!("port core/tools/find.ts:createFindToolDefinition")
 }
 

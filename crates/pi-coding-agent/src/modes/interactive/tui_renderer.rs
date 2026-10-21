@@ -1,10 +1,9 @@
 //! Port of `packages/coding-agent/src/modes/interactive/tui-renderer.ts`.
 
+use crate::compat::WheelScrollLines;
 use crate::core::settings_schema::TuiMode;
 use pi_tui::terminal::Terminal;
 use pi_tui::tui::Tui;
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -15,19 +14,16 @@ pub struct InteractiveTuiOptions {
     pub terminal: Option<Arc<dyn Terminal>>,
     pub on_right_click_paste: Option<Arc<dyn Fn() + Send + Sync>>,
     pub fullscreen_copy_on_select: Option<bool>,
-    pub fullscreen_wheel_scroll_lines: Option<Value /* TS: pi-tui::WheelScrollLines */>,
+    pub fullscreen_wheel_scroll_lines: Option<WheelScrollLines>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum CreateInteractiveTuiCreateInteractiveTuiResult {
-    TuiMainScreen(Value /* TS: pi-tui::TuiMainScreen */),
-    TuiAltScreen(Value /* TS: pi-tui::TuiAltScreen */),
+#[derive(Clone)]
+pub enum EmptyCreateInteractiveTuiResult {
+    Arc(Arc<Tui>),
+    Arc2(Arc<Tui>),
 }
 
-pub fn create_interactive_tui(
-    options: &InteractiveTuiOptions,
-) -> CreateInteractiveTuiCreateInteractiveTuiResult {
+pub fn create_interactive_tui(options: &InteractiveTuiOptions) -> EmptyCreateInteractiveTuiResult {
     todo!("port modes/interactive/tui-renderer.ts:createInteractiveTui")
 }
 

@@ -3,7 +3,7 @@
 use serde_json::Value;
 use std::sync::Arc;
 
-pub const FS_WATCH_RETRY_DELAY_MS: u64 = 5000;
+pub const FS_WATCH_RETRY_DELAY_MS: i64 = 5000;
 
 pub fn close_watcher(watcher: Option<Value>) {
     todo!("port utils/fs-watch.ts:closeWatcher")

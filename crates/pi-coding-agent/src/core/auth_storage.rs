@@ -1,5 +1,6 @@
 //! Port of `packages/coding-agent/src/core/auth-storage.ts`.
 
+use crate::compat::AuthOperationOptions;
 use futures::future::BoxFuture;
 use indexmap::IndexMap;
 use pi_ai::auth::types::Credential;
@@ -42,7 +43,7 @@ pub trait AuthStorageBackend: Send + Sync {
         r#fn: Arc<
             dyn Fn(Option<String>) -> BoxFuture<'static, anyhow::Result<LockResult>> + Send + Sync,
         >,
-        options: Option<Value /* TS: pi-ai::AuthOperationOptions */>,
+        options: Option<&AuthOperationOptions>,
     ) -> anyhow::Result<Value>;
 }
 
@@ -67,7 +68,7 @@ impl AuthStorageBackend for FileAuthStorageBackend {
         r#fn: Arc<
             dyn Fn(Option<String>) -> BoxFuture<'static, anyhow::Result<LockResult>> + Send + Sync,
         >,
-        options: Option<Value /* TS: pi-ai::AuthOperationOptions */>,
+        options: Option<&AuthOperationOptions>,
     ) -> anyhow::Result<Value> {
         todo!("port core/auth-storage.ts:FileAuthStorageBackend.with_lock_async")
     }
@@ -86,14 +87,14 @@ impl ReadOnlyAuthStorage {
     pub async fn read(
         &self,
         provider_id: &str,
-        options: Option<Value /* TS: pi-ai::AuthOperationOptions */>,
+        options: Option<&AuthOperationOptions>,
     ) -> anyhow::Result<Option<Credential>> {
         todo!("port core/auth-storage.ts:ReadOnlyAuthStorage.read")
     }
 
     pub async fn list(
         &self,
-        options: Option<Value /* TS: pi-ai::AuthOperationOptions */>,
+        options: Option<&AuthOperationOptions>,
     ) -> anyhow::Result<Vec<CredentialInfo>> {
         todo!("port core/auth-storage.ts:ReadOnlyAuthStorage.list")
     }
@@ -106,7 +107,7 @@ impl ReadOnlyAuthStorage {
                 + Send
                 + Sync,
         >,
-        options: Option<Value /* TS: pi-ai::AuthOperationOptions */>,
+        options: Option<&AuthOperationOptions>,
     ) -> anyhow::Result<Option<Credential>> {
         todo!("port core/auth-storage.ts:ReadOnlyAuthStorage.modify")
     }
@@ -114,7 +115,7 @@ impl ReadOnlyAuthStorage {
     pub async fn delete(
         &self,
         provider_id: &str,
-        options: Option<Value /* TS: pi-ai::AuthOperationOptions */>,
+        options: Option<&AuthOperationOptions>,
     ) -> anyhow::Result<()> {
         todo!("port core/auth-storage.ts:ReadOnlyAuthStorage.delete")
     }
@@ -143,7 +144,7 @@ impl AuthStorageBackend for InMemoryAuthStorageBackend {
         r#fn: Arc<
             dyn Fn(Option<String>) -> BoxFuture<'static, anyhow::Result<LockResult>> + Send + Sync,
         >,
-        options: Option<Value /* TS: pi-ai::AuthOperationOptions */>,
+        options: Option<&AuthOperationOptions>,
     ) -> anyhow::Result<Value> {
         todo!("port core/auth-storage.ts:InMemoryAuthStorageBackend.with_lock_async")
     }
@@ -180,7 +181,7 @@ impl AuthStorage {
     pub async fn read(
         &self,
         provider: &str,
-        options: Option<Value /* TS: pi-ai::AuthOperationOptions */>,
+        options: Option<&AuthOperationOptions>,
     ) -> anyhow::Result<Option<Credential>> {
         todo!("port core/auth-storage.ts:AuthStorage.read")
     }
@@ -193,7 +194,7 @@ impl AuthStorage {
                 + Send
                 + Sync,
         >,
-        options: Option<Value /* TS: pi-ai::AuthOperationOptions */>,
+        options: Option<&AuthOperationOptions>,
     ) -> anyhow::Result<Option<Credential>> {
         todo!("port core/auth-storage.ts:AuthStorage.modify")
     }
@@ -201,7 +202,7 @@ impl AuthStorage {
     pub async fn delete(
         &self,
         provider: &str,
-        options: Option<Value /* TS: pi-ai::AuthOperationOptions */>,
+        options: Option<&AuthOperationOptions>,
     ) -> anyhow::Result<()> {
         todo!("port core/auth-storage.ts:AuthStorage.delete")
     }
@@ -209,7 +210,7 @@ impl AuthStorage {
     /// List credential metadata without resolving configured key values.
     pub async fn list(
         &self,
-        options: Option<Value /* TS: pi-ai::AuthOperationOptions */>,
+        options: Option<&AuthOperationOptions>,
     ) -> anyhow::Result<Vec<CredentialInfo>> {
         todo!("port core/auth-storage.ts:AuthStorage.list")
     }

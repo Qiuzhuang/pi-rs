@@ -284,8 +284,7 @@ pub struct RpcSessionState {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_name: Option<String>,
     pub auto_compaction_enabled: bool,
-    #[serde(with = "pi_ai::serde_util::js_f64")]
-    pub message_count: f64,
+    pub message_count: i64,
     pub pending_message_count: i64,
 }
 

@@ -19,7 +19,7 @@ pub fn create_all_tool_renderers() -> IndexMap<ToolName, ToolRenderers> {
 }
 
 #[derive(Clone)]
-pub enum WithBuiltInRenderersWithBuiltInRenderersResult {
+pub enum EmptyWithBuiltInRenderersResult {
     Value(Value),
     ToolRenderers(ToolRenderers),
 }
@@ -31,6 +31,6 @@ pub enum WithBuiltInRenderersWithBuiltInRenderersResult {
 pub fn with_built_in_renderers(
     tool_name: &str,
     definition: Option<Value>,
-) -> Option<WithBuiltInRenderersWithBuiltInRenderersResult> {
+) -> Option<EmptyWithBuiltInRenderersResult> {
     todo!("port core/tools/renderers/index.ts:withBuiltInRenderers")
 }

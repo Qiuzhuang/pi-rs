@@ -85,11 +85,7 @@ impl SessionImportFileNotFoundError {
 pub struct AgentSessionRuntimeOptions {
     pub cwd_override: Option<String>,
     pub with_session: Option<
-        Arc<
-            dyn Fn(Arc<dyn ReplacedSessionContext>) -> BoxFuture<'static, anyhow::Result<()>>
-                + Send
-                + Sync,
-        >,
+        Arc<dyn Fn(ReplacedSessionContext) -> BoxFuture<'static, anyhow::Result<()>> + Send + Sync>,
     >,
     pub project_trust_context_factory:
         Option<Arc<dyn Fn(String) -> ProjectTrustContext + Send + Sync>>,
@@ -108,11 +104,7 @@ pub struct AgentSessionRuntimeOptions2 {
         Arc<dyn Fn(Arc<SessionManager>) -> BoxFuture<'static, anyhow::Result<()>> + Send + Sync>,
     >,
     pub with_session: Option<
-        Arc<
-            dyn Fn(Arc<dyn ReplacedSessionContext>) -> BoxFuture<'static, anyhow::Result<()>>
-                + Send
-                + Sync,
-        >,
+        Arc<dyn Fn(ReplacedSessionContext) -> BoxFuture<'static, anyhow::Result<()>> + Send + Sync>,
     >,
 }
 
@@ -143,11 +135,7 @@ impl AgentSessionRuntimeOptions3Position {
 pub struct AgentSessionRuntimeOptions3 {
     pub position: Option<AgentSessionRuntimeOptions3Position>,
     pub with_session: Option<
-        Arc<
-            dyn Fn(Arc<dyn ReplacedSessionContext>) -> BoxFuture<'static, anyhow::Result<()>>
-                + Send
-                + Sync,
-        >,
+        Arc<dyn Fn(ReplacedSessionContext) -> BoxFuture<'static, anyhow::Result<()>> + Send + Sync>,
     >,
 }
 

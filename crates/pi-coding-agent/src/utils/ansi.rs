@@ -4,16 +4,14 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SplitIncompleteAnsiSuffixSplitIncompleteAnsiSuffixResult {
+pub struct EmptySplitIncompleteAnsiSuffixResult {
     pub complete: String,
     pub pending: String,
 }
 
 /// Split streamed text into a part that is safe to pass to stripAnsi now and a trailing
 /// unfinished escape sequence that should be prepended to the next chunk.
-pub fn split_incomplete_ansi_suffix(
-    value: &str,
-) -> SplitIncompleteAnsiSuffixSplitIncompleteAnsiSuffixResult {
+pub fn split_incomplete_ansi_suffix(value: &str) -> EmptySplitIncompleteAnsiSuffixResult {
     todo!("port utils/ansi.ts:splitIncompleteAnsiSuffix")
 }
 

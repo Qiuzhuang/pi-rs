@@ -25,8 +25,7 @@ pub use crate::extensions::mcp::runtime::McpTransportFactory;
 #[derive(Clone)]
 pub struct McpExtensionOptions {
     /// Defaults to reading `mcp.json` from the agent directory and the trusted project.
-    pub load_config:
-        Option<Arc<dyn Fn(Arc<dyn ExtensionContext>) -> LoadedMcpConfig + Send + Sync>>,
+    pub load_config: Option<Arc<dyn Fn(ExtensionContext) -> LoadedMcpConfig + Send + Sync>>,
     /// Defaults to stdio and streamable HTTP transports built from the server config.
     pub create_transport: Option<McpTransportFactory>,
     /// Defaults to `mcp-auth.json` in the agent directory.
@@ -67,7 +66,7 @@ pub const MCP_SERVERS_SECTION: &str = "mcp_servers";
 
 /// Characters of the whole section. Descriptions shrink to fit; when the server lines alone do not
 /// fit, the last servers are left out and counted in a closing line.
-pub const MAX_SERVERS_SECTION_CHARS: u64 = 4096;
+pub const MAX_SERVERS_SECTION_CHARS: i64 = 4096;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

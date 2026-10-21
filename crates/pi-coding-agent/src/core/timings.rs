@@ -14,8 +14,7 @@ pub struct TimingNamespaceTimings {
 #[serde(rename_all = "camelCase")]
 pub struct TimingNamespace {
     pub timings: Vec<TimingNamespaceTimings>,
-    #[serde(with = "pi_ai::serde_util::js_f64")]
-    pub last_time: f64,
+    pub last_time: i64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

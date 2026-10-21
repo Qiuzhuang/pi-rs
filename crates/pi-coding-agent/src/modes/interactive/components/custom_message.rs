@@ -1,9 +1,9 @@
 //! Port of `packages/coding-agent/src/modes/interactive/components/custom-message.ts`.
 
+use crate::compat::MarkdownTheme;
 use crate::core::extensions::types::MessageRenderer;
 use crate::core::messages::CustomMessage;
 use pi_tui::tui::Component;
-use serde_json::Value;
 
 /// Component that renders a custom message entry from extensions.
 /// Uses distinct styling to differentiate from user messages.
@@ -16,7 +16,7 @@ impl CustomMessageComponent {
     pub fn new(
         message: &CustomMessage,
         custom_renderer: Option<&MessageRenderer>,
-        markdown_theme: Option<Value /* TS: pi-tui::MarkdownTheme */>,
+        markdown_theme: Option<&MarkdownTheme>,
         output_pad: Option<i64>,
     ) -> Self {
         todo!(

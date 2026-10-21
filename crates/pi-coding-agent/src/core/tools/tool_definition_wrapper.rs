@@ -8,11 +8,11 @@ use tokio_util::sync::CancellationToken;
 
 /// Creates the context for one tool call.
 pub type ToolContextFactory =
-    Arc<dyn Fn(String, Option<CancellationToken>) -> Arc<dyn ExtensionToolContext> + Send + Sync>;
+    Arc<dyn Fn(String, Option<CancellationToken>) -> ExtensionToolContext + Send + Sync>;
 
 /// Wrap a ToolDefinition into an AgentTool for the core runtime.
 pub fn wrap_tool_definition(
-    definition: Arc<dyn ToolDefinition>,
+    definition: &ToolDefinition,
     ctx_factory: Option<&ToolContextFactory>,
 ) -> AgentToolRef {
     todo!("port core/tools/tool-definition-wrapper.ts:wrapToolDefinition")
@@ -20,7 +20,7 @@ pub fn wrap_tool_definition(
 
 /// Wrap multiple ToolDefinitions into AgentTools for the core runtime.
 pub fn wrap_tool_definitions(
-    definitions: Vec<Arc<dyn ToolDefinition>>,
+    definitions: &[ToolDefinition],
     ctx_factory: Option<&ToolContextFactory>,
 ) -> Vec<AgentToolRef> {
     todo!("port core/tools/tool-definition-wrapper.ts:wrapToolDefinitions")
@@ -30,6 +30,6 @@ pub fn wrap_tool_definitions(
 ///
 /// This keeps AgentSession's internal registry definition-first even when a caller
 /// provides plain AgentTool overrides that do not include prompt metadata or renderers.
-pub fn create_tool_definition_from_agent_tool(tool: AgentToolRef) -> Arc<dyn ToolDefinition> {
+pub fn create_tool_definition_from_agent_tool(tool: AgentToolRef) -> ToolDefinition {
     todo!("port core/tools/tool-definition-wrapper.ts:createToolDefinitionFromAgentTool")
 }

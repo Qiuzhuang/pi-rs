@@ -21,7 +21,7 @@ pub async fn write_output_file(
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CreateOutputFileStreamCreateOutputFileStreamResult {
+pub struct EmptyCreateOutputFileStreamResult {
     pub path: String,
     pub stream: Value,
 }
@@ -30,6 +30,6 @@ pub struct CreateOutputFileStreamCreateOutputFileStreamResult {
 pub fn create_output_file_stream(
     prefix: &str,
     extension: &str,
-) -> CreateOutputFileStreamCreateOutputFileStreamResult {
+) -> EmptyCreateOutputFileStreamResult {
     todo!("port utils/output-files.ts:createOutputFileStream")
 }

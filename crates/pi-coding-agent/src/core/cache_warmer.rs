@@ -4,6 +4,7 @@ use crate::core::session_manager::SessionEntry;
 use crate::core::session_manager::UsageEntry;
 use crate::core::settings_schema::CacheWarmingMode;
 use futures::future::BoxFuture;
+use pi_ai::models::ModelsRequestOptions;
 use pi_ai::types::Context;
 use pi_ai::types::Model;
 use pi_ai::types::SimpleStreamOptions;
@@ -15,7 +16,7 @@ use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
 /// Refresh at 90% of the TTL while preserving at least ten seconds of margin.
-pub fn get_cache_warming_delay_ms(ttl_ms: f64) -> Option<i64> {
+pub fn get_cache_warming_delay_ms(ttl_ms: i64) -> Option<i64> {
     todo!("port core/cache-warmer.ts:getCacheWarmingDelayMs")
 }
 
@@ -110,8 +111,6 @@ pub struct CacheWarmingDecisionEvent {
     pub continuation_probability: f64,
     /// Pi's decision: "warm" when `expectedSavings` is at least $0.05.
     pub action: CacheWarmingAction,
-    /// Always "cache_warming_decision".
-    pub r#type: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -165,12 +164,11 @@ pub struct CacheWarmingStatus {
 }
 
 /// The request whose prompt cache entry should be kept warm, exactly as it was sent.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone)]
 pub struct CacheWarmRequest {
     pub model: Model,
     pub context: Context,
-    pub options: Value, /* TS: pi-ai::ModelsSimpleStreamOptions */
+    pub options: ModelsRequestOptions,
 }
 
 // TS: extends CacheWarmRequest (inherited fields inlined)
@@ -178,10 +176,10 @@ pub struct CacheWarmRequest {
 pub struct ActiveRun {
     pub model: Model,
     pub context: Context,
-    pub options: Value, /* TS: pi-ai::ModelsSimpleStreamOptions */
+    pub options: ModelsRequestOptions,
     /// False once the session's model or messages no longer match the request.
     pub is_current: Arc<dyn Fn() -> bool + Send + Sync>,
-    pub ttl_ms: f64,
+    pub ttl_ms: i64,
     pub delay_ms: i64,
     /// Latest safe time to send this refresh, leaving half the original expiry margin.
     pub refresh_deadline_at: i64,
@@ -197,11 +195,7 @@ pub struct ActiveRun {
 #[derive(Clone)]
 pub struct CacheWarmerModels {
     pub stream_simple: Arc<
-        dyn Fn(
-                Model,
-                Context,
-                Option<Value /* TS: pi-ai::ModelsSimpleStreamOptions */>,
-            ) -> AssistantMessageEventStream
+        dyn Fn(Model, Context, Option<ModelsRequestOptions>) -> AssistantMessageEventStream
             + Send
             + Sync,
     >,

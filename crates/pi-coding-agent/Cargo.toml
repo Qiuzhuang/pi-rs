@@ -31,6 +31,16 @@ dirs.workspace = true
 tracing.workspace = true
 indexmap.workspace = true
 unicode-width.workspace = true
+flate2.workspace = true
+crc32fast.workspace = true
+libc.workspace = true
+image.workspace = true
+unicode-normalization.workspace = true
+yaml-rust2.workspace = true
+ignore.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [lib]
 name = "pi_coding_agent"

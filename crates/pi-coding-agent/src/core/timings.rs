@@ -1,6 +1,12 @@
 //! Port of `packages/coding-agent/src/core/timings.ts`.
+//!
+//! Central timing instrumentation for startup profiling.
+//! Enable with PI_TIMING=1 environment variable.
 
+use indexmap::IndexMap;
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
+use std::sync::LazyLock;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -34,14 +40,72 @@ impl TimingLabel {
     }
 }
 
+static ENABLED: LazyLock<bool> =
+    LazyLock::new(|| std::env::var("PI_TIMING").ok().as_deref() == Some("1"));
+
+/// Module-level `timingNamespaces` map (insertion ordered like a JS `Map`).
+static TIMING_NAMESPACES: LazyLock<Mutex<IndexMap<TimingLabel, TimingNamespace>>> =
+    LazyLock::new(|| Mutex::new(IndexMap::new()));
+
+fn now_ms() -> i64 {
+    chrono::Utc::now().timestamp_millis()
+}
+
 pub fn reset_timings(namespace: Option<&TimingLabel>) {
-    todo!("port core/timings.ts:resetTimings")
+    if !*ENABLED {
+        return;
+    }
+    let namespace = namespace.copied().unwrap_or(TimingLabel::Main);
+    TIMING_NAMESPACES.lock().insert(
+        namespace,
+        TimingNamespace {
+            timings: Vec::new(),
+            last_time: now_ms(),
+        },
+    );
 }
 
 pub fn time(label: &str, namespace: Option<&TimingLabel>) {
-    todo!("port core/timings.ts:time")
+    if !*ENABLED {
+        return;
+    }
+    let now = now_ms();
+    let namespace = namespace.copied().unwrap_or(TimingLabel::Main);
+    if !TIMING_NAMESPACES.lock().contains_key(&namespace) {
+        reset_timings(Some(&namespace));
+    }
+    let mut namespaces = TIMING_NAMESPACES.lock();
+    let ns = namespaces.get_mut(&namespace).expect("namespace exists");
+    ns.timings.push(TimingNamespaceTimings {
+        label: label.to_string(),
+        ms: (now - ns.last_time) as f64,
+    });
+    ns.last_time = now;
+}
+
+fn print_timing_group(title: &str, timings: &[TimingNamespaceTimings]) {
+    let printable: Vec<&TimingNamespaceTimings> = timings.iter().filter(|t| t.ms >= 0.0).collect();
+    if printable.is_empty() {
+        return;
+    }
+    eprintln!("\n--- {title} ---");
+    for t in &printable {
+        eprintln!("  {}: {}ms", t.label, t.ms);
+    }
+    let total: f64 = printable.iter().map(|t| t.ms).sum();
+    eprintln!("  TOTAL: {total}ms");
+    eprintln!("{}\n", "-".repeat(title.chars().count() + 8));
 }
 
 pub fn print_timings() {
-    todo!("port core/timings.ts:printTimings")
+    if !*ENABLED {
+        return;
+    }
+    let namespaces = TIMING_NAMESPACES.lock().clone();
+    for (namespace, ns) in namespaces {
+        print_timing_group(
+            &format!("Startup Timings: {}", namespace.as_str()),
+            &ns.timings,
+        );
+    }
 }

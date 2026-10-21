@@ -106,6 +106,7 @@ pub type FauxResponseFactory = Arc<
 >;
 
 /// A queued response: a message or a factory computing one from the request.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone)]
 pub enum FauxResponseStep {
     Message(AssistantMessage),
@@ -271,8 +272,8 @@ fn with_usage_estimate(
     let mut input = prompt_tokens;
     let mut cache_read = 0;
     let mut cache_write = 0;
-    if let Some(session_id) = options.session_id.as_ref().filter(|s| !s.is_empty()) {
-        if options.cache_retention != Some(crate::types::CacheRetention::None) {
+    if let Some(session_id) = options.session_id.as_ref().filter(|s| !s.is_empty())
+        && options.cache_retention != Some(crate::types::CacheRetention::None) {
             let mut cache = prompt_cache.lock();
             match cache.get(session_id) {
                 Some(previous) => {
@@ -285,7 +286,6 @@ fn with_usage_estimate(
             }
             cache.insert(session_id.clone(), prompt);
         }
-    }
     message.usage = Usage {
         input,
         output: output_tokens,
@@ -691,6 +691,7 @@ impl FauxCore {
                 if let Some(on_response) = &options.on_response {
                     on_response(ProviderResponse { status: 200, headers: Default::default() }, model.clone()).await;
                 }
+                #[allow(clippy::large_enum_variant)]
                 enum Next {
                     Pending(DeferredHandle),
                     Final(AssistantMessage),

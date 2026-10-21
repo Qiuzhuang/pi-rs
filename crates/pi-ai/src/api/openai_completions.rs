@@ -286,21 +286,18 @@ fn parse_legacy_encrypted_reasoning_detail(signature: Option<&str>) -> Option<Va
 }
 
 fn fill_missing_common_fields(target: &mut Map<String, Value>, source: &Map<String, Value>) {
-    if matches!(target.get("id"), None | Some(Value::Null)) {
-        if let Some(id) = source.get("id") {
+    if matches!(target.get("id"), None | Some(Value::Null))
+        && let Some(id) = source.get("id") {
             target.insert("id".into(), id.clone());
         }
-    }
-    if !target.get("format").and_then(Value::as_str).is_some_and(|s| !s.is_empty()) {
-        if let Some(format) = source.get("format") {
+    if !target.get("format").and_then(Value::as_str).is_some_and(|s| !s.is_empty())
+        && let Some(format) = source.get("format") {
             target.insert("format".into(), format.clone());
         }
-    }
-    if matches!(target.get("index"), None | Some(Value::Null)) {
-        if let Some(index) = source.get("index") {
+    if matches!(target.get("index"), None | Some(Value::Null))
+        && let Some(index) = source.get("index") {
             target.insert("index".into(), index.clone());
         }
-    }
 }
 
 fn append_openai_reasoning_detail(details: &mut Vec<Value>, detail: &Value) {
@@ -316,11 +313,10 @@ fn append_openai_reasoning_detail(details: &mut Vec<Value>, detail: &Value) {
             );
             last.insert("text".into(), json!(text));
             let has_signature = last.get("signature").and_then(Value::as_str).is_some_and(|s| !s.is_empty());
-            if !has_signature {
-                if let Some(sig) = detail_obj.get("signature") {
+            if !has_signature
+                && let Some(sig) = detail_obj.get("signature") {
                     last.insert("signature".into(), sig.clone());
                 }
-            }
             fill_missing_common_fields(last, &detail_obj);
             return;
         }
@@ -647,18 +643,16 @@ fn add_cache_control_to_text_content(message: &mut Value, cache_control: &Value)
 fn apply_anthropic_cache_control(messages: &mut [Value], tools: Option<&mut Vec<Value>>, cache_control: &Value) {
     for message in messages.iter_mut() {
         let role = message.get("role").and_then(Value::as_str).unwrap_or_default();
-        if role == "system" || role == "developer" {
-            if message.get("content").is_some() {
+        if (role == "system" || role == "developer")
+            && message.get("content").is_some() {
                 add_cache_control_to_text_content(message, cache_control);
                 break;
             }
-        }
     }
-    if let Some(tools) = tools {
-        if let Some(Value::Object(last)) = tools.last_mut() {
+    if let Some(tools) = tools
+        && let Some(Value::Object(last)) = tools.last_mut() {
             last.insert("cache_control".into(), cache_control.clone());
         }
-    }
     for message in messages.iter_mut().rev() {
         let role = message.get("role").and_then(Value::as_str).unwrap_or_default();
         if matches!(role, "user" | "assistant" | "tool") && add_cache_control_to_text_content(message, cache_control) {
@@ -760,11 +754,10 @@ pub fn build_params(model: &Model, context: &TranscriptContext, options: &Stream
     params.insert("stream".into(), json!(true));
     let use_cache_key = (model.base_url.contains("api.openai.com") && cache_retention != CacheRetention::None)
         || (cache_retention == CacheRetention::Long && compat.supports_long_cache_retention);
-    if use_cache_key {
-        if let Some(key) = clamp_openai_prompt_cache_key(options.session_id.as_deref()) {
+    if use_cache_key
+        && let Some(key) = clamp_openai_prompt_cache_key(options.session_id.as_deref()) {
             params.insert("prompt_cache_key".into(), json!(key));
         }
-    }
     if cache_retention == CacheRetention::Long && compat.supports_long_cache_retention {
         params.insert("prompt_cache_retention".into(), json!("24h"));
     }
@@ -842,11 +835,10 @@ pub fn build_params(model: &Model, context: &TranscriptContext, options: &Stream
                 "thinking".into(),
                 if effort.is_some() { json!({ "type": "enabled", "clear_thinking": false }) } else { json!({ "type": "disabled" }) },
             );
-            if let Some(level) = effort.filter(|_| compat.supports_reasoning_effort) {
-                if let Some(e) = mapped_or_level(level) {
+            if let Some(level) = effort.filter(|_| compat.supports_reasoning_effort)
+                && let Some(e) = mapped_or_level(level) {
                     params.insert("reasoning_effort".into(), json!(e));
                 }
-            }
         }
         ThinkingFormat::Qwen if model.reasoning => {
             params.insert("enable_thinking".into(), json!(effort.is_some()));
@@ -927,11 +919,10 @@ pub fn build_params(model: &Model, context: &TranscriptContext, options: &Stream
             if let (Some(level), true, true) = (effort, model.reasoning, compat.supports_reasoning_effort) {
                 let e = mapped(level).flatten().unwrap_or_else(|| level.as_str().to_string());
                 params.insert("reasoning_effort".into(), json!(e));
-            } else if effort.is_none() && model.reasoning && compat.supports_reasoning_effort {
-                if let Some(Some(off)) = &off_value {
+            } else if effort.is_none() && model.reasoning && compat.supports_reasoning_effort
+                && let Some(Some(off)) = &off_value {
                     params.insert("reasoning_effort".into(), json!(off));
                 }
-            }
         }
     }
 
@@ -941,8 +932,8 @@ pub fn build_params(model: &Model, context: &TranscriptContext, options: &Stream
     if let Some(routing) = model.compat.as_ref().and_then(|c| c.open_router_routing.as_ref()) {
         params.insert("provider".into(), serde_json::to_value(routing)?);
     }
-    if let Some(routing) = model.compat.as_ref().and_then(|c| c.vercel_gateway_routing.as_ref()) {
-        if routing.only.is_some() || routing.order.is_some() {
+    if let Some(routing) = model.compat.as_ref().and_then(|c| c.vercel_gateway_routing.as_ref())
+        && (routing.only.is_some() || routing.order.is_some()) {
             let mut gateway = Map::new();
             if let Some(only) = &routing.only {
                 gateway.insert("only".into(), json!(only));
@@ -952,7 +943,6 @@ pub fn build_params(model: &Model, context: &TranscriptContext, options: &Stream
             }
             params.insert("providerOptions".into(), json!({ "gateway": gateway }));
         }
-    }
     let level = effort.map(ModelThinkingLevel::from).unwrap_or(ModelThinkingLevel::Off);
     if let Some(sampling) = resolve_sampling_params(model, level, options.sampling_params.as_ref()) {
         for (k, v) in sampling {
@@ -987,8 +977,8 @@ fn build_headers(
         let dynamic = build_copilot_dynamic_headers(&context.messages, has_copilot_vision_input(&context.messages));
         headers.extend_strings(&dynamic);
     }
-    if let Some(session_id) = session_id.filter(|s| !s.is_empty()) {
-        if compat.send_session_affinity_headers {
+    if let Some(session_id) = session_id.filter(|s| !s.is_empty())
+        && compat.send_session_affinity_headers {
             if compat.session_affinity_format == SessionAffinityFormat::Openrouter {
                 headers.set("x-session-id", Some(session_id));
             } else {
@@ -999,7 +989,6 @@ fn build_headers(
                 headers.set("x-session-affinity", Some(session_id));
             }
         }
-    }
     if let Some(h) = &options.headers {
         headers.extend_optional(h);
     }
@@ -1122,11 +1111,10 @@ async fn run_stream(model: Model, context: TranscriptContext, options: StreamOpt
         let timeout_ms = options.timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS);
         let headers = build_headers(&model, &normalized, &api_key, &options, cache_session_id, &compat, timeout_ms);
         let mut params = build_params(&model, &normalized, &options, &compat)?;
-        if let Some(on_payload) = &options.on_payload {
-            if let Some(next) = on_payload(params.clone(), model.clone()).await {
+        if let Some(on_payload) = &options.on_payload
+            && let Some(next) = on_payload(params.clone(), model.clone()).await {
                 params = next;
             }
-        }
         let url = chat_completions_url(&model.base_url);
         let client = match &options.http_client {
             Some(client) => client.clone(),
@@ -1174,12 +1162,11 @@ async fn run_stream(model: Model, context: TranscriptContext, options: StreamOpt
                     other => other.to_string(),
                 });
                 let mut full = message;
-                if let Some(raw) = raw {
-                    if !full.contains(&raw) {
+                if let Some(raw) = raw
+                    && !full.contains(&raw) {
                         full.push('\n');
                         full.push_str(&raw);
                     }
-                }
                 anyhow::bail!(StreamChunkError(full));
             }
             if event_name.is_some() && !event_name.as_deref().is_some_and(|e| e.starts_with("response.") || e.starts_with("transcript.")) {
@@ -1191,26 +1178,23 @@ async fn run_stream(model: Model, context: TranscriptContext, options: StreamOpt
             if !chunk.is_object() {
                 continue;
             }
-            if output.response_id.as_deref().is_none_or(str::is_empty) {
-                if let Some(id) = chunk.get("id").and_then(Value::as_str).filter(|s| !s.is_empty()) {
+            if output.response_id.as_deref().is_none_or(str::is_empty)
+                && let Some(id) = chunk.get("id").and_then(Value::as_str).filter(|s| !s.is_empty()) {
                     output.response_id = Some(id.to_string());
                 }
-            }
-            if let Some(chunk_model) = chunk.get("model").and_then(Value::as_str) {
-                if !chunk_model.is_empty() && chunk_model != model.id && output.response_model.as_deref().is_none_or(str::is_empty) {
+            if let Some(chunk_model) = chunk.get("model").and_then(Value::as_str)
+                && !chunk_model.is_empty() && chunk_model != model.id && output.response_model.as_deref().is_none_or(str::is_empty) {
                     output.response_model = Some(chunk_model.to_string());
                 }
-            }
             let chunk_usage = chunk.get("usage").filter(|u| u.is_object());
             if let Some(usage) = chunk_usage {
                 output.usage = parse_chunk_usage(usage, &model);
             }
             let Some(choice) = chunk.get("choices").and_then(Value::as_array).and_then(|c| c.first()) else { continue };
-            if chunk_usage.is_none() {
-                if let Some(usage) = choice.get("usage").filter(|u| u.is_object()) {
+            if chunk_usage.is_none()
+                && let Some(usage) = choice.get("usage").filter(|u| u.is_object()) {
                     output.usage = parse_chunk_usage(usage, &model);
                 }
-            }
             if let Some(reason) = choice.get("finish_reason").and_then(Value::as_str).filter(|r| !r.is_empty()) {
                 output.raw_stop_reason = Some(reason.to_string());
                 let (stop_reason, error_message) = map_stop_reason(reason);
@@ -1286,11 +1270,10 @@ async fn run_stream(model: Model, context: TranscriptContext, options: StreamOpt
                         .and_then(Value::as_str)
                         .map(str::to_string);
                     let mut state_index = stream_index.and_then(|i| by_index.get(&i).copied());
-                    if state_index.is_none() {
-                        if let Some(id) = &id {
+                    if state_index.is_none()
+                        && let Some(id) = &id {
                             state_index = by_id.get(id).copied();
                         }
-                    }
                     let state_index = match state_index {
                         Some(i) => i,
                         None => {
@@ -1328,22 +1311,20 @@ async fn run_stream(model: Model, context: TranscriptContext, options: StreamOpt
                             state
                         }
                     };
-                    if let Some(si) = stream_index {
-                        if tool_states[state_index].stream_index.is_none() {
+                    if let Some(si) = stream_index
+                        && tool_states[state_index].stream_index.is_none() {
                             tool_states[state_index].stream_index = Some(si);
                             by_index.insert(si, state_index);
                         }
-                    }
                     if let Some(id) = &id {
                         by_id.insert(id.clone(), state_index);
                     }
                     let content_index = tool_states[state_index].content_index;
                     let Some(AssistantContent::ToolCall(block)) = output.content.get_mut(content_index) else { continue };
-                    if block.name.is_empty() {
-                        if let Some(name) = &name {
+                    if block.name.is_empty()
+                        && let Some(name) = &name {
                             block.name = name.clone();
                         }
-                    }
                     if custom.is_some() && function.is_none() && tool_states[state_index].custom_input.is_none() {
                         let property = grammar_properties.get(&block.name).cloned().unwrap_or_else(|| "input".into());
                         block.arguments = Map::new();
@@ -1351,12 +1332,11 @@ async fn run_stream(model: Model, context: TranscriptContext, options: StreamOpt
                         tool_states[state_index].custom_input = Some((property, GrammarJsonBuffer::default()));
                         tool_states[state_index].partial_args = None;
                     }
-                    if block.id.is_empty() {
-                        if let Some(id) = &id {
+                    if block.id.is_empty()
+                        && let Some(id) = &id {
                             block.id = id.clone();
                             by_id.insert(id.clone(), state_index);
                         }
-                    }
                     let mut delta_text = String::new();
                     let fn_args = function.and_then(|f| f.get("arguments")).and_then(Value::as_str).filter(|a| !a.is_empty());
                     let custom_input = custom.and_then(|c| c.get("input")).and_then(Value::as_str).filter(|a| !a.is_empty());
@@ -1366,15 +1346,14 @@ async fn run_stream(model: Model, context: TranscriptContext, options: StreamOpt
                         let partial = state.partial_args.get_or_insert_with(String::new);
                         partial.push_str(args);
                         block.arguments = parse_streaming_json_object(Some(partial));
-                    } else if let Some(input) = custom_input {
-                        if let Some((property, buffer)) = &mut tool_states[state_index].custom_input {
+                    } else if let Some(input) = custom_input
+                        && let Some((property, buffer)) = &mut tool_states[state_index].custom_input {
                             let current = block.arguments.get(property.as_str()).and_then(Value::as_str).unwrap_or_default().to_string();
                             let next = format!("{current}{input}");
                             delta_text = append_grammar_tool_input_json_delta(buffer, property, &next, false)?.unwrap_or_default();
                             block.arguments = Map::new();
                             block.arguments.insert(property.clone(), json!(next));
                         }
-                    }
                     sender.push(AssistantMessageEvent::ToolCallDelta { content_index, delta: delta_text, partial: output.clone() });
                 }
             }
@@ -1404,11 +1383,10 @@ async fn run_stream(model: Model, context: TranscriptContext, options: StreamOpt
     .await;
 
     if let Err(error) = result {
-        if let (Some(details), Some(index)) = (&streamed_reasoning_details, thinking_index) {
-            if let Some(AssistantContent::Thinking(block)) = output.content.get_mut(index) {
+        if let (Some(details), Some(index)) = (&streamed_reasoning_details, thinking_index)
+            && let Some(AssistantContent::Thinking(block)) = output.content.get_mut(index) {
                 block.thinking_signature = Some(serde_json::to_string(details).unwrap_or_default());
             }
-        }
         output.stop_reason = if aborted() { StopReason::Aborted } else { StopReason::Error };
         output.error_message = Some(if error.downcast_ref::<StreamChunkError>().is_some() {
             error.to_string()

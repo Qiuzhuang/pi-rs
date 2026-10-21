@@ -46,8 +46,8 @@ fn parse_no_proxy_entry(entry: &str) -> Option<(String, u32)> {
     if trimmed.is_empty() {
         return None;
     }
-    if trimmed.starts_with('[') {
-        if let Some(closing) = trimmed.find(']') {
+    if trimmed.starts_with('[')
+        && let Some(closing) = trimmed.find(']') {
             let host = trimmed[1..closing].to_string();
             let rest = &trimmed[closing + 1..];
             if let Some(port) = rest.strip_prefix(':') {
@@ -55,18 +55,16 @@ fn parse_no_proxy_entry(entry: &str) -> Option<(String, u32)> {
             }
             return Some((host, 0));
         }
-    }
     if trimmed.contains(':') && trimmed.split(':').count() > 2 {
         return Some((trimmed, 0));
     }
-    if let Some(colon) = trimmed.rfind(':') {
-        if Some(colon) == trimmed.find(':') {
+    if let Some(colon) = trimmed.rfind(':')
+        && Some(colon) == trimmed.find(':') {
             let host = trimmed[..colon].to_string();
             if let Some(port) = js_parse_int(&trimmed[colon + 1..]) {
                 return Some((host, port));
             }
         }
-    }
     Some((trimmed, 0))
 }
 

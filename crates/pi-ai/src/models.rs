@@ -863,11 +863,10 @@ impl Models {
                     }
                     self.run_provider_refresh_phase(&provider, credential, true, force, generation, &signal).await
                 };
-                if let Err(error) = race_with_signal(operation, &signal).await {
-                    if !signal.is_cancelled() {
+                if let Err(error) = race_with_signal(operation, &signal).await
+                    && !signal.is_cancelled() {
                         errors.lock().insert(provider.id().to_string(), error.to_string());
                     }
-                }
                 watcher.abort();
                 let mut controllers = self.inner.refresh_controllers.lock();
                 if controllers.get(provider.id()).is_some_and(|(g, _)| *g == generation) {

@@ -153,8 +153,8 @@ impl<'a> SchemaValidator<'a> {
         let mut ok = true;
 
         // type
-        if let Some(type_value) = schema_obj.get("type") {
-            if !check_type(type_value, value) {
+        if let Some(type_value) = schema_obj.get("type")
+            && !check_type(type_value, value) {
                 ok = false;
                 let message = match type_value {
                     Value::Array(types) => format!(
@@ -166,7 +166,6 @@ impl<'a> SchemaValidator<'a> {
                 };
                 sink.add("type", schema_path, instance_path, Vec::new(), message);
             }
-        }
 
         // object keywords
         if let Value::Object(object) = value {
@@ -305,18 +304,16 @@ impl<'a> SchemaValidator<'a> {
                     );
                 }
             }
-            if let Some(limit) = schema_obj.get("minProperties").and_then(Value::as_f64) {
-                if (object.len() as f64) < limit {
+            if let Some(limit) = schema_obj.get("minProperties").and_then(Value::as_f64)
+                && (object.len() as f64) < limit {
                     ok = false;
                     sink.add("minProperties", schema_path, instance_path, Vec::new(), format!("must not have fewer than {} properties", number_to_string(limit)));
                 }
-            }
-            if let Some(limit) = schema_obj.get("maxProperties").and_then(Value::as_f64) {
-                if (object.len() as f64) > limit {
+            if let Some(limit) = schema_obj.get("maxProperties").and_then(Value::as_f64)
+                && (object.len() as f64) > limit {
                     ok = false;
                     sink.add("maxProperties", schema_path, instance_path, Vec::new(), format!("must not have more than {} properties", number_to_string(limit)));
                 }
-            }
         }
 
         // array keywords
@@ -328,12 +325,11 @@ impl<'a> SchemaValidator<'a> {
                     ok = false;
                     sink.add("contains", schema_path, instance_path, Vec::new(), "must contain at least 1 valid item".to_string());
                 }
-                if let Some(max) = schema_obj.get("maxContains").and_then(Value::as_f64) {
-                    if count as f64 > max {
+                if let Some(max) = schema_obj.get("maxContains").and_then(Value::as_f64)
+                    && count as f64 > max {
                         ok = false;
                         sink.add("maxContains", schema_path, instance_path, Vec::new(), format!("must not contain more than {} matching items", number_to_string(max)));
                     }
-                }
             }
             let prefix_len = match schema_obj.get("prefixItems") {
                 Some(Value::Array(prefix)) => {
@@ -370,18 +366,16 @@ impl<'a> SchemaValidator<'a> {
                 }
                 None => {}
             }
-            if let Some(limit) = schema_obj.get("maxItems").and_then(Value::as_f64) {
-                if items.len() as f64 > limit {
+            if let Some(limit) = schema_obj.get("maxItems").and_then(Value::as_f64)
+                && items.len() as f64 > limit {
                     ok = false;
                     sink.add("maxItems", schema_path, instance_path, Vec::new(), format!("must not have more than {} items", number_to_string(limit)));
                 }
-            }
-            if let Some(limit) = schema_obj.get("minItems").and_then(Value::as_f64) {
-                if (items.len() as f64) < limit {
+            if let Some(limit) = schema_obj.get("minItems").and_then(Value::as_f64)
+                && (items.len() as f64) < limit {
                     ok = false;
                     sink.add("minItems", schema_path, instance_path, Vec::new(), format!("must not have fewer than {} items", number_to_string(limit)));
                 }
-            }
             if schema_obj.get("uniqueItems") == Some(&Value::Bool(true)) {
                 let duplicate = items.iter().enumerate().any(|(i, a)| items.iter().skip(i + 1).any(|b| js_equal(a, b)));
                 if duplicate {
@@ -394,31 +388,28 @@ impl<'a> SchemaValidator<'a> {
         // string keywords
         if let Value::String(text) = value {
             let length = js_string_length(text) as f64;
-            if let Some(limit) = schema_obj.get("maxLength").and_then(Value::as_f64) {
-                if length > limit {
+            if let Some(limit) = schema_obj.get("maxLength").and_then(Value::as_f64)
+                && length > limit {
                     ok = false;
                     sink.add("maxLength", schema_path, instance_path, Vec::new(), format!("must not have more than {} characters", number_to_string(limit)));
                 }
-            }
-            if let Some(limit) = schema_obj.get("minLength").and_then(Value::as_f64) {
-                if length < limit {
+            if let Some(limit) = schema_obj.get("minLength").and_then(Value::as_f64)
+                && length < limit {
                     ok = false;
                     sink.add("minLength", schema_path, instance_path, Vec::new(), format!("must not have fewer than {} characters", number_to_string(limit)));
                 }
-            }
-            if let Some(pattern) = schema_obj.get("pattern").and_then(Value::as_str) {
-                if let Ok(regex) = Regex::new(pattern) {
-                    if !regex.is_match(text) {
+            if let Some(pattern) = schema_obj.get("pattern").and_then(Value::as_str)
+                && let Ok(regex) = Regex::new(pattern)
+                    && !regex.is_match(text) {
                         ok = false;
                         sink.add("pattern", schema_path, instance_path, Vec::new(), format!("must match pattern \"{pattern}\""));
                     }
-                }
-            }
         }
 
         // number keywords
         if let Some(number) = value.as_f64().filter(|_| value.is_number()) {
-            let checks: [(&str, &str, fn(f64, f64) -> bool); 4] = [
+            type Check = (&'static str, &'static str, fn(f64, f64) -> bool);
+            let checks: [Check; 4] = [
                 ("exclusiveMaximum", "<", |v, l| v < l),
                 ("exclusiveMinimum", ">", |v, l| v > l),
                 ("maximum", "<=", |v, l| v <= l),
@@ -433,15 +424,14 @@ impl<'a> SchemaValidator<'a> {
                     }
                 }
             }
-            if let Some(multiple) = schema_obj.get("multipleOf").and_then(Value::as_f64) {
-                if multiple != 0.0 {
+            if let Some(multiple) = schema_obj.get("multipleOf").and_then(Value::as_f64)
+                && multiple != 0.0 {
                     let quotient = number / multiple;
                     if (quotient - quotient.round()).abs() > 1e-9 {
                         ok = false;
                         sink.add("multipleOf", schema_path, instance_path, Vec::new(), format!("must be multiple of {}", number_to_string(multiple)));
                     }
                 }
-            }
         }
 
         // $ref
@@ -456,37 +446,33 @@ impl<'a> SchemaValidator<'a> {
             }
         }
 
-        if let Some(constant) = schema_obj.get("const") {
-            if !js_equal(constant, value) {
+        if let Some(constant) = schema_obj.get("const")
+            && !js_equal(constant, value) {
                 ok = false;
                 sink.add("const", schema_path, instance_path, Vec::new(), "must be equal to constant".to_string());
             }
-        }
-        if let Some(Value::Array(options)) = schema_obj.get("enum") {
-            if !options.iter().any(|o| js_equal(o, value)) {
+        if let Some(Value::Array(options)) = schema_obj.get("enum")
+            && !options.iter().any(|o| js_equal(o, value)) {
                 ok = false;
                 sink.add("enum", schema_path, instance_path, Vec::new(), "must be equal to one of the allowed values".to_string());
             }
-        }
         if let Some(if_schema) = schema_obj.get("if") {
             let (branch, keyword) = if self.check_sub(if_schema, value, depth) {
                 (schema_obj.get("then"), "then")
             } else {
                 (schema_obj.get("else"), "else")
             };
-            if let Some(branch) = branch {
-                if !self.check_sub(branch, value, depth) {
+            if let Some(branch) = branch
+                && !self.check_sub(branch, value, depth) {
                     ok = false;
                     sink.add("if", schema_path, instance_path, Vec::new(), format!("must match \"{keyword}\" schema"));
                 }
-            }
         }
-        if let Some(not_schema) = schema_obj.get("not") {
-            if self.check_sub(not_schema, value, depth) {
+        if let Some(not_schema) = schema_obj.get("not")
+            && self.check_sub(not_schema, value, depth) {
                 ok = false;
                 sink.add("not", schema_path, instance_path, Vec::new(), "must not be valid".to_string());
             }
-        }
         if let Some(Value::Array(all)) = schema_obj.get("allOf") {
             for (index, sub) in all.iter().enumerate() {
                 if !self.validate(sub, value, &format!("{schema_path}/allOf/{index}"), instance_path, sink, depth + 1) {
@@ -552,13 +538,12 @@ fn percent_decode(text: &str) -> String {
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let Ok(b) = u8::from_str_radix(&text[i + 1..i + 3], 16) {
+        if bytes[i] == b'%' && i + 2 < bytes.len()
+            && let Ok(b) = u8::from_str_radix(&text[i + 1..i + 3], 16) {
                 out.push(b);
                 i += 3;
                 continue;
             }
-        }
         out.push(bytes[i]);
         i += 1;
     }
@@ -804,16 +789,14 @@ pub fn coerce_with_json_schema(value: Value, schema: &Value) -> Value {
             }
         }
     }
-    if types.iter().any(|t| t == "object") {
-        if let Value::Object(map) = &mut next {
+    if types.iter().any(|t| t == "object")
+        && let Value::Object(map) = &mut next {
             apply_schema_object_coercion(map, schema);
         }
-    }
-    if types.iter().any(|t| t == "array") {
-        if let Value::Array(items) = &mut next {
+    if types.iter().any(|t| t == "array")
+        && let Value::Array(items) = &mut next {
             apply_schema_array_coercion(items, schema);
         }
-    }
     next
 }
 
@@ -857,11 +840,10 @@ fn normalize_optional_nulls(value: &mut Value, schema: &Value) {
 
 fn format_validation_path(error: &ValidationError) -> String {
     let base_path = error.instance_path.strip_prefix('/').unwrap_or(&error.instance_path).replace('/', ".");
-    if error.keyword == "required" {
-        if let Some(required) = error.required_properties.first() {
+    if error.keyword == "required"
+        && let Some(required) = error.required_properties.first() {
             return if base_path.is_empty() { required.clone() } else { format!("{base_path}.{required}") };
         }
-    }
     if base_path.is_empty() { "root".to_string() } else { base_path }
 }
 

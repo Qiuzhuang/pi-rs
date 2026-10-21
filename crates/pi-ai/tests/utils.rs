@@ -115,7 +115,8 @@ fn policy(max: u32, base: u64, cap: Option<u64>) -> RetryPolicy {
 #[tokio::test]
 async fn retry_assistant_call_behaviour() {
     let calls = Arc::new(Mutex::new(0));
-    let finished: Arc<Mutex<Vec<(bool, u32, Option<String>)>>> = Arc::default();
+    type Finished = Vec<(bool, u32, Option<String>)>;
+    let finished: Arc<Mutex<Finished>> = Arc::default();
     let scheduled: Arc<Mutex<Vec<u64>>> = Arc::default();
     let callbacks = {
         let finished = finished.clone();

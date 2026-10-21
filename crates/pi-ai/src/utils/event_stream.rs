@@ -72,11 +72,10 @@ impl<T, R: Clone> EventSender<T, R> {
         let was_done = inner.done;
         inner.done = true;
         if let Some(mut result) = result {
-            if !was_done {
-                if let Some(hook) = inner.before_end.clone() {
+            if !was_done
+                && let Some(hook) = inner.before_end.clone() {
                     hook(&mut result);
                 }
-            }
             inner.result_tx.send_replace(Some(result));
         }
         inner.tx = None;

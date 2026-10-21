@@ -68,8 +68,8 @@ impl Provider for RadiusProvider {
                 return Ok(());
             }
         }
-        if stored.is_none() {
-            if let Some(Credential::OAuth(oauth)) = &context.credential {
+        if stored.is_none()
+            && let Some(Credential::OAuth(oauth)) = &context.credential {
                 let legacy = get_radius_models(&self.id, Some(oauth));
                 if !legacy.is_empty() {
                     let dynamic = self.dynamic.clone();
@@ -88,7 +88,6 @@ impl Provider for RadiusProvider {
                     }
                 }
             }
-        }
         if !context.allow_network || context.signal.is_cancelled() {
             return Ok(());
         }

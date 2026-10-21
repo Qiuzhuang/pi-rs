@@ -210,11 +210,10 @@ pub fn has_tool_redefinitions(messages: &[Message]) -> bool {
     let mut declared: std::collections::HashMap<String, Tool> = std::collections::HashMap::new();
     for message in system_messages(messages) {
         for tool in message.tools_added.iter().flatten() {
-            if let Some(previous) = declared.get(&tool.name) {
-                if !declarations_equal(previous, tool) {
+            if let Some(previous) = declared.get(&tool.name)
+                && !declarations_equal(previous, tool) {
                     return true;
                 }
-            }
             declared.insert(tool.name.clone(), tool.clone());
         }
     }

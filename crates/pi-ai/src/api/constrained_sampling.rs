@@ -49,11 +49,10 @@ fn schema_allows_null(schema: &Value) -> bool {
     if obj.get("const") == Some(&Value::Null) {
         return true;
     }
-    if let Some(Value::Array(options)) = obj.get("enum") {
-        if options.contains(&Value::Null) {
+    if let Some(Value::Array(options)) = obj.get("enum")
+        && options.contains(&Value::Null) {
             return true;
         }
-    }
     matches!(obj.get("anyOf"), Some(Value::Array(variants)) if variants.iter().any(schema_allows_null))
 }
 
@@ -97,16 +96,14 @@ fn make_node_strict(schema: &mut Value, check: Option<UnsupportedStrictSchemaKey
     if !is_object_schema {
         return Ok(());
     }
-    if let Some(additional) = obj.get("additionalProperties") {
-        if additional != &Value::Bool(false) {
+    if let Some(additional) = obj.get("additionalProperties")
+        && additional != &Value::Bool(false) {
             return Err(UnsupportedStrictJsonSchemaError("schema-valued or true additionalProperties is unsupported".into()));
         }
-    }
-    if let Some(properties) = obj.get("properties") {
-        if !properties.is_object() {
+    if let Some(properties) = obj.get("properties")
+        && !properties.is_object() {
             return Err(UnsupportedStrictJsonSchemaError("object properties must be a schema map".into()));
         }
-    }
     if let Some(required) = obj.get("required") {
         let valid = required.as_array().is_some_and(|r| r.iter().all(Value::is_string));
         if !valid {

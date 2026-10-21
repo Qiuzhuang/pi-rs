@@ -25,9 +25,12 @@ pub fn create_setup_error_message(model: &Model, error: &anyhow::Error, timestam
 /// Synchronous, read-only observation of a lazy stream's forwarding path.
 #[derive(Clone, Default)]
 pub struct LazyStreamObserver {
-    pub on_event: Option<Arc<dyn Fn(&AssistantMessageEvent) + Send + Sync>>,
-    pub on_result: Option<Arc<dyn Fn(Option<&AssistantMessage>) + Send + Sync>>,
+    pub on_event: Option<OnLazyEvent>,
+    pub on_result: Option<OnLazyResult>,
 }
+
+pub type OnLazyEvent = Arc<dyn Fn(&AssistantMessageEvent) + Send + Sync>;
+pub type OnLazyResult = Arc<dyn Fn(Option<&AssistantMessage>) + Send + Sync>;
 
 /// Returns a stream immediately while running async setup (auth resolution, ...) behind it.
 /// Setup failures terminate the stream with an error event. Must be called within a tokio runtime.

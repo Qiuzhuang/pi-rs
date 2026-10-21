@@ -36,15 +36,14 @@ impl ApiKeyAuth for AnthropicApiKeyAuth {
 
     async fn resolve(&self, input: ApiKeyResolveInput) -> anyhow::Result<Option<AuthResult>> {
         input.throw_if_aborted()?;
-        if let Some(credential) = &input.credential {
-            if let Some(key) = credential.key.as_ref().filter(|k| !k.is_empty()) {
+        if let Some(credential) = &input.credential
+            && let Some(key) = credential.key.as_ref().filter(|k| !k.is_empty()) {
                 return Ok(Some(AuthResult {
                     auth: ModelAuth { api_key: Some(key.clone()), ..Default::default() },
                     env: credential.env.clone(),
                     source: Some("stored credential".into()),
                 }));
             }
-        }
         let auth_token = input.ctx.env(ANTHROPIC_AUTH_TOKEN_ENV).await;
         input.throw_if_aborted()?;
         if let Some(token) = auth_token {

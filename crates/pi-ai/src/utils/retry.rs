@@ -135,14 +135,18 @@ pub fn retry_delay_ms(base_delay_ms: u64, max_agent_delay_ms: Option<u64>, attem
 }
 
 /// Optional callbacks emitted by [`retry_assistant_call`] around each retry.
+pub type OnRetryScheduled = Box<dyn Fn(u32, u32, u64, String) -> BoxFuture<'static, ()> + Send + Sync>;
+pub type OnRetryAttemptStart = Box<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>;
+pub type OnRetryFinished = Box<dyn Fn(bool, u32, Option<String>) -> BoxFuture<'static, ()> + Send + Sync>;
+
 #[derive(Default)]
 pub struct RetryCallbacks {
     /// Emitted before the backoff sleep: (attempt, max_attempts, delay_ms, error_message).
-    pub on_retry_scheduled: Option<Box<dyn Fn(u32, u32, u64, String) -> BoxFuture<'static, ()> + Send + Sync>>,
+    pub on_retry_scheduled: Option<OnRetryScheduled>,
     /// Emitted after the backoff sleep, before the retried call starts.
-    pub on_retry_attempt_start: Option<Box<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>>,
+    pub on_retry_attempt_start: Option<OnRetryAttemptStart>,
     /// Emitted once when the loop ends: (success, attempt, final_error).
-    pub on_retry_finished: Option<Box<dyn Fn(bool, u32, Option<String>) -> BoxFuture<'static, ()> + Send + Sync>>,
+    pub on_retry_finished: Option<OnRetryFinished>,
 }
 
 /// Run a single assistant-producing call with bounded retry on transient errors.

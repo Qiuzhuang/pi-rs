@@ -797,6 +797,7 @@ pub struct ToolResultMessage {
 }
 
 /// A transcript message, discriminated by `role`.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "role")]
 pub enum Message {
@@ -1095,15 +1096,14 @@ pub struct Context {
 /// Normalized request context passed to providers. Only
 /// [`normalize_context`](crate::utils::transcript::normalize_context) produces it.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[non_exhaustive]
 pub struct TranscriptContext {
     pub messages: Vec<Message>,
-    #[serde(skip)]
-    pub(crate) _brand: (),
 }
 
 impl TranscriptContext {
     pub(crate) fn from_messages(messages: Vec<Message>) -> Self {
-        Self { messages, _brand: () }
+        Self { messages }
     }
 }
 
@@ -1347,6 +1347,7 @@ impl ModelType {
 }
 
 /// Anything a provider can list.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum AnyModel {
     Chat(Model),

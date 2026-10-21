@@ -15,3 +15,4 @@ pub mod openrouter;
 pub mod openrouter_api;
 pub mod radius;
 pub mod radius_config;
+pub mod schemas;

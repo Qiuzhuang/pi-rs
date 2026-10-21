@@ -346,11 +346,10 @@ fn convert_tools(
             definition.insert("strict".into(), json!(true));
         }
         definition.insert("input_schema".into(), input_schema);
-        if let Some(cache_control) = cache_control {
-            if index == tools.len() - 1 {
+        if let Some(cache_control) = cache_control
+            && index == tools.len() - 1 {
                 definition.insert("cache_control".into(), cache_control.clone());
             }
-        }
         result.push(Value::Object(definition));
     }
     Ok(result)
@@ -468,14 +467,13 @@ fn convert_messages(
                 }
                 let message_index = params.len();
                 params.push(json!({ "role": "assistant", "content": blocks }));
-                if let Some(provider) = managed_provider {
-                    if assistant.api == "anthropic-messages"
+                if let Some(provider) = managed_provider
+                    && assistant.api == "anthropic-messages"
                         && assistant.provider == provider
                         && is_anthropic_effort(assistant.provider_thinking_level.as_deref())
                     {
                         assistant_levels.insert(message_index, assistant.provider_thinking_level.clone().unwrap_or_default());
                     }
-                }
             }
             Message::ToolResult(_) => {
                 let mut tool_results: Vec<Value> = Vec::new();
@@ -688,14 +686,13 @@ fn build_params(
         params.insert("system".into(), Value::Array(vec![with_cache(&initial_system_text)]));
     }
 
-    if let Some(temperature) = options.temperature {
-        if anthropic.thinking_enabled != Some(true)
+    if let Some(temperature) = options.temperature
+        && anthropic.thinking_enabled != Some(true)
             && model_compat.supports_mid_convo_effort != Some(true)
             && compat.supports_temperature
         {
             params.insert("temperature".into(), crate::serde_util::js_number(temperature));
         }
-    }
 
     let tool_cache_control = if compat.supports_cache_control_on_tools { cache_control.as_ref() } else { None };
     if native_tool_changes {
@@ -730,11 +727,10 @@ fn build_params(
         }
     }
 
-    if let Some(metadata) = &options.metadata {
-        if let Some(Value::String(user_id)) = metadata.get("user_id") {
+    if let Some(metadata) = &options.metadata
+        && let Some(Value::String(user_id)) = metadata.get("user_id") {
             params.insert("metadata".into(), json!({ "user_id": user_id }));
         }
-    }
 
     if let Some(tool_choice) = &anthropic.tool_choice {
         match tool_choice {
@@ -844,12 +840,11 @@ fn build_client_config(
     headers.extend_strings(&get_identity_headers(target, options.identity.as_ref()));
     headers.set("accept", Some("application/json"));
     headers.set("anthropic-dangerous-direct-browser-access", Some("true"));
-    if let Some(session_id) = session_id.filter(|s| !s.is_empty()) {
-        if compat.send_session_affinity_headers {
+    if let Some(session_id) = session_id.filter(|s| !s.is_empty())
+        && compat.send_session_affinity_headers {
             let header = if compat.session_affinity_openrouter { "x-session-id" } else { "x-session-affinity" };
             headers.set(header, Some(session_id));
         }
-    }
     headers.extend_strings(&model_headers);
     if let Some(h) = &options.headers {
         headers.extend_optional(h);
@@ -931,17 +926,16 @@ async fn run_stream(
                 output.provider_thinking_level = Some(level.clone());
             }
             let mut params = built.params;
-            if let Some(on_payload) = &options.on_payload {
-                if let Some(next) = on_payload(params.clone(), model.clone()).await {
+            if let Some(on_payload) = &options.on_payload
+                && let Some(next) = on_payload(params.clone(), model.clone()).await {
                     params = next;
                     if let Value::Object(map) = &mut params {
                         map.insert("stream".into(), json!(true));
                     }
                 }
-            }
             let mut headers = client_config.headers.clone();
-            if let Value::Object(map) = &mut params {
-                if let Some(betas) = map.shift_remove("betas") {
+            if let Value::Object(map) = &mut params
+                && let Some(betas) = map.shift_remove("betas") {
                     let list: Vec<String> = match betas {
                         Value::Array(items) => items.iter().filter_map(|b| b.as_str().map(str::to_string)).collect(),
                         Value::String(s) => vec![s],
@@ -951,7 +945,6 @@ async fn run_stream(
                         headers.set("anthropic-beta", Some(&list.join(",")));
                     }
                 }
-            }
             headers.set("content-type", Some("application/json"));
             let retry = ProviderRetryOptions {
                 max_retries: options.max_retries,
@@ -1048,11 +1041,10 @@ async fn run_stream(
                         input_transformations = Some(t.clone());
                     }
                     let response_model = message.get("model").and_then(Value::as_str).map(str::to_string);
-                    if let Some(response_model) = &response_model {
-                        if *response_model != model.id {
+                    if let Some(response_model) = &response_model
+                        && *response_model != model.id {
                             output.response_model = Some(response_model.clone());
                         }
-                    }
                     usage_cost = match &response_model {
                         Some(rm) if *rm != model.id => model
                             .compat

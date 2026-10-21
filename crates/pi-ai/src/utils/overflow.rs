@@ -49,8 +49,8 @@ static NON_OVERFLOW_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
 
 /// Check if an assistant message represents a context overflow error.
 pub fn is_context_overflow(message: &AssistantMessage, context_window: Option<u64>) -> bool {
-    if message.stop_reason == StopReason::Error {
-        if let Some(error_message) = message.error_message.as_deref().filter(|m| !m.is_empty()) {
+    if message.stop_reason == StopReason::Error
+        && let Some(error_message) = message.error_message.as_deref().filter(|m| !m.is_empty()) {
             let is_non_overflow = NON_OVERFLOW_PATTERNS.iter().any(|p| p.is_match(error_message));
             if !is_non_overflow {
                 if OVERFLOW_PATTERNS.iter().any(|p| p.is_match(error_message)) {
@@ -61,7 +61,6 @@ pub fn is_context_overflow(message: &AssistantMessage, context_window: Option<u6
                 }
             }
         }
-    }
 
     if let Some(context_window) = context_window.filter(|w| *w > 0) {
         let input_tokens = message.usage.input + message.usage.cache_read;

@@ -183,11 +183,10 @@ where
                 if retries_remaining == 0 || !is_retryable_provider_error(http) {
                     return Err(error);
                 }
-                if let Some(status) = http.status {
-                    if options.no_retry_statuses.contains(&status) {
+                if let Some(status) = http.status
+                    && options.no_retry_statuses.contains(&status) {
                         return Err(error);
                     }
-                }
                 let retry_index = max_retries - retries_remaining;
                 retries_remaining -= 1;
                 let delay = get_retry_delay_ms(http, retry_index, options.max_retry_delay_ms)?;

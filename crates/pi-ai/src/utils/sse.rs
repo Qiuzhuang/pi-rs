@@ -99,8 +99,7 @@ impl SseDecoder {
     pub fn push_text(&mut self, text: &str) -> Vec<ServerSentEvent> {
         self.buffer.push_str(text);
         let mut events = Vec::new();
-        loop {
-            let Some(index) = next_line_break(&self.buffer) else { break };
+        while let Some(index) = next_line_break(&self.buffer) {
             let bytes = self.buffer.as_bytes();
             let mut next = index + 1;
             if bytes[index] == b'\r' {

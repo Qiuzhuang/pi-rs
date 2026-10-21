@@ -87,15 +87,14 @@ impl ApiKeyAuth for BedrockAuth {
             }
         };
         let source = |s: &str| Some(s.to_string());
-        if let Some(credential) = &input.credential {
-            if let Some(key) = credential.key.as_ref().filter(|k| !k.is_empty()) {
+        if let Some(credential) = &input.credential
+            && let Some(key) = credential.key.as_ref().filter(|k| !k.is_empty()) {
                 return Ok(Some(AuthResult {
                     auth: ModelAuth { api_key: Some(key.clone()), ..Default::default() },
                     env: credential.env.clone(),
                     source: source("stored credential"),
                 }));
             }
-        }
         if env("AWS_BEARER_TOKEN_BEDROCK").await?.is_some() {
             return Ok(Some(AuthResult { source: source("AWS_BEARER_TOKEN_BEDROCK"), ..Default::default() }));
         }

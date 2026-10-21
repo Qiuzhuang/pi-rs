@@ -681,3 +681,115 @@ impl ExtensionRunner {
         todo!("port core/extensions/runner.ts:ExtensionRunner.emitInput")
     }
 }
+
+/// UI context used when no mode provided one (TS `noOpUIContext`): dialogs resolve empty and
+/// everything else does nothing. `has_ui()` is false while it is installed.
+pub struct NoOpUIContext;
+
+#[async_trait::async_trait]
+impl crate::core::extensions::types::ExtensionUIContext for NoOpUIContext {
+    async fn select(
+        &self,
+        _title: &str,
+        _options: Vec<String>,
+        _opts: crate::core::extensions::types::ExtensionUIDialogOptions,
+    ) -> Option<String> {
+        None
+    }
+    async fn confirm(
+        &self,
+        _title: &str,
+        _message: &str,
+        _opts: crate::core::extensions::types::ExtensionUIDialogOptions,
+    ) -> bool {
+        false
+    }
+    async fn input(
+        &self,
+        _title: &str,
+        _placeholder: Option<&str>,
+        _opts: crate::core::extensions::types::ExtensionUIDialogOptions,
+    ) -> Option<String> {
+        None
+    }
+    fn notify(&self, _message: &str, _kind: crate::core::extensions::types::NotifyType) {}
+    fn on_terminal_input(
+        &self,
+        _handler: crate::core::extensions::types::TerminalInputHandler,
+    ) -> crate::core::extensions::types::Unsubscribe {
+        Arc::new(|| {})
+    }
+    fn set_status(&self, _key: &str, _text: Option<&str>) {}
+    fn set_working_message(&self, _message: Option<&str>) {}
+    fn set_working_visible(&self, _visible: bool) {}
+    fn set_working_indicator(
+        &self,
+        _options: Option<crate::core::extensions::types::WorkingIndicatorOptions>,
+    ) {
+    }
+    fn set_hidden_thinking_label(&self, _label: Option<&str>) {}
+    fn set_widget(
+        &self,
+        _key: &str,
+        _content: Option<crate::core::extensions::types::WidgetContent>,
+        _options: crate::core::extensions::types::ExtensionWidgetOptions,
+    ) {
+    }
+    fn set_footer(&self, _factory: Option<crate::core::extensions::types::FooterFactory>) {}
+    fn set_header(&self, _factory: Option<crate::core::extensions::types::ComponentFactory>) {}
+    fn set_title(&self, _title: &str) {}
+    async fn custom(
+        &self,
+        _factory: crate::core::extensions::types::CustomComponentFactory,
+        _options: crate::core::extensions::types::CustomUiOptions,
+    ) -> anyhow::Result<crate::core::extensions::types::CustomUiResult> {
+        // TS resolves `undefined`.
+        Ok(Box::new(()))
+    }
+    fn paste_to_editor(&self, _text: &str) {}
+    fn set_editor_text(&self, _text: &str) {}
+    fn get_editor_text(&self) -> String {
+        String::new()
+    }
+    async fn editor(&self, _title: &str, _prefill: Option<&str>) -> Option<String> {
+        None
+    }
+    fn add_autocomplete_provider(
+        &self,
+        _factory: crate::core::extensions::types::AutocompleteProviderFactory,
+    ) {
+    }
+    fn set_editor_component(
+        &self,
+        _factory: Option<crate::core::extensions::types::EditorFactory>,
+    ) {
+    }
+    fn get_editor_component(&self) -> Option<crate::core::extensions::types::EditorFactory> {
+        None
+    }
+    fn theme(&self) -> Arc<crate::modes::interactive::theme::theme::Theme> {
+        crate::modes::interactive::theme::theme::theme()
+    }
+    fn get_all_themes(&self) -> Vec<crate::core::extensions::types::ThemeInfo> {
+        Vec::new()
+    }
+    fn get_theme(
+        &self,
+        _name: &str,
+    ) -> Option<Arc<crate::modes::interactive::theme::theme::Theme>> {
+        None
+    }
+    fn set_theme(
+        &self,
+        _theme: crate::core::extensions::types::ThemeSelection,
+    ) -> crate::core::extensions::types::SetThemeResult {
+        crate::core::extensions::types::SetThemeResult {
+            success: false,
+            error: Some("UI not available".to_string()),
+        }
+    }
+    fn get_tools_expanded(&self) -> bool {
+        false
+    }
+    fn set_tools_expanded(&self, _expanded: bool) {}
+}

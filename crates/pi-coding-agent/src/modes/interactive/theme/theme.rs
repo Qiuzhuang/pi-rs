@@ -15,7 +15,6 @@ use pi_tui::terminal_colors::TerminalColors;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
-use std::sync::LazyLock;
 
 pub use crate::modes::interactive::theme::system_theme::SYSTEM_THEME_NAME;
 pub use crate::modes::interactive::theme::theme_schema::ValidatedThemeJson as ThemeJson;
@@ -292,8 +291,10 @@ pub fn get_terminal_theme() -> TerminalTheme {
     todo!("port modes/interactive/theme/theme.ts:getTerminalTheme")
 }
 
-pub static THEME: LazyLock<Arc<Theme>> =
-    LazyLock::new(|| todo!("port modes/interactive/theme/theme.ts:theme"));
+/// The current global theme (TS: the exported `theme` proxy, which forwards to the active theme).
+pub fn theme() -> Arc<Theme> {
+    todo!("port modes/interactive/theme/theme.ts:theme")
+}
 
 pub fn set_registered_themes(themes: Vec<Arc<Theme>>) {
     todo!("port modes/interactive/theme/theme.ts:setRegisteredThemes")

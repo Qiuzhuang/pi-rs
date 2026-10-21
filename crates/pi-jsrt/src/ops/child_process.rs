@@ -79,7 +79,7 @@ fn string_list(v: &JsValue, ctx: &mut Context) -> JsResult<Vec<String>> {
 fn read_opts(args: &[JsValue], ctx: &mut Context) -> JsResult<SpawnOpts> {
     let file = arg_string(args, 0, ctx)?;
     let argv = string_list(args.get_or_undefined(1), ctx)?;
-    let o = args.get_or_undefined(2).as_object().unwrap_or_else(|| JsObject::with_null_proto());
+    let o = args.get_or_undefined(2).as_object().unwrap_or_else(JsObject::with_null_proto);
     let cwd = o.get(js_string!("cwd"), ctx)?;
     let cwd = if cwd.is_null_or_undefined() { None } else { Some(cwd.to_string(ctx)?.to_std_string_lossy()) };
     let env_v = o.get(js_string!("env"), ctx)?;

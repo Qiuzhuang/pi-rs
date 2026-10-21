@@ -452,7 +452,7 @@ impl JsRuntime {
     /// Forget all loaded file modules (ESM and CommonJS) so the next import re-reads them.
     /// Builtins and virtual modules stay cached.
     pub async fn clear_module_cache(&self) -> Result<()> {
-        self.with_context(|ctx| crate::loader::clear_file_cache(ctx)).await
+        self.with_context(crate::loader::clear_file_cache).await
     }
 
     /// Register a synchronous host function at a dotted global path (e.g. `"pi.host.log"`).

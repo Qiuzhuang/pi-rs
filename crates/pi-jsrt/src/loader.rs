@@ -584,16 +584,21 @@ impl Loader {
 const EXTENSIONS: &[&str] = &[".ts", ".tsx", ".mts", ".cts", ".js", ".mjs", ".cjs", ".json"];
 
 fn strip_shebang(text: String) -> String {
-    if text.starts_with("#!") {
-        format!("//{}", &text[2..])
-    } else {
-        text
+    match text.strip_prefix("#!") {
+        Some(rest) => format!("//{rest}"),
+        None => text,
     }
 }
 
 /// Prefix ES module code with jiti-compatible CommonJS bindings (on line 1, so
 /// line numbers are unchanged).
 fn inject_cjs_globals(code: &str, declared: &[&str]) -> String {
+    // A hashbang must stay first; turn it into a comment so the prefix can go in front.
+    let code = match code.strip_prefix("#!") {
+        Some(rest) => std::borrow::Cow::Owned(format!("//{rest}")),
+        None => std::borrow::Cow::Borrowed(code),
+    };
+    let code = code.as_ref();
     let mut prefix = String::new();
     if !declared.contains(&"__filename") {
         prefix.push_str("const __filename = import.meta.filename; ");

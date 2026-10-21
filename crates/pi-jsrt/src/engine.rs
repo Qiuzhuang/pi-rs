@@ -211,11 +211,11 @@ impl JobExecutor for Executor {
             if self.is_empty() && group.is_empty() {
                 break;
             }
-            if !group.is_empty() {
-                if let Some(Some(Err(err))) = futures::FutureExt::now_or_never(group.next()) {
-                    let ctx = &mut **context.borrow_mut();
-                    report_uncaught(ctx, err);
-                }
+            if !group.is_empty()
+                && let Some(Some(Err(err))) = futures::FutureExt::now_or_never(group.next())
+            {
+                let ctx = &mut **context.borrow_mut();
+                report_uncaught(ctx, err);
             }
             let jobs = std::mem::take(&mut *self.promise_jobs.borrow_mut());
             for job in jobs {
@@ -300,9 +300,11 @@ impl HostHooks for Hooks {
 // Timers
 // ---------------------------------------------------------------------------
 
+type NativeTimer = Box<dyn FnOnce(&mut Context)>;
+
 pub(crate) enum TimerCallback {
     Js(JsFunction),
-    Native(Option<Box<dyn FnOnce(&mut Context)>>),
+    Native(Option<NativeTimer>),
 }
 
 struct TimerEntry {
@@ -471,8 +473,8 @@ pub(crate) fn when_settled(ctx: &mut Context, value: JsResult<JsValue>, done: im
         done(ctx, Ok(value));
         return;
     };
-    let slot: Rc<RefCell<Option<Box<dyn FnOnce(&mut Context, Result<JsValue, JsValue>)>>>> =
-        Rc::new(RefCell::new(Some(Box::new(done))));
+    type Done = Box<dyn FnOnce(&mut Context, Result<JsValue, JsValue>)>;
+    let slot: Rc<RefCell<Option<Done>>> = Rc::new(RefCell::new(Some(Box::new(done))));
     let s1 = slot.clone();
     let s2 = slot;
     // SAFETY: the closures capture only an `Rc<RefCell<..>>` holding a Rust closure

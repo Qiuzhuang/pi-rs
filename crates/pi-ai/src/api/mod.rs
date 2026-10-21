@@ -14,6 +14,7 @@ pub mod google_shared;
 pub mod google_vertex;
 pub mod lazy;
 pub mod llama_cpp_classify;
+pub mod mistral_conversations;
 pub mod openai_codex_responses;
 pub mod openai_completions;
 pub mod openai_prompt_cache;

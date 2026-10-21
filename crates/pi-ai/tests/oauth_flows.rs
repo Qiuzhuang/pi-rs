@@ -1221,3 +1221,41 @@ async fn builtin_flows_resolve_through_lazy_oauth() {
     }
     assert_eq!(openai_chatgpt::openai_chatgpt_oauth().login_label(), Some("Sign in with ChatGPT"));
 }
+
+#[tokio::test]
+async fn models_get_auth_resolves_stored_oauth_through_lazy_flows() {
+    use pi_ai::auth::{Credential, CredentialStore, InMemoryCredentialStore};
+    use pi_ai::providers::anthropic::anthropic_provider;
+    use pi_ai::providers::builtin::{github_copilot_provider, openai_provider};
+
+    let openai = openai_provider();
+    let oauth = openai.auth().oauth.clone().unwrap();
+    assert!(openai.auth().api_key.is_some());
+    assert_eq!(oauth.name(), "OpenAI (ChatGPT subscription)");
+    assert_eq!(oauth.is_subscription(), Some(true));
+    assert_eq!(oauth.login_label(), Some("Sign in with ChatGPT"));
+
+    let expires = pi_ai::utils::now_ms() + 10 * 60_000;
+    for (provider, access, base_url) in [
+        (anthropic_provider(), "oauth-access-token".to_string(), None),
+        (
+            github_copilot_provider(),
+            "tid=abc;exp=123;proxy-ep=proxy.business.githubcopilot.com;rest".to_string(),
+            Some("https://api.business.githubcopilot.com"),
+        ),
+    ] {
+        let store = Arc::new(InMemoryCredentialStore::new());
+        let stored = OAuthCredential { access: access.clone(), refresh: "r".into(), expires, extra: Map::new() };
+        store
+            .modify(provider.id(), Box::new(move |_| Box::pin(async move { Ok(Some(Credential::OAuth(stored))) })), None)
+            .await
+            .unwrap();
+        let models = pi_ai::create_models(pi_ai::CreateModelsOptions { credentials: Some(store), ..Default::default() });
+        let id = provider.id().to_string();
+        models.set_provider(provider);
+        let result = models.get_auth(&id, Default::default()).await.unwrap().unwrap();
+        assert_eq!(result.auth.api_key.as_deref(), Some(access.as_str()));
+        assert_eq!(result.auth.base_url.as_deref(), base_url);
+        assert_eq!(result.source.as_deref(), Some("OAuth"));
+    }
+}

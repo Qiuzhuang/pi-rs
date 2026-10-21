@@ -3,6 +3,7 @@
 pub mod alt_screen_flash;
 pub mod box_component;
 pub mod editor;
+pub mod image;
 pub mod input;
 pub mod loader;
 pub mod markdown;

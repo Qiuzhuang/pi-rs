@@ -1243,20 +1243,28 @@ impl SessionHeaderScanLimitError {
 /// Read and parse every line of a session file. Returns the parsed values and whether the file
 /// ends with a partial (unterminated) line.
 fn read_session_values(path: &str) -> std::io::Result<(Vec<Value>, bool)> {
-    let bytes = std::fs::read(path)?;
-    let content = String::from_utf8_lossy(&bytes);
+    // Stream line by line: session files can be larger than what fits comfortably in one string.
+    let file = std::fs::File::open(path)?;
+    let mut reader = std::io::BufReader::with_capacity(1024 * 1024, file);
     let mut values = Vec::new();
-    let mut rest: &str = &content;
-    while let Some(newline) = rest.find('\n') {
-        if let Some(value) = parse_session_entry_line(&rest[..newline]) {
+    let mut line = Vec::new();
+    let mut has_partial_line = false;
+    loop {
+        line.clear();
+        if reader.read_until(b'\n', &mut line)? == 0 {
+            break;
+        }
+        if line.last() == Some(&b'\n') {
+            line.pop();
+            has_partial_line = false;
+        } else {
+            has_partial_line = !line.is_empty();
+        }
+        if let Some(value) = parse_session_entry_line(&String::from_utf8_lossy(&line)) {
             values.push(value);
         }
-        rest = &rest[newline + 1..];
     }
-    if let Some(value) = parse_session_entry_line(rest) {
-        values.push(value);
-    }
-    Ok((values, !rest.is_empty()))
+    Ok((values, has_partial_line))
 }
 
 fn is_header_value(value: &Value) -> bool {
@@ -1577,12 +1585,17 @@ async fn build_session_infos_with_concurrency(
     signal: Option<&CancellationToken>,
 ) -> anyhow::Result<Vec<Option<SessionInfo>>> {
     let mut results: Vec<Option<SessionInfo>> = vec![None; files.len()];
-    let mut stream = futures::stream::iter(files.iter().enumerate().map(|(index, file)| {
-        let signal = signal.cloned();
-        let path = file.path.clone();
-        async move { (index, build_session_info(path, signal).await) }
-    }))
-    .buffer_unordered(MAX_CONCURRENT_SESSION_INFO_LOADS);
+    // Owned futures (no borrowed closure arguments) keep the outer future `Send`.
+    let futures: Vec<_> = files
+        .iter()
+        .enumerate()
+        .map(|(index, file)| {
+            let signal = signal.cloned();
+            let path = file.path.clone();
+            async move { (index, build_session_info(path, signal).await) }
+        })
+        .collect();
+    let mut stream = futures::stream::iter(futures).buffer_unordered(MAX_CONCURRENT_SESSION_INFO_LOADS);
     while let Some((index, result)) = stream.next().await {
         check_aborted(signal)?;
         let info = result?;

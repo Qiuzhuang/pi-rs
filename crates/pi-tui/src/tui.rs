@@ -72,7 +72,7 @@ pub trait Component: AsAny {
     /// Invalidate any cached rendering state.
     fn invalidate(&self) {}
 
-    /// Whether the component implements focus tracking ([`Focusable`] in TypeScript).
+    /// Whether the component implements focus tracking (`Focusable` in TypeScript).
     fn is_focusable(&self) -> bool {
         false
     }

@@ -9,14 +9,15 @@ use common::*;
 use parking_lot::Mutex;
 use pi_agent::hooks;
 use pi_agent::{
-    AfterToolCallResult, AgentContext, AgentEvent, AgentEventStream, AgentLoopConfig, AgentLoopTurnUpdate,
-    AgentMessage, AgentRequestUpdate, AgentToolResult, AgentTurnDecision, BeforeToolCallResult, CustomMessage,
-    FnAgentTool, RunToolCallOptions, ThinkingLevel, ToolExecutionMode, agent_loop, agent_loop_continue,
-    event_sink, run_agent_loop, run_tool_call, set_default_stream_fn,
+    AfterToolCallResult, AgentContext, AgentEvent, AgentEventStream, AgentLoopConfig,
+    AgentLoopTurnUpdate, AgentMessage, AgentRequestUpdate, AgentToolResult, AgentTurnDecision,
+    BeforeToolCallResult, CustomMessage, FnAgentTool, RunToolCallOptions, ThinkingLevel,
+    ToolExecutionMode, agent_loop, agent_loop_continue, event_sink, run_agent_loop, run_tool_call,
+    set_default_stream_fn,
 };
 use pi_ai::{
-    Message, StopReason, SystemContent, SystemMessage, TextContent, ThinkingLevel as Reasoning, ToolResultMessage,
-    Usage, UsageCost, UserContent, UserContentBlock, UserMessage,
+    Message, StopReason, SystemContent, SystemMessage, TextContent, ThinkingLevel as Reasoning,
+    ToolResultMessage, Usage, UsageCost, UserContent, UserContentBlock, UserMessage,
 };
 use serde_json::{Map, Value, json};
 use tokio::sync::Notify;
@@ -39,7 +40,10 @@ fn types(events: &[AgentEvent]) -> Vec<&'static str> {
 }
 
 fn tool_results(messages: &[AgentMessage]) -> Vec<ToolResultMessage> {
-    messages.iter().filter_map(|m| m.as_tool_result().cloned()).collect()
+    messages
+        .iter()
+        .filter_map(|m| m.as_tool_result().cloned())
+        .collect()
 }
 
 #[tokio::test]
@@ -75,7 +79,14 @@ async fn emits_events_with_agent_message_types() {
     let (events, messages) = drain(stream).await;
     assert_eq!(roles(&messages), vec!["user", "assistant"]);
     let event_types = types(&events);
-    for expected in ["agent_start", "turn_start", "message_start", "message_end", "turn_end", "agent_end"] {
+    for expected in [
+        "agent_start",
+        "turn_start",
+        "message_start",
+        "message_end",
+        "turn_end",
+        "agent_end",
+    ] {
         assert!(event_types.contains(&expected), "missing {expected}");
     }
 }
@@ -121,7 +132,9 @@ async fn handles_custom_message_types_via_convert_to_llm() {
             .into_iter()
             .filter(|m| m.role() != "notification")
             .filter_map(|m| match m {
-                AgentMessage::User(_) | AgentMessage::Assistant(_) | AgentMessage::ToolResult(_) => m.to_message(),
+                AgentMessage::User(_)
+                | AgentMessage::Assistant(_)
+                | AgentMessage::ToolResult(_) => m.to_message(),
                 _ => None,
             })
             .collect();
@@ -129,8 +142,13 @@ async fn handles_custom_message_types_via_convert_to_llm() {
         async move { result }
     });
     let (stream_fn, _) = scripted_stream_fn(|_| assistant_text("Response"));
-    let stream =
-        agent_loop(vec![user("Hello")], AgentContext::new(vec![notification], vec![]), config, None, Some(stream_fn));
+    let stream = agent_loop(
+        vec![user("Hello")],
+        AgentContext::new(vec![notification], vec![]),
+        config,
+        None,
+        Some(stream_fn),
+    );
     let _ = drain(stream).await;
     let converted = converted.lock().clone();
     assert_eq!(converted.len(), 1);
@@ -160,14 +178,28 @@ async fn applies_transform_context_before_convert_to_llm() {
     config.convert_to_llm = hooks::convert_to_llm(move |messages| {
         let result: Vec<Message> = messages
             .iter()
-            .filter(|m| matches!(m, AgentMessage::User(_) | AgentMessage::Assistant(_) | AgentMessage::ToolResult(_)))
+            .filter(|m| {
+                matches!(
+                    m,
+                    AgentMessage::User(_)
+                        | AgentMessage::Assistant(_)
+                        | AgentMessage::ToolResult(_)
+                )
+            })
             .filter_map(AgentMessage::to_message)
             .collect();
         c.store(result.len(), Ordering::SeqCst);
         async move { result }
     });
     let (stream_fn, _) = scripted_stream_fn(|_| assistant_text("Response"));
-    let _ = drain(agent_loop(vec![user("new message")], context, config, None, Some(stream_fn))).await;
+    let _ = drain(agent_loop(
+        vec![user("new message")],
+        context,
+        config,
+        None,
+        Some(stream_fn),
+    ))
+    .await;
     assert_eq!(transformed.load(Ordering::SeqCst), 2);
     assert_eq!(converted.load(Ordering::SeqCst), 2);
 }
@@ -179,12 +211,20 @@ fn usage(values: [u64; 5], cost: [f64; 5]) -> Usage {
         cache_read: values[2],
         cache_write: values[3],
         total_tokens: values[4],
-        cost: UsageCost { input: cost[0], output: cost[1], cache_read: cost[2], cache_write: cost[3], total: cost[4] },
+        cost: UsageCost {
+            input: cost[0],
+            output: cost[1],
+            cache_read: cost[2],
+            cache_write: cost[3],
+            total: cost[4],
+        },
         ..Default::default()
     }
 }
 
-fn tool_then_done(calls: Vec<pi_ai::ToolCall>) -> impl Fn(usize) -> pi_ai::AssistantMessage + Send + Sync + 'static {
+fn tool_then_done(
+    calls: Vec<pi_ai::ToolCall>,
+) -> impl Fn(usize) -> pi_ai::AssistantMessage + Send + Sync + 'static {
     move |index| {
         if index == 0 {
             assistant_tool_calls(calls.clone(), StopReason::ToolUse)
@@ -201,17 +241,23 @@ async fn handles_tool_calls_and_results() {
     let executed = Arc::new(Mutex::new(Vec::new()));
     let executed_clone = executed.clone();
     let tool_usage_clone = tool_usage.clone();
-    let tool = FnAgentTool::new("echo", "Echo", "Echo tool", value_schema(), move |_, params, _, _| {
-        let executed = executed_clone.clone();
-        let usage = tool_usage_clone.clone();
-        async move {
-            let value = params["value"].as_str().unwrap().to_string();
-            executed.lock().push(value.clone());
-            let mut result = text_result(format!("echoed: {value}"), json!({ "value": value }));
-            result.usage = Some(usage);
-            Ok(result)
-        }
-    })
+    let tool = FnAgentTool::new(
+        "echo",
+        "Echo",
+        "Echo tool",
+        value_schema(),
+        move |_, params, _, _| {
+            let executed = executed_clone.clone();
+            let usage = tool_usage_clone.clone();
+            async move {
+                let value = params["value"].as_str().unwrap().to_string();
+                executed.lock().push(value.clone());
+                let mut result = text_result(format!("echoed: {value}"), json!({ "value": value }));
+                result.usage = Some(usage);
+                Ok(result)
+            }
+        },
+    )
     .into_ref();
 
     let observed = Arc::new(Mutex::new(None));
@@ -221,10 +267,19 @@ async fn handles_tool_calls_and_results() {
     config.after_tool_call = Some(hooks::after_tool_call(move |ctx, _| {
         *observed_clone.lock() = ctx.result.usage.clone();
         let patched = patched.clone();
-        async move { Ok(Some(AfterToolCallResult { usage: Some(patched), ..Default::default() })) }
+        async move {
+            Ok(Some(AfterToolCallResult {
+                usage: Some(patched),
+                ..Default::default()
+            }))
+        }
     }));
 
-    let (stream_fn, _) = scripted_stream_fn(tool_then_done(vec![tool_call("tool-1", "echo", json!({"value": "hello"}))]));
+    let (stream_fn, _) = scripted_stream_fn(tool_then_done(vec![tool_call(
+        "tool-1",
+        "echo",
+        json!({"value": "hello"}),
+    )]));
     let (events, messages) = drain(agent_loop(
         vec![user("echo something")],
         AgentContext::new(vec![], vec![tool]),
@@ -235,8 +290,15 @@ async fn handles_tool_calls_and_results() {
     .await;
 
     assert_eq!(*executed.lock(), vec!["hello"]);
-    assert!(events.iter().any(|e| matches!(e, AgentEvent::ToolExecutionStart { .. })));
-    let end = events.iter().find(|e| matches!(e, AgentEvent::ToolExecutionEnd { .. })).expect("tool end");
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, AgentEvent::ToolExecutionStart { .. }))
+    );
+    let end = events
+        .iter()
+        .find(|e| matches!(e, AgentEvent::ToolExecutionEnd { .. }))
+        .expect("tool end");
     if let AgentEvent::ToolExecutionEnd { is_error, .. } = end {
         assert!(!is_error);
     }
@@ -247,17 +309,28 @@ async fn handles_tool_calls_and_results() {
 
 #[tokio::test]
 async fn records_how_long_execute_took_excluding_hooks() {
-    let tool = FnAgentTool::new("echo", "Echo", "Echo tool", value_schema(), |_, params, _, _| async move {
-        sleep_ms(30).await;
-        let value = params["value"].as_str().unwrap().to_string();
-        Ok(text_result(value.clone(), json!({ "value": value })))
-    })
+    let tool = FnAgentTool::new(
+        "echo",
+        "Echo",
+        "Echo tool",
+        value_schema(),
+        |_, params, _, _| async move {
+            sleep_ms(30).await;
+            let value = params["value"].as_str().unwrap().to_string();
+            Ok(text_result(value.clone(), json!({ "value": value })))
+        },
+    )
     .into_ref();
     let mut config = identity_config();
     config.before_tool_call = Some(hooks::before_tool_call(|ctx, _| async move {
         sleep_ms(100).await;
-        Ok((ctx.tool_call.id == "blocked")
-            .then(|| BeforeToolCallResult { block: true, reason: Some("no".into()), ..Default::default() }))
+        Ok(
+            (ctx.tool_call.id == "blocked").then(|| BeforeToolCallResult {
+                block: true,
+                reason: Some("no".into()),
+                ..Default::default()
+            }),
+        )
     }));
     let (stream_fn, _) = scripted_stream_fn(tool_then_done(vec![
         tool_call("ran", "echo", json!({"value": "a"})),
@@ -276,7 +349,13 @@ async fn records_how_long_execute_took_excluding_hooks() {
     assert!((25..100).contains(&ran), "duration {ran}");
     assert!(results[1].is_error);
     assert_eq!(results[1].duration_ms, None);
-    assert!(!serde_json::to_value(&results[1]).unwrap().as_object().unwrap().contains_key("durationMs"));
+    assert!(
+        !serde_json::to_value(&results[1])
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .contains_key("durationMs")
+    );
 }
 
 #[tokio::test]
@@ -285,7 +364,10 @@ async fn does_not_execute_tool_calls_from_a_length_truncated_message() {
     let tool = echo_tool(executed.clone());
     let (stream_fn, calls) = scripted_stream_fn(|index| {
         if index == 0 {
-            assistant_tool_calls(vec![tool_call("tool-1", "echo", json!({"value": "hel"}))], StopReason::Length)
+            assistant_tool_calls(
+                vec![tool_call("tool-1", "echo", json!({"value": "hel"}))],
+                StopReason::Length,
+            )
         } else {
             assistant_text("done")
         }
@@ -299,8 +381,14 @@ async fn does_not_execute_tool_calls_from_a_length_truncated_message() {
     ))
     .await;
     assert!(executed.lock().is_empty());
-    let end = events.iter().find(|e| matches!(e, AgentEvent::ToolExecutionEnd { .. })).expect("tool end");
-    if let AgentEvent::ToolExecutionEnd { is_error, result, .. } = end {
+    let end = events
+        .iter()
+        .find(|e| matches!(e, AgentEvent::ToolExecutionEnd { .. }))
+        .expect("tool end");
+    if let AgentEvent::ToolExecutionEnd {
+        is_error, result, ..
+    } = end
+    {
         assert!(is_error);
         let text = result.content[0].as_text().unwrap().text.clone();
         assert!(text.contains("output token limit"));
@@ -313,21 +401,37 @@ async fn does_not_execute_tool_calls_from_a_length_truncated_message() {
 async fn executes_mutated_before_tool_call_args_without_revalidation() {
     let executed = Arc::new(Mutex::new(Vec::<Value>::new()));
     let executed_clone = executed.clone();
-    let tool = FnAgentTool::new("echo", "Echo", "Echo tool", value_schema(), move |_, params, _, _| {
-        let executed = executed_clone.clone();
-        async move {
-            executed.lock().push(params["value"].clone());
-            Ok(text_result(format!("echoed: {}", params["value"]), json!({ "value": params["value"] })))
-        }
-    })
+    let tool = FnAgentTool::new(
+        "echo",
+        "Echo",
+        "Echo tool",
+        value_schema(),
+        move |_, params, _, _| {
+            let executed = executed_clone.clone();
+            async move {
+                executed.lock().push(params["value"].clone());
+                Ok(text_result(
+                    format!("echoed: {}", params["value"]),
+                    json!({ "value": params["value"] }),
+                ))
+            }
+        },
+    )
     .into_ref();
     let mut config = identity_config();
     config.before_tool_call = Some(hooks::before_tool_call(|ctx, _| async move {
         let mut args = ctx.args.clone();
         args["value"] = json!(123);
-        Ok(Some(BeforeToolCallResult { args: Some(args), ..Default::default() }))
+        Ok(Some(BeforeToolCallResult {
+            args: Some(args),
+            ..Default::default()
+        }))
     }));
-    let (stream_fn, _) = scripted_stream_fn(tool_then_done(vec![tool_call("tool-1", "echo", json!({"value": "hello"}))]));
+    let (stream_fn, _) = scripted_stream_fn(tool_then_done(vec![tool_call(
+        "tool-1",
+        "echo",
+        json!({"value": "hello"}),
+    )]));
     let _ = drain(agent_loop(
         vec![user("echo something")],
         AgentContext::new(vec![], vec![tool]),
@@ -357,20 +461,34 @@ async fn prepares_tool_arguments_for_validation() {
     });
     let executed = Arc::new(Mutex::new(Vec::<Value>::new()));
     let executed_clone = executed.clone();
-    let tool = FnAgentTool::new("edit", "Edit", "Edit tool", schema, move |_, params, _, _| {
-        let executed = executed_clone.clone();
-        async move {
-            let count = params["edits"].as_array().map(Vec::len).unwrap_or(0);
-            executed.lock().push(params["edits"].clone());
-            Ok(text_result(format!("edited {count}"), json!({ "count": count })))
-        }
-    })
+    let tool = FnAgentTool::new(
+        "edit",
+        "Edit",
+        "Edit tool",
+        schema,
+        move |_, params, _, _| {
+            let executed = executed_clone.clone();
+            async move {
+                let count = params["edits"].as_array().map(Vec::len).unwrap_or(0);
+                executed.lock().push(params["edits"].clone());
+                Ok(text_result(
+                    format!("edited {count}"),
+                    json!({ "count": count }),
+                ))
+            }
+        },
+    )
     .with_prepare_arguments(|args| {
-        let (Some(Value::String(old_text)), Some(Value::String(new_text))) = (args.get("oldText"), args.get("newText"))
+        let (Some(Value::String(old_text)), Some(Value::String(new_text))) =
+            (args.get("oldText"), args.get("newText"))
         else {
             return None;
         };
-        let mut edits = args.get("edits").and_then(Value::as_array).cloned().unwrap_or_default();
+        let mut edits = args
+            .get("edits")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
         edits.push(json!({ "oldText": old_text, "newText": new_text }));
         let mut prepared = Map::new();
         prepared.insert("edits".into(), Value::Array(edits));
@@ -390,7 +508,10 @@ async fn prepares_tool_arguments_for_validation() {
         Some(stream_fn),
     ))
     .await;
-    assert_eq!(*executed.lock(), vec![json!([{ "oldText": "before", "newText": "after" }])]);
+    assert_eq!(
+        *executed.lock(),
+        vec![json!([{ "oldText": "before", "newText": "after" }])]
+    );
 }
 
 /// A tool whose "first" call waits for `release`; records whether "second" ran first.
@@ -401,22 +522,31 @@ fn gated_tool(
     parallel_observed: Arc<AtomicBool>,
     mode: Option<ToolExecutionMode>,
 ) -> pi_agent::AgentToolRef {
-    let tool = FnAgentTool::new(name, name, format!("{name} tool"), value_schema(), move |_, params, _, _| {
-        let release = release.clone();
-        let first_resolved = first_resolved.clone();
-        let parallel_observed = parallel_observed.clone();
-        async move {
-            let value = params["value"].as_str().unwrap().to_string();
-            if value == "first" {
-                release.notified().await;
-                first_resolved.store(true, Ordering::SeqCst);
+    let tool = FnAgentTool::new(
+        name,
+        name,
+        format!("{name} tool"),
+        value_schema(),
+        move |_, params, _, _| {
+            let release = release.clone();
+            let first_resolved = first_resolved.clone();
+            let parallel_observed = parallel_observed.clone();
+            async move {
+                let value = params["value"].as_str().unwrap().to_string();
+                if value == "first" {
+                    release.notified().await;
+                    first_resolved.store(true, Ordering::SeqCst);
+                }
+                if value == "second" && !first_resolved.load(Ordering::SeqCst) {
+                    parallel_observed.store(true, Ordering::SeqCst);
+                }
+                Ok(text_result(
+                    format!("echoed: {value}"),
+                    json!({ "value": value }),
+                ))
             }
-            if value == "second" && !first_resolved.load(Ordering::SeqCst) {
-                parallel_observed.store(true, Ordering::SeqCst);
-            }
-            Ok(text_result(format!("echoed: {value}"), json!({ "value": value })))
-        }
-    });
+        },
+    );
     match mode {
         Some(mode) => tool.with_execution_mode(mode).into_ref(),
         None => tool.into_ref(),
@@ -451,7 +581,13 @@ fn two_call_stream_fn(name: &'static str, release: Arc<Notify>) -> pi_agent::Str
 async fn emits_tool_execution_end_in_completion_order_but_persists_results_in_source_order() {
     let release = Arc::new(Notify::new());
     let parallel_observed = Arc::new(AtomicBool::new(false));
-    let tool = gated_tool("echo", release.clone(), Arc::new(AtomicBool::new(false)), parallel_observed.clone(), None);
+    let tool = gated_tool(
+        "echo",
+        release.clone(),
+        Arc::new(AtomicBool::new(false)),
+        parallel_observed.clone(),
+        None,
+    );
     let mut config = identity_config();
     config.tool_execution = Some(ToolExecutionMode::Parallel);
     let (events, _) = drain(agent_loop(
@@ -473,14 +609,19 @@ async fn emits_tool_execution_end_in_completion_order_but_persists_results_in_so
     let result_ids: Vec<String> = events
         .iter()
         .filter_map(|e| match e {
-            AgentEvent::MessageEnd { message: AgentMessage::ToolResult(r) } => Some(r.tool_call_id.clone()),
+            AgentEvent::MessageEnd {
+                message: AgentMessage::ToolResult(r),
+            } => Some(r.tool_call_id.clone()),
             _ => None,
         })
         .collect();
     let turn_ids: Vec<String> = events
         .iter()
         .flat_map(|e| match e {
-            AgentEvent::TurnEnd { tool_results, .. } => tool_results.iter().map(|r| r.tool_call_id.clone()).collect(),
+            AgentEvent::TurnEnd { tool_results, .. } => tool_results
+                .iter()
+                .map(|r| r.tool_call_id.clone())
+                .collect(),
             _ => Vec::new(),
         })
         .collect();
@@ -500,7 +641,13 @@ async fn injects_queued_messages_after_all_tool_calls_complete() {
     config.tool_execution = Some(ToolExecutionMode::Sequential);
     config.get_steering_messages = Some(hooks::get_messages(move || {
         let ready = !executed_clone.lock().is_empty() && !delivered.swap(true, Ordering::SeqCst);
-        async move { if ready { vec![user("interrupt")] } else { vec![] } }
+        async move {
+            if ready {
+                vec![user("interrupt")]
+            } else {
+                vec![]
+            }
+        }
     }));
 
     let saw_interrupt = Arc::new(AtomicBool::new(false));
@@ -544,7 +691,9 @@ async fn injects_queued_messages_after_all_tool_calls_complete() {
     let sequence: Vec<String> = events
         .iter()
         .filter_map(|e| match e {
-            AgentEvent::MessageStart { message: AgentMessage::ToolResult(r) } => Some(format!("tool:{}", r.tool_call_id)),
+            AgentEvent::MessageStart {
+                message: AgentMessage::ToolResult(r),
+            } => Some(format!("tool:{}", r.tool_call_id)),
             AgentEvent::MessageStart { message } => user_text_of(message),
             _ => None,
         })
@@ -578,7 +727,9 @@ async fn forces_sequential_execution_when_a_tool_requests_it() {
     let result_ids: Vec<String> = events
         .iter()
         .filter_map(|e| match e {
-            AgentEvent::MessageEnd { message: AgentMessage::ToolResult(r) } => Some(r.tool_call_id.clone()),
+            AgentEvent::MessageEnd {
+                message: AgentMessage::ToolResult(r),
+            } => Some(r.tool_call_id.clone()),
             _ => None,
         })
         .collect();
@@ -590,29 +741,47 @@ async fn forces_sequential_execution_when_one_of_multiple_tools_requests_it() {
     let order = Arc::new(Mutex::new(Vec::<String>::new()));
     let release = Arc::new(Notify::new());
     let (o1, r1) = (order.clone(), release.clone());
-    let slow = FnAgentTool::new("slow", "Slow", "Slow tool", value_schema(), move |_, params, _, _| {
-        let order = o1.clone();
-        let release = r1.clone();
-        async move {
-            let value = params["value"].as_str().unwrap().to_string();
-            order.lock().push(format!("slow:{value}"));
-            if value == "a" {
-                release.notified().await;
+    let slow = FnAgentTool::new(
+        "slow",
+        "Slow",
+        "Slow tool",
+        value_schema(),
+        move |_, params, _, _| {
+            let order = o1.clone();
+            let release = r1.clone();
+            async move {
+                let value = params["value"].as_str().unwrap().to_string();
+                order.lock().push(format!("slow:{value}"));
+                if value == "a" {
+                    release.notified().await;
+                }
+                Ok(text_result(
+                    format!("slow: {value}"),
+                    json!({ "value": value }),
+                ))
             }
-            Ok(text_result(format!("slow: {value}"), json!({ "value": value })))
-        }
-    })
+        },
+    )
     .with_execution_mode(ToolExecutionMode::Sequential)
     .into_ref();
     let o2 = order.clone();
-    let fast = FnAgentTool::new("fast", "Fast", "Fast tool", value_schema(), move |_, params, _, _| {
-        let order = o2.clone();
-        async move {
-            let value = params["value"].as_str().unwrap().to_string();
-            order.lock().push(format!("fast:{value}"));
-            Ok(text_result(format!("fast: {value}"), json!({ "value": value })))
-        }
-    })
+    let fast = FnAgentTool::new(
+        "fast",
+        "Fast",
+        "Fast tool",
+        value_schema(),
+        move |_, params, _, _| {
+            let order = o2.clone();
+            async move {
+                let value = params["value"].as_str().unwrap().to_string();
+                order.lock().push(format!("fast:{value}"));
+                Ok(text_result(
+                    format!("fast: {value}"),
+                    json!({ "value": value }),
+                ))
+            }
+        },
+    )
     .into_ref();
     let calls = Arc::new(AtomicUsize::new(0));
     let stream_fn = mock_stream_fn(move |_, _, _| {
@@ -623,7 +792,10 @@ async fn forces_sequential_execution_when_one_of_multiple_tools_requests_it() {
                 release.notify_one();
             });
             respond(assistant_tool_calls(
-                vec![tool_call("tool-1", "slow", json!({"value": "a"})), tool_call("tool-2", "fast", json!({"value": "b"}))],
+                vec![
+                    tool_call("tool-1", "slow", json!({"value": "a"})),
+                    tool_call("tool-2", "fast", json!({"value": "b"})),
+                ],
                 StopReason::ToolUse,
             ))
         } else {
@@ -666,12 +838,18 @@ async fn allows_parallel_execution_when_all_tools_are_parallel() {
 }
 
 fn terminating_echo() -> pi_agent::AgentToolRef {
-    FnAgentTool::new("echo", "Echo", "Echo tool", value_schema(), |_, params, _, _| async move {
-        let value = params["value"].as_str().unwrap().to_string();
-        let mut result = text_result(value.clone(), json!({ "value": value }));
-        result.terminate = Some(true);
-        Ok(result)
-    })
+    FnAgentTool::new(
+        "echo",
+        "Echo",
+        "Echo tool",
+        value_schema(),
+        |_, params, _, _| async move {
+            let value = params["value"].as_str().unwrap().to_string();
+            let mut result = text_result(value.clone(), json!({ "value": value }));
+            result.terminate = Some(true);
+            Ok(result)
+        },
+    )
     .into_ref()
 }
 
@@ -688,14 +866,19 @@ async fn runs_finish_turn_after_tool_result_messages_and_before_turn_end() {
     }));
     let o = ordering.clone();
     let (stream_fn, _) = scripted_stream_fn(|_| {
-        assistant_tool_calls(vec![tool_call("tool-1", "echo", json!({"value": "hello"}))], StopReason::ToolUse)
+        assistant_tool_calls(
+            vec![tool_call("tool-1", "echo", json!({"value": "hello"}))],
+            StopReason::ToolUse,
+        )
     });
     run_agent_loop(
         vec![user("echo")],
         AgentContext::new(vec![], vec![terminating_echo()]),
         config,
         event_sink(move |event| match &event {
-            AgentEvent::MessageEnd { message } => o.lock().push(format!("message_end:{}", message.role())),
+            AgentEvent::MessageEnd { message } => {
+                o.lock().push(format!("message_end:{}", message.role()))
+            }
             AgentEvent::TurnEnd { .. } => o.lock().push("turn_end".into()),
             _ => {}
         }),
@@ -705,7 +888,10 @@ async fn runs_finish_turn_after_tool_result_messages_and_before_turn_end() {
     .await
     .unwrap();
     let ordering = ordering.lock().clone();
-    assert_eq!(ordering[ordering.len() - 3..], ["message_end:toolResult", "finishTurn", "turn_end"]);
+    assert_eq!(
+        ordering[ordering.len() - 3..],
+        ["message_end:toolResult", "finishTurn", "turn_end"]
+    );
 }
 
 async fn finish_turn_on_failure(reason: StopReason) {
@@ -771,7 +957,9 @@ async fn action_end_skips_queue_polling_and_next_turn_preparation() {
     let follow_up_polls = Arc::new(AtomicUsize::new(0));
     let prepare_calls = Arc::new(AtomicUsize::new(0));
     let mut config = identity_config();
-    config.finish_turn = Some(hooks::finish_turn(|_, _| async { Some(AgentTurnDecision::End) }));
+    config.finish_turn = Some(hooks::finish_turn(|_, _| async {
+        Some(AgentTurnDecision::End)
+    }));
     let p = prepare_calls.clone();
     config.prepare_next_turn = Some(hooks::prepare_next_turn(move |_| {
         p.fetch_add(1, Ordering::SeqCst);
@@ -788,7 +976,10 @@ async fn action_end_skips_queue_polling_and_next_turn_preparation() {
         async { vec![user("queued")] }
     }));
     let (stream_fn, calls) = scripted_stream_fn(|_| {
-        assistant_tool_calls(vec![tool_call("tool-1", "noop", json!({}))], StopReason::ToolUse)
+        assistant_tool_calls(
+            vec![tool_call("tool-1", "noop", json!({}))],
+            StopReason::ToolUse,
+        )
     });
     let _ = drain(agent_loop(
         vec![user("run")],
@@ -818,8 +1009,16 @@ fn continue_once_config() -> (AgentLoopConfig, Arc<AtomicUsize>) {
 #[tokio::test]
 async fn makes_exactly_one_context_only_request_when_no_natural_request_satisfies_continuation() {
     let (config, finish_calls) = continue_once_config();
-    let (stream_fn, calls) = scripted_stream_fn(|index| assistant_text(&format!("response {}", index + 1)));
-    let _ = drain(agent_loop(vec![user("run")], AgentContext::new(vec![], vec![]), config, None, Some(stream_fn))).await;
+    let (stream_fn, calls) =
+        scripted_stream_fn(|index| assistant_text(&format!("response {}", index + 1)));
+    let _ = drain(agent_loop(
+        vec![user("run")],
+        AgentContext::new(vec![], vec![]),
+        config,
+        None,
+        Some(stream_fn),
+    ))
+    .await;
     assert_eq!(*calls.lock(), 2);
     assert_eq!(finish_calls.load(Ordering::SeqCst), 2);
 }
@@ -827,7 +1026,8 @@ async fn makes_exactly_one_context_only_request_when_no_natural_request_satisfie
 #[tokio::test]
 async fn lets_a_natural_tool_result_request_satisfy_continuation() {
     let (config, finish_calls) = continue_once_config();
-    let (stream_fn, calls) = scripted_stream_fn(tool_then_done(vec![tool_call("tool-1", "noop", json!({}))]));
+    let (stream_fn, calls) =
+        scripted_stream_fn(tool_then_done(vec![tool_call("tool-1", "noop", json!({}))]));
     let _ = drain(agent_loop(
         vec![user("run")],
         AgentContext::new(vec![], vec![noop_tool("noop")]),
@@ -848,12 +1048,24 @@ async fn natural_queue_request_satisfies_continuation(steering: bool) {
     let s = steering_polls.clone();
     config.get_steering_messages = Some(hooks::get_messages(move || {
         let n = s.fetch_add(1, Ordering::SeqCst) + 1;
-        async move { if steering && n == 2 { vec![user("steering")] } else { vec![] } }
+        async move {
+            if steering && n == 2 {
+                vec![user("steering")]
+            } else {
+                vec![]
+            }
+        }
     }));
     let d = follow_up_delivered.clone();
     config.get_follow_up_messages = Some(hooks::get_messages(move || {
         let deliver = !steering && !d.swap(true, Ordering::SeqCst);
-        async move { if deliver { vec![user("follow-up")] } else { vec![] } }
+        async move {
+            if deliver {
+                vec![user("follow-up")]
+            } else {
+                vec![]
+            }
+        }
     }));
     let calls = Arc::new(AtomicUsize::new(0));
     let second_request_users = Arc::new(Mutex::new(Vec::<String>::new()));
@@ -864,7 +1076,14 @@ async fn natural_queue_request_satisfies_continuation(steering: bool) {
         }
         respond(assistant_text("done"))
     });
-    let _ = drain(agent_loop(vec![user("run")], AgentContext::new(vec![], vec![]), config, None, Some(stream_fn))).await;
+    let _ = drain(agent_loop(
+        vec![user("run")],
+        AgentContext::new(vec![], vec![]),
+        config,
+        None,
+        Some(stream_fn),
+    ))
+    .await;
     assert_eq!(calls.load(Ordering::SeqCst), 2);
     assert_eq!(finish_calls.load(Ordering::SeqCst), 2);
     assert!(second_request_users.lock().contains(&kind.to_string()));
@@ -898,8 +1117,13 @@ async fn prepares_the_initial_request_after_pending_messages_and_can_replace_req
         let st = st.clone();
         async move { if deliver { vec![st] } else { vec![] } }
     }));
-    let (p, c, st, can, model) =
-        (prepare_calls.clone(), completed.clone(), steering.clone(), canonical.clone(), replacement_model.clone());
+    let (p, c, st, can, model) = (
+        prepare_calls.clone(),
+        completed.clone(),
+        steering.clone(),
+        canonical.clone(),
+        replacement_model.clone(),
+    );
     config.prepare_request = Some(hooks::prepare_request(move |request, _| {
         p.fetch_add(1, Ordering::SeqCst);
         assert!(c.lock().contains(&st));
@@ -908,11 +1132,16 @@ async fn prepares_the_initial_request_after_pending_messages_and_can_replace_req
         context.messages = vec![can.clone()];
         let model = model.clone();
         async move {
-            Some(AgentRequestUpdate { context: Some(context), model: Some(model), thinking_level: Some(ThinkingLevel::High) })
+            Some(AgentRequestUpdate {
+                context: Some(context),
+                model: Some(model),
+                thinking_level: Some(ThinkingLevel::High),
+            })
         }
     }));
 
-    let (expected_model, expected_message) = (replacement_model.clone(), canonical.to_message().unwrap());
+    let (expected_model, expected_message) =
+        (replacement_model.clone(), canonical.to_message().unwrap());
     let stream_fn = mock_stream_fn(move |model, context, options| {
         assert_eq!(model, expected_model);
         assert_eq!(context.messages, vec![expected_message.clone()]);
@@ -963,7 +1192,14 @@ async fn does_not_poll_steering_after_prepare_request() {
         inc.lock().push(context.messages.contains(&late_message));
         respond(assistant_text("done"))
     });
-    let _ = drain(agent_loop(vec![user("run")], AgentContext::new(vec![], vec![]), config, None, Some(stream_fn))).await;
+    let _ = drain(agent_loop(
+        vec![user("run")],
+        AgentContext::new(vec![], vec![]),
+        config,
+        None,
+        Some(stream_fn),
+    ))
+    .await;
     assert_eq!(*included.lock(), vec![false, true]);
     assert_eq!(preparations.load(Ordering::SeqCst), 2);
     // Startup, post-turn delivery, then the final natural-stop check.
@@ -982,7 +1218,10 @@ async fn uses_prepare_next_turn_snapshot_before_continuing() {
         let first = !done.swap(true, Ordering::SeqCst);
         async move {
             first.then(|| AgentLoopTurnUpdate {
-                context: Some(AgentContext { messages: turn.context.messages.clone(), tools: turn.context.tools.clone() }),
+                context: Some(AgentContext {
+                    messages: turn.context.messages.clone(),
+                    tools: turn.context.tools.clone(),
+                }),
                 messages: Some(vec![AgentMessage::System(SystemMessage {
                     content: SystemContent::Text("updated guidance".into()),
                     timestamp: 1,
@@ -1051,7 +1290,10 @@ async fn picks_up_steering_queued_during_prepare_next_turn() {
             inc.store(context.messages.contains(&late_message), Ordering::SeqCst);
         }
         if n == 1 {
-            respond(assistant_tool_calls(vec![tool_call("tool-1", "noop", json!({}))], StopReason::ToolUse))
+            respond(assistant_tool_calls(
+                vec![tool_call("tool-1", "noop", json!({}))],
+                StopReason::ToolUse,
+            ))
         } else {
             respond(assistant_text("done"))
         }
@@ -1078,7 +1320,11 @@ async fn action_end_receives_finalized_turn_context_and_stops_before_queue_polli
     let mut config = identity_config();
     let (ids, rs) = (callback_ids.clone(), callback_roles.clone());
     config.finish_turn = Some(hooks::finish_turn(move |turn, _| {
-        *ids.lock() = turn.tool_results.iter().map(|r| r.tool_call_id.clone()).collect();
+        *ids.lock() = turn
+            .tool_results
+            .iter()
+            .map(|r| r.tool_call_id.clone())
+            .collect();
         *rs.lock() = roles(&turn.context.messages);
         async { Some(AgentTurnDecision::End) }
     }));
@@ -1094,7 +1340,10 @@ async fn action_end_receives_finalized_turn_context_and_stops_before_queue_polli
     }));
     let (stream_fn, calls) = scripted_stream_fn(|index| {
         if index == 0 {
-            assistant_tool_calls(vec![tool_call("tool-1", "echo", json!({"value": "hello"}))], StopReason::ToolUse)
+            assistant_tool_calls(
+                vec![tool_call("tool-1", "echo", json!({"value": "hello"}))],
+                StopReason::ToolUse,
+            )
         } else {
             assistant_text("should not run")
         }
@@ -1112,8 +1361,14 @@ async fn action_end_receives_finalized_turn_context_and_stops_before_queue_polli
     assert_eq!(steering_polls.load(Ordering::SeqCst), 1);
     assert_eq!(follow_up_polls.load(Ordering::SeqCst), 0);
     assert_eq!(*callback_ids.lock(), vec!["tool-1"]);
-    assert_eq!(*callback_roles.lock(), vec!["system", "user", "assistant", "toolResult"]);
-    assert_eq!(roles(&messages), vec!["system", "user", "assistant", "toolResult"]);
+    assert_eq!(
+        *callback_roles.lock(),
+        vec!["system", "user", "assistant", "toolResult"]
+    );
+    assert_eq!(
+        roles(&messages),
+        vec!["system", "user", "assistant", "toolResult"]
+    );
     assert_eq!(
         types(&events),
         vec![
@@ -1138,7 +1393,10 @@ async fn action_end_receives_finalized_turn_context_and_stops_before_queue_polli
 #[tokio::test]
 async fn stops_after_a_tool_batch_when_every_result_terminates() {
     let (stream_fn, calls) = scripted_stream_fn(|_| {
-        assistant_tool_calls(vec![tool_call("tool-1", "echo", json!({"value": "hello"}))], StopReason::ToolUse)
+        assistant_tool_calls(
+            vec![tool_call("tool-1", "echo", json!({"value": "hello"}))],
+            StopReason::ToolUse,
+        )
     });
     let (events, messages) = drain(agent_loop(
         vec![user("echo something")],
@@ -1149,18 +1407,38 @@ async fn stops_after_a_tool_batch_when_every_result_terminates() {
     ))
     .await;
     assert_eq!(*calls.lock(), 1);
-    assert_eq!(roles(&messages), vec!["system", "user", "assistant", "toolResult"]);
-    assert_eq!(events.iter().filter(|e| matches!(e, AgentEvent::TurnEnd { .. })).count(), 1);
+    assert_eq!(
+        roles(&messages),
+        vec!["system", "user", "assistant", "toolResult"]
+    );
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| matches!(e, AgentEvent::TurnEnd { .. }))
+            .count(),
+        1
+    );
 }
 
 #[tokio::test]
 async fn stops_after_a_blocked_tool_call_when_before_tool_call_terminates() {
     let executed = Arc::new(AtomicBool::new(false));
     let e = executed.clone();
-    let tool = FnAgentTool::new("echo", "Echo", "Echo tool", value_schema(), move |_, _, _, _| {
-        e.store(true, Ordering::SeqCst);
-        async { Ok(text_result("should not execute", json!({ "value": "unexpected" }))) }
-    })
+    let tool = FnAgentTool::new(
+        "echo",
+        "Echo",
+        "Echo tool",
+        value_schema(),
+        move |_, _, _, _| {
+            e.store(true, Ordering::SeqCst);
+            async {
+                Ok(text_result(
+                    "should not execute",
+                    json!({ "value": "unexpected" }),
+                ))
+            }
+        },
+    )
     .into_ref();
     let mut config = identity_config();
     config.before_tool_call = Some(hooks::before_tool_call(|_, _| async {
@@ -1173,7 +1451,10 @@ async fn stops_after_a_blocked_tool_call_when_before_tool_call_terminates() {
     }));
     let (stream_fn, calls) = scripted_stream_fn(|index| {
         if index == 0 {
-            assistant_tool_calls(vec![tool_call("tool-1", "echo", json!({"value": "hello"}))], StopReason::ToolUse)
+            assistant_tool_calls(
+                vec![tool_call("tool-1", "echo", json!({"value": "hello"}))],
+                StopReason::ToolUse,
+            )
         } else {
             assistant_text("should not run")
         }
@@ -1190,7 +1471,13 @@ async fn stops_after_a_blocked_tool_call_when_before_tool_call_terminates() {
     assert!(!executed.load(Ordering::SeqCst));
     assert_eq!(*calls.lock(), 1);
     assert!(result.is_error);
-    assert!(result.content.contains(&UserContentBlock::Text(TextContent::new("Blocked by policy"))));
+    assert!(
+        result
+            .content
+            .contains(&UserContentBlock::Text(TextContent::new(
+                "Blocked by policy"
+            )))
+    );
 }
 
 #[tokio::test]
@@ -1199,12 +1486,14 @@ async fn continues_after_a_mixed_batch_with_one_terminating_blocked_call() {
     let mut config = identity_config();
     config.tool_execution = Some(ToolExecutionMode::Parallel);
     config.before_tool_call = Some(hooks::before_tool_call(|ctx, _| async move {
-        Ok((ctx.args["value"] == "first").then(|| BeforeToolCallResult {
-            block: true,
-            reason: Some("Blocked first".into()),
-            terminate: Some(true),
-            ..Default::default()
-        }))
+        Ok(
+            (ctx.args["value"] == "first").then(|| BeforeToolCallResult {
+                block: true,
+                reason: Some("Blocked first".into()),
+                terminate: Some(true),
+                ..Default::default()
+            }),
+        )
     }));
     let (stream_fn, calls) = scripted_stream_fn(tool_then_done(vec![
         tool_call("tool-1", "echo", json!({"value": "first"})),
@@ -1224,12 +1513,18 @@ async fn continues_after_a_mixed_batch_with_one_terminating_blocked_call() {
 
 #[tokio::test]
 async fn continues_after_parallel_tool_calls_when_not_all_results_terminate() {
-    let tool = FnAgentTool::new("echo", "Echo", "Echo tool", value_schema(), |_, params, _, _| async move {
-        let value = params["value"].as_str().unwrap().to_string();
-        let mut result = text_result(format!("echoed: {value}"), json!({ "value": value }));
-        result.terminate = Some(value == "first");
-        Ok(result)
-    })
+    let tool = FnAgentTool::new(
+        "echo",
+        "Echo",
+        "Echo tool",
+        value_schema(),
+        |_, params, _, _| async move {
+            let value = params["value"].as_str().unwrap().to_string();
+            let mut result = text_result(format!("echoed: {value}"), json!({ "value": value }));
+            result.terminate = Some(value == "first");
+            Ok(result)
+        },
+    )
     .into_ref();
     let mut config = identity_config();
     config.tool_execution = Some(ToolExecutionMode::Parallel);
@@ -1246,17 +1541,33 @@ async fn continues_after_parallel_tool_calls_when_not_all_results_terminate() {
     ))
     .await;
     assert_eq!(*calls.lock(), 2);
-    assert_eq!(roles(&messages), vec!["system", "user", "assistant", "toolResult", "toolResult", "assistant"]);
+    assert_eq!(
+        roles(&messages),
+        vec![
+            "system",
+            "user",
+            "assistant",
+            "toolResult",
+            "toolResult",
+            "assistant"
+        ]
+    );
 }
 
 #[tokio::test]
 async fn allows_after_tool_call_to_mark_a_batch_as_terminating() {
     let mut config = identity_config();
     config.after_tool_call = Some(hooks::after_tool_call(|_, _| async {
-        Ok(Some(AfterToolCallResult { terminate: Some(true), ..Default::default() }))
+        Ok(Some(AfterToolCallResult {
+            terminate: Some(true),
+            ..Default::default()
+        }))
     }));
     let (stream_fn, calls) = scripted_stream_fn(|_| {
-        assistant_tool_calls(vec![tool_call("tool-1", "echo", json!({"value": "hello"}))], StopReason::ToolUse)
+        assistant_tool_calls(
+            vec![tool_call("tool-1", "echo", json!({"value": "hello"}))],
+            StopReason::ToolUse,
+        )
     });
     let _ = drain(agent_loop(
         vec![user("echo something")],
@@ -1275,7 +1586,14 @@ async fn allows_after_tool_call_to_mark_a_batch_as_terminating() {
 
 #[tokio::test]
 async fn continue_fails_when_context_has_no_messages() {
-    let error = agent_loop_continue(AgentContext::new(vec![], vec![]), identity_config(), None, None).err().unwrap();
+    let error = agent_loop_continue(
+        AgentContext::new(vec![], vec![]),
+        identity_config(),
+        None,
+        None,
+    )
+    .err()
+    .unwrap();
     assert_eq!(error.to_string(), "Cannot continue: no messages in context");
 }
 
@@ -1289,18 +1607,28 @@ async fn continue_fails_from_an_assistant_tail() {
     )
     .err()
     .unwrap();
-    assert_eq!(error.to_string(), "Cannot continue from message role: assistant");
+    assert_eq!(
+        error.to_string(),
+        "Cannot continue from message role: assistant"
+    );
 }
 
 #[tokio::test]
 async fn continues_from_existing_context_without_emitting_user_message_events() {
     let (stream_fn, _) = scripted_stream_fn(|_| assistant_text("Response"));
-    let stream =
-        agent_loop_continue(AgentContext::new(vec![user("Hello")], vec![]), identity_config(), None, Some(stream_fn))
-            .unwrap();
+    let stream = agent_loop_continue(
+        AgentContext::new(vec![user("Hello")], vec![]),
+        identity_config(),
+        None,
+        Some(stream_fn),
+    )
+    .unwrap();
     let (events, messages) = drain(stream).await;
     assert_eq!(roles(&messages), vec!["assistant"]);
-    let ends: Vec<&AgentEvent> = events.iter().filter(|e| matches!(e, AgentEvent::MessageEnd { .. })).collect();
+    let ends: Vec<&AgentEvent> = events
+        .iter()
+        .filter(|e| matches!(e, AgentEvent::MessageEnd { .. }))
+        .collect();
     assert_eq!(ends.len(), 1);
     if let AgentEvent::MessageEnd { message } = ends[0] {
         assert_eq!(message.role(), "assistant");
@@ -1319,17 +1647,33 @@ async fn allows_custom_message_types_as_last_message() {
             .into_iter()
             .filter_map(|m| match m {
                 AgentMessage::Custom(c) if c.role == "custom" => Some(Message::User(UserMessage {
-                    content: UserContent::Text(c.get("text").and_then(Value::as_str).unwrap_or_default().into()),
+                    content: UserContent::Text(
+                        c.get("text")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .into(),
+                    ),
                     timestamp: c.timestamp(),
                 })),
                 other => other.to_message(),
             })
-            .filter(|m| matches!(m, Message::User(_) | Message::Assistant(_) | Message::ToolResult(_)))
+            .filter(|m| {
+                matches!(
+                    m,
+                    Message::User(_) | Message::Assistant(_) | Message::ToolResult(_)
+                )
+            })
             .collect();
         async move { converted }
     });
     let (stream_fn, _) = scripted_stream_fn(|_| assistant_text("Response to custom message"));
-    let stream = agent_loop_continue(AgentContext::new(vec![custom], vec![]), config, None, Some(stream_fn)).unwrap();
+    let stream = agent_loop_continue(
+        AgentContext::new(vec![custom], vec![]),
+        config,
+        None,
+        Some(stream_fn),
+    )
+    .unwrap();
     let (_, messages) = drain(stream).await;
     assert_eq!(roles(&messages), vec!["assistant"]);
 }
@@ -1339,29 +1683,45 @@ async fn allows_custom_message_types_as_last_message() {
 // ---------------------------------------------------------------------------
 
 fn run_tool_call_echo() -> pi_agent::AgentToolRef {
-    FnAgentTool::new("echo", "Echo", "Echo tool", value_schema(), |_, params, _, on_update| async move {
-        on_update(AgentToolResult { content: vec![UserContentBlock::text("partial")], details: Some(json!({})), ..Default::default() });
-        let value = params["value"].as_str().unwrap().to_string();
-        Ok(AgentToolResult {
-            content: vec![UserContentBlock::text(value.clone())],
-            details: Some(json!({})),
-            structured_content: Some(json!({ "value": value })),
-            ..Default::default()
-        })
-    })
+    FnAgentTool::new(
+        "echo",
+        "Echo",
+        "Echo tool",
+        value_schema(),
+        |_, params, _, on_update| async move {
+            on_update(AgentToolResult {
+                content: vec![UserContentBlock::text("partial")],
+                details: Some(json!({})),
+                ..Default::default()
+            });
+            let value = params["value"].as_str().unwrap().to_string();
+            Ok(AgentToolResult {
+                content: vec![UserContentBlock::text(value.clone())],
+                details: Some(json!({})),
+                structured_content: Some(json!({ "value": value })),
+                ..Default::default()
+            })
+        },
+    )
     .with_output_schema(value_schema())
     .into_ref()
 }
 
 fn failing_tool() -> pi_agent::AgentToolRef {
-    FnAgentTool::new("failing", "Failing", "Returns an error result", empty_schema(), |_, _, _, _| async {
-        Ok(AgentToolResult {
-            content: vec![UserContentBlock::text("bad")],
-            details: Some(json!({ "partial": true })),
-            is_error: Some(true),
-            ..Default::default()
-        })
-    })
+    FnAgentTool::new(
+        "failing",
+        "Failing",
+        "Returns an error result",
+        empty_schema(),
+        |_, _, _, _| async {
+            Ok(AgentToolResult {
+                content: vec![UserContentBlock::text("bad")],
+                details: Some(json!({ "partial": true })),
+                is_error: Some(true),
+                ..Default::default()
+            })
+        },
+    )
     .into_ref()
 }
 
@@ -1378,8 +1738,13 @@ async fn run_tool_call_validates_runs_hooks_and_reports_failures() {
     options.before_tool_call = Some(hooks::before_tool_call(move |ctx, _| {
         h.lock().push(format!("before {}", ctx.tool_call.id));
         async move {
-            Ok((ctx.args["value"] == "blocked")
-                .then(|| BeforeToolCallResult { block: true, reason: Some("nope".into()), ..Default::default() }))
+            Ok(
+                (ctx.args["value"] == "blocked").then(|| BeforeToolCallResult {
+                    block: true,
+                    reason: Some("nope".into()),
+                    ..Default::default()
+                }),
+            )
         }
     }));
     let h = hook_calls.clone();
@@ -1393,20 +1758,35 @@ async fn run_tool_call_validates_runs_hooks_and_reports_failures() {
         async {}
     }));
 
-    let a = run_tool_call(tool_call("a", "echo", json!({"value": "a"})), options.clone()).await;
+    let a = run_tool_call(
+        tool_call("a", "echo", json!({"value": "a"})),
+        options.clone(),
+    )
+    .await;
     assert_eq!(a.tool_call.id, "a");
     assert_eq!(a.result.structured_content, Some(json!({ "value": "a" })));
     assert!(!a.is_error);
 
-    let b = run_tool_call(tool_call("b", "echo", json!({"value": {"nested": true}})), options.clone()).await;
+    let b = run_tool_call(
+        tool_call("b", "echo", json!({"value": {"nested": true}})),
+        options.clone(),
+    )
+    .await;
     assert!(b.is_error);
 
-    let c = run_tool_call(tool_call("c", "echo", json!({"value": "blocked"})), options.clone()).await;
+    let c = run_tool_call(
+        tool_call("c", "echo", json!({"value": "blocked"})),
+        options.clone(),
+    )
+    .await;
     assert_eq!(c.result.content, vec![UserContentBlock::text("nope")]);
     assert!(c.is_error);
 
     let d = run_tool_call(tool_call("d", "missing", json!({})), options.clone()).await;
-    assert_eq!(d.result.content, vec![UserContentBlock::text("Tool missing not found")]);
+    assert_eq!(
+        d.result.content,
+        vec![UserContentBlock::text("Tool missing not found")]
+    );
     assert!(d.is_error);
 
     let e = run_tool_call(tool_call("e", "failing", json!({})), options.clone()).await;
@@ -1415,23 +1795,39 @@ async fn run_tool_call_validates_runs_hooks_and_reports_failures() {
 
     assert_eq!(
         *updates.lock(),
-        vec![AgentToolResult { content: vec![UserContentBlock::text("partial")], details: Some(json!({})), ..Default::default() }]
+        vec![AgentToolResult {
+            content: vec![UserContentBlock::text("partial")],
+            details: Some(json!({})),
+            ..Default::default()
+        }]
     );
-    assert_eq!(*hook_calls.lock(), vec!["before a", "after a", "before c", "before e", "after e"]);
+    assert_eq!(
+        *hook_calls.lock(),
+        vec!["before a", "after a", "before c", "before e", "after e"]
+    );
 }
 
 #[tokio::test]
 async fn after_tool_call_replaces_structured_content_and_drops_it_with_content_only() {
     let redacted = vec![UserContentBlock::text("redacted")];
     let cases = vec![
-        AfterToolCallResult { content: Some(redacted.clone()), ..Default::default() },
-        AfterToolCallResult { structured_content: Some(json!({ "value": "replaced" })), ..Default::default() },
+        AfterToolCallResult {
+            content: Some(redacted.clone()),
+            ..Default::default()
+        },
+        AfterToolCallResult {
+            structured_content: Some(json!({ "value": "replaced" })),
+            ..Default::default()
+        },
         AfterToolCallResult {
             content: Some(redacted.clone()),
             structured_content: Some(json!({ "value": "both" })),
             ..Default::default()
         },
-        AfterToolCallResult { details: Some(json!({ "note": "kept" })), ..Default::default() },
+        AfterToolCallResult {
+            details: Some(json!({ "note": "kept" })),
+            ..Default::default()
+        },
     ];
     let mut seen = Vec::new();
     for after_result in cases {
@@ -1444,11 +1840,20 @@ async fn after_tool_call_replaces_structured_content_and_drops_it_with_content_o
             let after_result = after_result.clone();
             async move { Ok(Some(after_result)) }
         }));
-        let outcome = run_tool_call(tool_call("x", "echo", json!({"value": "original"})), options).await;
+        let outcome = run_tool_call(
+            tool_call("x", "echo", json!({"value": "original"})),
+            options,
+        )
+        .await;
         seen.push(outcome.result.structured_content);
     }
     assert_eq!(
         seen,
-        vec![None, Some(json!({ "value": "replaced" })), Some(json!({ "value": "both" })), Some(json!({ "value": "original" }))]
+        vec![
+            None,
+            Some(json!({ "value": "replaced" })),
+            Some(json!({ "value": "both" })),
+            Some(json!({ "value": "original" }))
+        ]
     );
 }

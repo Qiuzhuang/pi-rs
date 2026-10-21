@@ -23,3 +23,18 @@ pub fn get_default_stream_fn() -> Result<StreamFn, AgentError> {
         )
     })
 }
+
+/// A [`StreamFn`] backed by a pi-ai [`pi_ai::Models`] collection (`Models.streamSimple`).
+pub fn models_stream_fn(models: pi_ai::Models) -> StreamFn {
+    std::sync::Arc::new(move |model, context, options| {
+        // The transcript already carries the system prompt and tools in its system messages,
+        // so normalizing it again inside `stream_simple` is a no-op.
+        let context = pi_ai::Context {
+            system_prompt: None,
+            messages: context.messages,
+            tools: None,
+        };
+        let stream = models.stream_simple(&model, &context, options);
+        Box::pin(async move { Ok(stream) })
+    })
+}

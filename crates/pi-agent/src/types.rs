@@ -11,9 +11,9 @@ use std::sync::Arc;
 use futures::future::BoxFuture;
 use indexmap::IndexSet;
 use pi_ai::{
-    AssistantMessage, AssistantMessageEvent, AssistantMessageEventStream, ConstrainedSampling, JsonObject,
-    Message, Model, SimpleStreamOptions, SystemMessage, Tool, ToolCall, ToolResultMessage, TranscriptContext,
-    Usage, UserContentBlock, UserMessage,
+    AssistantMessage, AssistantMessageEvent, AssistantMessageEventStream, ConstrainedSampling,
+    JsonObject, Message, Model, SimpleStreamOptions, SystemMessage, Tool, ToolCall,
+    ToolResultMessage, TranscriptContext, Usage, UserContentBlock, UserMessage,
 };
 use serde::de::{DeserializeOwned, Error as _};
 use serde::ser::SerializeMap;
@@ -42,7 +42,11 @@ pub type AgentToolCall = ToolCall;
 /// assistant message with stop reason `error` or `aborted`). Returning `Err` is treated like
 /// a thrown error in TypeScript: the run fails and the agent records a failure message.
 pub type StreamFn = Arc<
-    dyn Fn(Model, TranscriptContext, SimpleStreamOptions) -> BoxFuture<'static, anyhow::Result<AssistantMessageEventStream>>
+    dyn Fn(
+            Model,
+            TranscriptContext,
+            SimpleStreamOptions,
+        ) -> BoxFuture<'static, anyhow::Result<AssistantMessageEventStream>>
         + Send
         + Sync,
 >;
@@ -50,7 +54,10 @@ pub type StreamFn = Arc<
 /// Build a [`StreamFn`] from a closure returning a stream synchronously.
 pub fn stream_fn<F>(f: F) -> StreamFn
 where
-    F: Fn(Model, TranscriptContext, SimpleStreamOptions) -> AssistantMessageEventStream + Send + Sync + 'static,
+    F: Fn(Model, TranscriptContext, SimpleStreamOptions) -> AssistantMessageEventStream
+        + Send
+        + Sync
+        + 'static,
 {
     Arc::new(move |model, context, options| {
         let stream = f(model, context, options);
@@ -111,21 +118,30 @@ pub struct CustomMessage {
 impl CustomMessage {
     pub fn new(role: impl Into<String>, fields: Map<String, Value>) -> Self {
         let mut fields = fields;
-        fields.remove("role");
-        Self { role: role.into(), fields }
+        fields.shift_remove("role");
+        Self {
+            role: role.into(),
+            fields,
+        }
     }
 
     /// Build from a typed value that serializes to an object with a `role` field.
     pub fn from_typed<T: Serialize>(value: &T) -> Result<Self, serde_json::Error> {
         match serde_json::to_value(value)? {
             Value::Object(mut map) => {
-                let role = match map.remove("role") {
+                let role = match map.shift_remove("role") {
                     Some(Value::String(role)) => role,
-                    _ => return Err(serde_json::Error::custom("custom message must have a string role")),
+                    _ => {
+                        return Err(serde_json::Error::custom(
+                            "custom message must have a string role",
+                        ));
+                    }
                 };
                 Ok(Self { role, fields: map })
             }
-            _ => Err(serde_json::Error::custom("custom message must serialize to an object")),
+            _ => Err(serde_json::Error::custom(
+                "custom message must serialize to an object",
+            )),
         }
     }
 
@@ -151,7 +167,10 @@ impl CustomMessage {
     /// The `timestamp` field as milliseconds, or 0.
     pub fn timestamp(&self) -> i64 {
         match self.fields.get("timestamp") {
-            Some(Value::Number(n)) => n.as_i64().or_else(|| n.as_f64().map(|f| f as i64)).unwrap_or(0),
+            Some(Value::Number(n)) => n
+                .as_i64()
+                .or_else(|| n.as_f64().map(|f| f as i64))
+                .unwrap_or(0),
             _ => 0,
         }
     }
@@ -354,12 +373,14 @@ impl<'de> Deserialize<'de> for AgentMessage {
             .ok_or_else(|| D::Error::custom("message is missing a string `role`"))?
             .to_string();
         match role.as_str() {
-            "system" | "user" | "assistant" | "toolResult" => serde_json::from_value::<Message>(value)
-                .map(AgentMessage::from)
-                .map_err(D::Error::custom),
+            "system" | "user" | "assistant" | "toolResult" => {
+                serde_json::from_value::<Message>(value)
+                    .map(AgentMessage::from)
+                    .map_err(D::Error::custom)
+            }
             _ => match value {
                 Value::Object(mut map) => {
-                    map.remove("role");
+                    map.shift_remove("role");
                     Ok(AgentMessage::Custom(CustomMessage { role, fields: map }))
                 }
                 _ => Err(D::Error::custom("message must be an object")),
@@ -380,10 +401,18 @@ pub struct AgentToolResult {
     #[serde(default, deserialize_with = "pi_ai::serde_util::null_as_default")]
     pub content: Vec<UserContentBlock>,
     /// Arbitrary structured details for logs or UI rendering (`None` = undefined).
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "pi_ai::serde_util::deserialize_some")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "pi_ai::serde_util::deserialize_some"
+    )]
     pub details: Option<Value>,
     /// Machine-readable result matching the tool's `output_schema`. Not sent to the model.
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "pi_ai::serde_util::deserialize_some")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "pi_ai::serde_util::deserialize_some"
+    )]
     pub structured_content: Option<Value>,
     /// Usage from the tool execution itself, if available.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -399,7 +428,11 @@ pub struct AgentToolResult {
 impl AgentToolResult {
     /// A result with one text block and the given details.
     pub fn text(text: impl Into<String>, details: Option<Value>) -> Self {
-        Self { content: vec![UserContentBlock::text(text)], details, ..Default::default() }
+        Self {
+            content: vec![UserContentBlock::text(text)],
+            details,
+            ..Default::default()
+        }
     }
 
     /// An error result: one text block and empty-object details.
@@ -477,7 +510,12 @@ pub fn to_tool_declaration(tool: &dyn AgentTool) -> Tool {
 }
 
 type ExecuteFn = Arc<
-    dyn Fn(String, Value, CancellationToken, AgentToolUpdateCallback) -> BoxFuture<'static, anyhow::Result<AgentToolResult>>
+    dyn Fn(
+            String,
+            Value,
+            CancellationToken,
+            AgentToolUpdateCallback,
+        ) -> BoxFuture<'static, anyhow::Result<AgentToolResult>>
         + Send
         + Sync,
 >;
@@ -519,7 +557,10 @@ impl FnAgentTool {
         execute: F,
     ) -> Self
     where
-        F: Fn(String, Value, CancellationToken, AgentToolUpdateCallback) -> Fut + Send + Sync + 'static,
+        F: Fn(String, Value, CancellationToken, AgentToolUpdateCallback) -> Fut
+            + Send
+            + Sync
+            + 'static,
         Fut: std::future::Future<Output = anyhow::Result<AgentToolResult>> + Send + 'static,
     {
         Self {
@@ -532,7 +573,9 @@ impl FnAgentTool {
             replay: None,
             execution_mode: None,
             prepare_arguments: None,
-            execute: Arc::new(move |id, params, signal, on_update| Box::pin(execute(id, params, signal, on_update))),
+            execute: Arc::new(move |id, params, signal, on_update| {
+                Box::pin(execute(id, params, signal, on_update))
+            }),
         }
     }
 
@@ -588,7 +631,9 @@ impl AgentTool for FnAgentTool {
         self.constrained_sampling.as_ref()
     }
     fn prepare_arguments(&self, args: &JsonObject) -> Option<JsonObject> {
-        self.prepare_arguments.as_ref().and_then(|prepare| prepare(args))
+        self.prepare_arguments
+            .as_ref()
+            .and_then(|prepare| prepare(args))
     }
     fn output_schema(&self) -> Option<&Value> {
         self.output_schema.as_ref()
@@ -635,7 +680,10 @@ pub struct AgentContext {
 
 impl AgentContext {
     pub fn new(messages: Vec<AgentMessage>, tools: Vec<AgentToolRef>) -> Self {
-        Self { messages, tools: Some(tools) }
+        Self {
+            messages,
+            tools: Some(tools),
+        }
     }
 
     pub fn tools(&self) -> &[AgentToolRef] {
@@ -647,7 +695,15 @@ impl fmt::Debug for AgentContext {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AgentContext")
             .field("messages", &self.messages)
-            .field("tools", &self.tools.as_ref().map(|tools| tools.iter().map(|t| t.name().to_string()).collect::<Vec<_>>()))
+            .field(
+                "tools",
+                &self.tools.as_ref().map(|tools| {
+                    tools
+                        .iter()
+                        .map(|t| t.name().to_string())
+                        .collect::<Vec<_>>()
+                }),
+            )
             .finish()
     }
 }
@@ -687,7 +743,14 @@ impl fmt::Debug for AgentState {
         f.debug_struct("AgentState")
             .field("model", &self.model.id)
             .field("thinking_level", &self.thinking_level)
-            .field("tools", &self.tools.iter().map(|t| t.name().to_string()).collect::<Vec<_>>())
+            .field(
+                "tools",
+                &self
+                    .tools
+                    .iter()
+                    .map(|t| t.name().to_string())
+                    .collect::<Vec<_>>(),
+            )
             .field("messages", &self.messages)
             .field("is_streaming", &self.is_streaming)
             .field("streaming_message", &self.streaming_message)
@@ -810,40 +873,62 @@ pub struct AgentRequestUpdate {
 }
 
 /// Converts `AgentMessage`s to LLM messages before each call. Must not fail.
-pub type ConvertToLlmFn = Arc<dyn Fn(Vec<AgentMessage>) -> BoxFuture<'static, Vec<Message>> + Send + Sync>;
+pub type ConvertToLlmFn =
+    Arc<dyn Fn(Vec<AgentMessage>) -> BoxFuture<'static, Vec<Message>> + Send + Sync>;
 /// Transform applied to the context before `convert_to_llm`. Must not fail.
-pub type TransformContextFn =
-    Arc<dyn Fn(Vec<AgentMessage>, CancellationToken) -> BoxFuture<'static, Vec<AgentMessage>> + Send + Sync>;
+pub type TransformContextFn = Arc<
+    dyn Fn(Vec<AgentMessage>, CancellationToken) -> BoxFuture<'static, Vec<AgentMessage>>
+        + Send
+        + Sync,
+>;
 /// Resolves an API key dynamically for each LLM call.
 pub type GetApiKeyFn = Arc<dyn Fn(String) -> BoxFuture<'static, Option<String>> + Send + Sync>;
 /// Called after a completed turn's tool results, immediately before `turn_end`.
-pub type FinishTurnFn =
-    Arc<dyn Fn(AgentTurnContext, CancellationToken) -> BoxFuture<'static, Option<AgentTurnDecision>> + Send + Sync>;
+pub type FinishTurnFn = Arc<
+    dyn Fn(AgentTurnContext, CancellationToken) -> BoxFuture<'static, Option<AgentTurnDecision>>
+        + Send
+        + Sync,
+>;
 /// Called immediately before every conversational provider request.
 pub type PrepareRequestFn = Arc<
-    dyn Fn(PrepareRequestContext, CancellationToken) -> BoxFuture<'static, Option<AgentRequestUpdate>> + Send + Sync,
+    dyn Fn(
+            PrepareRequestContext,
+            CancellationToken,
+        ) -> BoxFuture<'static, Option<AgentRequestUpdate>>
+        + Send
+        + Sync,
 >;
 /// Called after `turn_end` when the loop will continue, before the next turn starts.
-pub type PrepareNextTurnFn =
-    Arc<dyn Fn(PrepareNextTurnContext) -> BoxFuture<'static, Option<AgentLoopTurnUpdate>> + Send + Sync>;
+pub type PrepareNextTurnFn = Arc<
+    dyn Fn(PrepareNextTurnContext) -> BoxFuture<'static, Option<AgentLoopTurnUpdate>> + Send + Sync,
+>;
 /// Returns queued steering or follow-up messages.
 pub type GetMessagesFn = Arc<dyn Fn() -> BoxFuture<'static, Vec<AgentMessage>> + Send + Sync>;
 /// Called before a tool executes, after argument validation. `Err` becomes an error result.
 pub type BeforeToolCallFn = Arc<
-    dyn Fn(BeforeToolCallContext, CancellationToken) -> BoxFuture<'static, anyhow::Result<Option<BeforeToolCallResult>>>
+    dyn Fn(
+            BeforeToolCallContext,
+            CancellationToken,
+        ) -> BoxFuture<'static, anyhow::Result<Option<BeforeToolCallResult>>>
         + Send
         + Sync,
 >;
 /// Called after a tool executes, before `tool_execution_end`. `Err` becomes an error result.
 pub type AfterToolCallFn = Arc<
-    dyn Fn(AfterToolCallContext, CancellationToken) -> BoxFuture<'static, anyhow::Result<Option<AfterToolCallResult>>>
+    dyn Fn(
+            AfterToolCallContext,
+            CancellationToken,
+        ) -> BoxFuture<'static, anyhow::Result<Option<AfterToolCallResult>>>
         + Send
         + Sync,
 >;
 
 /// The default `convert_to_llm`: keeps system, user, assistant and tool-result messages.
 pub fn default_convert_to_llm(messages: &[AgentMessage]) -> Vec<Message> {
-    messages.iter().filter_map(AgentMessage::to_message).collect()
+    messages
+        .iter()
+        .filter_map(AgentMessage::to_message)
+        .collect()
 }
 
 /// [`ConvertToLlmFn`] wrapping [`default_convert_to_llm`].
@@ -912,7 +997,11 @@ impl fmt::Debug for AgentLoopConfig {
 
 /// Events emitted by the agent for UI updates.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "type",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
 pub enum AgentEvent {
     AgentStart,
     AgentEnd {

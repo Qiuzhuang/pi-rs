@@ -7,9 +7,9 @@ use parking_lot::Mutex;
 use pi_agent::{AgentMessage, AgentToolRef, AgentToolResult, FnAgentTool, StreamFn};
 use pi_ai::utils::now_ms;
 use pi_ai::{
-    AssistantContent, AssistantMessage, AssistantMessageEvent, AssistantMessageEventStream, Message, Model,
-    ModelCost, ModelInputModality, SimpleStreamOptions, StopReason, TextContent, ToolCall, TranscriptContext, Usage,
-    UserContent, UserMessage,
+    AssistantContent, AssistantMessage, AssistantMessageEvent, AssistantMessageEventStream,
+    Message, Model, ModelCost, ModelInputModality, SimpleStreamOptions, StopReason, TextContent,
+    ToolCall, TranscriptContext, Usage, UserContent, UserMessage,
 };
 use serde_json::{Value, json};
 
@@ -43,7 +43,10 @@ pub fn assistant(content: Vec<AssistantContent>, stop_reason: StopReason) -> Ass
 }
 
 pub fn assistant_text(text: &str) -> AssistantMessage {
-    assistant(vec![AssistantContent::Text(TextContent::new(text))], StopReason::Stop)
+    assistant(
+        vec![AssistantContent::Text(TextContent::new(text))],
+        StopReason::Stop,
+    )
 }
 
 pub fn tool_call(id: &str, name: &str, arguments: Value) -> ToolCall {
@@ -56,7 +59,10 @@ pub fn tool_call(id: &str, name: &str, arguments: Value) -> ToolCall {
 }
 
 pub fn assistant_tool_calls(calls: Vec<ToolCall>, stop_reason: StopReason) -> AssistantMessage {
-    assistant(calls.into_iter().map(AssistantContent::ToolCall).collect(), stop_reason)
+    assistant(
+        calls.into_iter().map(AssistantContent::ToolCall).collect(),
+        stop_reason,
+    )
 }
 
 pub fn user(text: &str) -> AgentMessage {
@@ -65,7 +71,10 @@ pub fn user(text: &str) -> AgentMessage {
 
 pub fn user_text_of(message: &AgentMessage) -> Option<String> {
     match message {
-        AgentMessage::User(UserMessage { content: UserContent::Text(text), .. }) => Some(text.clone()),
+        AgentMessage::User(UserMessage {
+            content: UserContent::Text(text),
+            ..
+        }) => Some(text.clone()),
         _ => None,
     }
 }
@@ -75,7 +84,10 @@ pub fn llm_user_texts(context: &TranscriptContext) -> Vec<String> {
         .messages
         .iter()
         .filter_map(|m| match m {
-            Message::User(UserMessage { content: UserContent::Text(text), .. }) => Some(text.clone()),
+            Message::User(UserMessage {
+                content: UserContent::Text(text),
+                ..
+            }) => Some(text.clone()),
             _ => None,
         })
         .collect()
@@ -94,7 +106,10 @@ pub fn respond(message: AssistantMessage) -> AssistantMessageEventStream {
 pub fn push_terminal(sender: &pi_ai::AssistantMessageEventSender, message: AssistantMessage) {
     let reason = message.stop_reason;
     if matches!(reason, StopReason::Error | StopReason::Aborted) {
-        sender.push(AssistantMessageEvent::Error { reason, error: message });
+        sender.push(AssistantMessageEvent::Error {
+            reason,
+            error: message,
+        });
     } else {
         sender.push(AssistantMessageEvent::Done { reason, message });
     }
@@ -102,13 +117,18 @@ pub fn push_terminal(sender: &pi_ai::AssistantMessageEventSender, message: Assis
 
 /// A stream fn built from a synchronous closure.
 pub fn mock_stream_fn(
-    f: impl Fn(Model, TranscriptContext, SimpleStreamOptions) -> AssistantMessageEventStream + Send + Sync + 'static,
+    f: impl Fn(Model, TranscriptContext, SimpleStreamOptions) -> AssistantMessageEventStream
+    + Send
+    + Sync
+    + 'static,
 ) -> StreamFn {
     pi_agent::stream_fn(f)
 }
 
 /// A stream fn answering every request with the message produced by `f(call_index)`.
-pub fn scripted_stream_fn(f: impl Fn(usize) -> AssistantMessage + Send + Sync + 'static) -> (StreamFn, Arc<Mutex<usize>>) {
+pub fn scripted_stream_fn(
+    f: impl Fn(usize) -> AssistantMessage + Send + Sync + 'static,
+) -> (StreamFn, Arc<Mutex<usize>>) {
     let calls = Arc::new(Mutex::new(0usize));
     let counter = calls.clone();
     let stream_fn = mock_stream_fn(move |_, _, _| {
@@ -141,21 +161,34 @@ pub fn text_result(text: impl Into<String>, details: Value) -> AgentToolResult {
 
 /// An echo tool recording executed values.
 pub fn echo_tool(executed: Arc<Mutex<Vec<String>>>) -> AgentToolRef {
-    FnAgentTool::new("echo", "Echo", "Echo tool", value_schema(), move |_id, params, _signal, _update| {
-        let executed = executed.clone();
-        async move {
-            let value = params["value"].as_str().unwrap_or_default().to_string();
-            executed.lock().push(value.clone());
-            Ok(text_result(format!("echoed: {value}"), json!({ "value": value })))
-        }
-    })
+    FnAgentTool::new(
+        "echo",
+        "Echo",
+        "Echo tool",
+        value_schema(),
+        move |_id, params, _signal, _update| {
+            let executed = executed.clone();
+            async move {
+                let value = params["value"].as_str().unwrap_or_default().to_string();
+                executed.lock().push(value.clone());
+                Ok(text_result(
+                    format!("echoed: {value}"),
+                    json!({ "value": value }),
+                ))
+            }
+        },
+    )
     .into_ref()
 }
 
 pub fn noop_tool(name: &str) -> AgentToolRef {
-    FnAgentTool::new(name, name, format!("{name} tool"), empty_schema(), |_id, _params, _signal, _update| async {
-        Ok(text_result("done", json!({})))
-    })
+    FnAgentTool::new(
+        name,
+        name,
+        format!("{name} tool"),
+        empty_schema(),
+        |_id, _params, _signal, _update| async { Ok(text_result("done", json!({}))) },
+    )
     .into_ref()
 }
 

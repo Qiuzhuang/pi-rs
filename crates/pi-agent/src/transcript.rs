@@ -9,7 +9,10 @@ use pi_ai::{Message, SystemMessage, Tool};
 use crate::types::AgentMessage;
 
 fn system_messages(messages: &[AgentMessage]) -> Vec<Message> {
-    messages.iter().filter_map(|m| m.as_system().cloned().map(Message::System)).collect()
+    messages
+        .iter()
+        .filter_map(|m| m.as_system().cloned().map(Message::System))
+        .collect()
 }
 
 /// Resolve the tools available after applying every transcript delta in order.

@@ -11,10 +11,13 @@ use std::time::Instant;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use pi_ai::utils::now_ms;
-use pi_ai::utils::transcript::{ToolStateChanges, get_current_tools, get_tool_state_changes, transcript_from_messages};
+use pi_ai::utils::transcript::{
+    ToolStateChanges, get_current_tools, get_tool_state_changes, transcript_from_messages,
+};
 use pi_ai::{
-    AssistantMessage, AssistantMessageEvent, ClientIdentity, EventSender, EventStream, Message, StopReason,
-    SystemContent, SystemMessage, ToolResultMessage, merge_client_identity, pi_attribution,
+    AssistantMessage, AssistantMessageEvent, ClientIdentity, EventSender, EventStream, Message,
+    StopReason, SystemContent, SystemMessage, ToolResultMessage, merge_client_identity,
+    pi_attribution,
 };
 use serde_json::Value;
 use tokio::sync::mpsc;
@@ -23,10 +26,10 @@ use tokio_util::sync::CancellationToken;
 use crate::error::AgentError;
 use crate::stream_fn::get_default_stream_fn;
 use crate::types::{
-    AfterToolCallContext, AfterToolCallFn, AgentContext, AgentEvent, AgentLoopConfig, AgentMessage, AgentToolCall,
-    AgentToolCallOutcome, AgentToolRef, AgentToolResult, AgentToolUpdateCallback, AgentTurnContext,
-    AgentTurnDecision, BeforeToolCallContext, BeforeToolCallFn, PrepareRequestContext, StreamFn, ThinkingLevel,
-    ToolExecutionMode, to_tool_declaration,
+    AfterToolCallContext, AfterToolCallFn, AgentContext, AgentEvent, AgentLoopConfig, AgentMessage,
+    AgentToolCall, AgentToolCallOutcome, AgentToolRef, AgentToolResult, AgentToolUpdateCallback,
+    AgentTurnContext, AgentTurnDecision, BeforeToolCallContext, BeforeToolCallFn,
+    PrepareRequestContext, StreamFn, ThinkingLevel, ToolExecutionMode, to_tool_declaration,
 };
 
 /// Receives loop events. Awaited before the loop continues.
@@ -46,7 +49,10 @@ pub fn event_sink(f: impl Fn(AgentEvent) + Send + Sync + 'static) -> AgentEventS
 /// Request identity of agent loops: pi-ai's defaults with provider attribution to pi.
 /// `AgentLoopConfig.options.identity` overrides it field by field.
 pub fn default_agent_identity() -> ClientIdentity {
-    ClientIdentity { attribution: Some(Some(pi_attribution())), ..Default::default() }
+    ClientIdentity {
+        attribution: Some(Some(pi_attribution())),
+        ..Default::default()
+    }
 }
 
 /// The event stream returned by [`agent_loop`] and [`agent_loop_continue`].
@@ -81,7 +87,9 @@ pub fn agent_loop(
     let (sender, stream) = create_agent_stream();
     let sink = sender_sink(sender.clone());
     tokio::spawn(async move {
-        if let Ok(messages) = run_agent_loop(prompts, context, config, sink, signal, stream_fn).await {
+        if let Ok(messages) =
+            run_agent_loop(prompts, context, config, sink, signal, stream_fn).await
+        {
             sender.end(Some(messages));
         } else {
             sender.end(None);
@@ -93,7 +101,9 @@ pub fn agent_loop(
 fn validate_continue_context(context: &AgentContext) -> Result<(), AgentError> {
     match context.messages.last() {
         None => Err(AgentError::new("Cannot continue: no messages in context")),
-        Some(AgentMessage::Assistant(_)) => Err(AgentError::new("Cannot continue from message role: assistant")),
+        Some(AgentMessage::Assistant(_)) => Err(AgentError::new(
+            "Cannot continue from message role: assistant",
+        )),
         Some(_) => Ok(()),
     }
 }
@@ -112,7 +122,9 @@ pub fn agent_loop_continue(
     let (sender, stream) = create_agent_stream();
     let sink = sender_sink(sender.clone());
     tokio::spawn(async move {
-        if let Ok(messages) = run_agent_loop_continue(context, config, sink, signal, stream_fn).await {
+        if let Ok(messages) =
+            run_agent_loop_continue(context, config, sink, signal, stream_fn).await
+        {
             sender.end(Some(messages));
         } else {
             sender.end(None);
@@ -134,12 +146,17 @@ pub async fn run_agent_loop(
     let initial_messages = declare_tool_changes(&context, prompts);
     let mut new_messages = initial_messages.clone();
     let mut current_context = context;
-    current_context.messages.extend(initial_messages.iter().cloned());
+    current_context
+        .messages
+        .extend(initial_messages.iter().cloned());
 
     emit(AgentEvent::AgentStart).await;
     emit(AgentEvent::TurnStart).await;
     for message in initial_messages {
-        emit(AgentEvent::MessageStart { message: message.clone() }).await;
+        emit(AgentEvent::MessageStart {
+            message: message.clone(),
+        })
+        .await;
         emit(AgentEvent::MessageEnd { message }).await;
     }
 
@@ -147,7 +164,15 @@ pub async fn run_agent_loop(
         Some(stream_fn) => stream_fn,
         None => get_default_stream_fn()?,
     };
-    run_loop(current_context, &mut new_messages, config, signal.unwrap_or_default(), &emit, &stream_fn).await?;
+    run_loop(
+        current_context,
+        &mut new_messages,
+        config,
+        signal.unwrap_or_default(),
+        &emit,
+        &stream_fn,
+    )
+    .await?;
     Ok(new_messages)
 }
 
@@ -169,7 +194,15 @@ pub async fn run_agent_loop_continue(
         Some(stream_fn) => stream_fn,
         None => get_default_stream_fn()?,
     };
-    run_loop(context, &mut new_messages, config, signal.unwrap_or_default(), &emit, &stream_fn).await?;
+    run_loop(
+        context,
+        &mut new_messages,
+        config,
+        signal.unwrap_or_default(),
+        &emit,
+        &stream_fn,
+    )
+    .await?;
     Ok(new_messages)
 }
 
@@ -181,7 +214,11 @@ async fn poll_messages(source: &Option<crate::types::GetMessagesFn>) -> Vec<Agen
 }
 
 fn thinking_level_of(config: &AgentLoopConfig) -> ThinkingLevel {
-    config.options.reasoning.map(ThinkingLevel::from).unwrap_or(ThinkingLevel::Off)
+    config
+        .options
+        .reasoning
+        .map(ThinkingLevel::from)
+        .unwrap_or(ThinkingLevel::Off)
 }
 
 fn apply_thinking_level(config: &mut AgentLoopConfig, level: Option<ThinkingLevel>) {
@@ -241,8 +278,14 @@ async fn run_loop(
             let mut queued = prepared_messages;
             queued.append(&mut pending_messages);
             for message in declare_tool_changes(&current_context, queued) {
-                emit(AgentEvent::MessageStart { message: message.clone() }).await;
-                emit(AgentEvent::MessageEnd { message: message.clone() }).await;
+                emit(AgentEvent::MessageStart {
+                    message: message.clone(),
+                })
+                .await;
+                emit(AgentEvent::MessageEnd {
+                    message: message.clone(),
+                })
+                .await;
                 current_context.messages.push(message.clone());
                 new_messages.push(message);
             }
@@ -265,7 +308,9 @@ async fn run_loop(
             }
 
             // Stream assistant response.
-            let message = stream_assistant_response(&mut current_context, &config, &signal, emit, stream_fn).await?;
+            let message =
+                stream_assistant_response(&mut current_context, &config, &signal, emit, stream_fn)
+                    .await?;
             new_messages.push(AgentMessage::Assistant(message.clone()));
 
             if matches!(message.stop_reason, StopReason::Error | StopReason::Aborted) {
@@ -278,9 +323,15 @@ async fn run_loop(
                 if let Some(finish_turn) = &config.finish_turn {
                     finish_turn(turn, signal.clone()).await;
                 }
-                emit(AgentEvent::TurnEnd { message: AgentMessage::Assistant(message), tool_results: Vec::new() })
-                    .await;
-                emit(AgentEvent::AgentEnd { messages: new_messages.clone() }).await;
+                emit(AgentEvent::TurnEnd {
+                    message: AgentMessage::Assistant(message),
+                    tool_results: Vec::new(),
+                })
+                .await;
+                emit(AgentEvent::AgentEnd {
+                    messages: new_messages.clone(),
+                })
+                .await;
                 return Ok(());
             }
 
@@ -301,7 +352,9 @@ async fn run_loop(
                 has_more_tool_calls = !batch.terminate;
 
                 for result in &tool_results {
-                    current_context.messages.push(AgentMessage::ToolResult(result.clone()));
+                    current_context
+                        .messages
+                        .push(AgentMessage::ToolResult(result.clone()));
                     new_messages.push(AgentMessage::ToolResult(result.clone()));
                 }
             }
@@ -317,10 +370,17 @@ async fn run_loop(
                 None => None,
             };
             last_completed_turn = Some(turn);
-            emit(AgentEvent::TurnEnd { message: AgentMessage::Assistant(message), tool_results }).await;
+            emit(AgentEvent::TurnEnd {
+                message: AgentMessage::Assistant(message),
+                tool_results,
+            })
+            .await;
 
             if decision == Some(AgentTurnDecision::End) {
-                emit(AgentEvent::AgentEnd { messages: new_messages.clone() }).await;
+                emit(AgentEvent::AgentEnd {
+                    messages: new_messages.clone(),
+                })
+                .await;
                 return Ok(());
             }
 
@@ -351,7 +411,10 @@ async fn run_loop(
         break;
     }
 
-    emit(AgentEvent::AgentEnd { messages: new_messages.clone() }).await;
+    emit(AgentEvent::AgentEnd {
+        messages: new_messages.clone(),
+    })
+    .await;
     Ok(())
 }
 
@@ -363,9 +426,15 @@ async fn run_loop(
 /// are treated as intent and replaced with the delta between the committed transcript and the
 /// executable set. Otherwise a new system message is inserted before the first non-system
 /// pending message.
-pub fn declare_tool_changes(context: &AgentContext, pending_messages: Vec<AgentMessage>) -> Vec<AgentMessage> {
-    let system_index = pending_messages.iter().rposition(|m| matches!(m, AgentMessage::System(_)));
-    let pending: Option<SystemMessage> = system_index.and_then(|i| pending_messages[i].as_system().cloned());
+pub fn declare_tool_changes(
+    context: &AgentContext,
+    pending_messages: Vec<AgentMessage>,
+) -> Vec<AgentMessage> {
+    let system_index = pending_messages
+        .iter()
+        .rposition(|m| matches!(m, AgentMessage::System(_)));
+    let pending: Option<SystemMessage> =
+        system_index.and_then(|i| pending_messages[i].as_system().cloned());
     let no_changes = ToolStateChanges::default();
     let baseline: Vec<AgentMessage> = match (&pending, system_index) {
         (Some(pending), Some(index)) => {
@@ -381,7 +450,11 @@ pub fn declare_tool_changes(context: &AgentContext, pending_messages: Vec<AgentM
         .chain(baseline.iter())
         .filter_map(|m| m.as_system().cloned().map(Message::System))
         .collect();
-    let executable: Vec<pi_ai::Tool> = context.tools().iter().map(|t| to_tool_declaration(t.as_ref())).collect();
+    let executable: Vec<pi_ai::Tool> = context
+        .tools()
+        .iter()
+        .map(|t| to_tool_declaration(t.as_ref()))
+        .collect();
     let changes = get_tool_state_changes(&get_current_tools(&committed), &executable);
     let unchanged = changes.tools_added.is_empty() && changes.tools_removed.is_empty();
 
@@ -400,7 +473,11 @@ pub fn declare_tool_changes(context: &AgentContext, pending_messages: Vec<AgentM
         return pending_messages;
     }
     let update = with_tool_changes(
-        &SystemMessage { content: SystemContent::Text(String::new()), timestamp: now_ms(), ..Default::default() },
+        &SystemMessage {
+            content: SystemContent::Text(String::new()),
+            timestamp: now_ms(),
+            ..Default::default()
+        },
         &changes,
     );
     let insert_index = pending_messages
@@ -415,8 +492,16 @@ pub fn declare_tool_changes(context: &AgentContext, pending_messages: Vec<AgentM
 /// Copy a system message with its tool fields replaced by `changes`; empty lists omit the field.
 fn with_tool_changes(message: &SystemMessage, changes: &ToolStateChanges) -> SystemMessage {
     SystemMessage {
-        tools_added: if changes.tools_added.is_empty() { None } else { Some(changes.tools_added.clone()) },
-        tools_removed: if changes.tools_removed.is_empty() { None } else { Some(changes.tools_removed.clone()) },
+        tools_added: if changes.tools_added.is_empty() {
+            None
+        } else {
+            Some(changes.tools_added.clone())
+        },
+        tools_removed: if changes.tools_removed.is_empty() {
+            None
+        } else {
+            Some(changes.tools_removed.clone())
+        },
         ..message.clone()
     }
 }
@@ -450,7 +535,10 @@ async fn stream_assistant_response(
 
     let mut options = config.options.clone();
     options.api_key = resolved_api_key;
-    options.identity = merge_client_identity(&[Some(&default_agent_identity()), config.options.identity.as_ref()]);
+    options.identity = merge_client_identity(&[
+        Some(&default_agent_identity()),
+        config.options.identity.as_ref(),
+    ]);
     options.signal = Some(signal.clone());
 
     let mut response = stream_fn(config.model.clone(), llm_context, options).await?;
@@ -462,9 +550,14 @@ async fn stream_assistant_response(
     while let Some(event) = response.next_event().await {
         match event {
             AssistantMessageEvent::Start { partial } => {
-                context.messages.push(AgentMessage::Assistant(partial.clone()));
+                context
+                    .messages
+                    .push(AgentMessage::Assistant(partial.clone()));
                 partial_added = true;
-                emit(AgentEvent::MessageStart { message: AgentMessage::Assistant(partial) }).await;
+                emit(AgentEvent::MessageStart {
+                    message: AgentMessage::Assistant(partial),
+                })
+                .await;
             }
             AssistantMessageEvent::Done { .. } | AssistantMessageEvent::Error { .. } => {
                 let mut final_message = response.result().await;
@@ -503,10 +596,18 @@ async fn finish_response(
             *last = AgentMessage::Assistant(final_message.clone());
         }
     } else {
-        context.messages.push(AgentMessage::Assistant(final_message.clone()));
-        emit(AgentEvent::MessageStart { message: AgentMessage::Assistant(final_message.clone()) }).await;
+        context
+            .messages
+            .push(AgentMessage::Assistant(final_message.clone()));
+        emit(AgentEvent::MessageStart {
+            message: AgentMessage::Assistant(final_message.clone()),
+        })
+        .await;
     }
-    emit(AgentEvent::MessageEnd { message: AgentMessage::Assistant(final_message.clone()) }).await;
+    emit(AgentEvent::MessageEnd {
+        message: AgentMessage::Assistant(final_message.clone()),
+    })
+    .await;
     final_message
 }
 
@@ -537,7 +638,10 @@ async fn fail_tool_calls_from_truncated_message(
         emit_tool_result_message(&tool_result_message, emit).await;
         messages.push(tool_result_message);
     }
-    ExecutedToolCallBatch { messages, terminate: false }
+    ExecutedToolCallBatch {
+        messages,
+        terminate: false,
+    }
 }
 
 fn tool_execution_start(tool_call: &AgentToolCall) -> AgentEvent {
@@ -557,7 +661,10 @@ pub struct ToolCallHooks {
 
 impl ToolCallHooks {
     fn from_config(config: &AgentLoopConfig) -> Self {
-        Self { before_tool_call: config.before_tool_call.clone(), after_tool_call: config.after_tool_call.clone() }
+        Self {
+            before_tool_call: config.before_tool_call.clone(),
+            after_tool_call: config.after_tool_call.clone(),
+        }
     }
 }
 
@@ -579,9 +686,25 @@ async fn execute_tool_calls(
     });
     let hooks = ToolCallHooks::from_config(config);
     if config.tool_execution == Some(ToolExecutionMode::Sequential) || has_sequential_tool_call {
-        execute_tool_calls_sequential(current_context, assistant_message, &tool_calls, &hooks, signal, emit).await
+        execute_tool_calls_sequential(
+            current_context,
+            assistant_message,
+            &tool_calls,
+            &hooks,
+            signal,
+            emit,
+        )
+        .await
     } else {
-        execute_tool_calls_parallel(current_context, assistant_message, &tool_calls, &hooks, signal, emit).await
+        execute_tool_calls_parallel(
+            current_context,
+            assistant_message,
+            &tool_calls,
+            &hooks,
+            signal,
+            emit,
+        )
+        .await
     }
 }
 
@@ -609,14 +732,28 @@ async fn execute_tool_calls_sequential(
         )
         .await;
         let finalized = match preparation {
-            Preparation::Immediate { result, is_error } => {
-                AgentToolCallOutcome { tool_call: tool_call.clone(), result, is_error, duration_ms: None }
-            }
+            Preparation::Immediate { result, is_error } => AgentToolCallOutcome {
+                tool_call: tool_call.clone(),
+                result,
+                is_error,
+                duration_ms: None,
+            },
             Preparation::Prepared(prepared) => {
-                let executed =
-                    execute_prepared_tool_call(&prepared, signal, emit_tool_execution_update(tool_call, emit)).await;
-                finalize_executed_tool_call(current_context, assistant_message, prepared, executed, hooks, signal)
-                    .await
+                let executed = execute_prepared_tool_call(
+                    &prepared,
+                    signal,
+                    emit_tool_execution_update(tool_call, emit),
+                )
+                .await;
+                finalize_executed_tool_call(
+                    current_context,
+                    assistant_message,
+                    prepared,
+                    executed,
+                    hooks,
+                    signal,
+                )
+                .await
             }
         };
 
@@ -631,7 +768,10 @@ async fn execute_tool_calls_sequential(
         }
     }
 
-    ExecutedToolCallBatch { messages, terminate: should_terminate_tool_batch(&finalized_calls) }
+    ExecutedToolCallBatch {
+        messages,
+        terminate: should_terminate_tool_batch(&finalized_calls),
+    }
 }
 
 enum FinalizedEntry<'a> {
@@ -663,8 +803,12 @@ async fn execute_tool_calls_parallel(
         .await;
         match preparation {
             Preparation::Immediate { result, is_error } => {
-                let finalized =
-                    AgentToolCallOutcome { tool_call: tool_call.clone(), result, is_error, duration_ms: None };
+                let finalized = AgentToolCallOutcome {
+                    tool_call: tool_call.clone(),
+                    result,
+                    is_error,
+                    duration_ms: None,
+                };
                 emit_tool_execution_end(&finalized, emit).await;
                 entries.push(FinalizedEntry::Done(Box::new(finalized)));
                 if signal.is_cancelled() {
@@ -684,9 +828,12 @@ async fn execute_tool_calls_parallel(
                         emit_tool_execution_end(&finalized, emit).await;
                         return finalized;
                     }
-                    let executed =
-                        execute_prepared_tool_call(&prepared, signal, emit_tool_execution_update(tool_call, emit))
-                            .await;
+                    let executed = execute_prepared_tool_call(
+                        &prepared,
+                        signal,
+                        emit_tool_execution_update(tool_call, emit),
+                    )
+                    .await;
                     let finalized = finalize_executed_tool_call(
                         current_context,
                         assistant_message,
@@ -706,13 +853,14 @@ async fn execute_tool_calls_parallel(
         }
     }
 
-    let ordered_finalized_calls = futures::future::join_all(entries.into_iter().map(|entry| async move {
-        match entry {
-            FinalizedEntry::Done(finalized) => *finalized,
-            FinalizedEntry::Pending(future) => future.await,
-        }
-    }))
-    .await;
+    let ordered_finalized_calls =
+        futures::future::join_all(entries.into_iter().map(|entry| async move {
+            match entry {
+                FinalizedEntry::Done(finalized) => *finalized,
+                FinalizedEntry::Pending(future) => future.await,
+            }
+        }))
+        .await;
 
     let mut messages = Vec::new();
     for finalized in &ordered_finalized_calls {
@@ -721,7 +869,10 @@ async fn execute_tool_calls_parallel(
         messages.push(tool_result_message);
     }
 
-    ExecutedToolCallBatch { messages, terminate: should_terminate_tool_batch(&ordered_finalized_calls) }
+    ExecutedToolCallBatch {
+        messages,
+        terminate: should_terminate_tool_batch(&ordered_finalized_calls),
+    }
 }
 
 struct PreparedToolCall {
@@ -732,7 +883,10 @@ struct PreparedToolCall {
 
 enum Preparation {
     Prepared(PreparedToolCall),
-    Immediate { result: AgentToolResult, is_error: bool },
+    Immediate {
+        result: AgentToolResult,
+        is_error: bool,
+    },
 }
 
 struct ExecutedToolCallOutcome {
@@ -742,18 +896,27 @@ struct ExecutedToolCallOutcome {
 }
 
 fn should_terminate_tool_batch(finalized_calls: &[AgentToolCallOutcome]) -> bool {
-    !finalized_calls.is_empty() && finalized_calls.iter().all(|f| f.result.terminate == Some(true))
+    !finalized_calls.is_empty()
+        && finalized_calls
+            .iter()
+            .all(|f| f.result.terminate == Some(true))
 }
 
 fn prepare_tool_call_arguments(tool: &AgentToolRef, tool_call: &AgentToolCall) -> AgentToolCall {
     match tool.prepare_arguments(&tool_call.arguments) {
-        Some(arguments) if arguments != tool_call.arguments => AgentToolCall { arguments, ..tool_call.clone() },
+        Some(arguments) if arguments != tool_call.arguments => AgentToolCall {
+            arguments,
+            ..tool_call.clone()
+        },
         _ => tool_call.clone(),
     }
 }
 
 fn immediate_error(message: impl Into<String>) -> Preparation {
-    Preparation::Immediate { result: AgentToolResult::error(message), is_error: true }
+    Preparation::Immediate {
+        result: AgentToolResult::error(message),
+        is_error: true,
+    }
 }
 
 async fn prepare_tool_call(
@@ -769,7 +932,10 @@ async fn prepare_tool_call(
     };
 
     let prepared_tool_call = prepare_tool_call_arguments(tool, tool_call);
-    let mut validated_args = match pi_ai::utils::validation::validate_tool_arguments(&tool.to_tool(), &prepared_tool_call) {
+    let mut validated_args = match pi_ai::utils::validation::validate_tool_arguments(
+        &tool.to_tool(),
+        &prepared_tool_call,
+    ) {
         Ok(args) => args,
         Err(error) => return immediate_error(error.0),
     };
@@ -794,12 +960,18 @@ async fn prepare_tool_call(
         if let Some(before_result) = before_result {
             if before_result.block {
                 let mut result = AgentToolResult::error(
-                    before_result.reason.filter(|r| !r.is_empty()).unwrap_or_else(|| "Tool execution was blocked".into()),
+                    before_result
+                        .reason
+                        .filter(|r| !r.is_empty())
+                        .unwrap_or_else(|| "Tool execution was blocked".into()),
                 );
                 if before_result.terminate == Some(true) {
                     result.terminate = Some(true);
                 }
-                return Preparation::Immediate { result, is_error: true };
+                return Preparation::Immediate {
+                    result,
+                    is_error: true,
+                };
             }
             if let Some(args) = before_result.args {
                 validated_args = args;
@@ -809,7 +981,11 @@ async fn prepare_tool_call(
     if signal.is_cancelled() {
         return immediate_error("Operation aborted");
     }
-    Preparation::Prepared(PreparedToolCall { tool_call: tool_call.clone(), tool: tool.clone(), args: validated_args })
+    Preparation::Prepared(PreparedToolCall {
+        tool_call: tool_call.clone(),
+        tool: tool.clone(),
+        args: validated_args,
+    })
 }
 
 fn emit_tool_execution_update(tool_call: &AgentToolCall, emit: &AgentEventSink) -> ToolUpdateSink {
@@ -843,7 +1019,11 @@ pub struct RunToolCallOptions {
 }
 
 impl RunToolCallOptions {
-    pub fn new(tools: Vec<AgentToolRef>, assistant_message: AssistantMessage, context: AgentContext) -> Self {
+    pub fn new(
+        tools: Vec<AgentToolRef>,
+        assistant_message: AssistantMessage,
+        context: AgentContext,
+    ) -> Self {
         Self {
             tools,
             assistant_message,
@@ -862,10 +1042,15 @@ impl RunToolCallOptions {
 ///
 /// Never fails for tool failures: unknown tools, validation errors, blocked calls, and
 /// returned errors come back as `is_error: true`.
-pub async fn run_tool_call(tool_call: AgentToolCall, options: RunToolCallOptions) -> AgentToolCallOutcome {
+pub async fn run_tool_call(
+    tool_call: AgentToolCall,
+    options: RunToolCallOptions,
+) -> AgentToolCallOutcome {
     let signal = options.signal.clone().unwrap_or_default();
-    let hooks =
-        ToolCallHooks { before_tool_call: options.before_tool_call.clone(), after_tool_call: options.after_tool_call.clone() };
+    let hooks = ToolCallHooks {
+        before_tool_call: options.before_tool_call.clone(),
+        after_tool_call: options.after_tool_call.clone(),
+    };
     let preparation = prepare_tool_call(
         &options.context,
         &options.assistant_message,
@@ -876,14 +1061,27 @@ pub async fn run_tool_call(tool_call: AgentToolCall, options: RunToolCallOptions
     )
     .await;
     match preparation {
-        Preparation::Immediate { result, is_error } => {
-            AgentToolCallOutcome { tool_call, result, is_error, duration_ms: None }
-        }
+        Preparation::Immediate { result, is_error } => AgentToolCallOutcome {
+            tool_call,
+            result,
+            is_error,
+            duration_ms: None,
+        },
         Preparation::Prepared(prepared) => {
-            let on_update = options.on_update.clone().unwrap_or_else(|| Arc::new(|_| Box::pin(async {})));
+            let on_update = options
+                .on_update
+                .clone()
+                .unwrap_or_else(|| Arc::new(|_| Box::pin(async {})));
             let executed = execute_prepared_tool_call(&prepared, &signal, on_update).await;
-            finalize_executed_tool_call(&options.context, &options.assistant_message, prepared, executed, &hooks, &signal)
-                .await
+            finalize_executed_tool_call(
+                &options.context,
+                &options.assistant_message,
+                prepared,
+                executed,
+                &hooks,
+                &signal,
+            )
+            .await
         }
     }
 }
@@ -940,14 +1138,22 @@ async fn execute_prepared_tool_call(
     match outcome {
         Ok(Ok(result)) => {
             let is_error = result.is_error == Some(true);
-            ExecutedToolCallOutcome { result, is_error, duration_ms }
+            ExecutedToolCallOutcome {
+                result,
+                is_error,
+                duration_ms,
+            }
         }
-        Ok(Err(error)) => {
-            ExecutedToolCallOutcome { result: AgentToolResult::error(error.to_string()), is_error: true, duration_ms }
-        }
-        Err(panic) => {
-            ExecutedToolCallOutcome { result: AgentToolResult::error(panic_message(panic)), is_error: true, duration_ms }
-        }
+        Ok(Err(error)) => ExecutedToolCallOutcome {
+            result: AgentToolResult::error(error.to_string()),
+            is_error: true,
+            duration_ms,
+        },
+        Err(panic) => ExecutedToolCallOutcome {
+            result: AgentToolResult::error(panic_message(panic)),
+            is_error: true,
+            duration_ms,
+        },
     }
 }
 
@@ -1012,7 +1218,12 @@ async fn finalize_executed_tool_call(
         }
     }
 
-    AgentToolCallOutcome { tool_call: prepared.tool_call, result, is_error, duration_ms: Some(executed.duration_ms) }
+    AgentToolCallOutcome {
+        tool_call: prepared.tool_call,
+        result,
+        is_error,
+        duration_ms: Some(executed.duration_ms),
+    }
 }
 
 async fn emit_tool_execution_end(finalized: &AgentToolCallOutcome, emit: &AgentEventSink) {
@@ -1041,6 +1252,12 @@ fn create_tool_result_message(finalized: &AgentToolCallOutcome) -> ToolResultMes
 }
 
 async fn emit_tool_result_message(tool_result_message: &ToolResultMessage, emit: &AgentEventSink) {
-    emit(AgentEvent::MessageStart { message: AgentMessage::ToolResult(tool_result_message.clone()) }).await;
-    emit(AgentEvent::MessageEnd { message: AgentMessage::ToolResult(tool_result_message.clone()) }).await;
+    emit(AgentEvent::MessageStart {
+        message: AgentMessage::ToolResult(tool_result_message.clone()),
+    })
+    .await;
+    emit(AgentEvent::MessageEnd {
+        message: AgentMessage::ToolResult(tool_result_message.clone()),
+    })
+    .await;
 }

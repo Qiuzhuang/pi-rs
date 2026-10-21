@@ -9,10 +9,11 @@ use tokio_util::sync::CancellationToken;
 use crate::agent::{AgentListener, AgentPrepareNextTurnFn, AgentPrepareNextTurnWithContextFn};
 use crate::agent_loop::{AgentEventSink, ToolUpdateSink};
 use crate::types::{
-    AfterToolCallContext, AfterToolCallFn, AfterToolCallResult, AgentEvent, AgentLoopTurnUpdate, AgentMessage,
-    AgentRequestUpdate, AgentToolResult, AgentTurnContext, AgentTurnDecision, BeforeToolCallContext,
-    BeforeToolCallFn, BeforeToolCallResult, ConvertToLlmFn, FinishTurnFn, GetApiKeyFn, GetMessagesFn,
-    PrepareNextTurnContext, PrepareNextTurnFn, PrepareRequestContext, PrepareRequestFn, TransformContextFn,
+    AfterToolCallContext, AfterToolCallFn, AfterToolCallResult, AgentEvent, AgentLoopTurnUpdate,
+    AgentMessage, AgentRequestUpdate, AgentToolResult, AgentTurnContext, AgentTurnDecision,
+    BeforeToolCallContext, BeforeToolCallFn, BeforeToolCallResult, ConvertToLlmFn, FinishTurnFn,
+    GetApiKeyFn, GetMessagesFn, PrepareNextTurnContext, PrepareNextTurnFn, PrepareRequestContext,
+    PrepareRequestFn, TransformContextFn,
 };
 
 pub fn convert_to_llm<F, Fut>(f: F) -> ConvertToLlmFn

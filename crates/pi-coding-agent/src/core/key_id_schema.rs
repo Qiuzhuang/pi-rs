@@ -6,7 +6,7 @@ use std::sync::LazyLock;
 pub static KEY_ID_SCHEMA: LazyLock<Value> =
     LazyLock::new(|| todo!("port core/key-id-schema.ts:KeyIdSchema"));
 
-pub fn keybinding_value_schema(options: Option<Value>) {
+pub fn keybinding_value_schema(options: Option<Value>) -> Value {
     todo!("port core/key-id-schema.ts:keybindingValueSchema")
 }
 

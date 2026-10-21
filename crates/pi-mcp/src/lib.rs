@@ -22,28 +22,30 @@ pub mod transports;
 
 pub use abort::{AbortController, AbortSignal};
 pub use auth_provider::{
-    AuthProvider, BodyStream, FnAuthProvider, HttpRequest, HttpResponse, HttpResponseHead, McpFetch,
-    UnauthorizedContext, default_fetch, reqwest_fetch_with,
+    AuthProvider, BodyStream, FnAuthProvider, HttpRequest, HttpResponse, HttpResponseHead,
+    McpFetch, UnauthorizedContext, default_fetch, reqwest_fetch_with,
 };
 pub use client::{
-    ConnectionState, McpClient, McpClientOptions, McpRequestOptions, ProgressListener, RequestHandler,
-    RequestHandlerContext, Roots,
+    ConnectionState, McpClient, McpClientOptions, McpRequestOptions, ProgressListener,
+    RequestHandler, RequestHandlerContext, Roots,
 };
 pub use error::{Error, McpError, Result};
 pub use protocol::content::{
-    AudioContent, BlobResourceContents, CallToolResult, ContentAnnotations, ContentBlock, EmbeddedResourceContent,
-    ImageContent, LlmContent, ResourceContents, ResourceLinkContent, TextContent, TextResourceContents, to_llm_content,
+    AudioContent, BlobResourceContents, CallToolResult, ContentAnnotations, ContentBlock,
+    EmbeddedResourceContent, ImageContent, LlmContent, ResourceContents, ResourceLinkContent,
+    TextContent, TextResourceContents, to_llm_content,
 };
 pub use protocol::jsonrpc::{
-    JSON_RPC_ERROR_CODES, JsonRpcErrorCodes, JsonRpcErrorObject, JsonRpcId, JsonRpcMessage, JsonRpcNotification,
-    JsonRpcRequest, JsonRpcResponse, is_json_rpc_notification, is_json_rpc_request, is_json_rpc_response,
-    parse_json_rpc_message,
+    JSON_RPC_ERROR_CODES, JsonRpcErrorCodes, JsonRpcErrorObject, JsonRpcId, JsonRpcMessage,
+    JsonRpcNotification, JsonRpcRequest, JsonRpcResponse, is_json_rpc_notification,
+    is_json_rpc_request, is_json_rpc_response, parse_json_rpc_message,
 };
 pub use protocol::types::{
-    CancelledNotification, ClientCapabilities, GetPromptResult, Implementation, InitializeParams, InitializeResult,
-    LATEST_PROTOCOL_VERSION, ListChangedCapability, ListPromptsResult, ListResourceTemplatesResult, ListResourcesResult,
-    ListToolsResult, ProgressNotification, Prompt, PromptArgument, PromptMessage, ReadResourceResult, Resource,
-    ResourceTemplate, ResourcesCapability, Root, SUPPORTED_PROTOCOL_VERSIONS, ServerCapabilities, Tool,
+    CancelledNotification, ClientCapabilities, GetPromptResult, Implementation, InitializeParams,
+    InitializeResult, LATEST_PROTOCOL_VERSION, ListChangedCapability, ListPromptsResult,
+    ListResourceTemplatesResult, ListResourcesResult, ListToolsResult, ProgressNotification,
+    Prompt, PromptArgument, PromptMessage, ReadResourceResult, Resource, ResourceTemplate,
+    ResourcesCapability, Root, SUPPORTED_PROTOCOL_VERSIONS, ServerCapabilities, Tool,
     ToolAnnotations, ToolExecution,
 };
 pub use transports::stdio::{StderrMode, StdioTransport, StdioTransportOptions};
@@ -52,6 +54,6 @@ pub use transports::streamable_http::{
     StreamableHttpTransportOptions, consume_sse_stream,
 };
 pub use transports::{
-    Disposer, McpTransport, McpTransportCloseListener, McpTransportErrorListener, McpTransportMessageListener,
-    McpTransportSendOptions, TransportEvents,
+    Disposer, McpTransport, McpTransportCloseListener, McpTransportErrorListener,
+    McpTransportMessageListener, McpTransportSendOptions, TransportEvents,
 };

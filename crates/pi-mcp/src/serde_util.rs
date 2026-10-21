@@ -6,7 +6,9 @@ use serde_json::Value;
 
 /// Optional field that tolerates values of the wrong type (they become `None`), since the
 /// TypeScript client passes server data through without validating optional fields.
-pub fn lenient<'de, D: Deserializer<'de>, T: DeserializeOwned>(deserializer: D) -> Result<Option<T>, D::Error> {
+pub fn lenient<'de, D: Deserializer<'de>, T: DeserializeOwned>(
+    deserializer: D,
+) -> Result<Option<T>, D::Error> {
     let value = Value::deserialize(deserializer)?;
     Ok(serde_json::from_value(value).ok())
 }
@@ -38,7 +40,9 @@ pub mod opt_number {
         }
     }
 
-    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<f64>, D::Error> {
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<f64>, D::Error> {
         super::lenient(deserializer)
     }
 }

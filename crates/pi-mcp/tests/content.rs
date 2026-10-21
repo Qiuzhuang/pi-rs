@@ -22,11 +22,17 @@ fn passes_text_and_images_through_and_replaces_other_blocks_with_text() {
         to_llm_content(&blocks, None),
         vec![
             text("hello"),
-            LlmContent::Image { data: "aW1n".into(), mime_type: "image/png".into() },
+            LlmContent::Image {
+                data: "aW1n".into(),
+                mime_type: "image/png".into()
+            },
             text("[audio audio/wav omitted]"),
             text("a.txt: file:///a.txt"),
             text("inline"),
-            LlmContent::Image { data: "Yw==".into(), mime_type: "image/png".into() },
+            LlmContent::Image {
+                data: "Yw==".into(),
+                mime_type: "image/png".into()
+            },
             text("[binary resource file:///d.bin (unknown type) omitted]"),
             text("[unsupported MCP content hologram]"),
         ]
@@ -36,9 +42,16 @@ fn passes_text_and_images_through_and_replaces_other_blocks_with_text() {
         serde_json::to_value(&blocks[0]).unwrap(),
         json!({ "type": "text", "text": "hello", "annotations": { "priority": 1 } })
     );
-    assert_eq!(serde_json::to_value(&blocks[7]).unwrap(), json!({ "type": "hologram" }));
     assert_eq!(
-        serde_json::to_value(LlmContent::Image { data: "x".into(), mime_type: "image/png".into() }).unwrap(),
+        serde_json::to_value(&blocks[7]).unwrap(),
+        json!({ "type": "hologram" })
+    );
+    assert_eq!(
+        serde_json::to_value(LlmContent::Image {
+            data: "x".into(),
+            mime_type: "image/png".into()
+        })
+        .unwrap(),
         json!({ "type": "image", "data": "x", "mimeType": "image/png" })
     );
 }
@@ -46,12 +59,25 @@ fn passes_text_and_images_through_and_replaces_other_blocks_with_text() {
 #[test]
 fn falls_back_to_the_structured_content_as_json_when_there_are_no_blocks() {
     // #10416: structured content may be any JSON value.
-    assert_eq!(to_llm_content(&[], Some(&json!([1, 2]))), vec![text("[\n  1,\n  2\n]")]);
+    assert_eq!(
+        to_llm_content(&[], Some(&json!([1, 2]))),
+        vec![text("[\n  1,\n  2\n]")]
+    );
     assert_eq!(to_llm_content(&[], Some(&json!(null))), vec![text("null")]);
-    assert_eq!(to_llm_content(&[], Some(&json!({ "n": 1 }))), vec![text("{\n  \"n\": 1\n}")]);
-    assert_eq!(to_llm_content(&[ContentBlock::text("n=1")], Some(&json!({ "n": 1 }))), vec![text("n=1")]);
-    let result: CallToolResult = serde_json::from_value(json!({ "content": [], "structuredContent": null })).unwrap();
+    assert_eq!(
+        to_llm_content(&[], Some(&json!({ "n": 1 }))),
+        vec![text("{\n  \"n\": 1\n}")]
+    );
+    assert_eq!(
+        to_llm_content(&[ContentBlock::text("n=1")], Some(&json!({ "n": 1 }))),
+        vec![text("n=1")]
+    );
+    let result: CallToolResult =
+        serde_json::from_value(json!({ "content": [], "structuredContent": null })).unwrap();
     assert_eq!(result.structured_content, Some(json!(null)));
     assert_eq!(result.to_llm_content(), vec![text("null")]);
-    assert_eq!(serde_json::to_value(&result).unwrap(), json!({ "content": [], "structuredContent": null }));
+    assert_eq!(
+        serde_json::to_value(&result).unwrap(),
+        json!({ "content": [], "structuredContent": null })
+    );
 }

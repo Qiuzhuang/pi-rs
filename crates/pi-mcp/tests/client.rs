@@ -7,12 +7,14 @@ use futures::future::BoxFuture;
 use parking_lot::Mutex;
 use pi_mcp::testing::{InMemoryTransport, create_in_memory_transport_pair};
 use pi_mcp::{
-    AbortController, ConnectionState, Error, JsonRpcMessage, JsonRpcRequest, LATEST_PROTOCOL_VERSION, McpClient,
-    McpClientOptions, McpError, McpRequestOptions, McpTransport, McpTransportSendOptions, ProgressNotification, Root,
+    AbortController, ConnectionState, Error, JsonRpcMessage, JsonRpcRequest,
+    LATEST_PROTOCOL_VERSION, McpClient, McpClientOptions, McpError, McpRequestOptions,
+    McpTransport, McpTransportSendOptions, ProgressNotification, Root,
 };
 use serde_json::{Map, Value, json};
 
-type ServerHandler = Arc<dyn Fn(JsonRpcRequest) -> BoxFuture<'static, Result<Value, McpError>> + Send + Sync>;
+type ServerHandler =
+    Arc<dyn Fn(JsonRpcRequest) -> BoxFuture<'static, Result<Value, McpError>> + Send + Sync>;
 
 #[derive(Clone)]
 struct TestServer {
@@ -25,9 +27,14 @@ impl TestServer {
     fn set_handler(
         &self,
         method: &str,
-        handler: impl Fn(JsonRpcRequest) -> BoxFuture<'static, Result<Value, McpError>> + Send + Sync + 'static,
+        handler: impl Fn(JsonRpcRequest) -> BoxFuture<'static, Result<Value, McpError>>
+        + Send
+        + Sync
+        + 'static,
     ) {
-        self.handlers.lock().insert(method.to_string(), Arc::new(handler));
+        self.handlers
+            .lock()
+            .insert(method.to_string(), Arc::new(handler));
     }
 
     fn set_result(&self, method: &str, result: Value) {
@@ -43,7 +50,10 @@ impl TestServer {
 
     async fn send(&self, message: Value) {
         let message: JsonRpcMessage = serde_json::from_value(message).unwrap();
-        self.transport.send(message, McpTransportSendOptions::default()).await.unwrap();
+        self.transport
+            .send(message, McpTransportSendOptions::default())
+            .await
+            .unwrap();
     }
 }
 
@@ -60,21 +70,31 @@ async fn create_server() -> (InMemoryTransport, TestServer) {
     };
     let listener = server.clone();
     let _ = server_transport.on_message(move |message| {
-        listener.messages.lock().push(serde_json::to_value(&message).unwrap());
-        let JsonRpcMessage::Request(request) = message else { return };
+        listener
+            .messages
+            .lock()
+            .push(serde_json::to_value(&message).unwrap());
+        let JsonRpcMessage::Request(request) = message else {
+            return;
+        };
         let handler = listener.handlers.lock().get(&request.method).cloned();
         let transport = listener.transport.clone();
         tokio::spawn(async move {
             let id = request.id.clone();
             let outcome = match handler {
                 Some(handler) => handler(request).await,
-                None => Err(McpError::new(-32601, format!("Method not found: {}", request.method))),
+                None => Err(McpError::new(
+                    -32601,
+                    format!("Method not found: {}", request.method),
+                )),
             };
             let response = match outcome {
                 Ok(result) => JsonRpcMessage::result(id, result),
                 Err(error) => JsonRpcMessage::error(id, error.code, error.message, error.data),
             };
-            let _ = transport.send(response, McpTransportSendOptions::default()).await;
+            let _ = transport
+                .send(response, McpTransportSendOptions::default())
+                .await;
         });
     });
     server_transport.start().await.unwrap();
@@ -112,9 +132,18 @@ async fn tick() {
 async fn initializes_the_connection_before_exposing_server_information() {
     let (client, server) = connect().await;
     assert_eq!(client.connection_state(), ConnectionState::Connected);
-    assert_eq!(client.protocol_version().as_deref(), Some(LATEST_PROTOCOL_VERSION));
-    assert_eq!(serde_json::to_value(client.server_info()).unwrap(), json!({ "name": "test-server", "version": "1.0.0" }));
-    assert_eq!(serde_json::to_value(client.server_capabilities()).unwrap(), json!({ "tools": { "listChanged": true } }));
+    assert_eq!(
+        client.protocol_version().as_deref(),
+        Some(LATEST_PROTOCOL_VERSION)
+    );
+    assert_eq!(
+        serde_json::to_value(client.server_info()).unwrap(),
+        json!({ "name": "test-server", "version": "1.0.0" })
+    );
+    assert_eq!(
+        serde_json::to_value(client.server_capabilities()).unwrap(),
+        json!({ "tools": { "listChanged": true } })
+    );
     assert_eq!(client.instructions().as_deref(), Some("Use test tools."));
     tick().await;
     assert_eq!(
@@ -161,7 +190,10 @@ async fn paginates_tools_and_preserves_protocol_tool_definitions() {
             })
         })
     });
-    let tools = client.list_tools(McpRequestOptions::default()).await.unwrap();
+    let tools = client
+        .list_tools(McpRequestOptions::default())
+        .await
+        .unwrap();
     assert_eq!(
         serde_json::to_value(&tools).unwrap(),
         json!([
@@ -182,10 +214,19 @@ async fn paginates_tools_and_preserves_protocol_tool_definitions() {
 async fn rejects_duplicate_cursors() {
     let (client, server) = connect().await;
     server.set_result("tools/list", json!({ "tools": [], "nextCursor": "same" }));
-    let error = client.list_tools(McpRequestOptions::default()).await.unwrap_err();
-    assert_eq!(error.to_string(), "MCP tools/list returned duplicate cursor: same");
+    let error = client
+        .list_tools(McpRequestOptions::default())
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "MCP tools/list returned duplicate cursor: same"
+    );
     server.set_result("tools/list", json!({ "tools": [], "nextCursor": 5 }));
-    let error = client.list_tools(McpRequestOptions::default()).await.unwrap_err();
+    let error = client
+        .list_tools(McpRequestOptions::default())
+        .await
+        .unwrap_err();
     assert_eq!(error.to_string(), "Invalid MCP tools/list cursor");
     client.close().await.unwrap();
 }
@@ -208,7 +249,12 @@ async fn lists_and_reads_resources() {
         json!({ "resourceTemplates": [{ "uriTemplate": "repo://{owner}/{repo}", "name": "repo" }] }),
     );
     server.set_handler("resources/read", |request| {
-        let uri = request.params.as_ref().and_then(|params| params.get("uri")).cloned().unwrap();
+        let uri = request
+            .params
+            .as_ref()
+            .and_then(|params| params.get("uri"))
+            .cloned()
+            .unwrap();
         Box::pin(async move { Ok(json!({ "contents": [{ "uri": uri, "text": "hello" }] })) })
     });
     let options = McpRequestOptions::default;
@@ -230,7 +276,13 @@ async fn lists_and_reads_resources() {
         json!({ "resources": [{ "uri": "file:///a", "name": "a", "mimeType": "text/plain" }], "nextCursor": "2" })
     );
     assert_eq!(
-        serde_json::to_value(client.list_resources_page(Some("2".into()), options()).await.unwrap()).unwrap(),
+        serde_json::to_value(
+            client
+                .list_resources_page(Some("2".into()), options())
+                .await
+                .unwrap()
+        )
+        .unwrap(),
         json!({ "resources": [{ "uri": "file:///b", "name": "file:///b" }] })
     );
     assert_eq!(
@@ -238,12 +290,27 @@ async fn lists_and_reads_resources() {
         json!({ "contents": [{ "uri": "file:///a", "text": "hello" }] })
     );
 
-    server.set_result("resources/read", json!({ "contents": [{ "uri": "file:///a" }] }));
-    let error = client.read_resource("file:///a", options()).await.unwrap_err();
-    assert_eq!(error.to_string(), "Invalid contents in MCP resources/read result");
-    server.set_result("resources/list", json!({ "resources": [{ "name": "no uri" }] }));
+    server.set_result(
+        "resources/read",
+        json!({ "contents": [{ "uri": "file:///a" }] }),
+    );
+    let error = client
+        .read_resource("file:///a", options())
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "Invalid contents in MCP resources/read result"
+    );
+    server.set_result(
+        "resources/list",
+        json!({ "resources": [{ "name": "no uri" }] }),
+    );
     let error = client.list_resources(options()).await.unwrap_err();
-    assert_eq!(error.to_string(), "Invalid entry in MCP resources/list result");
+    assert_eq!(
+        error.to_string(),
+        "Invalid entry in MCP resources/list result"
+    );
     client.close().await.unwrap();
 }
 
@@ -262,11 +329,23 @@ async fn lists_and_gets_prompts() {
             }))
         })
     });
-    let prompts = client.list_prompts(McpRequestOptions::default()).await.unwrap();
+    let prompts = client
+        .list_prompts(McpRequestOptions::default())
+        .await
+        .unwrap();
     assert_eq!(prompts[0].name, "review");
-    assert_eq!(prompts[0].arguments.as_ref().unwrap()[0].required, Some(true));
-    let prompt =
-        client.get_prompt("review", args(json!({ "diff": "+x" })), McpRequestOptions::default()).await.unwrap();
+    assert_eq!(
+        prompts[0].arguments.as_ref().unwrap()[0].required,
+        Some(true)
+    );
+    let prompt = client
+        .get_prompt(
+            "review",
+            args(json!({ "diff": "+x" })),
+            McpRequestOptions::default(),
+        )
+        .await
+        .unwrap();
     assert_eq!(prompt.messages[0].content, pi_mcp::ContentBlock::text("+x"));
     client.close().await.unwrap();
 }
@@ -278,7 +357,11 @@ async fn returns_structured_tool_content_and_surfaces_json_rpc_errors() {
         let params = request.params.clone().unwrap();
         Box::pin(async move {
             if params["name"] == "fail" {
-                return Err(McpError::with_data(1234, "tool failed", Some(json!({ "retryable": false }))));
+                return Err(McpError::with_data(
+                    1234,
+                    "tool failed",
+                    Some(json!({ "retryable": false })),
+                ));
             }
             Ok(json!({
                 "content": [{ "type": "text", "text": "ok" }],
@@ -286,20 +369,36 @@ async fn returns_structured_tool_content_and_surfaces_json_rpc_errors() {
             }))
         })
     });
-    let result = client.call_tool("count", args(json!({ "count": 3 })), McpRequestOptions::default()).await.unwrap();
+    let result = client
+        .call_tool(
+            "count",
+            args(json!({ "count": 3 })),
+            McpRequestOptions::default(),
+        )
+        .await
+        .unwrap();
     assert_eq!(
         serde_json::to_value(&result).unwrap(),
         json!({ "content": [{ "type": "text", "text": "ok" }], "structuredContent": { "count": 3 } })
     );
-    let error = client.call_tool("fail", None, McpRequestOptions::default()).await.unwrap_err();
+    let error = client
+        .call_tool("fail", None, McpRequestOptions::default())
+        .await
+        .unwrap_err();
     assert_eq!(error.name(), "McpError");
-    let Error::Rpc(error) = error else { panic!("expected an McpError") };
+    let Error::Rpc(error) = error else {
+        panic!("expected an McpError")
+    };
     assert_eq!(error.code, 1234);
     assert_eq!(error.message, "tool failed");
     assert_eq!(error.data, Some(json!({ "retryable": false })));
     // Without arguments, `tools/call` carries only the name.
     tick().await;
-    let calls: Vec<Value> = server.messages().into_iter().filter(|m| m["method"] == "tools/call").collect();
+    let calls: Vec<Value> = server
+        .messages()
+        .into_iter()
+        .filter(|m| m["method"] == "tools/call")
+        .collect();
     assert_eq!(calls[1]["params"], json!({ "name": "fail" }));
     client.close().await.unwrap();
 }
@@ -329,11 +428,23 @@ async fn renews_the_timeout_on_progress() {
     });
     let progress: Arc<Mutex<Vec<ProgressNotification>>> = Arc::default();
     let seen = progress.clone();
-    let options = McpRequestOptions::default().timeout_ms(50).on_progress(move |update| seen.lock().push(update));
-    let result = client.call_tool("slow", Some(Map::new()), options).await.unwrap();
-    assert_eq!(serde_json::to_value(&result).unwrap(), json!({ "content": [{ "type": "text", "text": "done" }] }));
+    let options = McpRequestOptions::default()
+        .timeout_ms(50)
+        .on_progress(move |update| seen.lock().push(update));
+    let result = client
+        .call_tool("slow", Some(Map::new()), options)
+        .await
+        .unwrap();
     assert_eq!(
-        progress.lock().iter().map(|p| serde_json::to_value(p).unwrap()).collect::<Vec<_>>(),
+        serde_json::to_value(&result).unwrap(),
+        json!({ "content": [{ "type": "text", "text": "done" }] })
+    );
+    assert_eq!(
+        progress
+            .lock()
+            .iter()
+            .map(|p| serde_json::to_value(p).unwrap())
+            .collect::<Vec<_>>(),
         vec![json!({ "progressToken": 2, "progress": 1, "total": 2 })]
     );
     client.close().await.unwrap();
@@ -344,7 +455,11 @@ async fn cancels_aborted_and_timed_out_requests() {
     let (client, server) = connect().await;
     server.set_handler("tools/call", |_| never());
     let controller = AbortController::new();
-    let aborted = client.call_tool("wait", Some(Map::new()), McpRequestOptions::default().signal(controller.signal()));
+    let aborted = client.call_tool(
+        "wait",
+        Some(Map::new()),
+        McpRequestOptions::default().signal(controller.signal()),
+    );
     controller.abort_with("stop");
     let error = aborted.await.unwrap_err();
     assert!(matches!(error, Error::Aborted(_)), "{error:?}");
@@ -356,7 +471,14 @@ async fn cancels_aborted_and_timed_out_requests() {
         "params": { "requestId": 2, "reason": "stop" },
     })));
 
-    let error = client.call_tool("wait", Some(Map::new()), McpRequestOptions::default().timeout_ms(5)).await.unwrap_err();
+    let error = client
+        .call_tool(
+            "wait",
+            Some(Map::new()),
+            McpRequestOptions::default().timeout_ms(5),
+        )
+        .await
+        .unwrap_err();
     assert!(matches!(error, Error::Timeout { timeout_ms: 5 }));
     assert_eq!(error.to_string(), "MCP request timed out after 5ms");
     client.close().await.unwrap();
@@ -369,13 +491,19 @@ async fn dropping_a_request_future_cancels_it() {
     let call = client.call_tool("wait", None, McpRequestOptions::default());
     drop(call);
     tick().await;
-    let cancelled: Vec<Value> =
-        server.messages().into_iter().filter(|m| m["method"] == "notifications/cancelled").collect();
-    assert_eq!(cancelled, vec![json!({
-        "jsonrpc": "2.0",
-        "method": "notifications/cancelled",
-        "params": { "requestId": 2, "reason": "Request cancelled" },
-    })]);
+    let cancelled: Vec<Value> = server
+        .messages()
+        .into_iter()
+        .filter(|m| m["method"] == "notifications/cancelled")
+        .collect();
+    assert_eq!(
+        cancelled,
+        vec![json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/cancelled",
+            "params": { "requestId": 2, "reason": "Request cancelled" },
+        })]
+    );
     client.close().await.unwrap();
 }
 
@@ -400,7 +528,10 @@ async fn reports_transport_errors_without_failing_pending_requests() {
     tick().await;
     transport.emit_error(Error::other("stray log line"));
     respond.send(()).unwrap();
-    assert_eq!(serde_json::to_value(call.await.unwrap()).unwrap(), json!({ "content": [] }));
+    assert_eq!(
+        serde_json::to_value(call.await.unwrap()).unwrap(),
+        json!({ "content": [] })
+    );
     assert_eq!(*errors.lock(), vec!["stray log line".to_string()]);
     client.close().await.unwrap();
 }
@@ -431,23 +562,38 @@ async fn accepts_servers_that_answer_with_an_older_protocol_version() {
 #[tokio::test]
 async fn rejects_invalid_initialize_results_and_second_connects() {
     let (transport, server) = create_server().await;
-    server.set_result("initialize", json!({ "protocolVersion": "2025-06-18", "capabilities": {} }));
+    server.set_result(
+        "initialize",
+        json!({ "protocolVersion": "2025-06-18", "capabilities": {} }),
+    );
     let client = McpClient::new(McpClientOptions::new("test-client", "1.0.0"));
     let error = client.connect(Arc::new(transport)).await.unwrap_err();
     assert_eq!(error.to_string(), "Invalid MCP initialize result");
     let (transport, _server) = create_server().await;
     let error = client.connect(Arc::new(transport)).await.unwrap_err();
-    assert_eq!(error.to_string(), "Cannot connect MCP client in closed state");
+    assert_eq!(
+        error.to_string(),
+        "Cannot connect MCP client in closed state"
+    );
 }
 
 #[tokio::test]
 async fn defaults_missing_tool_result_content_to_an_empty_list() {
     let (client, server) = connect().await;
     server.set_result("tools/call", json!({ "structuredContent": { "ok": true } }));
-    let result = client.call_tool("structured", None, McpRequestOptions::default()).await.unwrap();
-    assert_eq!(serde_json::to_value(&result).unwrap(), json!({ "content": [], "structuredContent": { "ok": true } }));
+    let result = client
+        .call_tool("structured", None, McpRequestOptions::default())
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(&result).unwrap(),
+        json!({ "content": [], "structuredContent": { "ok": true } })
+    );
     server.set_result("tools/call", json!({ "content": "not a list" }));
-    let error = client.call_tool("broken", None, McpRequestOptions::default()).await.unwrap_err();
+    let error = client
+        .call_tool("broken", None, McpRequestOptions::default())
+        .await
+        .unwrap_err();
     assert_eq!(error.to_string(), "Invalid MCP tools/call result");
     client.close().await.unwrap();
 }
@@ -456,9 +602,21 @@ async fn defaults_missing_tool_result_content_to_an_empty_list() {
 #[tokio::test]
 async fn accepts_structured_content_that_is_not_an_object() {
     let (client, server) = connect().await;
-    for structured in [json!([{ "id": 1 }, { "id": 2 }]), json!(null), json!("text"), json!(3), json!(false)] {
-        server.set_result("tools/call", json!({ "content": [], "structuredContent": structured }));
-        let result = client.call_tool("structured", None, McpRequestOptions::default()).await.unwrap();
+    for structured in [
+        json!([{ "id": 1 }, { "id": 2 }]),
+        json!(null),
+        json!("text"),
+        json!(3),
+        json!(false),
+    ] {
+        server.set_result(
+            "tools/call",
+            json!({ "content": [], "structuredContent": structured }),
+        );
+        let result = client
+            .call_tool("structured", None, McpRequestOptions::default())
+            .await
+            .unwrap();
         assert_eq!(result.structured_content, Some(structured.clone()));
         assert_eq!(
             serde_json::to_value(&result).unwrap(),
@@ -472,11 +630,17 @@ async fn accepts_structured_content_that_is_not_an_object() {
 async fn does_not_send_notifications_cancelled_for_a_timed_out_initialize() {
     let (transport, server) = create_server().await;
     server.set_handler("initialize", |_| never());
-    let client = McpClient::new(McpClientOptions::new("test-client", "1.0.0").request_timeout_ms(5));
+    let client =
+        McpClient::new(McpClientOptions::new("test-client", "1.0.0").request_timeout_ms(5));
     let error = client.connect(Arc::new(transport)).await.unwrap_err();
     assert!(matches!(error, Error::Timeout { .. }), "{error:?}");
     tick().await;
-    assert!(!server.messages().iter().any(|message| message["method"] == "notifications/cancelled"));
+    assert!(
+        !server
+            .messages()
+            .iter()
+            .any(|message| message["method"] == "notifications/cancelled")
+    );
 }
 
 #[tokio::test]
@@ -496,26 +660,44 @@ async fn notifies_close_listeners_once_when_the_transport_drops() {
     assert_eq!(client.connection_state(), ConnectionState::Closed);
     client.close().await.unwrap();
     assert_eq!(closed.load(Ordering::SeqCst), 1);
-    let error = client.call_tool("late", None, McpRequestOptions::default()).await.unwrap_err();
+    let error = client
+        .call_tool("late", None, McpRequestOptions::default())
+        .await
+        .unwrap_err();
     assert_eq!(error.to_string(), "MCP client is closed");
 }
 
 #[tokio::test]
 async fn answers_roots_list_and_dispatches_notifications() {
     let (transport, server) = create_server().await;
-    let client = McpClient::new(
-        McpClientOptions::new("test-client", "1.0.0").roots(vec![Root::new("file:///workspace", Some("workspace".into()))]),
-    );
+    let client =
+        McpClient::new(
+            McpClientOptions::new("test-client", "1.0.0").roots(vec![Root::new(
+                "file:///workspace",
+                Some("workspace".into()),
+            )]),
+        );
     client.connect(Arc::new(transport)).await.unwrap();
     let changed: Arc<Mutex<Vec<Option<Value>>>> = Arc::default();
     let seen = changed.clone();
-    let _ = client.on_notification("notifications/tools/list_changed", move |params| seen.lock().push(params));
-    server.send(json!({ "jsonrpc": "2.0", "id": "roots", "method": "roots/list" })).await;
-    server.send(json!({ "jsonrpc": "2.0", "id": "unknown", "method": "sampling/createMessage" })).await;
-    server.send(json!({ "jsonrpc": "2.0", "method": "notifications/tools/list_changed" })).await;
+    let _ = client.on_notification("notifications/tools/list_changed", move |params| {
+        seen.lock().push(params)
+    });
+    server
+        .send(json!({ "jsonrpc": "2.0", "id": "roots", "method": "roots/list" }))
+        .await;
+    server
+        .send(json!({ "jsonrpc": "2.0", "id": "unknown", "method": "sampling/createMessage" }))
+        .await;
+    server
+        .send(json!({ "jsonrpc": "2.0", "method": "notifications/tools/list_changed" }))
+        .await;
     tick().await;
     let messages = server.messages();
-    assert_eq!(messages[0]["params"]["capabilities"], json!({ "roots": {} }));
+    assert_eq!(
+        messages[0]["params"]["capabilities"],
+        json!({ "roots": {} })
+    );
     assert!(messages.contains(&json!({
         "jsonrpc": "2.0",
         "id": "roots",
@@ -547,7 +729,9 @@ async fn aborts_server_requests_the_server_cancels() {
             Err(Error::other("aborted"))
         })
     });
-    server.send(json!({ "jsonrpc": "2.0", "id": 7, "method": "elicitation/create" })).await;
+    server
+        .send(json!({ "jsonrpc": "2.0", "id": 7, "method": "elicitation/create" }))
+        .await;
     tick().await;
     server
         .send(json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": { "requestId": 7, "reason": "user" } }))

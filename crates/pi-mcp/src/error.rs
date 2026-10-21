@@ -15,11 +15,19 @@ pub struct McpError {
 
 impl McpError {
     pub fn new(code: i64, message: impl Into<String>) -> Self {
-        Self { code, message: message.into(), data: None }
+        Self {
+            code,
+            message: message.into(),
+            data: None,
+        }
     }
 
     pub fn with_data(code: i64, message: impl Into<String>, data: Option<Value>) -> Self {
-        Self { code, message: message.into(), data }
+        Self {
+            code,
+            message: message.into(),
+            data,
+        }
     }
 }
 
@@ -47,10 +55,17 @@ pub enum Error {
     Aborted(String),
     /// `McpHttpError`: an HTTP request to the MCP server failed.
     #[error("{message}")]
-    Http { status: u16, message: String, body: String },
+    Http {
+        status: u16,
+        message: String,
+        body: String,
+    },
     /// `McpAuthRequiredError`: the server answered 401.
     #[error("MCP server requires authentication")]
-    AuthRequired { body: String, www_authenticate: Option<String> },
+    AuthRequired {
+        body: String,
+        www_authenticate: Option<String>,
+    },
     /// `McpSessionExpiredError`: the server answered 404 for an established session.
     #[error("MCP session expired")]
     SessionExpired { body: String },
@@ -65,7 +80,10 @@ pub enum Error {
     OAuth(OAuthError),
     /// `OAuthIssuerMismatchError`.
     #[error("OAuth issuer mismatch: expected {}, received {}", format_issuer(.expected), format_issuer(.received))]
-    OAuthIssuerMismatch { expected: Option<String>, received: Option<String> },
+    OAuthIssuerMismatch {
+        expected: Option<String>,
+        received: Option<String>,
+    },
     /// `OAuthInsecureEndpointError`.
     #[error("Refusing to send OAuth credentials to non-HTTPS endpoint {endpoint}")]
     OAuthInsecureEndpoint { endpoint: String },
@@ -139,7 +157,9 @@ impl Error {
     /// Response body of `McpHttpError` and its subclasses.
     pub fn http_body(&self) -> Option<&str> {
         match self {
-            Error::Http { body, .. } | Error::AuthRequired { body, .. } | Error::SessionExpired { body } => Some(body),
+            Error::Http { body, .. }
+            | Error::AuthRequired { body, .. }
+            | Error::SessionExpired { body } => Some(body),
             _ => None,
         }
     }
@@ -188,5 +208,6 @@ pub(crate) fn parse_url(input: &str) -> Result<url::Url> {
 
 /// Resolve like `new URL(input, base)`.
 pub(crate) fn join_url(base: &url::Url, input: &str) -> Result<url::Url> {
-    base.join(input).map_err(|_| Error::Type(format!("Invalid URL: {input}")))
+    base.join(input)
+        .map_err(|_| Error::Type(format!("Invalid URL: {input}")))
 }

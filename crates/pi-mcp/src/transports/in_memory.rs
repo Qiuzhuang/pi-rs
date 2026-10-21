@@ -61,7 +61,10 @@ impl InMemoryTransport {
         self.inner.events.emit_error(error);
     }
 
-    pub fn on_message(&self, listener: impl Fn(JsonRpcMessage) + Send + Sync + 'static) -> super::Disposer {
+    pub fn on_message(
+        &self,
+        listener: impl Fn(JsonRpcMessage) + Send + Sync + 'static,
+    ) -> super::Disposer {
         self.inner.events.on_message(listener)
     }
 }
@@ -102,14 +105,23 @@ impl McpTransport for InMemoryTransport {
         Box::pin(async move { result })
     }
 
-    fn send(&self, message: JsonRpcMessage, _options: McpTransportSendOptions) -> BoxFuture<'static, Result<()>> {
+    fn send(
+        &self,
+        message: JsonRpcMessage,
+        _options: McpTransportSendOptions,
+    ) -> BoxFuture<'static, Result<()>> {
         let result = (|| {
-            if !self.inner.started.load(Ordering::SeqCst) || self.inner.closed.load(Ordering::SeqCst) {
+            if !self.inner.started.load(Ordering::SeqCst)
+                || self.inner.closed.load(Ordering::SeqCst)
+            {
                 return Err(Error::connection_closed());
             }
             let peer = self.inner.peer.lock().as_ref().and_then(Weak::upgrade);
-            let not_connected = || Error::ConnectionClosed("In-memory MCP peer is not connected".to_string());
-            let Some(peer) = peer else { return Err(not_connected()) };
+            let not_connected =
+                || Error::ConnectionClosed("In-memory MCP peer is not connected".to_string());
+            let Some(peer) = peer else {
+                return Err(not_connected());
+            };
             if !peer.started.load(Ordering::SeqCst) || peer.closed.load(Ordering::SeqCst) {
                 return Err(not_connected());
             }
@@ -136,7 +148,11 @@ impl McpTransport for InMemoryTransport {
 pub fn create_in_memory_transport_pair() -> (InMemoryTransport, InMemoryTransport) {
     let client = InMemoryTransport::new();
     let server = InMemoryTransport::new();
-    client.connect_peer(&server).expect("fresh transport has no peer");
-    server.connect_peer(&client).expect("fresh transport has no peer");
+    client
+        .connect_peer(&server)
+        .expect("fresh transport has no peer");
+    server
+        .connect_peer(&client)
+        .expect("fresh transport has no peer");
     (client, server)
 }

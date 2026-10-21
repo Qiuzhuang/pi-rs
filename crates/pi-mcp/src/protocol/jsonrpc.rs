@@ -112,8 +112,14 @@ pub struct JsonRpcErrorObject {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum JsonRpcResponse {
-    Success { id: JsonRpcId, result: Value },
-    Error { id: JsonRpcId, error: JsonRpcErrorObject },
+    Success {
+        id: JsonRpcId,
+        result: Value,
+    },
+    Error {
+        id: JsonRpcId,
+        error: JsonRpcErrorObject,
+    },
 }
 
 impl JsonRpcResponse {
@@ -133,22 +139,45 @@ pub enum JsonRpcMessage {
 }
 
 impl JsonRpcMessage {
-    pub fn request(id: impl Into<JsonRpcId>, method: impl Into<String>, params: Option<Value>) -> Self {
-        JsonRpcMessage::Request(JsonRpcRequest { id: id.into(), method: method.into(), params })
+    pub fn request(
+        id: impl Into<JsonRpcId>,
+        method: impl Into<String>,
+        params: Option<Value>,
+    ) -> Self {
+        JsonRpcMessage::Request(JsonRpcRequest {
+            id: id.into(),
+            method: method.into(),
+            params,
+        })
     }
 
     pub fn notification(method: impl Into<String>, params: Option<Value>) -> Self {
-        JsonRpcMessage::Notification(JsonRpcNotification { method: method.into(), params })
+        JsonRpcMessage::Notification(JsonRpcNotification {
+            method: method.into(),
+            params,
+        })
     }
 
     pub fn result(id: impl Into<JsonRpcId>, result: Value) -> Self {
-        JsonRpcMessage::Response(JsonRpcResponse::Success { id: id.into(), result })
+        JsonRpcMessage::Response(JsonRpcResponse::Success {
+            id: id.into(),
+            result,
+        })
     }
 
-    pub fn error(id: impl Into<JsonRpcId>, code: i64, message: impl Into<String>, data: Option<Value>) -> Self {
+    pub fn error(
+        id: impl Into<JsonRpcId>,
+        code: i64,
+        message: impl Into<String>,
+        data: Option<Value>,
+    ) -> Self {
         JsonRpcMessage::Response(JsonRpcResponse::Error {
             id: id.into(),
-            error: JsonRpcErrorObject { code, message: message.into(), data },
+            error: JsonRpcErrorObject {
+                code,
+                message: message.into(),
+                data,
+            },
         })
     }
 
@@ -248,13 +277,15 @@ pub fn is_json_rpc_id(value: &Value) -> bool {
 
 pub fn is_json_rpc_request(message: &Value) -> bool {
     jsonrpc_object(message).is_some_and(|object| {
-        object.get("id").is_some_and(is_json_rpc_id) && object.get("method").is_some_and(Value::is_string)
+        object.get("id").is_some_and(is_json_rpc_id)
+            && object.get("method").is_some_and(Value::is_string)
     })
 }
 
 pub fn is_json_rpc_notification(message: &Value) -> bool {
-    jsonrpc_object(message)
-        .is_some_and(|object| !object.contains_key("id") && object.get("method").is_some_and(Value::is_string))
+    jsonrpc_object(message).is_some_and(|object| {
+        !object.contains_key("id") && object.get("method").is_some_and(Value::is_string)
+    })
 }
 
 pub fn is_json_rpc_response(message: &Value) -> bool {
@@ -270,36 +301,79 @@ pub fn is_json_rpc_response(message: &Value) -> bool {
     let Some(error) = object.get("error").and_then(Value::as_object) else {
         return false;
     };
-    error.get("code").is_some_and(Value::is_number) && error.get("message").is_some_and(Value::is_string)
+    error.get("code").is_some_and(Value::is_number)
+        && error.get("message").is_some_and(Value::is_string)
 }
 
 /// Validate a parsed JSON value as a JSON-RPC message.
 pub fn parse_json_rpc_message(value: Value) -> Result<JsonRpcMessage, Error> {
-    let invalid = || Error::Rpc(McpError::new(JSON_RPC_ERROR_CODES.invalid_request, "Invalid JSON-RPC message"));
+    let invalid = || {
+        Error::Rpc(McpError::new(
+            JSON_RPC_ERROR_CODES.invalid_request,
+            "Invalid JSON-RPC message",
+        ))
+    };
     if is_json_rpc_request(&value) {
-        let Value::Object(mut object) = value else { return Err(invalid()) };
-        let id = object.get("id").and_then(JsonRpcId::from_value).ok_or_else(invalid)?;
-        let Some(Value::String(method)) = object.remove("method") else { return Err(invalid()) };
-        return Ok(JsonRpcMessage::Request(JsonRpcRequest { id, method, params: object.remove("params") }));
+        let Value::Object(mut object) = value else {
+            return Err(invalid());
+        };
+        let id = object
+            .get("id")
+            .and_then(JsonRpcId::from_value)
+            .ok_or_else(invalid)?;
+        let Some(Value::String(method)) = object.remove("method") else {
+            return Err(invalid());
+        };
+        return Ok(JsonRpcMessage::Request(JsonRpcRequest {
+            id,
+            method,
+            params: object.remove("params"),
+        }));
     }
     if is_json_rpc_notification(&value) {
-        let Value::Object(mut object) = value else { return Err(invalid()) };
-        let Some(Value::String(method)) = object.remove("method") else { return Err(invalid()) };
-        return Ok(JsonRpcMessage::Notification(JsonRpcNotification { method, params: object.remove("params") }));
+        let Value::Object(mut object) = value else {
+            return Err(invalid());
+        };
+        let Some(Value::String(method)) = object.remove("method") else {
+            return Err(invalid());
+        };
+        return Ok(JsonRpcMessage::Notification(JsonRpcNotification {
+            method,
+            params: object.remove("params"),
+        }));
     }
     if is_json_rpc_response(&value) {
-        let Value::Object(mut object) = value else { return Err(invalid()) };
-        let id = object.get("id").and_then(JsonRpcId::from_value).ok_or_else(invalid)?;
+        let Value::Object(mut object) = value else {
+            return Err(invalid());
+        };
+        let id = object
+            .get("id")
+            .and_then(JsonRpcId::from_value)
+            .ok_or_else(invalid)?;
         if let Some(result) = object.remove("result") {
-            return Ok(JsonRpcMessage::Response(JsonRpcResponse::Success { id, result }));
+            return Ok(JsonRpcMessage::Response(JsonRpcResponse::Success {
+                id,
+                result,
+            }));
         }
         let error = object.remove("error").ok_or_else(invalid)?;
-        let code = error.get("code").and_then(Value::as_f64).ok_or_else(invalid)?;
-        let message = error.get("message").and_then(Value::as_str).ok_or_else(invalid)?.to_string();
+        let code = error
+            .get("code")
+            .and_then(Value::as_f64)
+            .ok_or_else(invalid)?;
+        let message = error
+            .get("message")
+            .and_then(Value::as_str)
+            .ok_or_else(invalid)?
+            .to_string();
         let data = error.get("data").cloned();
         return Ok(JsonRpcMessage::Response(JsonRpcResponse::Error {
             id,
-            error: JsonRpcErrorObject { code: code as i64, message, data },
+            error: JsonRpcErrorObject {
+                code: code as i64,
+                message,
+                data,
+            },
         }));
     }
     Err(invalid())
@@ -313,14 +387,30 @@ mod tests {
     #[test]
     fn classifies_messages() {
         let request = json!({ "jsonrpc": "2.0", "id": 1, "method": "ping" });
-        assert!(matches!(parse_json_rpc_message(request.clone()).unwrap(), JsonRpcMessage::Request(_)));
-        assert_eq!(serde_json::to_value(parse_json_rpc_message(request.clone()).unwrap()).unwrap(), request);
+        assert!(matches!(
+            parse_json_rpc_message(request.clone()).unwrap(),
+            JsonRpcMessage::Request(_)
+        ));
+        assert_eq!(
+            serde_json::to_value(parse_json_rpc_message(request.clone()).unwrap()).unwrap(),
+            request
+        );
         let notification = json!({ "jsonrpc": "2.0", "method": "notifications/initialized" });
-        assert!(matches!(parse_json_rpc_message(notification).unwrap(), JsonRpcMessage::Notification(_)));
+        assert!(matches!(
+            parse_json_rpc_message(notification).unwrap(),
+            JsonRpcMessage::Notification(_)
+        ));
         let response = json!({ "jsonrpc": "2.0", "id": "a", "result": null });
-        assert_eq!(serde_json::to_value(parse_json_rpc_message(response.clone()).unwrap()).unwrap(), response);
-        let error = json!({ "jsonrpc": "2.0", "id": 2, "error": { "code": -32601, "message": "nope" } });
-        assert_eq!(serde_json::to_value(parse_json_rpc_message(error.clone()).unwrap()).unwrap(), error);
+        assert_eq!(
+            serde_json::to_value(parse_json_rpc_message(response.clone()).unwrap()).unwrap(),
+            response
+        );
+        let error =
+            json!({ "jsonrpc": "2.0", "id": 2, "error": { "code": -32601, "message": "nope" } });
+        assert_eq!(
+            serde_json::to_value(parse_json_rpc_message(error.clone()).unwrap()).unwrap(),
+            error
+        );
         for invalid in [
             json!({ "jsonrpc": "1.0", "id": 1, "method": "x" }),
             json!({ "jsonrpc": "2.0", "id": null, "method": "x" }),

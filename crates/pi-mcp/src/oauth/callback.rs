@@ -29,7 +29,10 @@ pub struct OAuthCallback {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum OAuthCallbackPage {
     Ok,
-    Error { message: String, details: Option<String> },
+    Error {
+        message: String,
+        details: Option<String>,
+    },
 }
 
 pub type RenderPage = Arc<dyn Fn(&OAuthCallbackPage) -> String + Send + Sync>;
@@ -53,8 +56,14 @@ pub struct OAuthCallbackServerOptions {
 fn plain_text(page: &OAuthCallbackPage) -> String {
     match page {
         OAuthCallbackPage::Ok => "Authorization complete. You may close this window.".to_string(),
-        OAuthCallbackPage::Error { message, details: Some(details) } => format!("{message}\n\n{details}"),
-        OAuthCallbackPage::Error { message, details: None } => message.clone(),
+        OAuthCallbackPage::Error {
+            message,
+            details: Some(details),
+        } => format!("{message}\n\n{details}"),
+        OAuthCallbackPage::Error {
+            message,
+            details: None,
+        } => message.clone(),
     }
 }
 
@@ -100,7 +109,11 @@ impl Inner {
 
     fn reply(&self, status: u16, page: OAuthCallbackPage) -> Vec<u8> {
         let (content_type, extra, body) = match &self.render_page {
-            Some(render) => ("text/html; charset=utf-8", "cache-control: no-store\r\n", render(&page)),
+            Some(render) => (
+                "text/html; charset=utf-8",
+                "cache-control: no-store\r\n",
+                render(&page),
+            ),
             None => ("text/plain; charset=utf-8", "", plain_text(&page)),
         };
         format!(
@@ -112,7 +125,13 @@ impl Inner {
     }
 
     fn error_page(&self, status: u16, message: &str) -> Vec<u8> {
-        self.reply(status, OAuthCallbackPage::Error { message: message.to_string(), details: None })
+        self.reply(
+            status,
+            OAuthCallbackPage::Error {
+                message: message.to_string(),
+                details: None,
+            },
+        )
     }
 
     fn handle(&self, raw_url: &str) -> Vec<u8> {
@@ -123,15 +142,23 @@ impl Inner {
             return self.error_page(404, "Not found");
         }
         let state = get_search_param(&url, "state").filter(|state| !state.is_empty());
-        let pending = state.as_ref().and_then(|state| self.pending.lock().remove(state));
+        let pending = state
+            .as_ref()
+            .and_then(|state| self.pending.lock().remove(state));
         let (Some(state), Some(pending)) = (state, pending) else {
             return self.error_page(400, "Invalid or expired OAuth state");
         };
         if let Some(timer) = pending.timer {
             timer.abort();
         }
-        if pending.path.as_deref().is_some_and(|path| path != url.path()) {
-            let _ = pending.sender.send(Err(Error::other("The authorization response arrived on another redirect URI")));
+        if pending
+            .path
+            .as_deref()
+            .is_some_and(|path| path != url.path())
+        {
+            let _ = pending.sender.send(Err(Error::other(
+                "The authorization response arrived on another redirect URI",
+            )));
             return self.error_page(400, "Unexpected redirect URI");
         }
         if let Some(error) = get_search_param(&url, "error").filter(|error| !error.is_empty()) {
@@ -146,7 +173,9 @@ impl Inner {
             );
         }
         let Some(code) = get_search_param(&url, "code").filter(|code| !code.is_empty()) else {
-            let _ = pending.sender.send(Err(Error::other("OAuth callback did not include an authorization code")));
+            let _ = pending.sender.send(Err(Error::other(
+                "OAuth callback did not include an authorization code",
+            )));
             return self.error_page(400, "Missing authorization code");
         };
         let iss = get_search_param(&url, "iss").filter(|iss| !iss.is_empty());
@@ -162,7 +191,9 @@ impl Inner {
                 Ok(0) | Err(_) => return,
                 Ok(read) => head.extend_from_slice(&chunk[..read]),
             }
-            if head.windows(4).any(|window| window == b"\r\n\r\n") || head.windows(2).any(|window| window == b"\n\n") {
+            if head.windows(4).any(|window| window == b"\r\n\r\n")
+                || head.windows(2).any(|window| window == b"\n\n")
+            {
                 break;
             }
             if head.len() > MAX_REQUEST_HEAD_BYTES {
@@ -170,7 +201,12 @@ impl Inner {
             }
         }
         let text = String::from_utf8_lossy(&head);
-        let target = text.lines().next().and_then(|line| line.split_whitespace().nth(1)).unwrap_or("/").to_string();
+        let target = text
+            .lines()
+            .next()
+            .and_then(|line| line.split_whitespace().nth(1))
+            .unwrap_or("/")
+            .to_string();
         let response = self.handle(&target);
         let _ = stream.write_all(&response).await;
         let _ = stream.shutdown().await;
@@ -179,16 +215,34 @@ impl Inner {
 
 impl OAuthCallbackServer {
     pub async fn listen(options: OAuthCallbackServerOptions) -> Result<Self> {
-        let host = options.host.clone().unwrap_or_else(|| "127.0.0.1".to_string());
-        let redirect_host = options.redirect_host.clone().unwrap_or_else(|| host.clone());
-        let path = options.path.clone().unwrap_or_else(|| "/callback".to_string());
-        let bind_host = host.trim_start_matches('[').trim_end_matches(']').to_string();
+        let host = options
+            .host
+            .clone()
+            .unwrap_or_else(|| "127.0.0.1".to_string());
+        let redirect_host = options
+            .redirect_host
+            .clone()
+            .unwrap_or_else(|| host.clone());
+        let path = options
+            .path
+            .clone()
+            .unwrap_or_else(|| "/callback".to_string());
+        let bind_host = host
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .to_string();
         let listener = TcpListener::bind((bind_host.as_str(), options.port.unwrap_or(0)))
             .await
             .map_err(|error| Error::Other(format!("listen {}: {error}", error_code(&error))))?;
-        let port = listener.local_addr().map_err(|error| Error::Other(error.to_string()))?.port();
-        let redirect_host =
-            if redirect_host.contains(':') && !redirect_host.starts_with('[') { format!("[{redirect_host}]") } else { redirect_host };
+        let port = listener
+            .local_addr()
+            .map_err(|error| Error::Other(error.to_string()))?
+            .port();
+        let redirect_host = if redirect_host.contains(':') && !redirect_host.starts_with('[') {
+            format!("[{redirect_host}]")
+        } else {
+            redirect_host
+        };
         let redirect_url = format!("http://{redirect_host}:{port}{path}");
         let mut paths = vec![path];
         paths.extend(options.extra_paths.iter().cloned());
@@ -205,7 +259,11 @@ impl OAuthCallbackServer {
                 tokio::spawn(serving.clone().serve(stream));
             }
         });
-        Ok(Self { redirect_url, inner, accept })
+        Ok(Self {
+            redirect_url,
+            inner,
+            accept,
+        })
     }
 
     pub fn redirect_url(&self) -> &str {
@@ -225,25 +283,48 @@ impl OAuthCallbackServer {
             return Err(Error::other("OAuth state is already pending"));
         }
         let (sender, receiver) = oneshot::channel();
-        let (inner, key, timeout_ms) = (Arc::downgrade(&self.inner), state.to_string(), self.inner.timeout_ms);
+        let (inner, key, timeout_ms) = (
+            Arc::downgrade(&self.inner),
+            state.to_string(),
+            self.inner.timeout_ms,
+        );
         let timer = tokio::spawn(async move {
             tokio::time::sleep(Duration::from_millis(timeout_ms)).await;
             if let Some(inner) = inner.upgrade() {
                 inner.reject(&key, Error::other("OAuth callback timed out"));
             }
         });
-        pending.insert(state.to_string(), Pending { sender, timer: Some(timer), path: path.map(str::to_string) });
-        Ok(async move { receiver.await.unwrap_or_else(|_| Err(Error::other("OAuth callback server closed"))) })
+        pending.insert(
+            state.to_string(),
+            Pending {
+                sender,
+                timer: Some(timer),
+                path: path.map(str::to_string),
+            },
+        );
+        Ok(async move {
+            receiver
+                .await
+                .unwrap_or_else(|_| Err(Error::other("OAuth callback server closed")))
+        })
     }
 
     /// Stop listening; pending waits fail.
     pub async fn close(&self) -> Result<()> {
-        let pending: Vec<Pending> = self.inner.pending.lock().drain().map(|(_, pending)| pending).collect();
+        let pending: Vec<Pending> = self
+            .inner
+            .pending
+            .lock()
+            .drain()
+            .map(|(_, pending)| pending)
+            .collect();
         for pending in pending {
             if let Some(timer) = pending.timer {
                 timer.abort();
             }
-            let _ = pending.sender.send(Err(Error::other("OAuth callback server closed")));
+            let _ = pending
+                .sender
+                .send(Err(Error::other("OAuth callback server closed")));
         }
         self.accept.abort();
         Ok(())

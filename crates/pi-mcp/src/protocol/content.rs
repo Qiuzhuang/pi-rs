@@ -7,20 +7,41 @@ use crate::serde_util::{lenient, present};
 #[serde(rename_all = "camelCase")]
 pub struct ContentAnnotations {
     /// `"user"` and/or `"assistant"`.
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub audience: Option<Vec<String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::serde_util::opt_number")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "crate::serde_util::opt_number"
+    )]
     pub priority: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub last_modified: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TextContent {
     pub text: String,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub annotations: Option<ContentAnnotations>,
-    #[serde(rename = "_meta", default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        rename = "_meta",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub meta: Option<Map<String, Value>>,
 }
 
@@ -29,9 +50,18 @@ pub struct TextContent {
 pub struct ImageContent {
     pub data: String,
     pub mime_type: String,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub annotations: Option<ContentAnnotations>,
-    #[serde(rename = "_meta", default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        rename = "_meta",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub meta: Option<Map<String, Value>>,
 }
 
@@ -42,17 +72,42 @@ pub type AudioContent = ImageContent;
 pub struct ResourceLinkContent {
     pub uri: String,
     pub name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub title: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub description: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub mime_type: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::serde_util::opt_number")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "crate::serde_util::opt_number"
+    )]
     pub size: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub annotations: Option<ContentAnnotations>,
-    #[serde(rename = "_meta", default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        rename = "_meta",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub meta: Option<Map<String, Value>>,
 }
 
@@ -60,10 +115,19 @@ pub struct ResourceLinkContent {
 #[serde(rename_all = "camelCase")]
 pub struct TextResourceContents {
     pub uri: String,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub mime_type: Option<String>,
     pub text: String,
-    #[serde(rename = "_meta", default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        rename = "_meta",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub meta: Option<Map<String, Value>>,
 }
 
@@ -71,10 +135,19 @@ pub struct TextResourceContents {
 #[serde(rename_all = "camelCase")]
 pub struct BlobResourceContents {
     pub uri: String,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub mime_type: Option<String>,
     pub blob: String,
-    #[serde(rename = "_meta", default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        rename = "_meta",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub meta: Option<Map<String, Value>>,
 }
 
@@ -105,9 +178,18 @@ impl ResourceContents {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EmbeddedResourceContent {
     pub resource: ResourceContents,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub annotations: Option<ContentAnnotations>,
-    #[serde(rename = "_meta", default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        rename = "_meta",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub meta: Option<Map<String, Value>>,
 }
 
@@ -125,7 +207,11 @@ pub enum ContentBlock {
 
 impl ContentBlock {
     pub fn text(text: impl Into<String>) -> Self {
-        ContentBlock::Text(TextContent { text: text.into(), annotations: None, meta: None })
+        ContentBlock::Text(TextContent {
+            text: text.into(),
+            annotations: None,
+            meta: None,
+        })
     }
 
     /// The `type` discriminant.
@@ -145,7 +231,10 @@ impl ContentBlock {
     }
 
     pub fn from_value(value: Value) -> Self {
-        fn parse<T: serde::de::DeserializeOwned>(value: &Value, wrap: fn(T) -> ContentBlock) -> Option<ContentBlock> {
+        fn parse<T: serde::de::DeserializeOwned>(
+            value: &Value,
+            wrap: fn(T) -> ContentBlock,
+        ) -> Option<ContentBlock> {
             serde_json::from_value::<T>(value.clone()).ok().map(wrap)
         }
         let parsed = match value.get("type").and_then(Value::as_str) {
@@ -198,11 +287,24 @@ pub struct CallToolResult {
     pub content: Vec<ContentBlock>,
     /// Any JSON value, including arrays and `null` (`Some(Value::Null)`); `None` when absent
     /// (MCP 2026-07-28; earlier revisions allowed only objects).
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
     pub structured_content: Option<Value>,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub is_error: Option<bool>,
-    #[serde(rename = "_meta", default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        rename = "_meta",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub meta: Option<Map<String, Value>>,
     /// Other fields of the result, passed through.
     #[serde(flatten)]
@@ -222,16 +324,28 @@ pub enum LlmContent {
 
 fn block_to_llm_content(block: &ContentBlock) -> LlmContent {
     match block {
-        ContentBlock::Text(block) => LlmContent::Text { text: block.text.clone() },
-        ContentBlock::Image(block) => LlmContent::Image { data: block.data.clone(), mime_type: block.mime_type.clone() },
-        ContentBlock::Audio(block) => LlmContent::Text { text: format!("[audio {} omitted]", block.mime_type) },
-        ContentBlock::ResourceLink(block) => LlmContent::Text { text: format!("{}: {}", block.name, block.uri) },
+        ContentBlock::Text(block) => LlmContent::Text {
+            text: block.text.clone(),
+        },
+        ContentBlock::Image(block) => LlmContent::Image {
+            data: block.data.clone(),
+            mime_type: block.mime_type.clone(),
+        },
+        ContentBlock::Audio(block) => LlmContent::Text {
+            text: format!("[audio {} omitted]", block.mime_type),
+        },
+        ContentBlock::ResourceLink(block) => LlmContent::Text {
+            text: format!("{}: {}", block.name, block.uri),
+        },
         ContentBlock::Resource(block) => match &block.resource {
-            ResourceContents::Text(resource) => LlmContent::Text { text: resource.text.clone() },
+            ResourceContents::Text(resource) => LlmContent::Text {
+                text: resource.text.clone(),
+            },
             ResourceContents::Blob(resource) => match &resource.mime_type {
-                Some(mime_type) if mime_type.starts_with("image/") => {
-                    LlmContent::Image { data: resource.blob.clone(), mime_type: mime_type.clone() }
-                }
+                Some(mime_type) if mime_type.starts_with("image/") => LlmContent::Image {
+                    data: resource.blob.clone(),
+                    mime_type: mime_type.clone(),
+                },
                 mime_type => LlmContent::Text {
                     text: format!(
                         "[binary resource {} ({}) omitted]",
@@ -241,9 +355,9 @@ fn block_to_llm_content(block: &ContentBlock) -> LlmContent {
                 },
             },
         },
-        ContentBlock::Unknown(_) => {
-            LlmContent::Text { text: format!("[unsupported MCP content {}]", block.type_name()) }
-        }
+        ContentBlock::Unknown(_) => LlmContent::Text {
+            text: format!("[unsupported MCP content {}]", block.type_name()),
+        },
     }
 }
 
@@ -263,12 +377,17 @@ pub(crate) fn json_pretty(value: &Value) -> String {
 /// (audio, resource links, binary resources) become a short text placeholder. A result without
 /// content blocks but with `structured_content` becomes its JSON, since servers should, but do not
 /// always, mirror structured results as text.
-pub fn to_llm_content(content: &[ContentBlock], structured_content: Option<&Value>) -> Vec<LlmContent> {
+pub fn to_llm_content(
+    content: &[ContentBlock],
+    structured_content: Option<&Value>,
+) -> Vec<LlmContent> {
     let mut result: Vec<LlmContent> = content.iter().map(block_to_llm_content).collect();
     if result.is_empty()
         && let Some(structured) = structured_content
     {
-        result.push(LlmContent::Text { text: json_pretty(structured) });
+        result.push(LlmContent::Text {
+            text: json_pretty(structured),
+        });
     }
     result
 }

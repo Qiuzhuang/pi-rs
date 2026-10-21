@@ -9,7 +9,8 @@ use url::Url;
 
 use super::flow::{InvalidateCredentials, OAuthClientMetadataDocument, OAuthClientProvider};
 use super::types::{
-    AuthorizationServerMetadata, OAuthClientInformation, OAuthClientMetadata, OAuthDiscoveryState, OAuthTokens,
+    AuthorizationServerMetadata, OAuthClientInformation, OAuthClientMetadata, OAuthDiscoveryState,
+    OAuthTokens,
 };
 use crate::error::{Error, Result};
 
@@ -24,7 +25,11 @@ pub struct McpOAuthState {
     pub tokens: Option<OAuthTokens>,
     /// When the access token expires, in milliseconds since the epoch, from `expires_in` at the
     /// time it was saved.
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::serde_util::opt_number")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "crate::serde_util::opt_number"
+    )]
     pub tokens_expire_at: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code_verifier: Option<String>,
@@ -79,8 +84,11 @@ impl McpOAuthStateStore for MemoryOAuthStateStore {
     }
 }
 
-pub type ClientMetadataDocumentFn =
-    Arc<dyn Fn(Option<&AuthorizationServerMetadata>) -> Result<Option<OAuthClientMetadataDocument>> + Send + Sync>;
+pub type ClientMetadataDocumentFn = Arc<
+    dyn Fn(Option<&AuthorizationServerMetadata>) -> Result<Option<OAuthClientMetadataDocument>>
+        + Send
+        + Sync,
+>;
 pub type RedirectFn = Arc<dyn Fn(&Url) -> Result<()> + Send + Sync>;
 
 #[derive(Clone)]
@@ -98,7 +106,11 @@ pub struct McpOAuthProviderOptions {
 }
 
 impl McpOAuthProviderOptions {
-    pub fn new(server_url: Url, redirect_url: impl Into<String>, on_redirect: impl Fn(&Url) -> Result<()> + Send + Sync + 'static) -> Self {
+    pub fn new(
+        server_url: Url,
+        redirect_url: impl Into<String>,
+        on_redirect: impl Fn(&Url) -> Result<()> + Send + Sync + 'static,
+    ) -> Self {
         Self {
             server_url,
             redirect_url: redirect_url.into(),
@@ -113,7 +125,10 @@ impl McpOAuthProviderOptions {
 }
 
 fn now_ms() -> f64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|duration| duration.as_millis() as f64).unwrap_or(0.0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as f64)
+        .unwrap_or(0.0)
 }
 
 /// Default stateful provider for one exact MCP server URL. Applications inject durable storage if needed.
@@ -137,30 +152,45 @@ impl McpOAuthProvider {
             client_metadata.redirect_uris = vec![redirect_url.clone()];
         }
         if client_metadata.grant_types.is_none() {
-            client_metadata.grant_types = Some(vec!["authorization_code".into(), "refresh_token".into()]);
+            client_metadata.grant_types =
+                Some(vec!["authorization_code".into(), "refresh_token".into()]);
         }
         if client_metadata.response_types.is_none() {
             client_metadata.response_types = Some(vec!["code".into()]);
         }
-        let has_secret = options.client_secret.as_deref().is_some_and(|secret| !secret.is_empty());
+        let has_secret = options
+            .client_secret
+            .as_deref()
+            .is_some_and(|secret| !secret.is_empty());
         if client_metadata.token_endpoint_auth_method.is_none() {
-            client_metadata.token_endpoint_auth_method =
-                Some(if has_secret { "client_secret_post" } else { "none" }.to_string());
+            client_metadata.token_endpoint_auth_method = Some(
+                if has_secret {
+                    "client_secret_post"
+                } else {
+                    "none"
+                }
+                .to_string(),
+            );
         }
-        let configured_client = options.client_id.filter(|id| !id.is_empty()).map(|client_id| {
-            let client = OAuthClientInformation::new(client_id);
-            match options.client_secret.filter(|secret| !secret.is_empty()) {
-                Some(secret) => client.with_secret(secret),
-                None => client,
-            }
-        });
+        let configured_client = options
+            .client_id
+            .filter(|id| !id.is_empty())
+            .map(|client_id| {
+                let client = OAuthClientInformation::new(client_id);
+                match options.client_secret.filter(|secret| !secret.is_empty()) {
+                    Some(secret) => client.with_secret(secret),
+                    None => client,
+                }
+            });
         Self {
             redirect_url,
             client_metadata,
             client_metadata_document: options.client_metadata_document,
             server_url: options.server_url.to_string(),
             configured_client,
-            store: options.store.unwrap_or_else(|| Arc::new(MemoryOAuthStateStore::new())),
+            store: options
+                .store
+                .unwrap_or_else(|| Arc::new(MemoryOAuthStateStore::new())),
             on_redirect: options.on_redirect,
             writes: tokio::sync::Mutex::new(()),
         }
@@ -168,14 +198,23 @@ impl McpOAuthProvider {
 
     /// The OAuth `state` parameter, created and stored on first use.
     pub async fn oauth_state(&self) -> Result<String> {
-        if let Some(existing) = self.load().await?.oauth_state.filter(|state| !state.is_empty()) {
+        if let Some(existing) = self
+            .load()
+            .await?
+            .oauth_state
+            .filter(|state| !state.is_empty())
+        {
             return Ok(existing);
         }
         let mut bytes = [0u8; 32];
         rand::thread_rng().fill_bytes(&mut bytes);
         let state: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
         let value = state.clone();
-        self.update(move |current| McpOAuthState { oauth_state: Some(value), ..current }).await?;
+        self.update(move |current| McpOAuthState {
+            oauth_state: Some(value),
+            ..current
+        })
+        .await?;
         Ok(state)
     }
 
@@ -234,7 +273,11 @@ impl OAuthClientProvider for McpOAuthProvider {
         if self.configured_client.is_some() {
             return Ok(());
         }
-        self.update(move |current| McpOAuthState { client_information: Some(information), ..current }).await
+        self.update(move |current| McpOAuthState {
+            client_information: Some(information),
+            ..current
+        })
+        .await
     }
 
     async fn tokens(&self) -> Result<Option<OAuthTokens>> {
@@ -242,8 +285,15 @@ impl OAuthClientProvider for McpOAuthProvider {
     }
 
     async fn save_tokens(&self, tokens: OAuthTokens) -> Result<()> {
-        let expires_at = tokens.expires_in.map(|expires_in| now_ms() + expires_in * 1000.0);
-        self.update(move |current| McpOAuthState { tokens: Some(tokens), tokens_expire_at: expires_at, ..current }).await
+        let expires_at = tokens
+            .expires_in
+            .map(|expires_in| now_ms() + expires_in * 1000.0);
+        self.update(move |current| McpOAuthState {
+            tokens: Some(tokens),
+            tokens_expire_at: expires_at,
+            ..current
+        })
+        .await
     }
 
     async fn redirect_to_authorization(&self, url: Url) -> Result<()> {
@@ -251,7 +301,11 @@ impl OAuthClientProvider for McpOAuthProvider {
     }
 
     async fn save_code_verifier(&self, verifier: String) -> Result<()> {
-        self.update(move |current| McpOAuthState { code_verifier: Some(verifier), ..current }).await
+        self.update(move |current| McpOAuthState {
+            code_verifier: Some(verifier),
+            ..current
+        })
+        .await
     }
 
     async fn code_verifier(&self) -> Result<String> {
@@ -287,7 +341,11 @@ impl OAuthClientProvider for McpOAuthProvider {
     }
 
     async fn save_discovery_state(&self, state: OAuthDiscoveryState) -> Result<()> {
-        self.update(move |current| McpOAuthState { discovery: Some(state), ..current }).await
+        self.update(move |current| McpOAuthState {
+            discovery: Some(state),
+            ..current
+        })
+        .await
     }
 
     async fn discovery_state(&self) -> Result<Option<OAuthDiscoveryState>> {

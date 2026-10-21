@@ -30,7 +30,10 @@ fn origin_url(url: &Url) -> Result<Url> {
 }
 
 fn field(header: &str, name: &str) -> Option<String> {
-    let pattern = format!(r#"(?i)(?:^|[,\s]){}=(?:"([^"]*)"|([^\s,]+))"#, regex::escape(name));
+    let pattern = format!(
+        r#"(?i)(?:^|[,\s]){}=(?:"([^"]*)"|([^\s,]+))"#,
+        regex::escape(name)
+    );
     let regex = Regex::new(&pattern).ok()?;
     let captures = regex.captures(header)?;
     // An empty value (`scope=""`) carries no information, so it counts as absent.
@@ -48,12 +51,17 @@ pub fn parse_www_authenticate(header: Option<&str>) -> OAuthChallenge {
     let Some(header) = header.filter(|header| !header.is_empty()) else {
         return OAuthChallenge::default();
     };
-    let scheme = WHITESPACE.split(header.trim_start()).next().unwrap_or("").to_ascii_lowercase();
+    let scheme = WHITESPACE
+        .split(header.trim_start())
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
     if scheme != "bearer" && scheme != "dpop" {
         return OAuthChallenge::default();
     }
     OAuthChallenge {
-        resource_metadata_url: field(header, "resource_metadata").and_then(|url| Url::parse(&url).ok()),
+        resource_metadata_url: field(header, "resource_metadata")
+            .and_then(|url| Url::parse(&url).ok()),
         scope: field(header, "scope"),
         error: field(header, "error"),
         error_description: field(header, "error_description"),
@@ -86,13 +94,19 @@ pub async fn discover_protected_resource_metadata(
     options: ProtectedResourceDiscoveryOptions,
 ) -> Result<OAuthProtectedResourceMetadata> {
     let fetch = options.fetch.clone().unwrap_or_else(default_fetch);
-    let version = options.protocol_version.as_deref().unwrap_or(LATEST_PROTOCOL_VERSION);
+    let version = options
+        .protocol_version
+        .as_deref()
+        .unwrap_or(LATEST_PROTOCOL_VERSION);
     let origin = origin_url(server_url)?;
     let url = match &options.resource_metadata_url {
         Some(url) => url.clone(),
         None => join_url(
             &origin,
-            &format!("/.well-known/oauth-protected-resource{}", path_suffix(server_url.path())),
+            &format!(
+                "/.well-known/oauth-protected-resource{}",
+                path_suffix(server_url.path())
+            ),
         )?,
     };
     let mut response = fetch_metadata(&url, &fetch, version, options.signal.as_ref()).await?;
@@ -119,16 +133,30 @@ pub enum DiscoveryKind {
     Oidc,
 }
 
-pub fn build_authorization_server_discovery_urls(authorization_server_url: &str) -> Result<Vec<(Url, DiscoveryKind)>> {
+pub fn build_authorization_server_discovery_urls(
+    authorization_server_url: &str,
+) -> Result<Vec<(Url, DiscoveryKind)>> {
     let issuer = parse_url(authorization_server_url)?;
     let origin = origin_url(&issuer)?;
     let path = path_suffix(issuer.path());
     let mut urls = vec![
-        (join_url(&origin, &format!("/.well-known/oauth-authorization-server{path}"))?, DiscoveryKind::OAuth),
-        (join_url(&origin, &format!("/.well-known/openid-configuration{path}"))?, DiscoveryKind::Oidc),
+        (
+            join_url(
+                &origin,
+                &format!("/.well-known/oauth-authorization-server{path}"),
+            )?,
+            DiscoveryKind::OAuth,
+        ),
+        (
+            join_url(&origin, &format!("/.well-known/openid-configuration{path}"))?,
+            DiscoveryKind::Oidc,
+        ),
     ];
     if !path.is_empty() {
-        urls.push((join_url(&origin, &format!("{path}/.well-known/openid-configuration"))?, DiscoveryKind::Oidc));
+        urls.push((
+            join_url(&origin, &format!("{path}/.well-known/openid-configuration"))?,
+            DiscoveryKind::Oidc,
+        ));
     }
     Ok(urls)
 }
@@ -146,7 +174,10 @@ pub async fn discover_authorization_server_metadata(
     options: AuthorizationServerDiscoveryOptions,
 ) -> Result<Option<AuthorizationServerMetadata>> {
     let fetch = options.fetch.clone().unwrap_or_else(default_fetch);
-    let version = options.protocol_version.as_deref().unwrap_or(LATEST_PROTOCOL_VERSION);
+    let version = options
+        .protocol_version
+        .as_deref()
+        .unwrap_or(LATEST_PROTOCOL_VERSION);
     for (url, _) in build_authorization_server_discovery_urls(authorization_server_url)? {
         let response = fetch_metadata(&url, &fetch, version, options.signal.as_ref()).await?;
         if !response.ok() {
@@ -155,7 +186,9 @@ pub async fn discover_authorization_server_metadata(
             if is_discovery_miss(status) {
                 continue;
             }
-            return Err(Error::Other(format!("HTTP {status} loading authorization server metadata from {url}")));
+            return Err(Error::Other(format!(
+                "HTTP {status} loading authorization server metadata from {url}"
+            )));
         }
         let metadata = parse_authorization_server_metadata(response.json().await?)?;
         if !options.skip_issuer_validation {
@@ -183,7 +216,10 @@ pub struct OAuthServerInfoOptions {
     pub signal: Option<AbortSignal>,
 }
 
-pub async fn discover_oauth_server_info(server_url: &Url, options: OAuthServerInfoOptions) -> Result<OAuthServerInfo> {
+pub async fn discover_oauth_server_info(
+    server_url: &Url,
+    options: OAuthServerInfoOptions,
+) -> Result<OAuthServerInfo> {
     let resource_metadata = match discover_protected_resource_metadata(
         server_url,
         ProtectedResourceDiscoveryOptions {
@@ -202,7 +238,13 @@ pub async fn discover_oauth_server_info(server_url: &Url, options: OAuthServerIn
     };
     if let Some(url) = &options.authorization_server_metadata_url {
         let fetch = options.fetch.clone().unwrap_or_else(default_fetch);
-        let response = fetch_metadata(url, &fetch, LATEST_PROTOCOL_VERSION, options.signal.as_ref()).await?;
+        let response = fetch_metadata(
+            url,
+            &fetch,
+            LATEST_PROTOCOL_VERSION,
+            options.signal.as_ref(),
+        )
+        .await?;
         if !response.ok() {
             return Err(Error::Other(format!(
                 "HTTP {} loading authorization server metadata from {url}",
@@ -234,7 +276,11 @@ pub async fn discover_oauth_server_info(server_url: &Url, options: OAuthServerIn
         },
     )
     .await?;
-    Ok(OAuthServerInfo { authorization_server_url, authorization_server_metadata, resource_metadata })
+    Ok(OAuthServerInfo {
+        authorization_server_url,
+        authorization_server_metadata,
+        resource_metadata,
+    })
 }
 
 /// The server URL without its fragment, as an OAuth resource indicator.
@@ -245,18 +291,31 @@ pub fn resource_url_from_server_url(value: &Url) -> Url {
 }
 
 /// The protected resource to request tokens for, checking that the metadata covers the server.
-pub fn select_resource(server_url: &Url, metadata: Option<&OAuthProtectedResourceMetadata>) -> Result<Option<String>> {
+pub fn select_resource(
+    server_url: &Url,
+    metadata: Option<&OAuthProtectedResourceMetadata>,
+) -> Result<Option<String>> {
     let Some(metadata) = metadata else {
         return Ok(None);
     };
     let requested = resource_url_from_server_url(server_url);
     let configured = parse_url(&metadata.resource)?;
-    let mismatch =
-        || Error::Other(format!("Protected resource {} does not match MCP server {requested}", metadata.resource));
+    let mismatch = || {
+        Error::Other(format!(
+            "Protected resource {} does not match MCP server {requested}",
+            metadata.resource
+        ))
+    };
     if requested.origin() != configured.origin() {
         return Err(mismatch());
     }
-    let with_slash = |path: &str| if path.ends_with('/') { path.to_string() } else { format!("{path}/") };
+    let with_slash = |path: &str| {
+        if path.ends_with('/') {
+            path.to_string()
+        } else {
+            format!("{path}/")
+        }
+    };
     if !with_slash(requested.path()).starts_with(&with_slash(configured.path())) {
         return Err(mismatch());
     }
@@ -272,21 +331,33 @@ mod tests {
         let challenge = parse_www_authenticate(Some(
             r#"Bearer resource_metadata="https://example.com/meta", scope="", error="insufficient_scope""#,
         ));
-        assert_eq!(challenge.resource_metadata_url.unwrap().as_str(), "https://example.com/meta");
+        assert_eq!(
+            challenge.resource_metadata_url.unwrap().as_str(),
+            "https://example.com/meta"
+        );
         assert_eq!(challenge.scope, None);
         assert_eq!(challenge.error.as_deref(), Some("insufficient_scope"));
-        assert_eq!(parse_www_authenticate(Some("Basic realm=x")), OAuthChallenge::default());
-        assert_eq!(parse_www_authenticate(Some("Bearer scope=repo,error=x")).scope.as_deref(), Some("repo"));
+        assert_eq!(
+            parse_www_authenticate(Some("Basic realm=x")),
+            OAuthChallenge::default()
+        );
+        assert_eq!(
+            parse_www_authenticate(Some("Bearer scope=repo,error=x"))
+                .scope
+                .as_deref(),
+            Some("repo")
+        );
         assert_eq!(parse_www_authenticate(None), OAuthChallenge::default());
     }
 
     #[test]
     fn builds_discovery_urls() {
-        let urls: Vec<String> = build_authorization_server_discovery_urls("https://as.example/tenant/")
-            .unwrap()
-            .into_iter()
-            .map(|(url, _)| url.to_string())
-            .collect();
+        let urls: Vec<String> =
+            build_authorization_server_discovery_urls("https://as.example/tenant/")
+                .unwrap()
+                .into_iter()
+                .map(|(url, _)| url.to_string())
+                .collect();
         assert_eq!(
             urls,
             [
@@ -295,7 +366,12 @@ mod tests {
                 "https://as.example/tenant/.well-known/openid-configuration",
             ]
         );
-        assert_eq!(build_authorization_server_discovery_urls("https://as.example").unwrap().len(), 2);
+        assert_eq!(
+            build_authorization_server_discovery_urls("https://as.example")
+                .unwrap()
+                .len(),
+            2
+        );
     }
 
     #[test]
@@ -308,7 +384,9 @@ mod tests {
         };
         let server = Url::parse("https://mcp.example/api/mcp#x").unwrap();
         assert_eq!(
-            select_resource(&server, Some(&metadata("https://mcp.example/api"))).unwrap().as_deref(),
+            select_resource(&server, Some(&metadata("https://mcp.example/api")))
+                .unwrap()
+                .as_deref(),
             Some("https://mcp.example/api")
         );
         assert!(select_resource(&server, Some(&metadata("https://mcp.example/other"))).is_err());

@@ -13,14 +13,18 @@ use crate::abort::{AbortController, AbortSignal};
 use crate::error::{Error, McpError, Result};
 use crate::protocol::content::CallToolResult;
 use crate::protocol::jsonrpc::{
-    JSON_RPC_ERROR_CODES, JsonRpcId, JsonRpcMessage, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse,
+    JSON_RPC_ERROR_CODES, JsonRpcId, JsonRpcMessage, JsonRpcNotification, JsonRpcRequest,
+    JsonRpcResponse,
 };
 use crate::protocol::types::{
     ClientCapabilities, GetPromptResult, Implementation, InitializeResult, LATEST_PROTOCOL_VERSION,
-    ListChangedCapability, ListPromptsResult, ListResourceTemplatesResult, ListResourcesResult, ProgressNotification,
-    Prompt, ReadResourceResult, Resource, ResourceTemplate, Root, SUPPORTED_PROTOCOL_VERSIONS, ServerCapabilities, Tool,
+    ListChangedCapability, ListPromptsResult, ListResourceTemplatesResult, ListResourcesResult,
+    ProgressNotification, Prompt, ReadResourceResult, Resource, ResourceTemplate, Root,
+    SUPPORTED_PROTOCOL_VERSIONS, ServerCapabilities, Tool,
 };
-use crate::transports::transport::{Disposer, Listeners, McpTransport, McpTransportSendOptions, next_listener_id};
+use crate::transports::transport::{
+    Disposer, Listeners, McpTransport, McpTransportSendOptions, next_listener_id,
+};
 
 const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 30_000;
 const MAX_LIST_PAGES: usize = 1_000;
@@ -60,10 +64,12 @@ pub struct RequestHandlerContext {
 
 /// Handles a server-to-client request. `Value::Null` results are sent as `{}`. Errors that are
 /// [`Error::Rpc`] keep their code and data; others become internal errors.
-pub type RequestHandler =
-    Arc<dyn Fn(Option<Value>, RequestHandlerContext) -> BoxFuture<'static, Result<Value>> + Send + Sync>;
+pub type RequestHandler = Arc<
+    dyn Fn(Option<Value>, RequestHandlerContext) -> BoxFuture<'static, Result<Value>> + Send + Sync,
+>;
 
 type NotificationListener = dyn Fn(Option<Value>) + Send + Sync;
+type NotificationListeners = HashMap<String, Vec<(u64, Arc<NotificationListener>)>>;
 type RootsFn = dyn Fn() -> BoxFuture<'static, Result<Vec<Root>>> + Send + Sync;
 
 /// Roots the client offers through `roots/list`.
@@ -150,7 +156,10 @@ impl McpRequestOptions {
         self
     }
 
-    pub fn on_progress(mut self, listener: impl Fn(ProgressNotification) + Send + Sync + 'static) -> Self {
+    pub fn on_progress(
+        mut self,
+        listener: impl Fn(ProgressNotification) + Send + Sync + 'static,
+    ) -> Self {
         self.on_progress = Some(Arc::new(listener));
         self
     }
@@ -187,14 +196,16 @@ struct Inner {
     options: McpClientOptions,
     state: Mutex<State>,
     request_handlers: Mutex<HashMap<String, (u64, RequestHandler)>>,
-    notification_listeners: Mutex<HashMap<String, Vec<(u64, Arc<NotificationListener>)>>>,
+    notification_listeners: Mutex<NotificationListeners>,
     error_listeners: Listeners<dyn Fn(Error) + Send + Sync>,
     close_listeners: Listeners<dyn Fn() + Send + Sync>,
 }
 
 /// Spawn on the current Tokio runtime, if there is one.
 fn spawn_detached(future: impl Future<Output = ()> + Send + 'static) -> Option<JoinHandle<()>> {
-    tokio::runtime::Handle::try_current().ok().map(|handle| handle.spawn(future))
+    tokio::runtime::Handle::try_current()
+        .ok()
+        .map(|handle| handle.spawn(future))
 }
 
 fn invalid(message: impl Into<String>) -> Error {
@@ -208,7 +219,8 @@ fn validate_initialize_result(value: Value) -> Result<InitializeResult> {
     let valid = object.get("protocolVersion").is_some_and(Value::is_string)
         && object.get("capabilities").is_some_and(Value::is_object)
         && server_info.is_some_and(|info| {
-            info.get("name").is_some_and(Value::is_string) && info.get("version").is_some_and(Value::is_string)
+            info.get("name").is_some_and(Value::is_string)
+                && info.get("version").is_some_and(Value::is_string)
         })
         && object.get("instructions").is_none_or(Value::is_string);
     if !valid {
@@ -220,7 +232,12 @@ fn validate_initialize_result(value: Value) -> Result<InitializeResult> {
 type ListPage = (Vec<Map<String, Value>>, Option<String>);
 
 /// One page of a paginated list: the items under `key`, each checked by `is_item`.
-fn validate_list_page(method: &str, key: &str, value: Value, is_item: fn(&Map<String, Value>) -> bool) -> Result<ListPage> {
+fn validate_list_page(
+    method: &str,
+    key: &str,
+    value: Value,
+    is_item: fn(&Map<String, Value>) -> bool,
+) -> Result<ListPage> {
     let Value::Object(mut object) = value else {
         return Err(invalid(format!("Invalid MCP {method} result")));
     };
@@ -249,7 +266,8 @@ fn optional_string(item: &Map<String, Value>, key: &str) -> bool {
 }
 
 fn is_tool(tool: &Map<String, Value>) -> bool {
-    tool.get("name").is_some_and(Value::is_string) && tool.get("inputSchema").is_some_and(Value::is_object)
+    tool.get("name").is_some_and(Value::is_string)
+        && tool.get("inputSchema").is_some_and(Value::is_object)
 }
 
 // `name` is required by the spec, but some servers omit it; the URI stands in.
@@ -266,7 +284,8 @@ fn is_prompt(prompt: &Map<String, Value>) -> bool {
 }
 
 fn convert<T: serde::de::DeserializeOwned>(method: &str, item: Map<String, Value>) -> Result<T> {
-    serde_json::from_value(Value::Object(item)).map_err(|_| invalid(format!("Invalid entry in MCP {method} result")))
+    serde_json::from_value(Value::Object(item))
+        .map_err(|_| invalid(format!("Invalid entry in MCP {method} result")))
 }
 
 fn to_tool(item: Map<String, Value>) -> Result<Tool> {
@@ -303,18 +322,22 @@ fn validate_read_resource_result(value: Value) -> Result<ReadResourceResult> {
     for entry in contents {
         let valid = entry.is_object()
             && entry.get("uri").is_some_and(Value::is_string)
-            && (entry.get("text").is_some_and(Value::is_string) || entry.get("blob").is_some_and(Value::is_string));
+            && (entry.get("text").is_some_and(Value::is_string)
+                || entry.get("blob").is_some_and(Value::is_string));
         if !valid {
             return Err(invalid("Invalid contents in MCP resources/read result"));
         }
     }
-    serde_json::from_value(value).map_err(|_| invalid("Invalid contents in MCP resources/read result"))
+    serde_json::from_value(value)
+        .map_err(|_| invalid("Invalid contents in MCP resources/read result"))
 }
 
 /// `content` is required by the spec, but servers that only return `structuredContent` omit it
 /// (the SDK defaults it too). `structuredContent` may be any JSON value, as MCP 2026-07-28 allows.
 fn validate_call_tool_result(value: Value) -> Result<CallToolResult> {
-    let valid = value.as_object().is_some_and(|object| object.get("content").is_none_or(Value::is_array));
+    let valid = value
+        .as_object()
+        .is_some_and(|object| object.get("content").is_none_or(Value::is_array));
     if !valid {
         return Err(invalid("Invalid MCP tools/call result"));
     }
@@ -338,7 +361,12 @@ struct PendingGuard {
 impl Drop for PendingGuard {
     fn drop(&mut self) {
         if let Some(client) = self.client.upgrade() {
-            client.cancel_pending(&self.id, Error::aborted(), self.cancellable, Some("Request cancelled".to_string()));
+            client.cancel_pending(
+                &self.id,
+                Error::aborted(),
+                self.cancellable,
+                Some("Request cancelled".to_string()),
+            );
         }
     }
 }
@@ -352,7 +380,9 @@ pub struct McpClient {
 
 impl std::fmt::Debug for McpClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("McpClient").field("state", &self.connection_state()).finish_non_exhaustive()
+        f.debug_struct("McpClient")
+            .field("state", &self.connection_state())
+            .finish_non_exhaustive()
     }
 }
 
@@ -425,14 +455,20 @@ impl McpClient {
         {
             let mut state = self.inner.state.lock();
             if state.state != ConnectionState::Idle {
-                return Err(Error::Other(format!("Cannot connect MCP client in {} state", state.state)));
+                return Err(Error::Other(format!(
+                    "Cannot connect MCP client in {} state",
+                    state.state
+                )));
             }
             state.state = ConnectionState::Connecting;
             state.transport = Some(transport.clone());
         }
         let events = transport.events();
-        let (on_message, on_error, on_close) =
-            (Arc::downgrade(&self.inner), Arc::downgrade(&self.inner), Arc::downgrade(&self.inner));
+        let (on_message, on_error, on_close) = (
+            Arc::downgrade(&self.inner),
+            Arc::downgrade(&self.inner),
+            Arc::downgrade(&self.inner),
+        );
         let disposers = vec![
             events.on_message(move |message| {
                 if let Some(inner) = on_message.upgrade() {
@@ -478,11 +514,27 @@ impl McpClient {
         let mut params = Map::new();
         params.insert(
             "protocolVersion".into(),
-            Value::String(options.protocol_version.clone().unwrap_or_else(|| LATEST_PROTOCOL_VERSION.to_string())),
+            Value::String(
+                options
+                    .protocol_version
+                    .clone()
+                    .unwrap_or_else(|| LATEST_PROTOCOL_VERSION.to_string()),
+            ),
         );
-        params.insert("capabilities".into(), serde_json::to_value(&capabilities).unwrap_or_else(|_| json!({})));
+        params.insert(
+            "capabilities".into(),
+            serde_json::to_value(&capabilities).unwrap_or_else(|_| json!({})),
+        );
         params.insert("clientInfo".into(), Value::Object(client_info));
-        let response = self.inner.request_internal("initialize", Some(params), McpRequestOptions::default(), true)?.await?;
+        let response = self
+            .inner
+            .request_internal(
+                "initialize",
+                Some(params),
+                McpRequestOptions::default(),
+                true,
+            )?
+            .await?;
         let result = validate_initialize_result(response)?;
         if !SUPPORTED_PROTOCOL_VERSIONS.contains(&result.protocol_version.as_str()) {
             return Err(Error::Other(format!(
@@ -498,7 +550,9 @@ impl McpClient {
             state.instructions = result.instructions.clone();
         }
         transport.set_protocol_version(&result.protocol_version);
-        self.inner.notify_internal("notifications/initialized", None, true)?.await?;
+        self.inner
+            .notify_internal("notifications/initialized", None, true)?
+            .await?;
         self.inner.state.lock().state = ConnectionState::Connected;
         Ok(result)
     }
@@ -529,15 +583,24 @@ impl McpClient {
     pub fn set_request_handler(
         &self,
         method: &str,
-        handler: impl Fn(Option<Value>, RequestHandlerContext) -> BoxFuture<'static, Result<Value>> + Send + Sync + 'static,
+        handler: impl Fn(Option<Value>, RequestHandlerContext) -> BoxFuture<'static, Result<Value>>
+        + Send
+        + Sync
+        + 'static,
     ) -> Disposer {
         let id = next_listener_id();
-        self.inner.request_handlers.lock().insert(method.to_string(), (id, Arc::new(handler)));
+        self.inner
+            .request_handlers
+            .lock()
+            .insert(method.to_string(), (id, Arc::new(handler)));
         let (inner, method) = (Arc::downgrade(&self.inner), method.to_string());
         Disposer::new(move || {
             if let Some(inner) = inner.upgrade() {
                 let mut handlers = inner.request_handlers.lock();
-                if handlers.get(&method).is_some_and(|(current, _)| *current == id) {
+                if handlers
+                    .get(&method)
+                    .is_some_and(|(current, _)| *current == id)
+                {
                     handlers.remove(&method);
                 }
             }
@@ -545,7 +608,11 @@ impl McpClient {
     }
 
     /// Listen for notifications of `method`; the listener receives the params.
-    pub fn on_notification(&self, method: &str, listener: impl Fn(Option<Value>) + Send + Sync + 'static) -> Disposer {
+    pub fn on_notification(
+        &self,
+        method: &str,
+        listener: impl Fn(Option<Value>) + Send + Sync + 'static,
+    ) -> Disposer {
         let id = next_listener_id();
         self.inner
             .notification_listeners
@@ -576,16 +643,27 @@ impl McpClient {
         self.inner.close_listeners.add(Arc::new(listener))
     }
 
-    pub fn ping(&self, options: McpRequestOptions) -> impl Future<Output = Result<()>> + Send + 'static + use<> {
+    pub fn ping(
+        &self,
+        options: McpRequestOptions,
+    ) -> impl Future<Output = Result<()>> + Send + 'static + use<> {
         let request = self.request("ping", None, options);
         async move { request.await.map(|_| ()) }
     }
 
     /// Every tool, following `nextCursor` through all pages.
-    pub fn list_tools(&self, options: McpRequestOptions) -> impl Future<Output = Result<Vec<Tool>>> + Send + 'static + use<> {
+    pub fn list_tools(
+        &self,
+        options: McpRequestOptions,
+    ) -> impl Future<Output = Result<Vec<Tool>>> + Send + 'static + use<> {
         let client = self.clone();
         async move {
-            client.list_all("tools/list", "tools", is_tool, options).await?.into_iter().map(to_tool).collect()
+            client
+                .list_all("tools/list", "tools", is_tool, options)
+                .await?
+                .into_iter()
+                .map(to_tool)
+                .collect()
         }
     }
 
@@ -630,7 +708,12 @@ impl McpClient {
         let client = self.clone();
         async move {
             client
-                .list_all("resources/templates/list", "resourceTemplates", is_resource_template, options)
+                .list_all(
+                    "resources/templates/list",
+                    "resourceTemplates",
+                    is_resource_template,
+                    options,
+                )
                 .await?
                 .into_iter()
                 .map(to_resource_template)
@@ -644,11 +727,20 @@ impl McpClient {
         cursor: Option<String>,
         options: McpRequestOptions,
     ) -> impl Future<Output = Result<ListResourceTemplatesResult>> + Send + 'static + use<> {
-        let page = self.list_page("resources/templates/list", "resourceTemplates", is_resource_template, cursor, options);
+        let page = self.list_page(
+            "resources/templates/list",
+            "resourceTemplates",
+            is_resource_template,
+            cursor,
+            options,
+        );
         async move {
             let (items, next_cursor) = page.await?;
             Ok(ListResourceTemplatesResult {
-                resource_templates: items.into_iter().map(to_resource_template).collect::<Result<_>>()?,
+                resource_templates: items
+                    .into_iter()
+                    .map(to_resource_template)
+                    .collect::<Result<_>>()?,
                 next_cursor,
                 meta: None,
             })
@@ -674,7 +766,12 @@ impl McpClient {
     ) -> impl Future<Output = Result<Vec<Prompt>>> + Send + 'static + use<> {
         let client = self.clone();
         async move {
-            client.list_all("prompts/list", "prompts", is_prompt, options).await?.into_iter().map(to_prompt).collect()
+            client
+                .list_all("prompts/list", "prompts", is_prompt, options)
+                .await?
+                .into_iter()
+                .map(to_prompt)
+                .collect()
         }
     }
 
@@ -687,7 +784,10 @@ impl McpClient {
         let page = self.list_page("prompts/list", "prompts", is_prompt, cursor, options);
         async move {
             let (items, next_cursor) = page.await?;
-            Ok(ListPromptsResult { prompts: items.into_iter().map(to_prompt).collect::<Result<_>>()?, next_cursor })
+            Ok(ListPromptsResult {
+                prompts: items.into_iter().map(to_prompt).collect::<Result<_>>()?,
+                next_cursor,
+            })
         }
     }
 
@@ -773,17 +873,23 @@ impl McpClient {
         let mut cursors = HashSet::new();
         let mut cursor: Option<String> = None;
         for _ in 0..MAX_LIST_PAGES {
-            let (page, next_cursor) = self.list_page(method, key, is_item, cursor.clone(), options.clone()).await?;
+            let (page, next_cursor) = self
+                .list_page(method, key, is_item, cursor.clone(), options.clone())
+                .await?;
             items.extend(page);
             let Some(next_cursor) = next_cursor else {
                 return Ok(items);
             };
             if !cursors.insert(next_cursor.clone()) {
-                return Err(Error::Other(format!("MCP {method} returned duplicate cursor: {next_cursor}")));
+                return Err(Error::Other(format!(
+                    "MCP {method} returned duplicate cursor: {next_cursor}"
+                )));
             }
             cursor = Some(next_cursor);
         }
-        Err(Error::Other(format!("MCP {method} exceeded {MAX_LIST_PAGES} pages")))
+        Err(Error::Other(format!(
+            "MCP {method} exceeded {MAX_LIST_PAGES} pages"
+        )))
     }
 }
 
@@ -794,7 +900,11 @@ impl Inner {
         self.this.upgrade()
     }
 
-    fn require_transport(&self, state: &State, allow_connecting: bool) -> Result<Arc<dyn McpTransport>> {
+    fn require_transport(
+        &self,
+        state: &State,
+        allow_connecting: bool,
+    ) -> Result<Arc<dyn McpTransport>> {
         match &state.transport {
             Some(transport)
                 if state.state == ConnectionState::Connected
@@ -802,7 +912,10 @@ impl Inner {
             {
                 Ok(transport.clone())
             }
-            _ => Err(Error::ConnectionClosed(format!("MCP client is {}", state.state))),
+            _ => Err(Error::ConnectionClosed(format!(
+                "MCP client is {}",
+                state.state
+            ))),
         }
     }
 
@@ -838,11 +951,17 @@ impl Inner {
                     Some(Value::Object(params))
                 }
             };
-            let message = JsonRpcMessage::Request(JsonRpcRequest { id: id.clone(), method: method.to_string(), params: request_params });
+            let message = JsonRpcMessage::Request(JsonRpcRequest {
+                id: id.clone(),
+                method: method.to_string(),
+                params: request_params,
+            });
             let send_controller = AbortController::new();
             let send_signal = send_controller.signal();
-            let timeout_ms =
-                options.timeout_ms.or(self.options.request_timeout_ms).unwrap_or(DEFAULT_REQUEST_TIMEOUT_MS);
+            let timeout_ms = options
+                .timeout_ms
+                .or(self.options.request_timeout_ms)
+                .unwrap_or(DEFAULT_REQUEST_TIMEOUT_MS);
             // The spec forbids cancelling `initialize`.
             let abort_watch = options.signal.clone().and_then(|signal| {
                 let (client, id) = (self.this.clone(), id.clone());
@@ -873,7 +992,12 @@ impl Inner {
             self.arm_timeout(&mut state, &id);
             (transport, id, message, send_signal)
         };
-        let send = transport.send(message, McpTransportSendOptions { signal: Some(send_signal) });
+        let send = transport.send(
+            message,
+            McpTransportSendOptions {
+                signal: Some(send_signal),
+            },
+        );
         let client = self.this.clone();
         let failed_id = id.clone();
         spawn_detached(async move {
@@ -883,9 +1007,15 @@ impl Inner {
                 client.cancel_pending(&failed_id, error, false, None);
             }
         });
-        let guard = PendingGuard { client: self.this.clone(), id, cancellable };
+        let guard = PendingGuard {
+            client: self.this.clone(),
+            id,
+            cancellable,
+        };
         Ok(Box::pin(async move {
-            let result = receiver.await.unwrap_or_else(|_| Err(Error::connection_closed()));
+            let result = receiver
+                .await
+                .unwrap_or_else(|_| Err(Error::connection_closed()));
             drop(guard);
             result
         }))
@@ -933,14 +1063,19 @@ impl Inner {
             entry
         };
         let Some(entry) = entry else {
-            self.emit_error(Error::Other(format!("Received response for unknown MCP request {}", response.id())));
+            self.emit_error(Error::Other(format!(
+                "Received response for unknown MCP request {}",
+                response.id()
+            )));
             return;
         };
         let result = match response {
             JsonRpcResponse::Success { result, .. } => Ok(result),
-            JsonRpcResponse::Error { error, .. } => {
-                Err(Error::Rpc(McpError::with_data(error.code, error.message, error.data)))
-            }
+            JsonRpcResponse::Error { error, .. } => Err(Error::Rpc(McpError::with_data(
+                error.code,
+                error.message,
+                error.data,
+            ))),
         };
         let _ = entry.sender.send(result);
     }
@@ -949,7 +1084,11 @@ impl Inner {
         let Some(transport) = self.state.lock().transport.clone() else {
             return;
         };
-        let handler = self.request_handlers.lock().get(&request.method).map(|(_, handler)| handler.clone());
+        let handler = self
+            .request_handlers
+            .lock()
+            .get(&request.method)
+            .map(|(_, handler)| handler.clone());
         let Some(handler) = handler else {
             let response = JsonRpcMessage::error(
                 request.id.clone(),
@@ -957,28 +1096,54 @@ impl Inner {
                 format!("Method not found: {}", request.method),
                 None,
             );
-            if let Err(error) = transport.send(response, McpTransportSendOptions::default()).await {
+            if let Err(error) = transport
+                .send(response, McpTransportSendOptions::default())
+                .await
+            {
                 self.emit_error(error);
             }
             return;
         };
         let controller = AbortController::new();
-        self.state.lock().incoming.insert(request.id.clone(), controller.clone());
-        let outcome = match handler(request.params, RequestHandlerContext { signal: controller.signal() }).await {
+        self.state
+            .lock()
+            .incoming
+            .insert(request.id.clone(), controller.clone());
+        let outcome = match handler(
+            request.params,
+            RequestHandlerContext {
+                signal: controller.signal(),
+            },
+        )
+        .await
+        {
             Ok(result) => {
                 let result = if result.is_null() { json!({}) } else { result };
-                transport.send(JsonRpcMessage::result(request.id.clone(), result), McpTransportSendOptions::default()).await
+                transport
+                    .send(
+                        JsonRpcMessage::result(request.id.clone(), result),
+                        McpTransportSendOptions::default(),
+                    )
+                    .await
             }
             Err(error) => Err(error),
         };
         if let Err(error) = outcome {
             let response = match error {
-                Error::Rpc(error) => JsonRpcMessage::error(request.id.clone(), error.code, error.message, error.data),
-                other => {
-                    JsonRpcMessage::error(request.id.clone(), JSON_RPC_ERROR_CODES.internal_error, other.to_string(), None)
+                Error::Rpc(error) => {
+                    JsonRpcMessage::error(request.id.clone(), error.code, error.message, error.data)
                 }
+                other => JsonRpcMessage::error(
+                    request.id.clone(),
+                    JSON_RPC_ERROR_CODES.internal_error,
+                    other.to_string(),
+                    None,
+                ),
             };
-            if let Err(send_error) = transport.send(response, McpTransportSendOptions::default()).await {
+            if let Err(send_error) = transport
+                .send(response, McpTransportSendOptions::default())
+                .await
+            {
                 self.emit_error(send_error);
             }
         }
@@ -995,7 +1160,12 @@ impl Inner {
             .notification_listeners
             .lock()
             .get(method)
-            .map(|entries| entries.iter().map(|(_, listener)| listener.clone()).collect())
+            .map(|entries| {
+                entries
+                    .iter()
+                    .map(|(_, listener)| listener.clone())
+                    .collect()
+            })
             .unwrap_or_default();
         for listener in listeners {
             listener(params.clone());
@@ -1003,19 +1173,28 @@ impl Inner {
     }
 
     fn handle_progress(&self, params: Option<&Value>) {
-        let Some(params) = params.filter(|params| params.is_object()) else { return };
-        let Some(token) = params.get("progressToken").and_then(JsonRpcId::from_value) else { return };
+        let Some(params) = params.filter(|params| params.is_object()) else {
+            return;
+        };
+        let Some(token) = params.get("progressToken").and_then(JsonRpcId::from_value) else {
+            return;
+        };
         if !params.get("progress").is_some_and(Value::is_number) {
             return;
         }
         let listener = {
             let mut state = self.state.lock();
-            let Some(request_id) = state.progress_requests.get(&token).cloned() else { return };
+            let Some(request_id) = state.progress_requests.get(&token).cloned() else {
+                return;
+            };
             if !state.pending.contains_key(&request_id) {
                 return;
             }
             self.arm_timeout(&mut state, &request_id);
-            state.pending.get(&request_id).and_then(|entry| entry.on_progress.clone())
+            state
+                .pending
+                .get(&request_id)
+                .and_then(|entry| entry.on_progress.clone())
         };
         if let Some(listener) = listener
             && let Ok(progress) = serde_json::from_value::<ProgressNotification>(params.clone())
@@ -1025,8 +1204,12 @@ impl Inner {
     }
 
     fn handle_cancelled(&self, params: Option<&Value>) {
-        let Some(params) = params.filter(|params| params.is_object()) else { return };
-        let Some(request_id) = params.get("requestId").and_then(JsonRpcId::from_value) else { return };
+        let Some(params) = params.filter(|params| params.is_object()) else {
+            return;
+        };
+        let Some(request_id) = params.get("requestId").and_then(JsonRpcId::from_value) else {
+            return;
+        };
         let controller = self.state.lock().incoming.get(&request_id).cloned();
         if let Some(controller) = controller {
             match params.get("reason").and_then(Value::as_str) {
@@ -1037,26 +1220,46 @@ impl Inner {
     }
 
     fn arm_timeout(&self, state: &mut State, id: &JsonRpcId) {
-        let Some(entry) = state.pending.get_mut(id) else { return };
+        let Some(entry) = state.pending.get_mut(id) else {
+            return;
+        };
         if let Some(timer) = entry.timer.take() {
             timer.abort();
         }
         if entry.timeout_ms == 0 {
             return;
         }
-        let (client, id, timeout_ms, cancellable) = (self.this.clone(), id.clone(), entry.timeout_ms, entry.cancellable);
+        let (client, id, timeout_ms, cancellable) = (
+            self.this.clone(),
+            id.clone(),
+            entry.timeout_ms,
+            entry.cancellable,
+        );
         entry.timer = spawn_detached(async move {
             tokio::time::sleep(Duration::from_millis(timeout_ms)).await;
             if let Some(client) = client.upgrade() {
-                client.cancel_pending(&id, Error::Timeout { timeout_ms }, cancellable, Some("Request timed out".into()));
+                client.cancel_pending(
+                    &id,
+                    Error::Timeout { timeout_ms },
+                    cancellable,
+                    Some("Request timed out".into()),
+                );
             }
         });
     }
 
-    fn cancel_pending(&self, id: &JsonRpcId, error: Error, notify_server: bool, reason: Option<String>) {
+    fn cancel_pending(
+        &self,
+        id: &JsonRpcId,
+        error: Error,
+        notify_server: bool,
+        reason: Option<String>,
+    ) {
         let (entry, transport) = {
             let mut state = self.state.lock();
-            let Some(entry) = state.pending.remove(id) else { return };
+            let Some(entry) = state.pending.remove(id) else {
+                return;
+            };
             Self::remove_pending(&mut state, &entry);
             (entry, state.transport.clone())
         };
@@ -1068,7 +1271,10 @@ impl Inner {
                 params.insert("reason".into(), Value::String(reason));
             }
             let send = transport.send(
-                JsonRpcMessage::notification("notifications/cancelled", Some(Value::Object(params))),
+                JsonRpcMessage::notification(
+                    "notifications/cancelled",
+                    Some(Value::Object(params)),
+                ),
                 McpTransportSendOptions::default(),
             );
             let client = self.this.clone();
@@ -1101,11 +1307,16 @@ impl Inner {
             let mut state = self.state.lock();
             let was_closed = state.state == ConnectionState::Closed;
             state.state = ConnectionState::Closed;
-            let pending: Vec<PendingRequest> = state.pending.drain().map(|(_, entry)| entry).collect();
+            let pending: Vec<PendingRequest> =
+                state.pending.drain().map(|(_, entry)| entry).collect();
             for entry in &pending {
                 Self::remove_pending(&mut state, entry);
             }
-            let incoming: Vec<AbortController> = state.incoming.drain().map(|(_, controller)| controller).collect();
+            let incoming: Vec<AbortController> = state
+                .incoming
+                .drain()
+                .map(|(_, controller)| controller)
+                .collect();
             (was_closed, pending, incoming)
         };
         for entry in pending {

@@ -71,7 +71,11 @@ impl AuthorizationServerMetadata {
 pub struct OAuthTokens {
     pub access_token: String,
     pub token_type: String,
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::serde_util::opt_number")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "crate::serde_util::opt_number"
+    )]
     pub expires_in: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,
@@ -141,9 +145,17 @@ pub struct OAuthClientInformation {
     pub client_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_secret: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::serde_util::opt_number")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "crate::serde_util::opt_number"
+    )]
     pub client_id_issued_at: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::serde_util::opt_number")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "crate::serde_util::opt_number"
+    )]
     pub client_secret_expires_at: Option<f64>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
@@ -178,13 +190,20 @@ impl OAuthClientInformation {
         self.extra
             .get("redirect_uris")
             .and_then(Value::as_array)
-            .map(|uris| uris.iter().filter_map(Value::as_str).map(str::to_string).collect())
+            .map(|uris| {
+                uris.iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
     /// The registered `token_endpoint_auth_method`, if any.
     pub fn token_endpoint_auth_method(&self) -> Option<&str> {
-        self.extra.get("token_endpoint_auth_method").and_then(Value::as_str)
+        self.extra
+            .get("token_endpoint_auth_method")
+            .and_then(Value::as_str)
     }
 }
 
@@ -251,7 +270,11 @@ fn optional_strings(value: Option<&Value>, name: &str) -> Result<Option<Vec<Stri
         None | Some(Value::Null) => Ok(None),
         Some(Value::Array(items)) => items
             .iter()
-            .map(|item| item.as_str().map(str::to_string).ok_or_else(|| invalid(name)))
+            .map(|item| {
+                item.as_str()
+                    .map(str::to_string)
+                    .ok_or_else(|| invalid(name))
+            })
             .collect::<Result<Vec<_>>>()
             .map(Some),
         Some(_) => Err(invalid(name)),
@@ -290,16 +313,25 @@ fn strings_value(values: Option<Vec<String>>) -> Option<Value> {
     values.map(|values| Value::Array(values.into_iter().map(Value::String).collect()))
 }
 
-fn from_object<T: serde::de::DeserializeOwned>(object: Map<String, Value>, name: &str) -> Result<T> {
+fn from_object<T: serde::de::DeserializeOwned>(
+    object: Map<String, Value>,
+    name: &str,
+) -> Result<T> {
     serde_json::from_value(Value::Object(object)).map_err(|_| invalid(name))
 }
 
 pub fn parse_protected_resource_metadata(value: Value) -> Result<OAuthProtectedResourceMetadata> {
     let mut input = object(value, "OAuth protected resource metadata")?;
-    let resource = safe_url(input.get("resource"), "OAuth protected resource metadata resource")?;
+    let resource = safe_url(
+        input.get("resource"),
+        "OAuth protected resource metadata resource",
+    )?;
     let servers = optional_strings(input.get("authorization_servers"), "authorization_servers")?
         .map(|servers| {
-            servers.into_iter().map(|url| safe_url(Some(&Value::String(url)), "authorization server URL")).collect()
+            servers
+                .into_iter()
+                .map(|url| safe_url(Some(&Value::String(url)), "authorization server URL"))
+                .collect()
         })
         .transpose()?;
     let scopes = optional_strings(input.get("scopes_supported"), "scopes_supported")?;
@@ -311,34 +343,70 @@ pub fn parse_protected_resource_metadata(value: Value) -> Result<OAuthProtectedR
 
 pub fn parse_authorization_server_metadata(value: Value) -> Result<AuthorizationServerMetadata> {
     let mut input = object(value, "authorization server metadata")?;
-    let response_types = optional_strings(input.get("response_types_supported"), "response_types_supported")?
-        .ok_or_else(|| invalid("response_types_supported"))?;
+    let response_types = optional_strings(
+        input.get("response_types_supported"),
+        "response_types_supported",
+    )?
+    .ok_or_else(|| invalid("response_types_supported"))?;
     let issuer = safe_url(input.get("issuer"), "authorization server issuer")?;
-    let authorization_endpoint = safe_url(input.get("authorization_endpoint"), "authorization endpoint")?;
+    let authorization_endpoint = safe_url(
+        input.get("authorization_endpoint"),
+        "authorization endpoint",
+    )?;
     let token_endpoint = safe_url(input.get("token_endpoint"), "token endpoint")?;
-    let registration_endpoint = optional_url(input.get("registration_endpoint"), "registration endpoint")?;
+    let registration_endpoint =
+        optional_url(input.get("registration_endpoint"), "registration endpoint")?;
     let scopes = optional_strings(input.get("scopes_supported"), "scopes_supported")?;
-    let grant_types = optional_strings(input.get("grant_types_supported"), "grant_types_supported")?;
+    let grant_types =
+        optional_strings(input.get("grant_types_supported"), "grant_types_supported")?;
     let auth_methods = optional_strings(
         input.get("token_endpoint_auth_methods_supported"),
         "token_endpoint_auth_methods_supported",
     )?;
-    let challenge_methods =
-        optional_strings(input.get("code_challenge_methods_supported"), "code_challenge_methods_supported")?;
+    let challenge_methods = optional_strings(
+        input.get("code_challenge_methods_supported"),
+        "code_challenge_methods_supported",
+    )?;
     let boolean = |value: Option<&Value>| value.and_then(Value::as_bool).map(Value::Bool);
     let cimd = boolean(input.get("client_id_metadata_document_supported"));
     let iss = boolean(input.get("authorization_response_iss_parameter_supported"));
     input.insert("issuer".into(), Value::String(issuer));
-    input.insert("authorization_endpoint".into(), Value::String(authorization_endpoint));
+    input.insert(
+        "authorization_endpoint".into(),
+        Value::String(authorization_endpoint),
+    );
     input.insert("token_endpoint".into(), Value::String(token_endpoint));
-    set_or_remove(&mut input, "registration_endpoint", registration_endpoint.map(Value::String));
+    set_or_remove(
+        &mut input,
+        "registration_endpoint",
+        registration_endpoint.map(Value::String),
+    );
     set_or_remove(&mut input, "scopes_supported", strings_value(scopes));
-    input.insert("response_types_supported".into(), strings_value(Some(response_types)).unwrap_or(Value::Null));
-    set_or_remove(&mut input, "grant_types_supported", strings_value(grant_types));
-    set_or_remove(&mut input, "token_endpoint_auth_methods_supported", strings_value(auth_methods));
-    set_or_remove(&mut input, "code_challenge_methods_supported", strings_value(challenge_methods));
+    input.insert(
+        "response_types_supported".into(),
+        strings_value(Some(response_types)).unwrap_or(Value::Null),
+    );
+    set_or_remove(
+        &mut input,
+        "grant_types_supported",
+        strings_value(grant_types),
+    );
+    set_or_remove(
+        &mut input,
+        "token_endpoint_auth_methods_supported",
+        strings_value(auth_methods),
+    );
+    set_or_remove(
+        &mut input,
+        "code_challenge_methods_supported",
+        strings_value(challenge_methods),
+    );
     set_or_remove(&mut input, "client_id_metadata_document_supported", cimd);
-    set_or_remove(&mut input, "authorization_response_iss_parameter_supported", iss);
+    set_or_remove(
+        &mut input,
+        "authorization_response_iss_parameter_supported",
+        iss,
+    );
     from_object(input, "authorization server metadata")
 }
 
@@ -350,7 +418,11 @@ fn js_number(value: &Value) -> f64 {
         Value::String(text) => {
             let text = text.trim();
             // Non-finite results are rejected by the caller, so `inf` and friends need no special case.
-            if text.is_empty() { 0.0 } else { text.parse().unwrap_or(f64::NAN) }
+            if text.is_empty() {
+                0.0
+            } else {
+                text.parse().unwrap_or(f64::NAN)
+            }
         }
         Value::Null => 0.0,
         Value::Array(items) if items.is_empty() => 0.0,
@@ -362,7 +434,11 @@ fn js_number(value: &Value) -> f64 {
 pub fn parse_oauth_tokens(value: Option<Value>) -> Result<OAuthTokens> {
     let input = object(value.unwrap_or(Value::Null), "OAuth token response")?;
     // `Number(null)` is 0, which would mark the token as expired at once.
-    let expires = if absent(input.get("expires_in")) { None } else { input.get("expires_in").map(js_number) };
+    let expires = if absent(input.get("expires_in")) {
+        None
+    } else {
+        input.get("expires_in").map(js_number)
+    };
     if expires.is_some_and(|expires| !expires.is_finite()) {
         return Err(invalid("expires_in"));
     }
@@ -383,12 +459,20 @@ pub fn parse_client_information(value: Value) -> Result<OAuthClientInformationFu
     let number = |value: Option<&Value>| value.filter(|value| value.is_number()).cloned();
     let issued_at = number(input.get("client_id_issued_at"));
     let expires_at = number(input.get("client_secret_expires_at"));
-    let redirect_uris = optional_strings(input.get("redirect_uris"), "redirect_uris")?.unwrap_or_default();
+    let redirect_uris =
+        optional_strings(input.get("redirect_uris"), "redirect_uris")?.unwrap_or_default();
     input.insert("client_id".into(), Value::String(client_id));
-    set_or_remove(&mut input, "client_secret", client_secret.map(Value::String));
+    set_or_remove(
+        &mut input,
+        "client_secret",
+        client_secret.map(Value::String),
+    );
     set_or_remove(&mut input, "client_id_issued_at", issued_at);
     set_or_remove(&mut input, "client_secret_expires_at", expires_at);
-    input.insert("redirect_uris".into(), strings_value(Some(redirect_uris)).unwrap_or(Value::Null));
+    input.insert(
+        "redirect_uris".into(),
+        strings_value(Some(redirect_uris)).unwrap_or(Value::Null),
+    );
     from_object(input, "OAuth client registration response")
 }
 
@@ -404,13 +488,25 @@ mod tests {
         })))
         .unwrap();
         assert_eq!(tokens, OAuthTokens::bearer("a"));
-        let tokens =
-            parse_oauth_tokens(Some(json!({ "access_token": "a", "token_type": "Bearer", "expires_in": "3600" })))
-                .unwrap();
+        let tokens = parse_oauth_tokens(Some(
+            json!({ "access_token": "a", "token_type": "Bearer", "expires_in": "3600" }),
+        ))
+        .unwrap();
         assert_eq!(tokens.expires_in, Some(3600.0));
-        assert_eq!(serde_json::to_value(&tokens).unwrap()["expires_in"], json!(3600));
-        assert!(parse_oauth_tokens(Some(json!({ "access_token": "a", "token_type": "Bearer", "expires_in": "x" }))).is_err());
-        assert_eq!(parse_oauth_tokens(None).unwrap_err().to_string(), "Invalid OAuth token response");
+        assert_eq!(
+            serde_json::to_value(&tokens).unwrap()["expires_in"],
+            json!(3600)
+        );
+        assert!(
+            parse_oauth_tokens(Some(
+                json!({ "access_token": "a", "token_type": "Bearer", "expires_in": "x" })
+            ))
+            .is_err()
+        );
+        assert_eq!(
+            parse_oauth_tokens(None).unwrap_err().to_string(),
+            "Invalid OAuth token response"
+        );
     }
 
     #[test]
@@ -438,7 +534,10 @@ mod tests {
 
     #[test]
     fn parses_client_information() {
-        let info = parse_client_information(json!({ "client_id": "c", "client_secret": "", "client_name": "x" })).unwrap();
+        let info = parse_client_information(
+            json!({ "client_id": "c", "client_secret": "", "client_name": "x" }),
+        )
+        .unwrap();
         assert_eq!(info.client_secret, None);
         assert_eq!(info.redirect_uris(), Vec::<String>::new());
         assert!(info.has_redirect_uris());

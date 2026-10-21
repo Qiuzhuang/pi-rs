@@ -9,13 +9,22 @@ pub const LATEST_PROTOCOL_VERSION: &str = "2025-11-25";
 
 /// Versions the client accepts from a server. Servers that do not support the requested version
 /// answer with their own latest one, so older versions stay accepted for servers built on older SDKs.
-pub const SUPPORTED_PROTOCOL_VERSIONS: [&str; 4] = [LATEST_PROTOCOL_VERSION, "2025-06-18", "2025-03-26", "2024-11-05"];
+pub const SUPPORTED_PROTOCOL_VERSIONS: [&str; 4] = [
+    LATEST_PROTOCOL_VERSION,
+    "2025-06-18",
+    "2025-03-26",
+    "2024-11-05",
+];
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Implementation {
     pub name: String,
     pub version: String,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub title: Option<String>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
@@ -23,7 +32,12 @@ pub struct Implementation {
 
 impl Implementation {
     pub fn new(name: impl Into<String>, version: impl Into<String>) -> Self {
-        Self { name: name.into(), version: version.into(), title: None, extra: Map::new() }
+        Self {
+            name: name.into(),
+            version: version.into(),
+            title: None,
+            extra: Map::new(),
+        }
     }
 }
 
@@ -36,14 +50,21 @@ pub struct Root {
 
 impl Root {
     pub fn new(uri: impl Into<String>, name: Option<String>) -> Self {
-        Self { uri: uri.into(), name }
+        Self {
+            uri: uri.into(),
+            name,
+        }
     }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ListChangedCapability {
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub list_changed: Option<bool>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
@@ -52,9 +73,17 @@ pub struct ListChangedCapability {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResourcesCapability {
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub subscribe: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub list_changed: Option<bool>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
@@ -76,17 +105,41 @@ pub struct ClientCapabilities {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ServerCapabilities {
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub experimental: Option<Map<String, Value>>,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub logging: Option<Map<String, Value>>,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub prompts: Option<ListChangedCapability>,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub resources: Option<ResourcesCapability>,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub tools: Option<ListChangedCapability>,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub completions: Option<Map<String, Value>>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
@@ -118,9 +171,17 @@ pub struct ProgressNotification {
     pub progress_token: JsonRpcId,
     #[serde(with = "crate::serde_util::number")]
     pub progress: f64,
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::serde_util::opt_number")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "crate::serde_util::opt_number"
+    )]
     pub total: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub message: Option<String>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
@@ -137,15 +198,35 @@ pub struct CancelledNotification {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ToolAnnotations {
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub title: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub read_only_hint: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub destructive_hint: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub idempotent_hint: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub open_world_hint: Option<bool>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
@@ -155,7 +236,11 @@ pub struct ToolAnnotations {
 #[serde(rename_all = "camelCase")]
 pub struct ToolExecution {
     /// `"forbidden" | "optional" | "required"`.
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub task_support: Option<String>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
@@ -166,18 +251,43 @@ pub struct ToolExecution {
 #[serde(rename_all = "camelCase")]
 pub struct Tool {
     pub name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub title: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub description: Option<String>,
     pub input_schema: Map<String, Value>,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub output_schema: Option<Map<String, Value>>,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub annotations: Option<ToolAnnotations>,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub execution: Option<ToolExecution>,
-    #[serde(rename = "_meta", default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        rename = "_meta",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub meta: Option<Map<String, Value>>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
@@ -199,17 +309,42 @@ pub struct ListToolsResult {
 pub struct Resource {
     pub uri: String,
     pub name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub title: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub description: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub mime_type: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::serde_util::opt_number")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "crate::serde_util::opt_number"
+    )]
     pub size: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub annotations: Option<ContentAnnotations>,
-    #[serde(rename = "_meta", default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        rename = "_meta",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub meta: Option<Map<String, Value>>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
@@ -221,15 +356,36 @@ pub struct Resource {
 pub struct ResourceTemplate {
     pub uri_template: String,
     pub name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub title: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub description: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub mime_type: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub annotations: Option<ContentAnnotations>,
-    #[serde(rename = "_meta", default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        rename = "_meta",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub meta: Option<Map<String, Value>>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
@@ -258,7 +414,12 @@ pub struct ListResourceTemplatesResult {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReadResourceResult {
     pub contents: Vec<ResourceContents>,
-    #[serde(rename = "_meta", default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        rename = "_meta",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub meta: Option<Map<String, Value>>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
@@ -268,11 +429,23 @@ pub struct ReadResourceResult {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PromptArgument {
     pub name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub title: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub description: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub required: Option<bool>,
 }
 
@@ -280,13 +453,30 @@ pub struct PromptArgument {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Prompt {
     pub name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub title: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub description: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub arguments: Option<Vec<PromptArgument>>,
-    #[serde(rename = "_meta", default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        rename = "_meta",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub meta: Option<Map<String, Value>>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
@@ -310,10 +500,19 @@ pub struct PromptMessage {
 /// Result of `prompts/get`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GetPromptResult {
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub description: Option<String>,
     pub messages: Vec<PromptMessage>,
-    #[serde(rename = "_meta", default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    #[serde(
+        rename = "_meta",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
     pub meta: Option<Map<String, Value>>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,

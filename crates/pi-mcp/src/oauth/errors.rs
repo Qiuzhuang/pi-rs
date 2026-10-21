@@ -11,11 +11,23 @@ pub struct OAuthError {
 }
 
 impl OAuthError {
-    pub fn new(code: impl Into<String>, message: impl Into<String>, error_uri: Option<String>) -> Self {
+    pub fn new(
+        code: impl Into<String>,
+        message: impl Into<String>,
+        error_uri: Option<String>,
+    ) -> Self {
         let code = code.into();
         let message = message.into();
-        let message = if message.is_empty() { code.clone() } else { message };
-        Self { code, message, error_uri }
+        let message = if message.is_empty() {
+            code.clone()
+        } else {
+            message
+        };
+        Self {
+            code,
+            message,
+            error_uri,
+        }
     }
 }
 

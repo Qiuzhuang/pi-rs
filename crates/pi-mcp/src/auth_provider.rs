@@ -26,7 +26,13 @@ pub struct HttpRequest {
 
 impl HttpRequest {
     pub fn new(method: impl Into<String>, url: Url) -> Self {
-        Self { method: method.into(), url, headers: HeaderMap::new(), body: None, signal: None }
+        Self {
+            method: method.into(),
+            url,
+            headers: HeaderMap::new(),
+            body: None,
+            signal: None,
+        }
     }
 
     pub fn get(url: Url) -> Self {
@@ -52,7 +58,10 @@ impl HttpRequest {
 
 /// Set a header like `Headers.set`; invalid names or values are ignored.
 pub fn set_header(headers: &mut HeaderMap, name: &str, value: &str) -> bool {
-    match (HeaderName::from_bytes(name.as_bytes()), HeaderValue::from_str(value)) {
+    match (
+        HeaderName::from_bytes(name.as_bytes()),
+        HeaderValue::from_str(value),
+    ) {
         (Ok(name), Ok(value)) => {
             headers.insert(name, value);
             true
@@ -74,7 +83,9 @@ pub struct HttpResponseHead {
 impl HttpResponseHead {
     /// `response.headers.get(name)`.
     pub fn header(&self, name: &str) -> Option<String> {
-        self.headers.get(name).map(|value| String::from_utf8_lossy(value.as_bytes()).into_owned())
+        self.headers
+            .get(name)
+            .map(|value| String::from_utf8_lossy(value.as_bytes()).into_owned())
     }
 
     /// `response.ok`.
@@ -91,19 +102,28 @@ pub struct HttpResponse {
 
 impl std::fmt::Debug for HttpResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("HttpResponse").field("head", &self.head).finish_non_exhaustive()
+        f.debug_struct("HttpResponse")
+            .field("head", &self.head)
+            .finish_non_exhaustive()
     }
 }
 
 impl HttpResponse {
     pub fn new(status: u16, headers: HeaderMap, body: Option<BodyStream>) -> Self {
-        Self { head: HttpResponseHead { status, headers }, body }
+        Self {
+            head: HttpResponseHead { status, headers },
+            body,
+        }
     }
 
     /// A response with a complete body.
     pub fn from_bytes(status: u16, headers: HeaderMap, body: impl Into<Bytes>) -> Self {
         let body: Bytes = body.into();
-        Self::new(status, headers, Some(futures::stream::once(async move { Ok(body) }).boxed()))
+        Self::new(
+            status,
+            headers,
+            Some(futures::stream::once(async move { Ok(body) }).boxed()),
+        )
     }
 
     pub fn status(&self) -> u16 {
@@ -147,18 +167,30 @@ impl HttpResponse {
     /// `response.json()`.
     pub async fn json(self) -> Result<Value> {
         let text = self.text().await?;
-        serde_json::from_str(&text).map_err(|error| Error::Other(format!("Invalid JSON response: {error}")))
+        serde_json::from_str(&text)
+            .map_err(|error| Error::Other(format!("Invalid JSON response: {error}")))
     }
 }
 
 /// `fetch`: send a request and resolve with the response head once it arrives. Network failures
 /// are [`Error::Network`]; aborted requests are [`Error::Aborted`].
-pub type McpFetch = Arc<dyn Fn(HttpRequest) -> BoxFuture<'static, Result<HttpResponse>> + Send + Sync>;
+pub type McpFetch =
+    Arc<dyn Fn(HttpRequest) -> BoxFuture<'static, Result<HttpResponse>> + Send + Sync>;
 
 static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(reqwest::Client::new);
 
+/// `fetch` rejects with the signal's reason; DOMException reasons carry their name as a prefix.
 fn aborted_error(signal: &AbortSignal) -> Error {
-    Error::Aborted(signal.reason().unwrap_or_else(|| "This operation was aborted".to_string()))
+    let reason = signal.reason().unwrap_or_default();
+    let message = ["AbortError: ", "TimeoutError: "]
+        .iter()
+        .find_map(|prefix| reason.strip_prefix(prefix))
+        .unwrap_or(&reason);
+    Error::Aborted(if message.is_empty() {
+        "This operation was aborted".to_string()
+    } else {
+        message.to_string()
+    })
 }
 
 /// Wrap a body stream so it fails with [`Error::Aborted`] once `signal` aborts.
@@ -194,7 +226,9 @@ async fn reqwest_fetch(client: reqwest::Client, request: HttpRequest) -> Result<
     }
     let method = reqwest::Method::from_bytes(request.method.as_bytes())
         .map_err(|_| Error::Type(format!("'{}' is not a valid HTTP method.", request.method)))?;
-    let mut builder = client.request(method, request.url.clone()).headers(request.headers);
+    let mut builder = client
+        .request(method, request.url.clone())
+        .headers(request.headers);
     if let Some(body) = request.body {
         builder = builder.body(body);
     }
@@ -214,7 +248,11 @@ async fn reqwest_fetch(client: reqwest::Client, request: HttpRequest) -> Result<
         .bytes_stream()
         .map(|chunk| chunk.map_err(|error| Error::Network(format!("terminated: {error}"))))
         .boxed();
-    Ok(HttpResponse::new(status, headers, Some(abortable_body(body, signal))))
+    Ok(HttpResponse::new(
+        status,
+        headers,
+        Some(abortable_body(body, signal)),
+    ))
 }
 
 /// The default [`McpFetch`], backed by a shared `reqwest` client (rustls, system proxy settings,
@@ -266,8 +304,13 @@ pub struct FnAuthProvider {
 }
 
 impl FnAuthProvider {
-    pub fn new(token: impl Fn() -> BoxFuture<'static, Result<Option<String>>> + Send + Sync + 'static) -> Self {
-        Self { token: Arc::new(token), on_unauthorized: None }
+    pub fn new(
+        token: impl Fn() -> BoxFuture<'static, Result<Option<String>>> + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            token: Arc::new(token),
+            on_unauthorized: None,
+        }
     }
 
     pub fn on_unauthorized(
@@ -285,6 +328,8 @@ impl AuthProvider for FnAuthProvider {
     }
 
     fn on_unauthorized(&self, context: UnauthorizedContext) -> Option<BoxFuture<'_, Result<()>>> {
-        self.on_unauthorized.as_ref().map(|handler| handler(context))
+        self.on_unauthorized
+            .as_ref()
+            .map(|handler| handler(context))
     }
 }

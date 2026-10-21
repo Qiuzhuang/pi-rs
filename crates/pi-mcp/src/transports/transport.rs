@@ -46,14 +46,18 @@ pub(crate) fn next_listener_id() -> u64 {
     NEXT_LISTENER_ID.fetch_add(1, Ordering::Relaxed)
 }
 
+type ListenerEntries<F> = Vec<(u64, Arc<F>)>;
+
 /// An ordered listener set.
 pub(crate) struct Listeners<F: ?Sized> {
-    entries: Arc<Mutex<Vec<(u64, Arc<F>)>>>,
+    entries: Arc<Mutex<ListenerEntries<F>>>,
 }
 
 impl<F: ?Sized> Default for Listeners<F> {
     fn default() -> Self {
-        Self { entries: Arc::default() }
+        Self {
+            entries: Arc::default(),
+        }
     }
 }
 
@@ -70,7 +74,11 @@ impl<F: ?Sized + Send + Sync + 'static> Listeners<F> {
     }
 
     pub(crate) fn snapshot(&self) -> Vec<Arc<F>> {
-        self.entries.lock().iter().map(|(_, listener)| listener.clone()).collect()
+        self.entries
+            .lock()
+            .iter()
+            .map(|(_, listener)| listener.clone())
+            .collect()
     }
 }
 
@@ -84,7 +92,10 @@ pub struct TransportEvents {
 }
 
 impl TransportEvents {
-    pub fn on_message(&self, listener: impl Fn(JsonRpcMessage) + Send + Sync + 'static) -> Disposer {
+    pub fn on_message(
+        &self,
+        listener: impl Fn(JsonRpcMessage) + Send + Sync + 'static,
+    ) -> Disposer {
         self.message.add(Arc::new(listener))
     }
 
@@ -138,7 +149,11 @@ pub struct McpTransportSendOptions {
 /// of a JavaScript async function: `send` must enqueue messages in call order.
 pub trait McpTransport: Send + Sync + 'static {
     fn start(&self) -> BoxFuture<'static, Result<()>>;
-    fn send(&self, message: JsonRpcMessage, options: McpTransportSendOptions) -> BoxFuture<'static, Result<()>>;
+    fn send(
+        &self,
+        message: JsonRpcMessage,
+        options: McpTransportSendOptions,
+    ) -> BoxFuture<'static, Result<()>>;
     fn close(&self) -> BoxFuture<'static, Result<()>>;
     /// Message, error, and close listeners.
     fn events(&self) -> &TransportEvents;

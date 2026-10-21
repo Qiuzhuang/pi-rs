@@ -11,7 +11,9 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::process::{Child, ChildStdin};
 use tokio::sync::{mpsc, oneshot, watch};
 
-use super::transport::{DEFAULT_MAX_MESSAGE_BYTES, McpTransport, McpTransportSendOptions, TransportEvents};
+use super::transport::{
+    DEFAULT_MAX_MESSAGE_BYTES, McpTransport, McpTransportSendOptions, TransportEvents,
+};
 use crate::error::{Error, Result};
 use crate::protocol::jsonrpc::{JsonRpcMessage, parse_json_rpc_message};
 
@@ -191,7 +193,9 @@ impl Inner {
             StderrMode::Pipe => Stdio::piped(),
         });
         platform::configure(&mut command);
-        let mut child: Child = command.spawn().map_err(|error| spawn_error(&options.command, &error))?;
+        let mut child: Child = command
+            .spawn()
+            .map_err(|error| spawn_error(&options.command, &error))?;
         let pid = child.id();
         self.child.lock().pid = pid;
         if let Some(pid) = pid {
@@ -229,7 +233,11 @@ impl Inner {
         Ok(())
     }
 
-    async fn write_stdin(self: Arc<Self>, mut stdin: ChildStdin, mut receiver: mpsc::UnboundedReceiver<WriteRequest>) {
+    async fn write_stdin(
+        self: Arc<Self>,
+        mut stdin: ChildStdin,
+        mut receiver: mpsc::UnboundedReceiver<WriteRequest>,
+    ) {
         while let Some((payload, done)) = receiver.recv().await {
             let result = async {
                 stdin.write_all(&payload).await?;
@@ -285,14 +293,19 @@ impl Inner {
             child.pid = None;
         }
         if incomplete {
-            self.events.emit_error(Error::other("MCP stdio server closed with an incomplete JSON-RPC message"));
+            self.events.emit_error(Error::other(
+                "MCP stdio server closed with an incomplete JSON-RPC message",
+            ));
         }
         let _ = self.close_event.send(true);
         self.events.emit_close();
     }
 
     fn handle_stdout(&self, chunk: &[u8]) {
-        let max_message_bytes = self.options.max_message_bytes.unwrap_or(DEFAULT_MAX_MESSAGE_BYTES);
+        let max_message_bytes = self
+            .options
+            .max_message_bytes
+            .unwrap_or(DEFAULT_MAX_MESSAGE_BYTES);
         let mut lines = Vec::new();
         let mut errors = Vec::new();
         {
@@ -302,13 +315,17 @@ impl Inner {
                 let Some(newline) = buffer.iter().position(|byte| *byte == b'\n') else {
                     if buffer.len() > max_message_bytes {
                         buffer.clear();
-                        errors.push(Error::Other(format!("MCP stdio message exceeds {max_message_bytes} bytes")));
+                        errors.push(Error::Other(format!(
+                            "MCP stdio message exceeds {max_message_bytes} bytes"
+                        )));
                     }
                     break;
                 };
                 let line: Vec<u8> = buffer.drain(..=newline).take(newline).collect();
                 if line.len() > max_message_bytes {
-                    lines.push(Err(Error::Other(format!("MCP stdio message exceeds {max_message_bytes} bytes"))));
+                    lines.push(Err(Error::Other(format!(
+                        "MCP stdio message exceeds {max_message_bytes} bytes"
+                    ))));
                     continue;
                 }
                 lines.push(Ok(line));
@@ -341,7 +358,10 @@ impl Inner {
     }
 
     fn handle_stderr(&self, chunk: &[u8]) {
-        let max_stderr_bytes = self.options.max_stderr_bytes.unwrap_or(DEFAULT_MAX_STDERR_BYTES);
+        let max_stderr_bytes = self
+            .options
+            .max_stderr_bytes
+            .unwrap_or(DEFAULT_MAX_STDERR_BYTES);
         {
             let mut buffer = self.stderr_buffer.lock();
             buffer.extend_from_slice(chunk);
@@ -373,7 +393,10 @@ impl Inner {
             return Ok(());
         }
         // Shutdown per the spec: close stdin and let the server exit, then SIGTERM, then SIGKILL.
-        let close_timeout_ms = self.options.close_timeout_ms.unwrap_or(DEFAULT_CLOSE_TIMEOUT_MS);
+        let close_timeout_ms = self
+            .options
+            .close_timeout_ms
+            .unwrap_or(DEFAULT_CLOSE_TIMEOUT_MS);
         let grace = STDIN_CLOSE_GRACE_MS.min(close_timeout_ms);
         let mut closed = self.close_event.subscribe();
         let wait_closed = async {
@@ -430,22 +453,36 @@ impl McpTransport for StdioTransport {
         })
     }
 
-    fn send(&self, message: JsonRpcMessage, _options: McpTransportSendOptions) -> BoxFuture<'static, Result<()>> {
+    fn send(
+        &self,
+        message: JsonRpcMessage,
+        _options: McpTransportSendOptions,
+    ) -> BoxFuture<'static, Result<()>> {
         let queued = (|| {
             let stdin = self.inner.stdin.lock();
             let writer = match stdin.as_ref() {
-                Some(writer) if self.inner.started.load(Ordering::SeqCst) && !self.inner.closed.load(Ordering::SeqCst) => {
+                Some(writer)
+                    if self.inner.started.load(Ordering::SeqCst)
+                        && !self.inner.closed.load(Ordering::SeqCst) =>
+                {
                     writer
                 }
                 _ => return Err(Error::connection_closed()),
             };
-            let mut payload = serde_json::to_vec(&message).map_err(|error| Error::Other(error.to_string()))?;
+            let mut payload =
+                serde_json::to_vec(&message).map_err(|error| Error::Other(error.to_string()))?;
             payload.push(b'\n');
             let (done, result) = oneshot::channel();
-            writer.send((payload, done)).map_err(|_| Error::connection_closed())?;
+            writer
+                .send((payload, done))
+                .map_err(|_| Error::connection_closed())?;
             Ok(result)
         })();
-        Box::pin(async move { queued?.await.unwrap_or_else(|_| Err(Error::connection_closed())) })
+        Box::pin(async move {
+            queued?
+                .await
+                .unwrap_or_else(|_| Err(Error::connection_closed()))
+        })
     }
 
     fn close(&self) -> BoxFuture<'static, Result<()>> {
@@ -475,7 +512,8 @@ mod platform {
     }
 
     /// Process groups of running servers, killed if the host exits without closing them.
-    static LIVE_PROCESS_GROUPS: Lazy<Mutex<HashSet<i32>>> = Lazy::new(|| Mutex::new(HashSet::new()));
+    static LIVE_PROCESS_GROUPS: Lazy<Mutex<HashSet<i32>>> =
+        Lazy::new(|| Mutex::new(HashSet::new()));
     static EXIT_HOOK: Once = Once::new();
 
     extern "C" fn kill_live_groups() {
@@ -549,9 +587,18 @@ mod platform {
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
     fn env_value(options: &StdioTransportOptions, key: &str) -> Option<String> {
-        let configured =
-            options.env.iter().find(|(name, _)| name.eq_ignore_ascii_case(key)).map(|(_, value)| value.clone());
-        configured.or_else(|| if options.inherit_env { std::env::var(key).ok() } else { None })
+        let configured = options
+            .env
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case(key))
+            .map(|(_, value)| value.clone());
+        configured.or_else(|| {
+            if options.inherit_env {
+                std::env::var(key).ok()
+            } else {
+                None
+            }
+        })
     }
 
     /// Resolve the command like cross-spawn: search `PATH` with `PATHEXT`.
@@ -574,14 +621,22 @@ mod platform {
         let path = Path::new(program);
         let cwd = options.cwd.clone().unwrap_or_else(|| PathBuf::from("."));
         if path.components().count() > 1 || path.is_absolute() {
-            let base = if path.is_absolute() { path.to_path_buf() } else { cwd.join(path) };
-            return candidates(&base).into_iter().find(|candidate| candidate.is_file());
+            let base = if path.is_absolute() {
+                path.to_path_buf()
+            } else {
+                cwd.join(path)
+            };
+            return candidates(&base)
+                .into_iter()
+                .find(|candidate| candidate.is_file());
         }
         let mut dirs = vec![cwd];
         if let Some(search) = env_value(options, "PATH") {
             dirs.extend(std::env::split_paths(&search));
         }
-        dirs.iter().flat_map(|dir| candidates(&dir.join(path))).find(|candidate| candidate.is_file())
+        dirs.iter()
+            .flat_map(|dir| candidates(&dir.join(path)))
+            .find(|candidate| candidate.is_file())
     }
 
     /// Escape an argument for cmd.exe the way cross-spawn does.
@@ -617,22 +672,30 @@ mod platform {
 
     pub fn command(program: &str, args: &[String], options: &StdioTransportOptions) -> Command {
         let resolved = resolve(program, options);
-        let is_shim = resolved.as_ref().and_then(|path| path.extension()).is_some_and(|ext| {
-            let ext = ext.to_string_lossy().to_ascii_lowercase();
-            ext == "cmd" || ext == "bat"
-        });
+        let is_shim = resolved
+            .as_ref()
+            .and_then(|path| path.extension())
+            .is_some_and(|ext| {
+                let ext = ext.to_string_lossy().to_ascii_lowercase();
+                ext == "cmd" || ext == "bat"
+            });
         if is_shim {
             let shim = resolved.unwrap();
             let line = std::iter::once(escape_argument(&shim.to_string_lossy()))
                 .chain(args.iter().map(|arg| escape_argument(arg)))
                 .collect::<Vec<_>>()
                 .join(" ");
-            let mut command = Command::new(env_value(options, "COMSPEC").unwrap_or_else(|| "cmd.exe".into()));
+            let mut command =
+                Command::new(env_value(options, "COMSPEC").unwrap_or_else(|| "cmd.exe".into()));
             command.raw_arg("/d /s /c");
             command.raw_arg(format!("\"{line}\""));
             return command;
         }
-        let mut command = Command::new(resolved.map(PathBuf::into_os_string).unwrap_or_else(|| program.into()));
+        let mut command = Command::new(
+            resolved
+                .map(PathBuf::into_os_string)
+                .unwrap_or_else(|| program.into()),
+        );
         command.args(args);
         command
     }

@@ -22,7 +22,9 @@ pub struct Request {
 
 impl Request {
     pub fn header(&self, name: &str) -> Option<&str> {
-        self.headers.get(&name.to_ascii_lowercase()).map(String::as_str)
+        self.headers
+            .get(&name.to_ascii_lowercase())
+            .map(String::as_str)
     }
 
     pub fn text(&self) -> String {
@@ -68,7 +70,10 @@ impl Response {
         for (name, value) in headers {
             head.push_str(&format!("{name}: {value}\r\n"));
         }
-        head.push_str(&format!("content-length: {}\r\nconnection: close\r\n\r\n", body.len()));
+        head.push_str(&format!(
+            "content-length: {}\r\nconnection: close\r\n\r\n",
+            body.len()
+        ));
         let _ = self.stream.write_all(head.as_bytes()).await;
         let _ = self.stream.write_all(body).await;
         let _ = self.stream.shutdown().await;
@@ -132,7 +137,10 @@ async fn read_request(stream: &mut TcpStream) -> Option<Request> {
             headers.insert(name.trim().to_ascii_lowercase(), value.trim().to_string());
         }
     }
-    let length: usize = headers.get("content-length").and_then(|value| value.parse().ok()).unwrap_or(0);
+    let length: usize = headers
+        .get("content-length")
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(0);
     let mut body = buffer[head_end + 4..].to_vec();
     while body.len() < length {
         let read = stream.read(&mut chunk).await.ok()?;
@@ -142,11 +150,18 @@ async fn read_request(stream: &mut TcpStream) -> Option<Request> {
         body.extend_from_slice(&chunk[..read]);
     }
     body.truncate(length);
-    Some(Request { method, target, headers, body })
+    Some(Request {
+        method,
+        target,
+        headers,
+        body,
+    })
 }
 
 /// Start a loopback HTTP server and return its origin. The server stops when the test runtime ends.
-pub async fn listen(handler: impl Fn(Request, Response, String) -> BoxFuture<'static, ()> + Send + Sync + 'static) -> String {
+pub async fn listen(
+    handler: impl Fn(Request, Response, String) -> BoxFuture<'static, ()> + Send + Sync + 'static,
+) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let origin = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
     let handler: Handler = Arc::new(handler);
@@ -156,7 +171,15 @@ pub async fn listen(handler: impl Fn(Request, Response, String) -> BoxFuture<'st
             let (handler, origin) = (handler.clone(), server_origin.clone());
             tokio::spawn(async move {
                 if let Some(request) = read_request(&mut stream).await {
-                    handler(request, Response { stream, started: false }, origin).await;
+                    handler(
+                        request,
+                        Response {
+                            stream,
+                            started: false,
+                        },
+                        origin,
+                    )
+                    .await;
                 }
             });
         }

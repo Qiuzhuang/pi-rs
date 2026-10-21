@@ -72,7 +72,12 @@ impl AbortSignal {
         if !self.is_aborted() {
             return None;
         }
-        Some(self.reason.lock().clone().unwrap_or_else(|| DEFAULT_ABORT_REASON.to_string()))
+        Some(
+            self.reason
+                .lock()
+                .clone()
+                .unwrap_or_else(|| DEFAULT_ABORT_REASON.to_string()),
+        )
     }
 
     /// Resolves once the signal is aborted.
@@ -98,7 +103,10 @@ impl AbortSignal {
 
 impl From<CancellationToken> for AbortSignal {
     fn from(token: CancellationToken) -> Self {
-        Self { token, reason: Arc::default() }
+        Self {
+            token,
+            reason: Arc::default(),
+        }
     }
 }
 

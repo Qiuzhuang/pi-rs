@@ -12,14 +12,18 @@ use reqwest::header::HeaderMap;
 use serde_json::Value;
 use url::Url;
 
-use super::transport::{DEFAULT_MAX_MESSAGE_BYTES, McpTransport, McpTransportSendOptions, TransportEvents};
+use super::transport::{
+    DEFAULT_MAX_MESSAGE_BYTES, McpTransport, McpTransportSendOptions, TransportEvents,
+};
 use crate::abort::{AbortController, AbortSignal};
 use crate::auth_provider::{
-    AuthProvider, BodyStream, HttpRequest, HttpResponse, HttpResponseHead, McpFetch, UnauthorizedContext,
-    default_fetch, set_header,
+    AuthProvider, BodyStream, HttpRequest, HttpResponse, HttpResponseHead, McpFetch,
+    UnauthorizedContext, default_fetch, set_header,
 };
 use crate::error::{Error, Result};
-use crate::protocol::jsonrpc::{JSON_RPC_ERROR_CODES, JsonRpcId, JsonRpcMessage, JsonRpcResponse, parse_json_rpc_message};
+use crate::protocol::jsonrpc::{
+    JSON_RPC_ERROR_CODES, JsonRpcId, JsonRpcMessage, JsonRpcResponse, parse_json_rpc_message,
+};
 
 const MAX_ERROR_BODY_BYTES: usize = 8 * 1024;
 const ERROR_MESSAGE_BODY_CHARS: usize = 500;
@@ -92,7 +96,10 @@ impl SseParser<'_, '_> {
             "data" => {
                 self.data_bytes += value.len() + usize::from(!self.data_lines.is_empty());
                 if self.data_bytes > self.max_event_bytes {
-                    return Err(Error::Other(format!("MCP SSE event exceeds {} bytes", self.max_event_bytes)));
+                    return Err(Error::Other(format!(
+                        "MCP SSE event exceeds {} bytes",
+                        self.max_event_bytes
+                    )));
                 }
                 self.data_lines.push(value.to_string());
             }
@@ -104,7 +111,9 @@ impl SseParser<'_, '_> {
                 }
             }
             "retry" if !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit()) => {
-                if let (Some(on_retry), Ok(delay)) = (self.options.on_retry.as_mut(), value.parse::<u64>()) {
+                if let (Some(on_retry), Ok(delay)) =
+                    (self.options.on_retry.as_mut(), value.parse::<u64>())
+                {
                     on_retry(delay);
                 }
             }
@@ -137,7 +146,9 @@ where
             parser.process_line(&String::from_utf8_lossy(&line))?;
         }
         if buffered.len() > max_event_bytes {
-            return Err(Error::Other(format!("MCP SSE event exceeds {max_event_bytes} bytes")));
+            return Err(Error::Other(format!(
+                "MCP SSE event exceeds {max_event_bytes} bytes"
+            )));
         }
     }
     if !buffered.is_empty() {
@@ -227,12 +238,17 @@ impl std::fmt::Debug for StreamableHttpTransportOptions {
 }
 
 fn content_type(head: &HttpResponseHead) -> Option<String> {
-    head.header("content-type")
-        .and_then(|value| value.split(';').next().map(|value| value.trim().to_ascii_lowercase()))
+    head.header("content-type").and_then(|value| {
+        value
+            .split(';')
+            .next()
+            .map(|value| value.trim().to_ascii_lowercase())
+    })
 }
 
-static INSUFFICIENT_SCOPE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"(?i)(?:^|[\s,])error="?insufficient_scope"?"#).expect("valid regex"));
+static INSUFFICIENT_SCOPE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"(?i)(?:^|[\s,])error="?insufficient_scope"?"#).expect("valid regex")
+});
 
 /// 401, or 403 with an `insufficient_scope` bearer challenge (step-up authorization).
 fn needs_authorization(head: &HttpResponseHead) -> bool {
@@ -430,12 +446,19 @@ impl Inner {
         let text = response.text().await.unwrap_or_default();
         let body = truncate_chars(&text, MAX_ERROR_BODY_BYTES).to_string();
         if head.status == 401 {
-            return Err(Error::AuthRequired { body, www_authenticate: head.header("www-authenticate") });
+            return Err(Error::AuthRequired {
+                body,
+                www_authenticate: head.header("www-authenticate"),
+            });
         }
         if head.status == 404 && self.session_id.lock().is_some() {
             return Err(Error::SessionExpired { body });
         }
-        Err(Error::Http { status: head.status, message: describe_http_failure(head.status, &body), body })
+        Err(Error::Http {
+            status: head.status,
+            message: describe_http_failure(head.status, &body),
+            body,
+        })
     }
 
     async fn consume_sse(
@@ -450,7 +473,9 @@ impl Inner {
         let mut on_event = |event: SseEvent| {
             received = true;
             // Events without data prime resumption; other event types are not JSON-RPC.
-            if event.data.trim().is_empty() || event.event.as_deref().is_some_and(|name| name != "message") {
+            if event.data.trim().is_empty()
+                || event.event.as_deref().is_some_and(|name| name != "message")
+            {
                 return;
             }
             let parsed = serde_json::from_str::<Value>(&event.data)
@@ -469,7 +494,11 @@ impl Inner {
         let result = consume_sse_stream(
             stream,
             ConsumeSseOptions {
-                max_event_bytes: Some(self.options.max_message_bytes.unwrap_or(DEFAULT_MAX_MESSAGE_BYTES)),
+                max_event_bytes: Some(
+                    self.options
+                        .max_message_bytes
+                        .unwrap_or(DEFAULT_MAX_MESSAGE_BYTES),
+                ),
                 on_event: &mut on_event,
                 on_id: Some(&mut on_id),
                 on_retry: Some(&mut on_retry),
@@ -546,18 +575,22 @@ impl Inner {
             None => "stream ended without a response".to_string(),
             Some(error) => error.to_string(),
         };
-        self.events.emit_message(JsonRpcMessage::Response(JsonRpcResponse::Error {
-            id: request_id,
-            error: crate::protocol::jsonrpc::JsonRpcErrorObject {
-                code: JSON_RPC_ERROR_CODES.internal_error,
-                message: format!("MCP response stream failed: {reason}"),
-                data: None,
-            },
-        }));
+        self.events
+            .emit_message(JsonRpcMessage::Response(JsonRpcResponse::Error {
+                id: request_id,
+                error: crate::protocol::jsonrpc::JsonRpcErrorObject {
+                    code: JSON_RPC_ERROR_CODES.internal_error,
+                    message: format!("MCP response stream failed: {reason}"),
+                    data: None,
+                },
+            }));
     }
 
     fn start_get_stream(self: &Arc<Self>) {
-        if !self.options.open_get_stream || self.is_closed() || self.get_stream_started.swap(true, Ordering::SeqCst) {
+        if !self.options.open_get_stream
+            || self.is_closed()
+            || self.get_stream_started.swap(true, Ordering::SeqCst)
+        {
             return;
         }
         tokio::spawn(self.clone().run_get_stream());
@@ -577,7 +610,9 @@ impl Inner {
                     match result {
                         Ok(()) => {
                             // A stream that stayed up for a while counts as healthy, even if it was idle.
-                            if cursor.received || opened_at.elapsed() > Duration::from_millis(self.max_delay()) {
+                            if cursor.received
+                                || opened_at.elapsed() > Duration::from_millis(self.max_delay())
+                            {
                                 attempt = 0;
                             }
                         }
@@ -604,7 +639,9 @@ impl Inner {
             }
             cursor.received = false;
             if attempt >= self.max_retries() {
-                self.events.emit_error(Error::other("MCP server-to-client stream dropped and could not be reopened"));
+                self.events.emit_error(Error::other(
+                    "MCP server-to-client stream dropped and could not be reopened",
+                ));
                 return;
             }
             let delay = self.reconnect_delay(attempt, cursor.retry_ms);
@@ -646,17 +683,27 @@ impl Inner {
         if let Some(delay) = server_delay_ms {
             return delay;
         }
-        let initial = self.options.reconnect.initial_delay_ms.unwrap_or(DEFAULT_RECONNECT_INITIAL_DELAY_MS);
+        let initial = self
+            .options
+            .reconnect
+            .initial_delay_ms
+            .unwrap_or(DEFAULT_RECONNECT_INITIAL_DELAY_MS);
         let factor = 2u64.checked_pow(attempt).unwrap_or(u64::MAX);
         initial.saturating_mul(factor).min(self.max_delay())
     }
 
     fn max_delay(&self) -> u64 {
-        self.options.reconnect.max_delay_ms.unwrap_or(DEFAULT_RECONNECT_MAX_DELAY_MS)
+        self.options
+            .reconnect
+            .max_delay_ms
+            .unwrap_or(DEFAULT_RECONNECT_MAX_DELAY_MS)
     }
 
     fn max_retries(&self) -> u32 {
-        self.options.reconnect.max_retries.unwrap_or(DEFAULT_RECONNECT_MAX_RETRIES)
+        self.options
+            .reconnect
+            .max_retries
+            .unwrap_or(DEFAULT_RECONNECT_MAX_RETRIES)
     }
 
     /// Resolves `false` when the transport closed while waiting.
@@ -671,7 +718,11 @@ impl Inner {
         }
     }
 
-    async fn send(self: Arc<Self>, message: JsonRpcMessage, signal: Option<AbortSignal>) -> Result<()> {
+    async fn send(
+        self: Arc<Self>,
+        message: JsonRpcMessage,
+        signal: Option<AbortSignal>,
+    ) -> Result<()> {
         if !self.started.load(Ordering::SeqCst) || self.is_closed() {
             return Err(Error::connection_closed());
         }
@@ -680,7 +731,9 @@ impl Inner {
             ("accept", "application/json, text/event-stream".to_string()),
             ("content-type", "application/json".to_string()),
         ];
-        let response = self.authorized_fetch("POST", &extra, Some(Bytes::from(body)), signal.as_ref()).await?;
+        let response = self
+            .authorized_fetch("POST", &extra, Some(Bytes::from(body)), signal.as_ref())
+            .await?;
         let mut response = self.check_response(response).await?;
         self.capture_session(&response.head);
 
@@ -697,7 +750,10 @@ impl Inner {
         if status == 202 || status == 204 {
             return Err(Error::Http {
                 status,
-                message: format!("MCP server accepted request {} without a response", request.method),
+                message: format!(
+                    "MCP server accepted request {} without a response",
+                    request.method
+                ),
                 body: String::new(),
             });
         }
@@ -716,13 +772,19 @@ impl Inner {
         if kind.as_deref() == Some("text/event-stream")
             && let Some(body) = response.take_body()
         {
-            tokio::spawn(self.clone().consume_response_stream(body, request.id.clone()));
+            tokio::spawn(
+                self.clone()
+                    .consume_response_stream(body, request.id.clone()),
+            );
             return Ok(());
         }
         drop(response);
         Err(Error::Http {
             status,
-            message: format!("Unsupported MCP response content type: {}", kind.as_deref().unwrap_or("missing")),
+            message: format!(
+                "Unsupported MCP response content type: {}",
+                kind.as_deref().unwrap_or("missing")
+            ),
             body: String::new(),
         })
     }
@@ -745,7 +807,9 @@ impl Inner {
                 signal: Some(AbortSignal::timeout(Duration::from_millis(1_000))),
             };
             let delete = (self.fetch)(request);
-            if let Ok(Ok(response)) = tokio::time::timeout(Duration::from_millis(1_000), delete).await {
+            if let Ok(Ok(response)) =
+                tokio::time::timeout(Duration::from_millis(1_000), delete).await
+            {
                 drop(response);
             }
         }
@@ -767,7 +831,9 @@ impl McpTransport for StreamableHttpTransport {
         let inner = self.inner.clone();
         Box::pin(async move {
             if inner.started.swap(true, Ordering::SeqCst) {
-                return Err(Error::other("MCP Streamable HTTP transport already started"));
+                return Err(Error::other(
+                    "MCP Streamable HTTP transport already started",
+                ));
             }
             if inner.is_closed() {
                 return Err(Error::connection_closed());
@@ -776,7 +842,11 @@ impl McpTransport for StreamableHttpTransport {
         })
     }
 
-    fn send(&self, message: JsonRpcMessage, options: McpTransportSendOptions) -> BoxFuture<'static, Result<()>> {
+    fn send(
+        &self,
+        message: JsonRpcMessage,
+        options: McpTransportSendOptions,
+    ) -> BoxFuture<'static, Result<()>> {
         Box::pin(self.inner.clone().send(message, options.signal))
     }
 

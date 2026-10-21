@@ -677,6 +677,33 @@ impl Terminal for VirtualTerminal {
     fn kitty_protocol_active(&self) -> bool {
         self.lock().kitty_protocol_active
     }
+
+    // Like the TypeScript helper, these go straight to the emulator and are not logged as writes.
+    fn move_by(&self, lines: i64) {
+        if lines > 0 {
+            self.lock().emu.feed(&format!("\x1b[{lines}B"));
+        } else if lines < 0 {
+            self.lock().emu.feed(&format!("\x1b[{}A", -lines));
+        }
+    }
+    fn hide_cursor(&self) {
+        self.lock().emu.feed("\x1b[?25l");
+    }
+    fn show_cursor(&self) {
+        self.lock().emu.feed("\x1b[?25h");
+    }
+    fn clear_line(&self) {
+        self.lock().emu.feed("\x1b[K");
+    }
+    fn clear_from_cursor(&self) {
+        self.lock().emu.feed("\x1b[J");
+    }
+    fn clear_screen(&self) {
+        self.lock().emu.feed("\x1b[2J\x1b[H");
+    }
+    fn set_title(&self, title: &str) {
+        self.lock().emu.feed(&format!("\x1b]0;{title}\x07"));
+    }
 }
 
 #[cfg(test)]

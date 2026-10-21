@@ -77,6 +77,7 @@ pub fn resolve_builtin_classifier_api(api: &str) -> Option<Arc<dyn ProviderClass
             Some(Arc::new(super::cloudflare_workers_ai_system_one::CloudflareWorkersAiSystemOneApi))
         }
         "llama-cpp-classify" => Some(Arc::new(super::llama_cpp_classify::LlamaCppClassifyApi)),
+        "openai-decisions" => Some(Arc::new(super::openai_decisions::OpenAIDecisionsApi)),
         _ => None,
     }
 }

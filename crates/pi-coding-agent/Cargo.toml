@@ -11,6 +11,7 @@ pi-tui.workspace = true
 pi-mcp.workspace = true
 pi-codemode.workspace = true
 pi-telemetry.workspace = true
+pi-jsrt.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 futures.workspace = true
@@ -38,6 +39,9 @@ image.workspace = true
 unicode-normalization.workspace = true
 yaml-rust2.workspace = true
 ignore.workspace = true
+semver.workspace = true
+globset.workspace = true
+sha1.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

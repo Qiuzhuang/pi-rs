@@ -1,5 +1,6 @@
 //! Port of `packages/coding-agent/src/core/extensions/index.ts`.
 
+pub mod js;
 pub mod loader;
 pub mod runner;
 pub mod types;

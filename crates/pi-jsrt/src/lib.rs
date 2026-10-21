@@ -104,7 +104,7 @@ pub mod transpile;
 
 pub use error::{Error, JsException, Result};
 pub use runtime::{
-    ExitHandler, JsCallback, JsHandle, JsObjectHandle, JsRuntime, OutputSink, RuntimeOptions, UncaughtHandler,
+    in_host_call, ExitHandler, JsCallback, JsHandle, JsObjectHandle, JsRuntime, OutputSink, RuntimeOptions, UncaughtHandler,
     VirtualModule,
 };
 

@@ -1,0 +1,425 @@
+//! Built-in tools and coding-agent helpers exposed to JavaScript extensions
+//! (`createReadTool()`, `truncateHead()`, `getAgentDir()`, ...).
+
+use std::sync::Arc;
+
+use pi_jsrt::JsHandle;
+use serde_json::{Value, json};
+
+use super::api::{arg, js_bash_operations, opt, str_arg};
+use super::provider::bytes_of;
+use super::{Bridge, CtxEntry, component};
+use crate::core::extensions::types::*;
+use crate::core::tools::bash::{BashSpawnContext, CreateLocalBashOperationsOptions, create_local_bash_operations};
+use crate::core::tools::edit::EditOperations;
+use crate::core::tools::find::FindOperations;
+use crate::core::tools::grep::GrepOperations;
+use crate::core::tools::ls::{LsOperations, LsOperationsResult};
+use crate::core::tools::read::ReadOperations;
+use crate::core::tools::write::WriteOperations;
+
+/// A built-in tool created by an extension (`createXToolDefinition()` / `createXTool()`).
+#[derive(Clone)]
+pub(crate) struct BuiltinTool {
+    pub(crate) definition: ToolDefinition,
+}
+
+/// An async JS function `(...args) => Promise<T>` as a Rust closure returning JSON.
+fn js_async_fn(bridge: &Arc<Bridge>, handle: JsHandle) -> impl Fn(Vec<Value>) -> futures::future::BoxFuture<'static, anyhow::Result<Value>> + Send + Sync + Clone + 'static {
+    let bridge = bridge.clone();
+    move |args: Vec<Value>| {
+        let bridge = bridge.clone();
+        let handle = handle.clone();
+        Box::pin(async move { bridge.glue_call("callFunctionAsync", vec![handle.to_value(), Value::Array(args)]).await })
+    }
+}
+
+fn read_operations(bridge: &Arc<Bridge>, ops: &Value) -> Option<ReadOperations> {
+    let read_file = js_async_fn(bridge, bridge.handle(&ops["readFile"])?);
+    let access = bridge.handle(&ops["access"]).map(|h| js_async_fn(bridge, h));
+    let detect = bridge.handle(&ops["detectImageMimeType"]).map(|h| js_async_fn(bridge, h));
+    Some(ReadOperations {
+        read_file: Arc::new(move |path| {
+            let f = read_file.clone();
+            Box::pin(async move { Ok(bytes_of(&f(vec![json!(path)]).await?)) })
+        }),
+        access: match access {
+            Some(f) => Arc::new(move |path| {
+                let f = f.clone();
+                Box::pin(async move { f(vec![json!(path)]).await.map(|_| ()) })
+            }),
+            None => Arc::new(|path| Box::pin(async move { tokio::fs::metadata(&path).await.map(|_| ()).map_err(Into::into) })),
+        },
+        detect_image_mime_type: detect.map(|f| {
+            Arc::new(move |path: String| {
+                let f = f.clone();
+                Box::pin(async move { Ok(f(vec![json!(path)]).await?.as_str().map(str::to_string)) })
+                    as futures::future::BoxFuture<'static, anyhow::Result<Option<String>>>
+            }) as Arc<dyn Fn(String) -> futures::future::BoxFuture<'static, anyhow::Result<Option<String>>> + Send + Sync>
+        }),
+    })
+}
+
+fn write_operations(bridge: &Arc<Bridge>, ops: &Value) -> Option<WriteOperations> {
+    let write_file = js_async_fn(bridge, bridge.handle(&ops["writeFile"])?);
+    let mkdir = bridge.handle(&ops["mkdir"]).map(|h| js_async_fn(bridge, h));
+    Some(WriteOperations {
+        write_file: Arc::new(move |path, content| {
+            let f = write_file.clone();
+            Box::pin(async move { f(vec![json!(path), json!(content)]).await.map(|_| ()) })
+        }),
+        mkdir: match mkdir {
+            Some(f) => Arc::new(move |dir| {
+                let f = f.clone();
+                Box::pin(async move { f(vec![json!(dir)]).await.map(|_| ()) })
+            }),
+            None => Arc::new(|dir| Box::pin(async move { tokio::fs::create_dir_all(&dir).await.map_err(Into::into) })),
+        },
+    })
+}
+
+fn edit_operations(bridge: &Arc<Bridge>, ops: &Value) -> Option<EditOperations> {
+    let read_file = js_async_fn(bridge, bridge.handle(&ops["readFile"])?);
+    let write_file = js_async_fn(bridge, bridge.handle(&ops["writeFile"])?);
+    let access = bridge.handle(&ops["access"]).map(|h| js_async_fn(bridge, h));
+    Some(EditOperations {
+        read_file: Arc::new(move |path| {
+            let f = read_file.clone();
+            Box::pin(async move { Ok(bytes_of(&f(vec![json!(path)]).await?)) })
+        }),
+        write_file: Arc::new(move |path, content| {
+            let f = write_file.clone();
+            Box::pin(async move { f(vec![json!(path), json!(content)]).await.map(|_| ()) })
+        }),
+        access: match access {
+            Some(f) => Arc::new(move |path| {
+                let f = f.clone();
+                Box::pin(async move { f(vec![json!(path)]).await.map(|_| ()) })
+            }),
+            None => Arc::new(|path| Box::pin(async move { tokio::fs::metadata(&path).await.map(|_| ()).map_err(Into::into) })),
+        },
+    })
+}
+
+fn grep_operations(bridge: &Arc<Bridge>, ops: &Value) -> Option<GrepOperations> {
+    let is_directory = js_async_fn(bridge, bridge.handle(&ops["isDirectory"])?);
+    let read_file = js_async_fn(bridge, bridge.handle(&ops["readFile"])?);
+    Some(GrepOperations {
+        is_directory: Arc::new(move |path| {
+            let f = is_directory.clone();
+            Box::pin(async move { Ok(f(vec![json!(path)]).await?.as_bool().unwrap_or(false)) })
+        }),
+        read_file: Arc::new(move |path| {
+            let f = read_file.clone();
+            Box::pin(async move { Ok(f(vec![json!(path)]).await?.as_str().unwrap_or_default().to_string()) })
+        }),
+    })
+}
+
+fn find_operations(bridge: &Arc<Bridge>, ops: &Value) -> Option<FindOperations> {
+    let exists = js_async_fn(bridge, bridge.handle(&ops["exists"])?);
+    let glob = js_async_fn(bridge, bridge.handle(&ops["glob"])?);
+    Some(FindOperations {
+        exists: Arc::new(move |path| {
+            let f = exists.clone();
+            Box::pin(async move { Ok(f(vec![json!(path)]).await?.as_bool().unwrap_or(false)) })
+        }),
+        glob: Arc::new(move |pattern, cwd, options| {
+            let f = glob.clone();
+            Box::pin(async move {
+                let value = f(vec![json!(pattern), json!(cwd), json!({ "ignore": options.ignore, "limit": options.limit })]).await?;
+                Ok(serde_json::from_value(value).unwrap_or_default())
+            })
+        }),
+    })
+}
+
+fn ls_operations(bridge: &Arc<Bridge>, ops: &Value) -> Option<LsOperations> {
+    let exists = js_async_fn(bridge, bridge.handle(&ops["exists"])?);
+    let stat = js_async_fn(bridge, bridge.handle(&ops["stat"])?);
+    let readdir = js_async_fn(bridge, bridge.handle(&ops["readdir"])?);
+    let b = bridge.clone();
+    Some(LsOperations {
+        exists: Arc::new(move |path| {
+            let f = exists.clone();
+            Box::pin(async move { Ok(f(vec![json!(path)]).await?.as_bool().unwrap_or(false)) })
+        }),
+        stat: Arc::new(move |path| {
+            let f = stat.clone();
+            let b = b.clone();
+            Box::pin(async move {
+                let value = b.glue_call("statIsDirectory", vec![f(vec![json!(path)]).await?]).await?;
+                let is_dir = value.as_bool().unwrap_or(false);
+                Ok(LsOperationsResult { is_directory: Arc::new(move || is_dir) })
+            })
+        }),
+        readdir: Arc::new(move |path| {
+            let f = readdir.clone();
+            Box::pin(async move { Ok(serde_json::from_value(f(vec![json!(path)]).await?).unwrap_or_default()) })
+        }),
+    })
+}
+
+fn spawn_hook(bridge: &Arc<Bridge>, value: &Value) -> Option<crate::core::tools::bash::BashSpawnHook> {
+    let handle = bridge.handle(value)?;
+    Some(Arc::new(move |context: BashSpawnContext| {
+        let input = serde_json::to_value(&context).unwrap_or(Value::Null);
+        match handle.call_blocking(vec![input]) {
+            Ok(v) => serde_json::from_value(v).unwrap_or(context),
+            Err(_) => context,
+        }
+    }))
+}
+
+fn create_definition(bridge: &Arc<Bridge>, kind: &str, cwd: &str, options: &Value) -> anyhow::Result<ToolDefinition> {
+    use crate::core::tools::bash::BashToolOptions;
+    use crate::core::tools::edit::EditToolOptions;
+    use crate::core::tools::find::FindToolOptions;
+    use crate::core::tools::grep::GrepToolOptions;
+    use crate::core::tools::ls::LsToolOptions;
+    use crate::core::tools::read::ReadToolOptions;
+    use crate::core::tools::write::WriteToolOptions;
+    use crate::core::tools::{bash, edit, find, grep, ls, powershell, read, write};
+    let ops = &options["operations"];
+    Ok(match kind {
+        "read" => {
+            let o = ReadToolOptions {
+                auto_resize_images: options["autoResizeImages"].as_bool(),
+                resize_options: None,
+                operations: read_operations(bridge, ops),
+            };
+            read::create_read_tool_definition(cwd, Some(&o))
+        }
+        "bash" => {
+            let o = BashToolOptions {
+                operations: bridge.handle(&ops["exec"]).map(|h| js_bash_operations(bridge.clone(), h)),
+                command_prefix: options["commandPrefix"].as_str().map(str::to_string),
+                shell_path: options["shellPath"].as_str().map(str::to_string),
+                expose_session_environment: options["exposeSessionEnvironment"].as_bool(),
+                spawn_hook: spawn_hook(bridge, &options["spawnHook"]),
+            };
+            bash::create_bash_tool_definition(cwd, Some(&o))
+        }
+        "powershell" => {
+            let o = powershell::PowerShellToolOptions {
+                operations: bridge.handle(&ops["exec"]).map(|h| js_bash_operations(bridge.clone(), h)),
+                expose_session_environment: options["exposeSessionEnvironment"].as_bool(),
+                spawn_hook: spawn_hook(bridge, &options["spawnHook"]),
+            };
+            powershell::create_power_shell_tool_definition(cwd, Some(&o))
+        }
+        "edit" => edit::create_edit_tool_definition(cwd, Some(&EditToolOptions { operations: edit_operations(bridge, ops) })),
+        "write" => write::create_write_tool_definition(cwd, Some(&WriteToolOptions { operations: write_operations(bridge, ops) })),
+        "grep" => grep::create_grep_tool_definition(cwd, Some(&GrepToolOptions { operations: grep_operations(bridge, ops) })),
+        "find" => find::create_find_tool_definition(cwd, Some(&FindToolOptions { operations: find_operations(bridge, ops) })),
+        "ls" => ls::create_ls_tool_definition(cwd, Some(&LsToolOptions { operations: ls_operations(bridge, ops) })),
+        _ => anyhow::bail!("unknown built-in tool {kind}"),
+    })
+}
+
+/// `execute` of a built-in tool named by a `$piRust` marker.
+pub(crate) fn rust_execute(bridge: &Arc<Bridge>, marker: &Value) -> anyhow::Result<ToolExecuteFn> {
+    let id = marker["tool"].as_u64().ok_or_else(|| anyhow::anyhow!("invalid built-in tool marker"))?;
+    let tool = bridge.builtins.get(id).ok_or_else(|| anyhow::anyhow!("unknown built-in tool"))?;
+    Ok(tool.definition.execute.clone())
+}
+
+/// `prepareArguments` of a built-in tool named by a `$piRust` marker.
+pub(crate) fn rust_prepare_arguments(bridge: &Arc<Bridge>, marker: &Value) -> Option<PrepareArgumentsFn> {
+    let id = marker["tool"].as_u64()?;
+    bridge.builtins.get(id)?.definition.prepare_arguments
+}
+
+fn render_args(bridge: &Arc<Bridge>, payload: &Value) -> anyhow::Result<(ToolDefinition, Arc<crate::modes::interactive::theme::theme::Theme>, ToolRenderContext)> {
+    let id = payload["id"].as_u64().unwrap_or_default();
+    let tool = bridge.builtins.get(id).ok_or_else(|| anyhow::anyhow!("unknown built-in tool"))?;
+    let theme = payload["theme"]
+        .as_u64()
+        .and_then(|id| bridge.components.themes.get(id))
+        .unwrap_or_else(crate::modes::interactive::theme::theme::theme);
+    let ctx = payload["context"]
+        .as_u64()
+        .and_then(|id| bridge.components.render_contexts.get(id))
+        .ok_or_else(|| anyhow::anyhow!("built-in renderers need the render context they were called with"))?;
+    Ok((tool.definition, theme, ctx))
+}
+
+fn platform() -> &'static str {
+    match std::env::consts::OS {
+        "macos" => "darwin",
+        "windows" => "win32",
+        other => other,
+    }
+}
+
+pub(crate) fn dispatch(bridge: &Arc<Bridge>, op: &str, payload: Value) -> anyhow::Result<Value> {
+    match op {
+        "builtin.create" => {
+            let kind = str_arg(&payload, "kind");
+            let cwd = payload["cwd"].as_str().map(str::to_string).unwrap_or_else(|| bridge.cwd.clone());
+            let definition = create_definition(bridge, &kind, &cwd, &payload["options"])?;
+            let mut out = json!({
+                "name": definition.name,
+                "label": definition.label,
+                "description": definition.description,
+                "parameters": definition.parameters,
+                "promptSnippet": definition.prompt_snippet,
+                "promptGuidelines": definition.prompt_guidelines,
+                "renderShell": serde_json::to_value(definition.render_shell)?,
+                "executionMode": serde_json::to_value(definition.execution_mode)?,
+                "hasPrepareArguments": definition.prepare_arguments.is_some(),
+                "hasRenderCall": definition.render_call.is_some(),
+                "hasRenderResult": definition.render_result.is_some(),
+            });
+            let id = bridge.builtins.insert(BuiltinTool { definition });
+            out["id"] = json!(id);
+            Ok(out)
+        }
+        "builtin.renderCall" => {
+            let (definition, theme, ctx) = render_args(bridge, &payload)?;
+            let f = definition.render_call.ok_or_else(|| anyhow::anyhow!("tool has no renderCall"))?;
+            Ok(json!(component::register_rust_component(bridge, f(&payload["args"], &theme, &ctx))))
+        }
+        "builtin.renderResult" => {
+            let (definition, theme, ctx) = render_args(bridge, &payload)?;
+            let f = definition.render_result.ok_or_else(|| anyhow::anyhow!("tool has no renderResult"))?;
+            let result: pi_agent::types::AgentToolResult = serde_json::from_value(payload["result"].clone()).unwrap_or_default();
+            let options: ToolRenderResultOptions = opt(&payload["options"])?.unwrap_or_default();
+            Ok(json!(component::register_rust_component(bridge, f(&result, options, &theme, &ctx))))
+        }
+        "ca.config" => Ok(json!({
+            "configDirName": crate::config::CONFIG_DIR_NAME,
+            "version": crate::config::VERSION,
+            "agentDir": crate::config::get_agent_dir(),
+            "docsPath": crate::config::get_docs_path(),
+            "examplesPath": crate::config::get_examples_path(),
+            "packageDir": crate::config::get_package_dir(),
+            "readmePath": crate::config::get_readme_path(),
+        })),
+        "ca.constants" => Ok(json!({
+            "DEFAULT_MAX_BYTES": crate::core::tools::truncate::DEFAULT_MAX_BYTES,
+            "DEFAULT_MAX_LINES": crate::core::tools::truncate::DEFAULT_MAX_LINES,
+        })),
+        "ca.theme" => Ok(json!(component::theme_id(bridge, &crate::modes::interactive::theme::theme::theme()))),
+        "ca.platform" => Ok(json!(platform())),
+        "ca" => helper(bridge, &payload),
+        _ => Err(anyhow::anyhow!("unknown host call {op}")),
+    }
+}
+
+fn helper(bridge: &Arc<Bridge>, payload: &Value) -> anyhow::Result<Value> {
+    use crate::core::tools::truncate;
+    let f = str_arg(payload, "fn");
+    let args = payload.get("args").and_then(Value::as_array).cloned().unwrap_or_default();
+    let a = |i: usize| args.get(i).cloned().unwrap_or(Value::Null);
+    let s = |i: usize| a(i).as_str().unwrap_or_default().to_string();
+    Ok(match f.as_str() {
+        "formatSize" => json!(truncate::format_size(a(0).as_f64().unwrap_or(0.0) as i64)),
+        "truncateHead" => {
+            let options: Option<truncate::TruncationOptions> = opt(&a(1))?;
+            serde_json::to_value(truncate::truncate_head(&s(0), options.as_ref()))?
+        }
+        "truncateTail" => {
+            let options: Option<truncate::TruncationOptions> = opt(&a(1))?;
+            serde_json::to_value(truncate::truncate_tail(&s(0), options.as_ref()))?
+        }
+        "truncateLine" => serde_json::to_value(truncate::truncate_line(&s(0), a(1).as_f64().map(|v| v as i64)))?,
+        "formatReadLineRange" => json!(crate::core::tools::render_utils::format_read_line_range_ref(
+            args.first().filter(|v| !v.is_null()),
+            args.get(1).filter(|v| !v.is_null())
+        )),
+        "parseFrontmatter" => {
+            let parsed = crate::utils::frontmatter::parse_frontmatter(&s(0))?;
+            json!({ "frontmatter": parsed.frontmatter, "body": parsed.body })
+        }
+        "stripFrontmatter" => json!(crate::utils::frontmatter::strip_frontmatter(&s(0))?),
+        "convertToLlm" => {
+            let messages: Vec<pi_agent::types::AgentMessage> = serde_json::from_value(a(0))?;
+            serde_json::to_value(crate::core::messages::convert_to_llm(&messages))?
+        }
+        "serializeConversation" => {
+            let messages: Vec<pi_ai::types::Message> = serde_json::from_value(a(0))?;
+            json!(crate::core::compaction::utils::serialize_conversation(&messages))
+        }
+        "estimateTokens" => {
+            let message: pi_agent::types::AgentMessage = serde_json::from_value(a(0))?;
+            json!(crate::core::compaction::compaction::estimate_tokens(&message))
+        }
+        "getLanguageFromPath" => json!(crate::modes::interactive::theme::theme::get_language_from_path(&s(0))),
+        "highlightCode" => json!(crate::modes::interactive::theme::theme::highlight_code(&s(0), a(1).as_str())),
+        "generateDiffString" => serde_json::to_value(crate::core::tools::edit_diff::generate_diff_string(
+            &s(0),
+            &s(1),
+            a(2).as_f64().map(|v| v as i64),
+        ))?,
+        "parseSkillBlock" => serde_json::to_value(crate::core::agent_session::parse_skill_block(&s(0)))?,
+        "mutationQueueKey" => {
+            let resolved = crate::utils::paths::node_resolve(&[&bridge.cwd, &s(0)]);
+            json!(std::fs::canonicalize(&resolved).map(|p| p.to_string_lossy().into_owned()).unwrap_or(resolved))
+        }
+        "builtinPrepareArguments" => {
+            let id = a(0).as_u64().unwrap_or_default();
+            match bridge.builtins.get(id).and_then(|t| t.definition.prepare_arguments) {
+                Some(prepare) => prepare(a(1)),
+                None => a(1),
+            }
+        }
+        _ => return Err(anyhow::anyhow!("{f} is not available to extensions in pi-rs")),
+    })
+}
+
+pub(crate) async fn dispatch_async(bridge: Arc<Bridge>, op: &str, payload: Value) -> anyhow::Result<Value> {
+    match op {
+        "builtin.execute" => {
+            let id = payload["id"].as_u64().unwrap_or_default();
+            let tool = bridge.builtins.get(id).ok_or_else(|| anyhow::anyhow!("unknown built-in tool"))?;
+            let tool_call_id = str_arg(&payload, "toolCallId");
+            let signal = bridge.token(&payload["signal"]);
+            let on_update = bridge.handle(&payload["onUpdate"]).map(|h| {
+                Arc::new(move |partial: pi_agent::types::AgentToolResult| {
+                    super::api::post_call(&h, None, vec![serde_json::to_value(&partial).unwrap_or(Value::Null)]);
+                }) as pi_agent::types::AgentToolUpdateCallback
+            });
+            let ctx = payload["ctx"].as_u64().and_then(|id| bridge.contexts.get(id)).and_then(|entry| match entry {
+                CtxEntry::Tool(t) => Some(t),
+                other => other.base().map(|base| ExtensionToolContext {
+                    ctx: base.clone(),
+                    tool_call_id: tool_call_id.clone(),
+                    signal: signal.clone(),
+                }),
+            });
+            let result = (tool.definition.execute)(tool_call_id, payload["params"].clone(), signal, on_update, ctx).await?;
+            Ok(serde_json::to_value(result)?)
+        }
+        "ca.localBashExec" => {
+            let options = CreateLocalBashOperationsOptions { shell_path: payload["shellPath"].as_str().map(str::to_string) };
+            let ops = create_local_bash_operations(Some(&options));
+            let exec_options = &payload["options"];
+            let on_data = bridge.handle(&exec_options["onData"]);
+            let result = (ops.exec)(
+                str_arg(&payload, "command"),
+                str_arg(&payload, "cwd"),
+                crate::core::tools::bash::BashOperationsOptions {
+                    on_data: Arc::new(move |bytes: Vec<u8>| {
+                        if let Some(h) = &on_data {
+                            super::api::post_call(h, None, vec![json!({ "$bytes": bytes })]);
+                        }
+                    }),
+                    signal: bridge.token(&exec_options["signal"]),
+                    timeout: exec_options["timeout"].as_f64(),
+                    env: opt(&exec_options["env"])?,
+                },
+            )
+            .await?;
+            Ok(serde_json::to_value(result)?)
+        }
+        "ca.copyToClipboard" => {
+            crate::utils::clipboard::copy_to_clipboard(&str_arg(&payload, "text")).await?;
+            Ok(Value::Null)
+        }
+        _ => {
+            let _ = arg(&payload, 0);
+            Err(anyhow::anyhow!("unknown async host call {op}"))
+        }
+    }
+}

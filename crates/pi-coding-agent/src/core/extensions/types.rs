@@ -452,8 +452,10 @@ pub trait ExtensionContextHost: Send + Sync {
     fn mode(&self) -> ExtensionMode;
     fn has_ui(&self) -> bool;
     fn cwd(&self) -> String;
-    fn session_manager(&self) -> ReadonlySessionManager;
-    fn model_registry(&self) -> Arc<ModelRegistry>;
+    /// `None` where the context has no session (e.g. `project_trust` handlers).
+    fn session_manager(&self) -> Option<ReadonlySessionManager>;
+    /// `None` where the context has no model registry (e.g. `project_trust` handlers).
+    fn model_registry(&self) -> Option<Arc<ModelRegistry>>;
     /// `runtime.getThinkingLevel()`; `None` before the session runtime binds.
     fn thinking_level(&self) -> Option<ThinkingLevel>;
     /// Session-provided actions (`bindCore()`).
@@ -510,13 +512,17 @@ impl ExtensionContext {
     /// Session manager (read-only).
     pub fn session_manager(&self) -> anyhow::Result<ReadonlySessionManager> {
         self.host.assert_active()?;
-        Ok(self.host.session_manager())
+        self.host
+            .session_manager()
+            .ok_or_else(|| anyhow::anyhow!("sessionManager is not available in this context"))
     }
 
     /// Model registry for API key resolution.
     pub fn model_registry(&self) -> anyhow::Result<Arc<ModelRegistry>> {
         self.host.assert_active()?;
-        Ok(self.host.model_registry())
+        self.host
+            .model_registry()
+            .ok_or_else(|| anyhow::anyhow!("modelRegistry is not available in this context"))
     }
 
     /// Current model (may be `None`).
@@ -2785,6 +2791,11 @@ pub trait ExtensionAPI: Send + Sync {
 
     /// Shared event bus for extension communication.
     fn events(&self) -> Arc<dyn EventBus>;
+
+    /// Path of the extension this API belongs to (used in error messages of bridges).
+    fn extension_path(&self) -> Option<String> {
+        None
+    }
 }
 
 /// Shared handle to the `pi` object.
@@ -3216,12 +3227,45 @@ impl ExtensionRuntime {
 
     /// Marks this extension instance as stale after runtime replacement or reload.
     pub fn invalidate(&self, message: Option<&str>) {
-        todo!("port core/extensions/loader.ts:createExtensionRuntime.invalidate")
+        {
+            let mut stale = self.stale_message.lock();
+            if stale.is_some() {
+                return;
+            }
+            *stale = Some(
+                message
+                    .unwrap_or(crate::core::extensions::runner::STALE_EXTENSION_CONTEXT_MESSAGE)
+                    .to_string(),
+            );
+        }
+        let unsubscribers = std::mem::take(&mut *self.event_bus_subscriptions.lock());
+        for unsubscribe in unsubscribers {
+            unsubscribe();
+        }
     }
 
     /// Retain an event-bus subscription until this runtime is invalidated.
-    pub fn track_event_bus_subscription(&self, unsubscribe: Unsubscribe) -> Unsubscribe {
-        todo!("port core/extensions/loader.ts:createExtensionRuntime.trackEventBusSubscription")
+    pub fn track_event_bus_subscription(self: &Arc<Self>, unsubscribe: Unsubscribe) -> Unsubscribe {
+        let active = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let tracked: Unsubscribe = {
+            let active = active.clone();
+            Arc::new(move || {
+                if active.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                    unsubscribe();
+                }
+            })
+        };
+        self.event_bus_subscriptions.lock().push(tracked.clone());
+        let weak = Arc::downgrade(self);
+        Arc::new(move || {
+            if let Some(runtime) = weak.upgrade() {
+                runtime
+                    .event_bus_subscriptions
+                    .lock()
+                    .retain(|entry| !Arc::ptr_eq(entry, &tracked));
+            }
+            tracked();
+        })
     }
 
     /// Create an extension context. Fails before the runner binds.

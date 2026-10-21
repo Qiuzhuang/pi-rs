@@ -227,6 +227,45 @@ impl std::fmt::Debug for JsRuntime {
 
 type Reply<R> = oneshot::Sender<Result<R>>;
 
+thread_local! {
+    /// Context of the synchronous host function currently executing on this (JS) thread.
+    static CURRENT_CTX: std::cell::Cell<*mut Context> = const { std::cell::Cell::new(std::ptr::null_mut()) };
+}
+
+/// Run `f` with the context of the synchronous host function that is currently executing on
+/// this thread (re-entrant call into JS from Rust code invoked by JS). `None` when the current
+/// thread is not inside a host function call.
+pub(crate) fn with_current_ctx<R>(f: impl FnOnce(&mut Context) -> R) -> Option<R> {
+    let ptr = CURRENT_CTX.with(|c| c.get());
+    if ptr.is_null() {
+        return None;
+    }
+    // SAFETY: the pointer is set by `make_sync_host_fn` from the `&mut Context` it was called
+    // with, and only while the host closure runs; the closure does not touch the context
+    // itself, so this is a sequential re-borrow on the same thread.
+    Some(f(unsafe { &mut *ptr }))
+}
+
+/// Whether the current thread is inside a synchronous host function call, where blocking calls
+/// into the runtime are executed re-entrantly instead of failing with [`Error::Deadlock`].
+pub fn in_host_call() -> bool {
+    CURRENT_CTX.with(|c| !c.get().is_null())
+}
+
+struct CurrentCtxGuard(*mut Context);
+
+impl CurrentCtxGuard {
+    fn enter(ctx: &mut Context) -> Self {
+        CurrentCtxGuard(CURRENT_CTX.with(|c| c.replace(ctx as *mut Context)))
+    }
+}
+
+impl Drop for CurrentCtxGuard {
+    fn drop(&mut self) {
+        CURRENT_CTX.with(|c| c.set(self.0));
+    }
+}
+
 impl JsRuntime {
     /// Start a runtime with the given options.
     pub fn new(options: RuntimeOptions) -> Result<JsRuntime> {
@@ -366,6 +405,9 @@ impl JsRuntime {
         R: Send + 'static,
         F: FnOnce(&mut Context) -> R + Send + 'static,
     {
+        if self.is_js_thread() {
+            return with_current_ctx(f).ok_or(Error::Deadlock);
+        }
         let rx = self.request(move |ctx, reply| {
             let _ = reply.send(Ok(f(ctx)));
         });
@@ -594,7 +636,10 @@ fn make_sync_host_fn(ctx: &mut Context, name: &str, f: SyncHostFn) -> boa_engine
             let rt = runtime_of(ctx).ok_or_else(|| engine::type_error("runtime is shutting down"))?;
             let (converted, created) = engine::collect_created(ctx, |ctx| convert_args(ctx, args));
             let result = converted.and_then(|args| {
-                let r = f(&rt, args);
+                let r = {
+                    let _guard = CurrentCtxGuard::enter(ctx);
+                    f(&rt, args)
+                };
                 match r {
                     Ok(v) => convert::from_json(&v, ctx),
                     Err(e) => Err(error::to_boa(&e, ctx)),
@@ -778,7 +823,41 @@ impl JsHandle {
         JsRuntime::wait(self.invoke(target, args, false)).await.map(settled_json)
     }
 
+    /// Re-entrant invocation from Rust code running inside a host call on the JS thread.
+    fn run_reentrant(&self, target: Target, args: Vec<Value>, as_handle: bool) -> Result<Settled> {
+        let id = self.inner.id;
+        with_current_ctx(|ctx| {
+            let value = invoke_on_thread(ctx, id, target, args)?;
+            let value = match value.as_promise() {
+                Some(p) => {
+                    engine::run_microtasks(ctx);
+                    match p.state() {
+                        boa_engine::builtins::promise::PromiseState::Fulfilled(v) => v,
+                        boa_engine::builtins::promise::PromiseState::Rejected(e) => {
+                            return Err(error::from_thrown(&e, ctx));
+                        }
+                        boa_engine::builtins::promise::PromiseState::Pending => {
+                            return Err(Error::host(
+                                "re-entrant call into the JS runtime returned a pending promise",
+                            ));
+                        }
+                    }
+                }
+                None => value,
+            };
+            if as_handle {
+                Ok(Settled::Handle(state(ctx).new_owned_handle(value)))
+            } else {
+                convert::to_json(&value, ctx).map(Settled::Json)
+            }
+        })
+        .unwrap_or(Err(Error::Deadlock))
+    }
+
     fn run_blocking(&self, target: Target, args: Vec<Value>) -> Result<Value> {
+        if self.inner.rt.is_js_thread() {
+            return self.run_reentrant(target, args, false).map(settled_json);
+        }
         let rx = self.invoke(target, args, false);
         self.inner.rt.wait_blocking(rx).map(settled_json)
     }
@@ -789,6 +868,10 @@ impl JsHandle {
     }
 
     fn run_handle_blocking(&self, target: Target, args: Vec<Value>) -> Result<JsHandle> {
+        if self.inner.rt.is_js_thread() {
+            let id = u64::from(self.run_reentrant(target, args, true)?);
+            return Ok(self.inner.rt.settled_handle(id));
+        }
         let rx = self.invoke(target, args, true);
         let id = self.inner.rt.wait_blocking(rx)?;
         Ok(self.inner.rt.settled_handle(u64::from(id)))
@@ -805,7 +888,8 @@ impl JsHandle {
     }
 
     /// Blocking [`JsHandle::call`] for non-async threads (e.g. a render thread).
-    /// Fails with [`Error::Deadlock`] on the JS thread.
+    /// On the JS thread this only works re-entrantly from inside a synchronous host function
+    /// (the call runs immediately); otherwise it fails with [`Error::Deadlock`].
     pub fn call_blocking(&self, args: Vec<Value>) -> Result<Value> {
         self.run_blocking(Target::Call, args)
     }

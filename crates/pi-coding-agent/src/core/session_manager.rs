@@ -1568,7 +1568,7 @@ pub struct SessionFileCandidate {
 }
 
 fn sort_session_infos(sessions: &mut [SessionInfo]) {
-    sessions.sort_by(|a, b| b.modified.cmp(&a.modified));
+    sessions.sort_by_key(|s| std::cmp::Reverse(s.modified));
 }
 
 fn check_aborted(signal: Option<&CancellationToken>) -> anyhow::Result<()> {

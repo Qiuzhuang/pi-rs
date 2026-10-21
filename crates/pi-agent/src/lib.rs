@@ -1,14 +1,19 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+//! pi-agent: general-purpose agent loop with tool execution, steering and follow-up queues.
+//!
+//! Rust port of the `@earendil-works/pi-agent-core` TypeScript package.
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub mod agent;
+pub mod agent_loop;
+pub mod error;
+pub mod hooks;
+pub mod proxy;
+pub mod stream_fn;
+pub mod transcript;
+pub mod types;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub use agent::*;
+pub use agent_loop::*;
+pub use error::AgentError;
+pub use proxy::*;
+pub use stream_fn::{get_default_stream_fn, set_default_stream_fn};
+pub use types::*;

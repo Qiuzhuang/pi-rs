@@ -9,3 +9,4 @@ Tracks what is ported and what is outstanding. Update when finishing a module.
 | pi-tui: core utils (width/wrap/truncate/slice), colors, oklab, terminal-colors, keys, stdin-buffer, keybindings, kill-ring, undo-stack, word-navigation, fuzzy | done |
 | pi-telemetry: contracts, noop, in-memory recorder/store, metrics, schemas, typed starters, render, conformance suite (all TS tests ported) | done |
 | pi-mcp | in progress |
+| pi-agent: types, agent-loop, agent, stream-fn (agent-loop tests ported) | in progress (agent tests, proxy tests pending) |

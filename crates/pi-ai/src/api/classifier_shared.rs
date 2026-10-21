@@ -56,14 +56,6 @@ pub fn normalize_classifier_error(error: &anyhow::Error) -> NormalizedProviderEr
             return NormalizedProviderError { status: http.status, body, message: http.message.clone(), message_carries_body };
         }
     }
-    if error.downcast_ref::<AbortError>().is_some() {
-        return NormalizedProviderError {
-            status: None,
-            body: None,
-            message: "This operation was aborted".to_string(),
-            message_carries_body: true,
-        };
-    }
     normalize_provider_error(error)
 }
 

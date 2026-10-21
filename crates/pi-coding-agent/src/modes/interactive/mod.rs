@@ -1,5 +1,6 @@
 //! `modes/interactive` modules.
 
+pub mod assets;
 pub mod bug_report;
 pub mod chat_viewport;
 pub mod components;

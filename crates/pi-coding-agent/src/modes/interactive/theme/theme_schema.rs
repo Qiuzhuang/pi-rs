@@ -120,5 +120,71 @@ pub struct ValidatedThemeJson {
 
 /// Validate one theme document, failing with a message that names the offending tokens.
 pub fn validate_theme_json(label: &str, json: Value) -> anyhow::Result<ValidatedThemeJson> {
-    todo!("port modes/interactive/theme/theme-schema.ts:validateThemeJson")
+    if let Some(name) = json.get("name").and_then(Value::as_str)
+        && name.contains('/')
+    {
+        anyhow::bail!(
+            "Invalid theme name \"{name}\": theme names cannot contain \"/\" because it is reserved for automatic light/dark theme settings."
+        );
+    }
+
+    let validator = pi_ai::utils::validation::SchemaValidator::new(&THEME_JSON_SCHEMA);
+    if !validator.check(&json) {
+        let errors = validator.errors(&json);
+        let mut missing_colors: Vec<String> = Vec::new();
+        let mut other_errors: Vec<String> = Vec::new();
+
+        for error in errors {
+            if error.keyword == "required" && error.instance_path == "/colors" {
+                for required in error.required_properties {
+                    if !missing_colors.contains(&required) {
+                        missing_colors.push(required);
+                    }
+                }
+                continue;
+            }
+            let path = if error.instance_path.is_empty() { "/".to_string() } else { error.instance_path.clone() };
+            other_errors.push(format!("  - {path}: {}", error.message));
+        }
+
+        let mut error_message = format!("Invalid theme \"{label}\":\n");
+        if !missing_colors.is_empty() {
+            missing_colors.sort();
+            error_message.push_str("\nMissing required color tokens:\n");
+            error_message.push_str(
+                &missing_colors.iter().map(|color| format!("  - {color}")).collect::<Vec<_>>().join("\n"),
+            );
+            error_message.push_str("\n\nPlease add these colors to your theme's \"colors\" object.");
+            error_message.push_str("\nSee the built-in themes (dark.json, light.json) for reference values.");
+        }
+        if !other_errors.is_empty() {
+            error_message.push_str(&format!("\n\nOther errors:\n{}", other_errors.join("\n")));
+        }
+        anyhow::bail!(error_message);
+    }
+
+    Ok(serde_json::from_value(json)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reports_missing_tokens_and_slash_names() {
+        let err = validate_theme_json("x", json!({ "name": "a/b", "colors": {} })).unwrap_err();
+        assert!(err.to_string().contains("theme names cannot contain \"/\""));
+        let err = validate_theme_json("mine", json!({ "name": "mine", "colors": { "accent": "#fff" } })).unwrap_err();
+        let message = err.to_string();
+        assert!(message.starts_with("Invalid theme \"mine\":\n\nMissing required color tokens:\n  - bashMode"));
+        assert!(!message.contains("  - accent"));
+    }
+
+    #[test]
+    fn accepts_built_in_themes() {
+        for content in [super::super::theme::BUILTIN_DARK_JSON, super::super::theme::BUILTIN_LIGHT_JSON] {
+            let json: Value = serde_json::from_str(content).unwrap();
+            validate_theme_json("builtin", json).unwrap();
+        }
+    }
 }

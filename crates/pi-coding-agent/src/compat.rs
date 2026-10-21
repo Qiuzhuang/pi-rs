@@ -51,10 +51,7 @@ pub type SelectListTheme = pi_tui::components::select_list::SelectListTheme;
 pub type SelectListLayoutOptions = pi_tui::components::select_list::SelectListLayoutOptions;
 
 /// `SettingsListTheme` (`packages/tui/src/components/settings-list.ts`).
-#[derive(Clone, Default)]
-pub struct SettingsListTheme {
-    pub styles: Value,
-}
+pub type SettingsListTheme = pi_tui::components::settings_list::SettingsListTheme;
 
 /// `SelectItem` (`packages/tui/src/components/select-list.ts`).
 pub type SelectItem = pi_tui::components::select_list::SelectItem;

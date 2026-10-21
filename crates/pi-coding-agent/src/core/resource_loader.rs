@@ -1689,22 +1689,9 @@ fn load_theme_from_file(
     diagnostics: &mut Vec<ResourceDiagnostic>,
     color_mode: TerminalColorMode,
 ) {
-    // `loadThemeFromPath` throws for invalid themes; the Rust function currently reports failures
-    // by panicking, so convert a panic into the same diagnostic.
-    let path = file_path.to_string();
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        load_theme_from_path(&path, Some(color_mode))
-    }));
-    match result {
+    match load_theme_from_path(file_path, Some(color_mode)) {
         Ok(theme) => themes.push(theme),
-        Err(panic) => {
-            let message = panic
-                .downcast_ref::<String>()
-                .cloned()
-                .or_else(|| panic.downcast_ref::<&str>().map(|s| s.to_string()))
-                .unwrap_or_else(|| "failed to load theme".to_string());
-            diagnostics.push(theme_warning(&message, file_path));
-        }
+        Err(error) => diagnostics.push(theme_warning(&error.to_string(), file_path)),
     }
 }
 

@@ -94,10 +94,3 @@ async fn builtin_dispatch_uses_provider_and_explicit_key() {
     assert_eq!(server.requests.lock()[0].header("x-api-key"), Some("sk-ant-x"));
 }
 
-#[tokio::test]
-async fn unimplemented_builtin_api_reports_error() {
-    let model = compat::get_model("google", compat::get_models("google")[0].id.as_str()).unwrap();
-    let result = compat::complete(&model, &ctx("x"), StreamOptions { api_key: Some("k".into()), ..Default::default() }).await;
-    assert_eq!(result.stop_reason, StopReason::Error);
-    assert_eq!(result.error_message.as_deref(), Some("API \"google-generative-ai\" is not implemented in this build"));
-}

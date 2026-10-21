@@ -1,0 +1,15 @@
+[package]
+name = "pi-coding-agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+
+[lib]
+name = "pi_coding_agent"
+path = "src/lib.rs"
+
+[[bin]]
+name = "pi"
+path = "src/main.rs"

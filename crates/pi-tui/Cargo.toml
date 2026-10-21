@@ -3,5 +3,13 @@ name = "pi-tui"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "Terminal User Interface library with differential rendering (Rust port of @earendil-works/pi-tui)"
 
 [dependencies]
+unicode-segmentation.workspace = true
+regex.workspace = true
+libc.workspace = true
+base64.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

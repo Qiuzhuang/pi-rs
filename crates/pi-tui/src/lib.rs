@@ -1,14 +1,12 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+//! Terminal UI framework with differential rendering (Rust port of `@earendil-works/pi-tui`).
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub mod colors;
+pub mod keys;
+pub mod oklab;
+pub mod terminal_colors;
+#[rustfmt::skip]
+mod unicode_tables;
+pub mod utils;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+/// A styling function, e.g. a theme color: takes text and returns it wrapped in ANSI codes.
+pub type StyleFn = std::sync::Arc<dyn Fn(&str) -> String + Send + Sync>;

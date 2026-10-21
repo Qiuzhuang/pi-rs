@@ -118,11 +118,11 @@ fn ctrl_w_preserves_ascii_punctuation_boundaries() {
 
 #[test]
 fn ctrl_w_handles_unicode_word_boundaries() {
-    // UAX #29 segments CJK ideographs individually (ICU would group dictionary words).
+    // "你好世界。你好，世界" segments as: 你好|世界|。|你好|，|世界
     let input = Input::default();
     input.set_value("你好世界。你好，世界");
     input.handle_input("\x05");
-    for expected in ["你好世界。你好，世", "你好世界。你好，", "你好世界。你好", "你好世界。你", "你好世界。", "你好世界"] {
+    for expected in ["你好世界。你好，", "你好世界。你好", "你好世界。", "你好世界", "你好", ""] {
         input.handle_input("\x17");
         assert_eq!(input.get_value(), expected);
     }
@@ -284,7 +284,7 @@ fn alt_d_handles_unicode_word_boundaries() {
     let input = Input::default();
     input.set_value("你好世界。你好，世界");
     input.handle_input("\x01");
-    for expected in ["好世界。你好，世界", "世界。你好，世界", "界。你好，世界", "。你好，世界", "你好，世界"] {
+    for expected in ["世界。你好，世界", "。你好，世界", "你好，世界", "，世界", "世界"] {
         input.handle_input("\x1bd");
         assert_eq!(input.get_value(), expected);
     }

@@ -5,6 +5,7 @@
 
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
+use std::sync::LazyLock;
 
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -151,17 +152,148 @@ pub struct WordSegment<'a> {
 
 /// Split text at word boundaries (equivalent to `Intl.Segmenter` with `granularity: "word"`).
 ///
-/// Uses UAX #29 word boundaries. Unlike ICU, runs of CJK ideographs are not grouped by
-/// dictionary lookup; each ideograph forms its own segment.
+/// Emulates ICU's word break iterator as used by V8:
+/// - Han/Hiragana/Katakana runs are segmented with ICU's CJ dictionary (via ICU4X),
+/// - Hangul runs form single words, separated from neighbouring scripts,
+/// - Thai/Lao/Khmer/Myanmar letters behave like letters for the UAX #29 rules and
+///   are split internally with ICU's dictionaries,
+/// - everything else follows UAX #29.
+///
+/// Results can still differ from V8 in rare cases because ICU4X and ICU4C use
+/// slightly different dictionary heuristics.
 pub fn word_segments(text: &str) -> Vec<WordSegment<'_>> {
-    text.split_word_bound_indices()
-        .map(|(index, segment)| WordSegment {
-            segment,
-            index,
-            is_word_like: segment.chars().any(is_letter_or_number),
-        })
-        .collect()
+    let mut out: Vec<WordSegment<'_>> = Vec::new();
+    let mut pos = 0;
+    while pos < text.len() {
+        let first = text[pos..].chars().next().unwrap();
+        let class = dictionary_class(first);
+        let mut end = pos + first.len_utf8();
+        for c in text[end..].chars() {
+            let same = match dictionary_class(c) {
+                DictClass::None => class == DictClass::None || is_extend_char(c),
+                other => other == class,
+            };
+            if !same {
+                break;
+            }
+            end += c.len_utf8();
+        }
+        match class {
+            DictClass::None => push_rule_segments(text, pos, end, &mut out),
+            DictClass::Hangul => push_segment(text, pos, end, &mut out),
+            DictClass::Cj => push_dictionary_segments(text, pos, end, &mut out),
+        }
+        pos = end;
+    }
+    out
 }
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DictClass {
+    None,
+    Cj,
+    Hangul,
+}
+
+fn dictionary_class(c: char) -> DictClass {
+    let cp = c as u32;
+    if matches!(cp,
+        0x3005 | 0x3007 | 0x3021..=0x3029 | 0x3038..=0x303B
+        | 0x3041..=0x3096 | 0x309D..=0x309F | 0x30A1..=0x30FA | 0x30FC..=0x30FF | 0x31F0..=0x31FF
+        | 0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xF900..=0xFAFF | 0xFF66..=0xFF9D | 0x20000..=0x3FFFF)
+    {
+        DictClass::Cj
+    } else if matches!(cp, 0x1100..=0x11FF | 0x3131..=0x318E | 0xA960..=0xA97C | 0xAC00..=0xD7A3 | 0xD7B0..=0xD7FB | 0xFFA0..=0xFFDC) {
+        DictClass::Hangul
+    } else {
+        DictClass::None
+    }
+}
+
+/// Word_Break=Extend/Format/ZWJ approximation (combining marks, joiners, selectors).
+fn is_extend_char(c: char) -> bool {
+    let cp = c as u32;
+    in_table(tables::MARK, cp) || matches!(cp, 0x200C | 0x200D | 0xFE00..=0xFE0F | 0xE0100..=0xE01EF | 0x3099 | 0x309A)
+}
+
+/// Letters of South-East Asian scripts handled by ICU's dictionary break engines.
+fn is_complex_context_letter(c: char) -> bool {
+    matches!(c as u32,
+        0x0E01..=0x0E30 | 0x0E32..=0x0E33 | 0x0E40..=0x0E46 | 0x0E81..=0x0EB0 | 0x0EB2..=0x0EB3 | 0x0EBD..=0x0EC6
+        | 0x0EDC..=0x0EDF | 0x1000..=0x102A | 0x103F..=0x1055 | 0x105A..=0x105D | 0x1061 | 0x1065..=0x1066
+        | 0x106E..=0x1070 | 0x1075..=0x1081 | 0x108E | 0x1780..=0x17B3 | 0x17D7 | 0x17DC
+        | 0x1A20..=0x1A54 | 0xA9E0..=0xA9E4 | 0xA9E6..=0xA9EF | 0xA9FA..=0xA9FE | 0xAA60..=0xAA7A | 0xAA7E..=0xAAAF
+        | 0xAAB1 | 0xAAB5..=0xAAB6 | 0xAAB9..=0xAABD | 0xAAC0 | 0xAAC2 | 0xAADB..=0xAADD)
+}
+
+fn push_segment<'a>(text: &'a str, start: usize, end: usize, out: &mut Vec<WordSegment<'a>>) {
+    let segment = &text[start..end];
+    out.push(WordSegment { segment, index: start, is_word_like: segment.chars().any(is_letter_or_number) });
+}
+
+fn push_dictionary_segments<'a>(text: &'a str, start: usize, end: usize, out: &mut Vec<WordSegment<'a>>) {
+    let run = &text[start..end];
+    let mut prev = 0;
+    for b in DICTIONARY_SEGMENTER.segment_str(run) {
+        if b == 0 {
+            continue;
+        }
+        push_segment(text, start + prev, start + b, out);
+        prev = b;
+    }
+}
+
+/// Interior dictionary break offsets of `run`, shifted by `base`.
+fn dictionary_cuts(run: &str, base: usize, cuts: &mut Vec<usize>) {
+    for b in DICTIONARY_SEGMENTER.segment_str(run) {
+        if b > 0 && b < run.len() {
+            cuts.push(base + b);
+        }
+    }
+}
+
+/// UAX #29 segmentation where complex-context letters count as letters, followed by
+/// dictionary splitting inside runs of those letters.
+fn push_rule_segments<'a>(text: &'a str, start: usize, end: usize, out: &mut Vec<WordSegment<'a>>) {
+    let stretch = &text[start..end];
+    if !stretch.chars().any(is_complex_context_letter) {
+        for (i, segment) in stretch.split_word_bound_indices() {
+            push_segment(text, start + i, start + i + segment.len(), out);
+        }
+        return;
+    }
+    // Replace complex-context letters with a same-length ALetter so the UAX #29 rules
+    // treat them as letters; byte offsets stay aligned with the original text.
+    let substituted: String =
+        stretch.chars().map(|c| if is_complex_context_letter(c) && c.len_utf8() == 3 { '\u{2C00}' } else { c }).collect();
+    for (i, segment) in substituted.split_word_bound_indices() {
+        let seg_start = start + i;
+        let original = &text[seg_start..seg_start + segment.len()];
+        let mut cuts: Vec<usize> = Vec::new();
+        let mut run_start: Option<usize> = None;
+        let mut offset = 0;
+        for c in original.chars() {
+            if is_complex_context_letter(c) || (run_start.is_some() && is_extend_char(c)) {
+                run_start.get_or_insert(offset);
+            } else if let Some(rs) = run_start.take() {
+                dictionary_cuts(&original[rs..offset], rs, &mut cuts);
+            }
+            offset += c.len_utf8();
+        }
+        if let Some(rs) = run_start {
+            dictionary_cuts(&original[rs..], rs, &mut cuts);
+        }
+        let mut prev = 0;
+        for cut in cuts.into_iter().chain(std::iter::once(original.len())) {
+            push_segment(text, seg_start + prev, seg_start + cut, out);
+            prev = cut;
+        }
+    }
+}
+
+static DICTIONARY_SEGMENTER: LazyLock<icu_segmenter::WordSegmenterBorrowed<'static>> = LazyLock::new(|| {
+    icu_segmenter::WordSegmenter::new_dictionary(icu_segmenter::options::WordBreakInvariantOptions::default())
+});
 
 // ---------------------------------------------------------------------------
 // Width calculation

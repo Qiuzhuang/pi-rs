@@ -1,6 +1,8 @@
 //! Shared helpers for TUI integration tests.
 #![allow(dead_code)]
 
+pub mod chalk;
+
 use std::sync::{Arc, Mutex};
 
 use pi_tui::event_loop::{CurrentGuard, EventLoop};

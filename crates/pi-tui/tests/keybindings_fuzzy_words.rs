@@ -127,10 +127,11 @@ fn word_backward() {
     assert_eq!(back(t, 7), 5);
     assert_eq!(back(t, 5), 4);
     assert_eq!(back(t, 4), 0);
-    // CJK: UAX #29 segments each ideograph separately (ICU groups dictionary words).
+    // CJK: dictionary segmentation gives 你好|世界 (byte offsets).
     let t = "你好世界 test";
     assert_eq!(back(t, t.len()), 13);
-    assert_eq!(back(t, 13), 9);
+    assert_eq!(back(t, 13), 6);
+    assert_eq!(back(t, 6), 0);
     assert_eq!(back("  hello  ", 9), 2);
     assert_eq!(back("  hello  ", 2), 0);
     assert_eq!(back("foo...bar", 9), 6);

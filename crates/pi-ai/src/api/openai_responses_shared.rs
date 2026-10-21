@@ -49,19 +49,16 @@ struct ParsedTextSignature {
 
 fn parse_text_signature(signature: Option<&str>) -> Option<ParsedTextSignature> {
     let signature = signature.filter(|s| !s.is_empty())?;
-    if signature.starts_with('{') {
-        if let Ok(Value::Object(parsed)) = serde_json::from_str::<Value>(signature) {
-            if parsed.get("v") == Some(&json!(1)) {
-                if let Some(Value::String(id)) = parsed.get("id") {
+    if signature.starts_with('{')
+        && let Ok(Value::Object(parsed)) = serde_json::from_str::<Value>(signature)
+            && parsed.get("v") == Some(&json!(1))
+                && let Some(Value::String(id)) = parsed.get("id") {
                     let phase = match parsed.get("phase").and_then(Value::as_str) {
                         Some(p @ ("commentary" | "final_answer")) => Some(p.to_string()),
                         _ => None,
                     };
                     return Some(ParsedTextSignature { id: id.clone(), phase });
                 }
-            }
-        }
-    }
     Some(ParsedTextSignature { id: signature.to_string(), phase: None })
 }
 
@@ -422,11 +419,10 @@ pub fn convert_responses_messages(
                                 item.insert("name".into(), json!(call.name));
                                 item.insert("arguments".into(), json!(Value::Object(call.arguments.clone()).to_string()));
                             }
-                            if is_same_model {
-                                if let Some(namespace) = &call.namespace {
+                            if is_same_model
+                                && let Some(namespace) = &call.namespace {
                                     item.insert("namespace".into(), json!(namespace));
                                 }
-                            }
                             output.push(Value::Object(item));
                         }
                     }
@@ -434,11 +430,10 @@ pub fn convert_responses_messages(
                 if output.is_empty() {
                     continue;
                 }
-                if options.configuration_update_effort.is_some() && is_same_model {
-                    if let Some(level) = &assistant.provider_thinking_level {
+                if options.configuration_update_effort.is_some() && is_same_model
+                    && let Some(level) = &assistant.provider_thinking_level {
                         messages.push(configuration_update(level));
                     }
-                }
                 messages.extend(output);
             }
             Message::ToolResult(result) => {
@@ -862,11 +857,10 @@ impl<'a> ResponsesStreamProcessor<'a> {
                 if let Some(AssistantContent::ToolCall(call)) = output.content.get_mut(slot.content_index) {
                     call.arguments = arguments;
                 }
-                if let Some(delta) = arguments_text.strip_prefix(previous.as_str()) {
-                    if !delta.is_empty() {
+                if let Some(delta) = arguments_text.strip_prefix(previous.as_str())
+                    && !delta.is_empty() {
                         Self::push_tool_call_delta(output, sender, slot, Some(delta.to_string()));
                     }
-                }
             }
             "response.custom_tool_call_input.delta" => {
                 let Some(slot) = self.get_slot(&key, SlotKind::ToolCall) else { return Ok(()) };

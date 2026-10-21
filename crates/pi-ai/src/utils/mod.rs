@@ -1,5 +1,6 @@
 //! Utilities (port of `utils/*`).
 
+pub mod abort;
 pub mod diagnostics;
 pub mod error_body;
 pub mod estimate;

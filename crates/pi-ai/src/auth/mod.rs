@@ -2,6 +2,7 @@
 
 pub mod context;
 pub mod credential_store;
+pub mod extension_oauth_types;
 pub mod helpers;
 pub mod oauth_load;
 pub mod resolve;

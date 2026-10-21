@@ -204,16 +204,20 @@ impl ModelRuntime {
         todo!("port core/model-runtime.ts:ModelRuntime.getModel")
     }
 
-    pub fn get_models_of_type(&self, r#type: Value, provider_id: Option<&str>) -> Vec<Value> {
+    pub fn get_models_of_type(
+        &self,
+        r#type: pi_ai::types::ModelType,
+        provider_id: Option<&str>,
+    ) -> Vec<pi_ai::types::AnyModel> {
         todo!("port core/model-runtime.ts:ModelRuntime.getModelsOfType")
     }
 
     pub fn get_model_of_type(
         &self,
-        r#type: Value,
+        r#type: pi_ai::types::ModelType,
         provider_id: &str,
         model_id: &str,
-    ) -> Option<Value> {
+    ) -> Option<pi_ai::types::AnyModel> {
         todo!("port core/model-runtime.ts:ModelRuntime.getModelOfType")
     }
 
@@ -223,10 +227,10 @@ impl ModelRuntime {
 
     pub async fn get_available_of_type(
         &self,
-        r#type: Value,
+        r#type: pi_ai::types::ModelType,
         provider_id: Option<&str>,
         options: Option<&AuthOperationOptions>,
-    ) -> anyhow::Result<Vec<Value>> {
+    ) -> anyhow::Result<Vec<pi_ai::types::AnyModel>> {
         todo!("port core/model-runtime.ts:ModelRuntime.getAvailableOfType")
     }
 

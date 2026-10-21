@@ -22,7 +22,6 @@ use pi_ai::types::Model;
 use pi_ai::types::ProviderHeaders;
 use pi_ai::utils::event_stream::AssistantMessageEventStream;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::sync::Arc;
 
 pub use crate::core::provider_composer::CLEAR_API_KEY_CACHE;
@@ -98,7 +97,12 @@ impl ModelRegistry {
     }
 
     /// Find a model of a non-chat type, e.g. `findOfType("classifier", "typesafe", "jev-latest")`.
-    pub fn find_of_type(&self, r#type: Value, provider: &str, model_id: &str) -> Option<Value> {
+    pub fn find_of_type(
+        &self,
+        r#type: pi_ai::types::ModelType,
+        provider: &str,
+        model_id: &str,
+    ) -> Option<pi_ai::types::AnyModel> {
         todo!("port core/model-registry.ts:ModelRegistry.findOfType")
     }
 
@@ -151,26 +155,30 @@ impl ModelRegistry {
     }
 
     /// Every known model of a type (chat, image, classifier), optionally for one provider.
-    pub fn get_models_of_type(&self, r#type: Value, provider: Option<&str>) -> Vec<Value> {
+    pub fn get_models_of_type(
+        &self,
+        r#type: pi_ai::types::ModelType,
+        provider: Option<&str>,
+    ) -> Vec<pi_ai::types::AnyModel> {
         todo!("port core/model-registry.ts:ModelRegistry.getModelsOfType")
     }
 
     /// Models of a type whose provider has working credentials.
     pub async fn get_available_of_type(
         &self,
-        r#type: Value,
+        r#type: pi_ai::types::ModelType,
         provider: Option<&str>,
         options: Option<&AuthOperationOptions>,
-    ) -> anyhow::Result<Vec<Value>> {
+    ) -> anyhow::Result<Vec<pi_ai::types::AnyModel>> {
         todo!("port core/model-registry.ts:ModelRegistry.getAvailableOfType")
     }
 
     pub fn get_model_of_type(
         &self,
-        r#type: Value,
+        r#type: pi_ai::types::ModelType,
         provider: &str,
         model_id: &str,
-    ) -> Option<Value> {
+    ) -> Option<pi_ai::types::AnyModel> {
         todo!("port core/model-registry.ts:ModelRegistry.getModelOfType")
     }
 

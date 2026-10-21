@@ -1,7 +1,6 @@
 //! Port of `packages/coding-agent/src/utils/shell.ts`.
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ShellConfigCommandTransport {
@@ -51,7 +50,8 @@ pub fn get_power_shell_config() -> anyhow::Result<ShellConfig> {
     todo!("port utils/shell.ts:getPowerShellConfig")
 }
 
-pub fn get_shell_env() -> Value {
+/// Environment for spawned shells (TS `NodeJS.ProcessEnv`).
+pub fn get_shell_env() -> indexmap::IndexMap<String, String> {
     todo!("port utils/shell.ts:getShellEnv")
 }
 

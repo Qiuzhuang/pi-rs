@@ -39,10 +39,13 @@ pub fn create_local_power_shell_operations() -> PowerShellOperations {
 pub fn create_power_shell_tool_definition(
     cwd: &str,
     options: Option<&PowerShellToolOptions>,
-) -> Value {
+) -> crate::core::extensions::types::ToolDefinition {
     todo!("port core/tools/powershell.ts:createPowerShellToolDefinition")
 }
 
-pub fn create_power_shell_tool(cwd: &str, options: Option<&PowerShellToolOptions>) -> Value {
+pub fn create_power_shell_tool(
+    cwd: &str,
+    options: Option<&PowerShellToolOptions>,
+) -> pi_agent::types::AgentToolRef {
     todo!("port core/tools/powershell.ts:createPowerShellTool")
 }

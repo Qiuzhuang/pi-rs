@@ -6,8 +6,60 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::LazyLock;
 
+/// The settings JSON Schema (TypeBox `SettingsSchema`).
+///
+/// Built from the generated `schemas/settings.schema.json` artifact of the TS package (embedded
+/// next to this module) with the shared `$defs` inlined again, which yields the TypeBox schema.
 pub static SETTINGS_SCHEMA: LazyLock<Value> =
-    LazyLock::new(|| todo!("port core/settings-schema.ts:SettingsSchema"));
+    LazyLock::new(|| strip_generated_schema(SETTINGS_SCHEMA_ARTIFACT));
+
+/// The published `settings.schema.json` artifact (with `$schema`, `$id` and `$defs`).
+pub const SETTINGS_SCHEMA_ARTIFACT: &str = include_str!("schemas/settings.schema.json");
+
+/// Parse a generated schema artifact, drop the artifact headers (`$schema`, `$id`, `$comment`) and
+/// inline its `$defs` references, keeping per-use annotations.
+pub(crate) fn strip_generated_schema(artifact: &str) -> Value {
+    let mut root: Value = serde_json::from_str(artifact).expect("embedded schema artifact is valid JSON");
+    let defs = root
+        .as_object_mut()
+        .and_then(|obj| obj.remove("$defs"))
+        .unwrap_or(Value::Null);
+    if let Some(obj) = root.as_object_mut() {
+        obj.shift_remove("$schema");
+        obj.shift_remove("$id");
+        obj.shift_remove("$comment");
+    }
+    inline_schema_refs(&root, &defs)
+}
+
+fn inline_schema_refs(value: &Value, defs: &Value) -> Value {
+    match value {
+        Value::Array(items) => Value::Array(items.iter().map(|v| inline_schema_refs(v, defs)).collect()),
+        Value::Object(obj) => {
+            if let Some(Value::String(reference)) = obj.get("$ref")
+                && let Some(name) = reference.strip_prefix("#/$defs/")
+                && let Some(def) = defs.get(name)
+            {
+                let mut inlined = match inline_schema_refs(def, defs) {
+                    Value::Object(map) => map,
+                    other => return other,
+                };
+                for (key, child) in obj {
+                    if key != "$ref" {
+                        inlined.insert(key.clone(), child.clone());
+                    }
+                }
+                return Value::Object(inlined);
+            }
+            Value::Object(
+                obj.iter()
+                    .map(|(k, v)| (k.clone(), inline_schema_refs(v, defs)))
+                    .collect(),
+            )
+        }
+        other => other.clone(),
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum SettingsInputSteeringMode {
@@ -26,7 +78,7 @@ impl SettingsInputSteeringMode {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingsInputRetry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -53,7 +105,7 @@ pub enum SettingsInputQuietStartup {
     Header(String),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingsInputSkillsVariant2 {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -89,7 +141,7 @@ impl SettingsInputDoubleEscapeAction {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingsInputThinkingBudgets {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -165,7 +217,7 @@ pub enum SettingsInputFullscreenWheelScrollLines {
     Auto(String),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingsInput {
     /// JSON Schema reference.
@@ -327,7 +379,7 @@ pub struct SettingsInput {
 }
 
 // TS: extends Static<typeof CompactionModelOverrideSchema> (inherited fields inlined)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CompactionModelOverride {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -337,7 +389,7 @@ pub struct CompactionModelOverride {
 }
 
 // TS: extends Static<typeof CompactionSettingsSchema> (inherited fields inlined)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CompactionSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -352,7 +404,7 @@ pub struct CompactionSettings {
 }
 
 // TS: extends Static<typeof BranchSummarySettingsSchema> (inherited fields inlined)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BranchSummarySettings {
     /// Tokens reserved for the prompt and LLM response.
@@ -364,7 +416,7 @@ pub struct BranchSummarySettings {
 }
 
 // TS: extends Static<typeof ProviderRetrySettingsSchema> (inherited fields inlined)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderRetrySettings {
     /// SDK or provider request timeout in milliseconds.
@@ -379,7 +431,7 @@ pub struct ProviderRetrySettings {
 }
 
 // TS: extends Omit<Static<typeof RetrySettingsSchema>, "maxDelayMs"> (inherited fields inlined)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RetrySettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -424,7 +476,7 @@ pub enum TerminalSettingsTrueColor {
 }
 
 // TS: extends Static<typeof TerminalSettingsSchema> (inherited fields inlined)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TerminalSettings {
     /// Show images when the terminal supports them.
@@ -448,7 +500,7 @@ pub struct TerminalSettings {
 }
 
 // TS: extends Static<typeof ImageSettingsSchema> (inherited fields inlined)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImageSettings {
     /// Resize images to 2000x2000 maximum for better model compatibility.
@@ -460,7 +512,7 @@ pub struct ImageSettings {
 }
 
 // TS: extends Static<typeof ThinkingBudgetsSettingsSchema> (inherited fields inlined)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ThinkingBudgetsSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -508,7 +560,7 @@ impl MermaidRenderingModeValue {
 pub type MermaidRenderingMode = MermaidRenderingModeValue;
 
 // TS: extends Static<typeof MarkdownSettingsSchema> (inherited fields inlined)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MarkdownSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -518,7 +570,7 @@ pub struct MarkdownSettings {
 }
 
 // TS: extends Static<typeof WarningSettingsSchema> (inherited fields inlined)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WarningSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -545,7 +597,7 @@ impl CodemodeModeValue {
 pub type CodemodeMode = CodemodeModeValue;
 
 // TS: extends Static<typeof CodemodeSettingsSchema> (inherited fields inlined)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodemodeSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -634,7 +686,7 @@ impl SessionShareDestinationValue {
 
 pub type SessionShareDestination = SessionShareDestinationValue;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PackageSourceVariant2 {
     pub source: String,
@@ -728,7 +780,7 @@ pub enum SettingsQuietStartup {
     Header(String),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingsThinkingBudgets {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -785,7 +837,7 @@ pub enum SettingsFullscreenWheelScrollLines {
 }
 
 // TS: extends Omit<SettingsInput, "queueMode" | "retry" | "skills" | "websockets"> (inherited fields inlined)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
     /// JSON Schema reference.
@@ -937,4 +989,7 @@ pub struct Settings {
     pub retry: Option<RetrySettings>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skills: Option<Vec<String>>,
+    /// Keys not covered by the schema (`additionalProperties: true`).
+    #[serde(flatten)]
+    pub extra: IndexMap<String, Value>,
 }

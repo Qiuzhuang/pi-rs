@@ -1,10 +1,10 @@
 //! Port of `packages/coding-agent/src/modes/interactive/theme/theme-schema.ts`.
 
 use crate::modes::interactive::theme::theme::TerminalTheme;
+use crate::modes::interactive::theme::theme_tokens::{THEME_TOKENS, ThemeColorValues};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use crate::modes::interactive::theme::theme_tokens::{THEME_TOKENS, ThemeColorValues};
 use std::sync::LazyLock;
 
 fn color_value_schema(description: Option<&str>) -> Value {
@@ -39,7 +39,10 @@ pub static THEME_JSON_SCHEMA: LazyLock<Value> = LazyLock::new(|| {
     let mut properties = serde_json::Map::new();
     let mut required = Vec::new();
     for (token, descriptor) in THEME_TOKENS {
-        properties.insert(token.as_str().to_string(), color_value_schema(Some(descriptor.description)));
+        properties.insert(
+            token.as_str().to_string(),
+            color_value_schema(Some(descriptor.description)),
+        );
         if descriptor.fallback.is_none() {
             required.push(Value::String(token.as_str().to_string()));
         }

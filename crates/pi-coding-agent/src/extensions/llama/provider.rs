@@ -28,7 +28,7 @@ impl LlamaClassifierApi {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct LlamaProviderControllerOptions {
+pub struct LlamaProviderControllerSetCatalogOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub router_autoload: Option<bool>,
 }
@@ -40,7 +40,7 @@ pub trait LlamaProviderController: Send + Sync {
         &self,
         models: &[LlamaModelInfo],
         server_url: &str,
-        options: Option<&LlamaProviderControllerOptions>,
+        options: Option<&LlamaProviderControllerSetCatalogOptions>,
     );
 }
 

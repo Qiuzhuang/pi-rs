@@ -59,14 +59,14 @@ pub struct ModelInfo {
 pub type RpcEventListener = Arc<dyn Fn(JsonAgentSessionEvent) + Send + Sync>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum RpcClientStreamingBehavior {
+pub enum RpcClientPromptStreamingBehavior {
     #[serde(rename = "steer")]
     Steer,
     #[serde(rename = "followUp")]
     FollowUp,
 }
 
-impl RpcClientStreamingBehavior {
+impl RpcClientPromptStreamingBehavior {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Steer => "steer",
@@ -117,14 +117,14 @@ pub struct RpcClientCycleThinkingLevelResult {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum RpcClientMode {
+pub enum RpcClientSetSteeringModeMode {
     #[serde(rename = "all")]
     All,
     #[serde(rename = "one-at-a-time")]
     OneAtATime,
 }
 
-impl RpcClientMode {
+impl RpcClientSetSteeringModeMode {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::All => "all",
@@ -217,7 +217,7 @@ impl RpcClient {
         &self,
         message: &str,
         images: Option<&[ImageContent]>,
-        streaming_behavior: Option<RpcClientStreamingBehavior>,
+        streaming_behavior: Option<RpcClientPromptStreamingBehavior>,
     ) -> anyhow::Result<PromptDisposition> {
         todo!("port modes/rpc/rpc-client.ts:RpcClient.prompt")
     }
@@ -302,12 +302,18 @@ impl RpcClient {
     }
 
     /// Set steering mode.
-    pub async fn set_steering_mode(&self, mode: RpcClientMode) -> anyhow::Result<()> {
+    pub async fn set_steering_mode(
+        &self,
+        mode: RpcClientSetSteeringModeMode,
+    ) -> anyhow::Result<()> {
         todo!("port modes/rpc/rpc-client.ts:RpcClient.setSteeringMode")
     }
 
     /// Set follow-up mode.
-    pub async fn set_follow_up_mode(&self, mode: RpcClientMode) -> anyhow::Result<()> {
+    pub async fn set_follow_up_mode(
+        &self,
+        mode: RpcClientSetSteeringModeMode,
+    ) -> anyhow::Result<()> {
         todo!("port modes/rpc/rpc-client.ts:RpcClient.setFollowUpMode")
     }
 

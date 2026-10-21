@@ -44,7 +44,11 @@ pub struct RpcCommand {
 
 /// The command variants of the TS `RpcCommand` union.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "type",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
 pub enum RpcCommandKind {
     // Prompting
     Prompt {
@@ -247,7 +251,11 @@ pub struct RpcResponse {
 
 impl RpcResponse {
     /// `success(id, command, data?)` of rpc-mode.ts.
-    pub fn success<T: Serialize>(id: Option<String>, command: &str, data: Option<&T>) -> anyhow::Result<Self> {
+    pub fn success<T: Serialize>(
+        id: Option<String>,
+        command: &str,
+        data: Option<&T>,
+    ) -> anyhow::Result<Self> {
         Ok(Self {
             id,
             command: command.to_string(),
@@ -314,9 +322,16 @@ impl<'de> Deserialize<'de> for RpcResponse {
         let result = if success {
             Ok(map.shift_remove("data"))
         } else {
-            Err(map.shift_remove("error").and_then(|e| e.as_str().map(str::to_string)).unwrap_or_default())
+            Err(map
+                .shift_remove("error")
+                .and_then(|e| e.as_str().map(str::to_string))
+                .unwrap_or_default())
         };
-        Ok(Self { id, command, result })
+        Ok(Self {
+            id,
+            command,
+            result,
+        })
     }
 }
 
@@ -570,24 +585,36 @@ mod tests {
 
     #[test]
     fn command_parses_with_id() {
-        let cmd: RpcCommand =
-            serde_json::from_value(json!({"id": "1", "type": "set_model", "provider": "p", "modelId": "m"})).unwrap();
+        let cmd: RpcCommand = serde_json::from_value(
+            json!({"id": "1", "type": "set_model", "provider": "p", "modelId": "m"}),
+        )
+        .unwrap();
         assert_eq!(cmd.id.as_deref(), Some("1"));
         assert_eq!(cmd.kind.type_name(), "set_model");
-        assert!(matches!(cmd.kind, RpcCommandKind::SetModel { ref model_id, .. } if model_id == "m"));
+        assert!(
+            matches!(cmd.kind, RpcCommandKind::SetModel { ref model_id, .. } if model_id == "m")
+        );
         let cmd: RpcCommand = serde_json::from_value(json!({"type": "abort"})).unwrap();
         assert!(matches!(cmd.kind, RpcCommandKind::Abort));
     }
 
     #[test]
     fn response_field_order() {
-        let r = RpcResponse::success(Some("1".into()), "export_html", Some(&RpcExportHtmlData { path: "a".into() })).unwrap();
+        let r = RpcResponse::success(
+            Some("1".into()),
+            "export_html",
+            Some(&RpcExportHtmlData { path: "a".into() }),
+        )
+        .unwrap();
         assert_eq!(
             serde_json::to_string(&r).unwrap(),
             r#"{"id":"1","type":"response","command":"export_html","success":true,"data":{"path":"a"}}"#
         );
         let e = RpcResponse::error(None, "x", "boom");
-        assert_eq!(serde_json::to_string(&e).unwrap(), r#"{"type":"response","command":"x","success":false,"error":"boom"}"#);
+        assert_eq!(
+            serde_json::to_string(&e).unwrap(),
+            r#"{"type":"response","command":"x","success":false,"error":"boom"}"#
+        );
         let back: RpcResponse = serde_json::from_str(&serde_json::to_string(&r).unwrap()).unwrap();
         assert_eq!(back, r);
     }
@@ -597,7 +624,10 @@ mod tests {
         let req = RpcExtensionUIRequest {
             tag: ExtensionUIRequestTag::ExtensionUiRequest,
             id: "u".into(),
-            request: RpcExtensionUIRequestMethod::SetStatus { status_key: "k".into(), status_text: None },
+            request: RpcExtensionUIRequestMethod::SetStatus {
+                status_key: "k".into(),
+                status_text: None,
+            },
         };
         assert_eq!(
             serde_json::to_string(&req).unwrap(),

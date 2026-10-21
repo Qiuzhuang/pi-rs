@@ -490,7 +490,7 @@ pub struct SessionFileCandidate {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum SessionManagerMessage {
+pub enum SessionManagerAppendMessageMessage {
     SystemMessage(SystemMessage),
     UserMessage(UserMessage),
     AssistantMessage(AssistantMessage),
@@ -501,18 +501,18 @@ pub enum SessionManagerMessage {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SessionManagerReplacement {
+pub struct SessionManagerAppendContextEditReplacement {
     pub content: ContextEditableContent,
 }
 
 #[derive(Clone)]
-pub enum SessionManagerSessionDirOrOnProgress {
+pub enum SessionManagerListAllSessionDirOrOnProgress {
     String(String),
     SessionListProgress(SessionListProgress),
 }
 
 #[derive(Clone)]
-pub enum SessionManagerOnProgressOrSignal {
+pub enum SessionManagerListAllOnProgressOrSignal {
     SessionListProgress(SessionListProgress),
     CancellationToken(CancellationToken),
 }
@@ -580,7 +580,7 @@ impl SessionManager {
     /// Reason: we want these to be top-level entries in the session, not message session entries,
     /// so it is easier to find them.
     /// These need to be appended via appendCompaction() and appendBranchSummary() methods.
-    pub fn append_message(&self, message: &SessionManagerMessage) -> String {
+    pub fn append_message(&self, message: &SessionManagerAppendMessageMessage) -> String {
         todo!("port core/session-manager.ts:SessionManager.appendMessage")
     }
 
@@ -654,7 +654,7 @@ impl SessionManager {
     pub fn append_context_edit(
         &self,
         target_id: &str,
-        replacement: Option<&SessionManagerReplacement>,
+        replacement: Option<&SessionManagerAppendContextEditReplacement>,
     ) -> anyhow::Result<String> {
         todo!("port core/session-manager.ts:SessionManager.appendContextEdit")
     }
@@ -850,8 +850,8 @@ impl SessionManager {
     }
 
     pub async fn list_all(
-        session_dir_or_on_progress: Option<&SessionManagerSessionDirOrOnProgress>,
-        on_progress_or_signal: Option<&SessionManagerOnProgressOrSignal>,
+        session_dir_or_on_progress: Option<&SessionManagerListAllSessionDirOrOnProgress>,
+        on_progress_or_signal: Option<&SessionManagerListAllOnProgressOrSignal>,
         signal: Option<CancellationToken>,
     ) -> anyhow::Result<Vec<SessionInfo>> {
         todo!("port core/session-manager.ts:SessionManager.listAll")

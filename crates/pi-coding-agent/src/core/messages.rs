@@ -13,8 +13,7 @@ use pi_ai::types::{Message, UserContent, UserContentBlock, UserMessage};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub const COMPACTION_SUMMARY_PREFIX: &str =
-    "The conversation history before this point was compacted into the following summary:\n\n<summary>\n";
+pub const COMPACTION_SUMMARY_PREFIX: &str = "The conversation history before this point was compacted into the following summary:\n\n<summary>\n";
 
 pub const COMPACTION_SUMMARY_SUFFIX: &str = "\n</summary>";
 
@@ -176,7 +175,11 @@ pub fn bash_execution_to_text(msg: &BashExecutionMessage) -> String {
     text
 }
 
-pub fn create_branch_summary_message(summary: &str, from_id: &str, timestamp: &str) -> BranchSummaryMessage {
+pub fn create_branch_summary_message(
+    summary: &str,
+    from_id: &str,
+    timestamp: &str,
+) -> BranchSummaryMessage {
     BranchSummaryMessage {
         role: BRANCH_SUMMARY_ROLE.to_string(),
         summary: summary.to_string(),
@@ -217,7 +220,10 @@ pub fn create_custom_message(
 }
 
 fn user_text(text: String, timestamp: i64) -> Message {
-    Message::User(UserMessage::new(UserContent::Blocks(vec![UserContentBlock::text(text)]), timestamp))
+    Message::User(UserMessage::new(
+        UserContent::Blocks(vec![UserContentBlock::text(text)]),
+        timestamp,
+    ))
 }
 
 /// Transform AgentMessages (including custom types) to LLM-compatible Messages.
@@ -237,17 +243,25 @@ pub fn convert_to_llm(messages: &[AgentMessage]) -> Vec<Message> {
                 }
                 CodingAgentMessage::Custom(msg) => {
                     let content = match msg.content {
-                        UserContent::Text(text) => UserContent::Blocks(vec![UserContentBlock::text(text)]),
+                        UserContent::Text(text) => {
+                            UserContent::Blocks(vec![UserContentBlock::text(text)])
+                        }
                         blocks => blocks,
                     };
                     Some(Message::User(UserMessage::new(content, msg.timestamp)))
                 }
                 CodingAgentMessage::BranchSummary(msg) => Some(user_text(
-                    format!("{BRANCH_SUMMARY_PREFIX}{}{BRANCH_SUMMARY_SUFFIX}", msg.summary),
+                    format!(
+                        "{BRANCH_SUMMARY_PREFIX}{}{BRANCH_SUMMARY_SUFFIX}",
+                        msg.summary
+                    ),
                     msg.timestamp,
                 )),
                 CodingAgentMessage::CompactionSummary(msg) => Some(user_text(
-                    format!("{COMPACTION_SUMMARY_PREFIX}{}{COMPACTION_SUMMARY_SUFFIX}", msg.summary),
+                    format!(
+                        "{COMPACTION_SUMMARY_PREFIX}{}{COMPACTION_SUMMARY_SUFFIX}",
+                        msg.summary
+                    ),
                     msg.timestamp,
                 )),
             },
@@ -276,20 +290,35 @@ mod tests {
 
     #[test]
     fn bash_text_formats() {
-        assert_eq!(bash_execution_to_text(&bash("", Some(0), false)), "Ran `ls`\n(no output)");
+        assert_eq!(
+            bash_execution_to_text(&bash("", Some(0), false)),
+            "Ran `ls`\n(no output)"
+        );
         assert_eq!(
             bash_execution_to_text(&bash("a", Some(2), false)),
             "Ran `ls`\n```\na\n```\n\nCommand exited with code 2"
         );
-        assert_eq!(bash_execution_to_text(&bash("a", Some(2), true)), "Ran `ls`\n```\na\n```\n\n(command cancelled)");
+        assert_eq!(
+            bash_execution_to_text(&bash("a", Some(2), true)),
+            "Ran `ls`\n```\na\n```\n\n(command cancelled)"
+        );
     }
 
     #[test]
     fn custom_messages_round_trip_through_agent_message() {
-        let msg = create_custom_message("x", UserContent::Text("hi".into()), true, None, "2024-01-01T00:00:00.000Z");
+        let msg = create_custom_message(
+            "x",
+            UserContent::Text("hi".into()),
+            true,
+            None,
+            "2024-01-01T00:00:00.000Z",
+        );
         let agent: AgentMessage = msg.clone().into();
         assert_eq!(agent.role(), "custom");
-        assert_eq!(CodingAgentMessage::from_agent_message(&agent), Some(CodingAgentMessage::Custom(msg)));
+        assert_eq!(
+            CodingAgentMessage::from_agent_message(&agent),
+            Some(CodingAgentMessage::Custom(msg))
+        );
         let llm = convert_to_llm(&[agent]);
         assert_eq!(llm.len(), 1);
     }

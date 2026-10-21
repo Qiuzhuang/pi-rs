@@ -57,7 +57,7 @@ pub enum ResolvedRequestAuth {
 }
 
 #[derive(Clone)]
-pub enum ModelRegistryProviderOrName {
+pub enum ModelRegistryRegisterProviderProviderOrName {
     Arc(Arc<dyn Provider>),
     String(String),
 }
@@ -212,7 +212,7 @@ impl ModelRegistry {
 
     pub fn register_provider(
         &self,
-        provider_or_name: &ModelRegistryProviderOrName,
+        provider_or_name: &ModelRegistryRegisterProviderProviderOrName,
         config: Option<&ProviderConfigInput>,
     ) -> anyhow::Result<()> {
         todo!("port core/model-registry.ts:ModelRegistry.registerProvider")

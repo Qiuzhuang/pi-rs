@@ -158,35 +158,35 @@ pub struct ConfiguredPackage {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PackageManagerOptions2 {
+pub struct PackageManagerInstallOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PackageManagerOptions3 {
+pub struct PackageManagerInstallAndPersistOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PackageManagerOptions4 {
+pub struct PackageManagerRemoveOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PackageManagerOptions5 {
+pub struct PackageManagerRemoveAndPersistOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PackageManagerOptions6 {
+pub struct PackageManagerResolveExtensionSourcesOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -195,14 +195,14 @@ pub struct PackageManagerOptions6 {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PackageManagerOptions7 {
+pub struct PackageManagerAddSourceToSettingsOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PackageManagerOptions8 {
+pub struct PackageManagerRemoveSourceFromSettingsOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local: Option<bool>,
 }
@@ -222,39 +222,39 @@ pub trait PackageManager: Send + Sync {
     async fn install(
         &self,
         source: &str,
-        options: Option<&PackageManagerOptions2>,
+        options: Option<&PackageManagerInstallOptions>,
     ) -> anyhow::Result<()>;
     async fn install_and_persist(
         &self,
         source: &str,
-        options: Option<&PackageManagerOptions3>,
+        options: Option<&PackageManagerInstallAndPersistOptions>,
     ) -> anyhow::Result<()>;
     async fn remove(
         &self,
         source: &str,
-        options: Option<&PackageManagerOptions4>,
+        options: Option<&PackageManagerRemoveOptions>,
     ) -> anyhow::Result<()>;
     async fn remove_and_persist(
         &self,
         source: &str,
-        options: Option<&PackageManagerOptions5>,
+        options: Option<&PackageManagerRemoveAndPersistOptions>,
     ) -> anyhow::Result<bool>;
     async fn update(&self, source: Option<&str>) -> anyhow::Result<()>;
     fn list_configured_packages(&self) -> Vec<ConfiguredPackage>;
     async fn resolve_extension_sources(
         &self,
         sources: &[String],
-        options: Option<&PackageManagerOptions6>,
+        options: Option<&PackageManagerResolveExtensionSourcesOptions>,
     ) -> anyhow::Result<ResolvedPaths>;
     fn add_source_to_settings(
         &self,
         source: &str,
-        options: Option<&PackageManagerOptions7>,
+        options: Option<&PackageManagerAddSourceToSettingsOptions>,
     ) -> bool;
     fn remove_source_from_settings(
         &self,
         source: &str,
-        options: Option<&PackageManagerOptions8>,
+        options: Option<&PackageManagerRemoveSourceFromSettingsOptions>,
     ) -> bool;
     fn set_progress_callback(&self, callback: Option<&ProgressCallback>);
     fn get_installed_path(&self, source: &str, scope: SettingsScope) -> Option<String>;
@@ -271,7 +271,6 @@ pub struct PackageManagerOptions {
 
 /// TS: a local `SourceScope` alias identical to `source-info.ts`.
 pub use crate::core::source_info::SourceScope;
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -430,21 +429,21 @@ impl SkillDiscoveryMode {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DefaultPackageManagerOptions {
+pub struct DefaultPackageManagerAddSourceToSettingsOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DefaultPackageManagerOptions2 {
+pub struct DefaultPackageManagerRemoveSourceFromSettingsOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DefaultPackageManagerOptions3 {
+pub struct DefaultPackageManagerResolveExtensionSourcesOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -453,28 +452,28 @@ pub struct DefaultPackageManagerOptions3 {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DefaultPackageManagerOptions4 {
+pub struct DefaultPackageManagerInstallOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DefaultPackageManagerOptions5 {
+pub struct DefaultPackageManagerInstallAndPersistOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DefaultPackageManagerOptions6 {
+pub struct DefaultPackageManagerRemoveOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DefaultPackageManagerOptions7 {
+pub struct DefaultPackageManagerRemoveAndPersistOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local: Option<bool>,
 }
@@ -511,28 +510,28 @@ impl PackageManager for DefaultPackageManager {
     async fn install(
         &self,
         source: &str,
-        options: Option<&PackageManagerOptions2>,
+        options: Option<&PackageManagerInstallOptions>,
     ) -> anyhow::Result<()> {
         todo!("port core/package-manager.ts:DefaultPackageManager.install")
     }
     async fn install_and_persist(
         &self,
         source: &str,
-        options: Option<&PackageManagerOptions3>,
+        options: Option<&PackageManagerInstallAndPersistOptions>,
     ) -> anyhow::Result<()> {
         todo!("port core/package-manager.ts:DefaultPackageManager.install_and_persist")
     }
     async fn remove(
         &self,
         source: &str,
-        options: Option<&PackageManagerOptions4>,
+        options: Option<&PackageManagerRemoveOptions>,
     ) -> anyhow::Result<()> {
         todo!("port core/package-manager.ts:DefaultPackageManager.remove")
     }
     async fn remove_and_persist(
         &self,
         source: &str,
-        options: Option<&PackageManagerOptions5>,
+        options: Option<&PackageManagerRemoveAndPersistOptions>,
     ) -> anyhow::Result<bool> {
         todo!("port core/package-manager.ts:DefaultPackageManager.remove_and_persist")
     }
@@ -545,21 +544,21 @@ impl PackageManager for DefaultPackageManager {
     async fn resolve_extension_sources(
         &self,
         sources: &[String],
-        options: Option<&PackageManagerOptions6>,
+        options: Option<&PackageManagerResolveExtensionSourcesOptions>,
     ) -> anyhow::Result<ResolvedPaths> {
         todo!("port core/package-manager.ts:DefaultPackageManager.resolve_extension_sources")
     }
     fn add_source_to_settings(
         &self,
         source: &str,
-        options: Option<&PackageManagerOptions7>,
+        options: Option<&PackageManagerAddSourceToSettingsOptions>,
     ) -> bool {
         todo!("port core/package-manager.ts:DefaultPackageManager.add_source_to_settings")
     }
     fn remove_source_from_settings(
         &self,
         source: &str,
-        options: Option<&PackageManagerOptions8>,
+        options: Option<&PackageManagerRemoveSourceFromSettingsOptions>,
     ) -> bool {
         todo!("port core/package-manager.ts:DefaultPackageManager.remove_source_from_settings")
     }

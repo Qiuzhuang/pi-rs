@@ -20,7 +20,7 @@ pub struct ToolHtmlRendererDeps {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ToolHtmlRendererResult {
+pub struct ToolHtmlRendererRenderResultResult {
     pub r#type: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
@@ -32,7 +32,7 @@ pub struct ToolHtmlRendererResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ToolHtmlRendererRenderResultResult {
+pub struct ToolHtmlRendererRenderResultResult2 {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub collapsed: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -47,10 +47,10 @@ pub trait ToolHtmlRenderer: Send + Sync {
         &self,
         tool_call_id: &str,
         tool_name: &str,
-        result: &[ToolHtmlRendererResult],
+        result: &[ToolHtmlRendererRenderResultResult],
         details: Value,
         is_error: bool,
-    ) -> Option<ToolHtmlRendererRenderResultResult>;
+    ) -> Option<ToolHtmlRendererRenderResultResult2>;
 }
 
 pub fn create_tool_html_renderer(deps: &ToolHtmlRendererDeps) -> Arc<dyn ToolHtmlRenderer> {

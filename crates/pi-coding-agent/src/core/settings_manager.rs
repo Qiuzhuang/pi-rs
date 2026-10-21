@@ -160,21 +160,21 @@ impl SettingsManagerGetSteeringModeResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SettingsManagerModel {
+pub struct SettingsManagerGetCompactionReserveTokensModel {
     pub provider: ProviderId,
     pub id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SettingsManagerModel2 {
+pub struct SettingsManagerGetCompactionKeepRecentTokensModel {
     pub provider: ProviderId,
     pub id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SettingsManagerModel3 {
+pub struct SettingsManagerGetCompactionSettingsModel {
     pub provider: ProviderId,
     pub id: String,
 }
@@ -426,18 +426,24 @@ impl SettingsManager {
         todo!("port core/settings-manager.ts:SettingsManager.setCompactionEnabled")
     }
 
-    pub fn get_compaction_reserve_tokens(&self, model: Option<&SettingsManagerModel>) -> u64 {
+    pub fn get_compaction_reserve_tokens(
+        &self,
+        model: Option<&SettingsManagerGetCompactionReserveTokensModel>,
+    ) -> u64 {
         todo!("port core/settings-manager.ts:SettingsManager.getCompactionReserveTokens")
     }
 
-    pub fn get_compaction_keep_recent_tokens(&self, model: Option<&SettingsManagerModel2>) -> u64 {
+    pub fn get_compaction_keep_recent_tokens(
+        &self,
+        model: Option<&SettingsManagerGetCompactionKeepRecentTokensModel>,
+    ) -> u64 {
         todo!("port core/settings-manager.ts:SettingsManager.getCompactionKeepRecentTokens")
     }
 
     /// Resolve each token setting through model override, ordinary setting, then built-in default.
     pub fn get_compaction_settings(
         &self,
-        model: Option<&SettingsManagerModel3>,
+        model: Option<&SettingsManagerGetCompactionSettingsModel>,
     ) -> SettingsManagerGetCompactionSettingsResult {
         todo!("port core/settings-manager.ts:SettingsManager.getCompactionSettings")
     }

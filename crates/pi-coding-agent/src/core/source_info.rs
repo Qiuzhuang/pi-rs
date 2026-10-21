@@ -63,7 +63,11 @@ pub fn get_synthetic_path_source(path: &str) -> Option<String> {
     if path.starts_with('<') && path.ends_with('>') && path.len() >= 2 {
         let inner = &path[1..path.len() - 1];
         let prefix = inner.split(':').next().unwrap_or("");
-        return Some(if prefix.is_empty() { "temporary".to_string() } else { prefix.to_string() });
+        return Some(if prefix.is_empty() {
+            "temporary".to_string()
+        } else {
+            prefix.to_string()
+        });
     }
     None
 }

@@ -150,13 +150,13 @@ impl CredentialSynchronizationError {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum ModelRuntimeProviderOrModel {
+pub enum ModelRuntimeGetAuthProviderOrModel {
     String(String),
     AnyModel(AnyModel),
 }
 
 #[derive(Debug, Clone)]
-pub struct ModelRuntimeOptions {
+pub struct ModelRuntimeResolveModelOptions {
     pub reason: ModelRouteReason,
     pub thinking_level: ModelThinkingLevel,
     pub signal: Option<CancellationToken>,
@@ -293,7 +293,7 @@ impl ModelRuntime {
 
     pub async fn get_auth(
         &self,
-        provider_or_model: &ModelRuntimeProviderOrModel,
+        provider_or_model: &ModelRuntimeGetAuthProviderOrModel,
         overrides: Option<&ModelRuntimeAuthOverrides>,
     ) -> anyhow::Result<Option<AuthResult>> {
         todo!("port core/model-runtime.ts:ModelRuntime.getAuth")
@@ -474,7 +474,7 @@ impl ModelRuntime {
         &self,
         model: Model,
         messages: &[Message],
-        options: &ModelRuntimeOptions,
+        options: &ModelRuntimeResolveModelOptions,
     ) -> anyhow::Result<ModelRoute> {
         todo!("port core/model-runtime.ts:ModelRuntime.resolveModel")
     }

@@ -82,7 +82,7 @@ impl SessionImportFileNotFoundError {
 }
 
 #[derive(Clone)]
-pub struct AgentSessionRuntimeOptions {
+pub struct AgentSessionRuntimeSwitchSessionOptions {
     pub cwd_override: Option<String>,
     pub with_session: Option<
         Arc<dyn Fn(ReplacedSessionContext) -> BoxFuture<'static, anyhow::Result<()>> + Send + Sync>,
@@ -98,7 +98,7 @@ pub struct AgentSessionRuntimeSwitchSessionResult {
 }
 
 #[derive(Clone)]
-pub struct AgentSessionRuntimeOptions2 {
+pub struct AgentSessionRuntimeNewSessionOptions {
     pub parent_session: Option<String>,
     pub setup: Option<
         Arc<dyn Fn(Arc<SessionManager>) -> BoxFuture<'static, anyhow::Result<()>> + Send + Sync>,
@@ -115,14 +115,14 @@ pub struct AgentSessionRuntimeNewSessionResult {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum AgentSessionRuntimeOptions3Position {
+pub enum AgentSessionRuntimeForkOptionsPosition {
     #[serde(rename = "before")]
     Before,
     #[serde(rename = "at")]
     At,
 }
 
-impl AgentSessionRuntimeOptions3Position {
+impl AgentSessionRuntimeForkOptionsPosition {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Before => "before",
@@ -132,8 +132,8 @@ impl AgentSessionRuntimeOptions3Position {
 }
 
 #[derive(Clone)]
-pub struct AgentSessionRuntimeOptions3 {
-    pub position: Option<AgentSessionRuntimeOptions3Position>,
+pub struct AgentSessionRuntimeForkOptions {
+    pub position: Option<AgentSessionRuntimeForkOptionsPosition>,
     pub with_session: Option<
         Arc<dyn Fn(ReplacedSessionContext) -> BoxFuture<'static, anyhow::Result<()>> + Send + Sync>,
     >,
@@ -218,14 +218,14 @@ impl AgentSessionRuntime {
     pub async fn switch_session(
         &self,
         session_path: &str,
-        options: Option<&AgentSessionRuntimeOptions>,
+        options: Option<&AgentSessionRuntimeSwitchSessionOptions>,
     ) -> anyhow::Result<AgentSessionRuntimeSwitchSessionResult> {
         todo!("port core/agent-session-runtime.ts:AgentSessionRuntime.switchSession")
     }
 
     pub async fn new_session(
         &self,
-        options: Option<&AgentSessionRuntimeOptions2>,
+        options: Option<&AgentSessionRuntimeNewSessionOptions>,
     ) -> anyhow::Result<AgentSessionRuntimeNewSessionResult> {
         todo!("port core/agent-session-runtime.ts:AgentSessionRuntime.newSession")
     }
@@ -233,7 +233,7 @@ impl AgentSessionRuntime {
     pub async fn fork(
         &self,
         entry_id: &str,
-        options: Option<&AgentSessionRuntimeOptions3>,
+        options: Option<&AgentSessionRuntimeForkOptions>,
     ) -> anyhow::Result<AgentSessionRuntimeForkResult> {
         todo!("port core/agent-session-runtime.ts:AgentSessionRuntime.fork")
     }

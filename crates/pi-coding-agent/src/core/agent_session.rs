@@ -6,6 +6,7 @@ use crate::core::compaction::compaction::CompactionResult;
 use crate::core::extensions::runner::ExtensionErrorListener;
 use crate::core::extensions::runner::ExtensionRunner;
 use crate::core::extensions::runner::ShutdownHandler;
+use crate::core::extensions::types::CompactionReason;
 use crate::core::extensions::types::ContextUsage;
 use crate::core::extensions::types::ExtensionCommandContextActions;
 use crate::core::extensions::types::ExtensionMode;
@@ -32,13 +33,12 @@ use pi_agent::types::AgentMessage;
 use pi_agent::types::AgentState;
 use pi_agent::types::AgentToolRef;
 use pi_agent::types::ThinkingLevel;
+use pi_agent::types::{AgentEvent, AgentToolResult};
 use pi_ai::types::ImageContent;
 use pi_ai::types::Model;
 use pi_ai::types::UserContent;
-use serde::{Deserialize, Serialize};
-use pi_agent::types::{AgentEvent, AgentToolResult};
 use pi_ai::types::{AssistantMessageEvent, ToolResultMessage};
-use crate::core::extensions::types::CompactionReason;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
@@ -76,7 +76,11 @@ pub enum SummarizationRetrySource {
 /// the `tool_execution_*` events carry `parentToolCallId` for calls a tool made through
 /// `ctx.executeTool()` (TS `WithParentToolCallId`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "type",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
 pub enum AgentSessionEvent {
     AgentStart,
     TurnStart,
@@ -182,26 +186,66 @@ pub enum AgentSessionEvent {
 
 impl AgentSessionEvent {
     /// Map a core agent event (except `agent_end`, which the session re-emits with `will_retry`).
-    pub fn from_agent_event(event: AgentEvent, parent_tool_call_id: Option<String>) -> Option<Self> {
+    pub fn from_agent_event(
+        event: AgentEvent,
+        parent_tool_call_id: Option<String>,
+    ) -> Option<Self> {
         Some(match event {
             AgentEvent::AgentStart => Self::AgentStart,
             AgentEvent::AgentEnd { .. } => return None,
             AgentEvent::TurnStart => Self::TurnStart,
-            AgentEvent::TurnEnd { message, tool_results } => Self::TurnEnd { message, tool_results },
+            AgentEvent::TurnEnd {
+                message,
+                tool_results,
+            } => Self::TurnEnd {
+                message,
+                tool_results,
+            },
             AgentEvent::MessageStart { message } => Self::MessageStart { message },
-            AgentEvent::MessageUpdate { message, assistant_message_event } => {
-                Self::MessageUpdate { message, assistant_message_event }
-            }
+            AgentEvent::MessageUpdate {
+                message,
+                assistant_message_event,
+            } => Self::MessageUpdate {
+                message,
+                assistant_message_event,
+            },
             AgentEvent::MessageEnd { message } => Self::MessageEnd { message },
-            AgentEvent::ToolExecutionStart { tool_call_id, tool_name, args } => {
-                Self::ToolExecutionStart { tool_call_id, tool_name, args, parent_tool_call_id }
-            }
-            AgentEvent::ToolExecutionUpdate { tool_call_id, tool_name, args, partial_result } => {
-                Self::ToolExecutionUpdate { tool_call_id, tool_name, args, partial_result, parent_tool_call_id }
-            }
-            AgentEvent::ToolExecutionEnd { tool_call_id, tool_name, result, is_error, duration_ms } => {
-                Self::ToolExecutionEnd { tool_call_id, tool_name, result, is_error, duration_ms, parent_tool_call_id }
-            }
+            AgentEvent::ToolExecutionStart {
+                tool_call_id,
+                tool_name,
+                args,
+            } => Self::ToolExecutionStart {
+                tool_call_id,
+                tool_name,
+                args,
+                parent_tool_call_id,
+            },
+            AgentEvent::ToolExecutionUpdate {
+                tool_call_id,
+                tool_name,
+                args,
+                partial_result,
+            } => Self::ToolExecutionUpdate {
+                tool_call_id,
+                tool_name,
+                args,
+                partial_result,
+                parent_tool_call_id,
+            },
+            AgentEvent::ToolExecutionEnd {
+                tool_call_id,
+                tool_name,
+                result,
+                is_error,
+                duration_ms,
+            } => Self::ToolExecutionEnd {
+                tool_call_id,
+                tool_name,
+                result,
+                is_error,
+                duration_ms,
+                parent_tool_call_id,
+            },
         })
     }
 }
@@ -438,7 +482,7 @@ pub struct AgentSessionScopedModels {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AgentSessionScopedModels2 {
+pub struct AgentSessionSetScopedModelsScopedModels {
     pub model: Model,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thinking_level: Option<ThinkingLevel>,
@@ -446,21 +490,21 @@ pub struct AgentSessionScopedModels2 {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AgentSessionOptions {
+pub struct AgentSessionSteerOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<InputSource>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AgentSessionOptions2 {
+pub struct AgentSessionFollowUpOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<InputSource>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AgentSessionMessage {
+pub struct AgentSessionSendCustomMessageMessage {
     pub custom_type: String,
     pub content: UserContent,
     pub display: bool,
@@ -469,7 +513,7 @@ pub struct AgentSessionMessage {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum AgentSessionOptions3DeliverAs {
+pub enum AgentSessionSendCustomMessageOptionsDeliverAs {
     #[serde(rename = "steer")]
     Steer,
     #[serde(rename = "followUp")]
@@ -478,7 +522,7 @@ pub enum AgentSessionOptions3DeliverAs {
     NextTurn,
 }
 
-impl AgentSessionOptions3DeliverAs {
+impl AgentSessionSendCustomMessageOptionsDeliverAs {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Steer => "steer",
@@ -490,16 +534,16 @@ impl AgentSessionOptions3DeliverAs {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AgentSessionOptions3 {
+pub struct AgentSessionSendCustomMessageOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trigger_turn: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub deliver_as: Option<AgentSessionOptions3DeliverAs>,
+    pub deliver_as: Option<AgentSessionSendCustomMessageOptionsDeliverAs>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AgentSessionOptions4 {
+pub struct AgentSessionSendUserMessageOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deliver_as: Option<PromptOptionsStreamingBehavior>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -514,14 +558,14 @@ pub struct AgentSessionClearQueueResult {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum AgentSessionDirection {
+pub enum AgentSessionCycleModelDirection {
     #[serde(rename = "forward")]
     Forward,
     #[serde(rename = "backward")]
     Backward,
 }
 
-impl AgentSessionDirection {
+impl AgentSessionCycleModelDirection {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Forward => "forward",
@@ -531,13 +575,13 @@ impl AgentSessionDirection {
 }
 
 #[derive(Clone)]
-pub struct AgentSessionOptions5 {
+pub struct AgentSessionReloadOptions {
     pub before_session_start:
         Option<Arc<dyn Fn() -> BoxFuture<'static, anyhow::Result<()>> + Send + Sync>>,
 }
 
 #[derive(Clone)]
-pub struct AgentSessionOptions6 {
+pub struct AgentSessionExecuteBashOptions {
     pub exclude_from_context: Option<bool>,
     pub id: Option<String>,
     pub operations: Option<BashOperations>,
@@ -545,14 +589,14 @@ pub struct AgentSessionOptions6 {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AgentSessionOptions7 {
+pub struct AgentSessionRecordBashResultOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exclude_from_context: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AgentSessionOptions8 {
+pub struct AgentSessionNavigateTreeOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summarize: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -584,13 +628,13 @@ pub struct AgentSessionGetUserMessagesForForkingResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AgentSessionOptions9 {
+pub struct AgentSessionExportToHtmlOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub theme_name: Option<String>,
 }
 
 #[derive(Debug, Clone)]
-pub struct AgentSessionOptions10 {
+pub struct AgentSessionSummarizeForBugReportOptions {
     pub hint: Option<String>,
     pub signal: CancellationToken,
 }
@@ -757,7 +801,7 @@ impl AgentSession {
     }
 
     /// Update scoped models for cycling
-    pub fn set_scoped_models(&self, scoped_models: &[AgentSessionScopedModels2]) {
+    pub fn set_scoped_models(&self, scoped_models: &[AgentSessionSetScopedModelsScopedModels]) {
         todo!("port core/agent-session.ts:AgentSession.setScopedModels")
     }
 
@@ -788,7 +832,7 @@ impl AgentSession {
         &self,
         text: &str,
         images: Option<&[ImageContent]>,
-        options: Option<&AgentSessionOptions>,
+        options: Option<&AgentSessionSteerOptions>,
     ) -> anyhow::Result<QueuedInputDisposition> {
         todo!("port core/agent-session.ts:AgentSession.steer")
     }
@@ -803,7 +847,7 @@ impl AgentSession {
         &self,
         text: &str,
         images: Option<&[ImageContent]>,
-        options: Option<&AgentSessionOptions2>,
+        options: Option<&AgentSessionFollowUpOptions>,
     ) -> anyhow::Result<QueuedInputDisposition> {
         todo!("port core/agent-session.ts:AgentSession.followUp")
     }
@@ -821,8 +865,8 @@ impl AgentSession {
     /// @param options.deliverAs Delivery mode: "steer", "followUp", or "nextTurn"
     pub async fn send_custom_message(
         &self,
-        message: &AgentSessionMessage,
-        options: Option<&AgentSessionOptions3>,
+        message: &AgentSessionSendCustomMessageMessage,
+        options: Option<&AgentSessionSendCustomMessageOptions>,
     ) -> anyhow::Result<()> {
         todo!("port core/agent-session.ts:AgentSession.sendCustomMessage")
     }
@@ -836,7 +880,7 @@ impl AgentSession {
     pub async fn send_user_message(
         &self,
         content: UserContent,
-        options: Option<&AgentSessionOptions4>,
+        options: Option<&AgentSessionSendUserMessageOptions>,
     ) -> anyhow::Result<()> {
         todo!("port core/agent-session.ts:AgentSession.sendUserMessage")
     }
@@ -894,7 +938,7 @@ impl AgentSession {
     /// @returns The new model info, or undefined if only one model available
     pub async fn cycle_model(
         &self,
-        direction: Option<AgentSessionDirection>,
+        direction: Option<AgentSessionCycleModelDirection>,
         options: Option<&ModelMutationOptions>,
     ) -> anyhow::Result<Option<ModelCycleResult>> {
         todo!("port core/agent-session.ts:AgentSession.cycleModel")
@@ -984,7 +1028,7 @@ impl AgentSession {
         todo!("port core/agent-session.ts:AgentSession.bindExtensions")
     }
 
-    pub async fn reload(&self, options: Option<&AgentSessionOptions5>) -> anyhow::Result<()> {
+    pub async fn reload(&self, options: Option<&AgentSessionReloadOptions>) -> anyhow::Result<()> {
         todo!("port core/agent-session.ts:AgentSession.reload")
     }
 
@@ -1019,7 +1063,7 @@ impl AgentSession {
         &self,
         command: &str,
         on_chunk: Option<Arc<dyn Fn(String) + Send + Sync>>,
-        options: Option<&AgentSessionOptions6>,
+        options: Option<&AgentSessionExecuteBashOptions>,
     ) -> anyhow::Result<BashResult> {
         todo!("port core/agent-session.ts:AgentSession.executeBash")
     }
@@ -1030,7 +1074,7 @@ impl AgentSession {
         &self,
         command: &str,
         result: &BashResult,
-        options: Option<&AgentSessionOptions7>,
+        options: Option<&AgentSessionRecordBashResultOptions>,
     ) {
         todo!("port core/agent-session.ts:AgentSession.recordBashResult")
     }
@@ -1067,7 +1111,7 @@ impl AgentSession {
     pub async fn navigate_tree(
         &self,
         target_id: &str,
-        options: Option<&AgentSessionOptions8>,
+        options: Option<&AgentSessionNavigateTreeOptions>,
     ) -> anyhow::Result<AgentSessionNavigateTreeResult> {
         todo!("port core/agent-session.ts:AgentSession.navigateTree")
     }
@@ -1097,7 +1141,7 @@ impl AgentSession {
     pub async fn export_to_html(
         &self,
         output_path: Option<&str>,
-        options: Option<&AgentSessionOptions9>,
+        options: Option<&AgentSessionExportToHtmlOptions>,
     ) -> anyhow::Result<String> {
         todo!("port core/agent-session.ts:AgentSession.exportToHtml")
     }
@@ -1114,7 +1158,7 @@ impl AgentSession {
     /// Used when the user declines to share the transcript itself.
     pub async fn summarize_for_bug_report(
         &self,
-        options: &AgentSessionOptions10,
+        options: &AgentSessionSummarizeForBugReportOptions,
     ) -> anyhow::Result<String> {
         todo!("port core/agent-session.ts:AgentSession.summarizeForBugReport")
     }

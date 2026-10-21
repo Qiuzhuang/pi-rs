@@ -29,14 +29,14 @@ impl SessionScope {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum SessionSelectorHeaderMsgType {
+pub enum SessionSelectorHeaderSetStatusMessageMsgType {
     #[serde(rename = "info")]
     Info,
     #[serde(rename = "error")]
     Error,
 }
 
-impl SessionSelectorHeaderMsgType {
+impl SessionSelectorHeaderSetStatusMessageMsgType {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Info => "info",
@@ -47,8 +47,8 @@ impl SessionSelectorHeaderMsgType {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SessionSelectorHeaderMsg {
-    pub r#type: SessionSelectorHeaderMsgType,
+pub struct SessionSelectorHeaderSetStatusMessageMsg {
+    pub r#type: SessionSelectorHeaderSetStatusMessageMsgType,
     pub message: String,
 }
 
@@ -119,7 +119,7 @@ impl SessionSelectorHeader {
 
     pub fn set_status_message(
         &self,
-        msg: Option<&SessionSelectorHeaderMsg>,
+        msg: Option<&SessionSelectorHeaderSetStatusMessageMsg>,
         auto_hide_ms: Option<f64>,
     ) {
         todo!(

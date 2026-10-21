@@ -97,7 +97,9 @@ impl SelfUpdatePackageTarget {
             Self::Name(name) => (name.clone(), name.clone()),
             Self::Spec(spec) => (
                 spec.package_name.clone(),
-                spec.install_spec.clone().unwrap_or_else(|| spec.package_name.clone()),
+                spec.install_spec
+                    .clone()
+                    .unwrap_or_else(|| spec.package_name.clone()),
             ),
         }
     }

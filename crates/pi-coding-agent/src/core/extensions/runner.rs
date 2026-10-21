@@ -324,7 +324,7 @@ pub async fn emit_project_trust_event(
 }
 
 #[derive(Clone)]
-pub struct ExtensionRunnerProviderActions {
+pub struct ExtensionRunnerBindCoreProviderActions {
     pub register_provider: Option<Arc<dyn Fn(String, ProviderConfig) + Send + Sync>>,
     pub register_native_provider: Option<Arc<dyn Fn(Arc<dyn Provider>) + Send + Sync>>,
     pub unregister_provider: Option<Arc<dyn Fn(String) + Send + Sync>>,
@@ -334,7 +334,7 @@ pub struct ExtensionRunnerProviderActions {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum ExtensionRunnerValue {
+pub enum ExtensionRunnerSetFlagValueValue {
     Bool(bool),
     String(String),
 }
@@ -347,14 +347,14 @@ pub enum ExtensionRunnerGetFlagValuesResult {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum ExtensionRunnerReason {
+pub enum ExtensionRunnerEmitResourcesDiscoverReason {
     #[serde(rename = "startup")]
     Startup,
     #[serde(rename = "reload")]
     Reload,
 }
 
-impl ExtensionRunnerReason {
+impl ExtensionRunnerEmitResourcesDiscoverReason {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Startup => "startup",
@@ -393,14 +393,14 @@ pub struct ExtensionRunnerEmitResourcesDiscoverResult {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum ExtensionRunnerStreamingBehavior {
+pub enum ExtensionRunnerEmitInputStreamingBehavior {
     #[serde(rename = "steer")]
     Steer,
     #[serde(rename = "followUp")]
     FollowUp,
 }
 
-impl ExtensionRunnerStreamingBehavior {
+impl ExtensionRunnerEmitInputStreamingBehavior {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Steer => "steer",
@@ -428,7 +428,7 @@ impl ExtensionRunner {
         &self,
         actions: Arc<dyn ExtensionActions>,
         context_actions: Arc<dyn ExtensionContextActions>,
-        provider_actions: Option<&ExtensionRunnerProviderActions>,
+        provider_actions: Option<&ExtensionRunnerBindCoreProviderActions>,
     ) {
         todo!("port core/extensions/runner.ts:ExtensionRunner.bindCore")
     }
@@ -471,7 +471,7 @@ impl ExtensionRunner {
         todo!("port core/extensions/runner.ts:ExtensionRunner.getFlags")
     }
 
-    pub fn set_flag_value(&self, name: &str, value: &ExtensionRunnerValue) {
+    pub fn set_flag_value(&self, name: &str, value: &ExtensionRunnerSetFlagValueValue) {
         todo!("port core/extensions/runner.ts:ExtensionRunner.setFlagValue")
     }
 
@@ -665,7 +665,7 @@ impl ExtensionRunner {
     pub async fn emit_resources_discover(
         &self,
         cwd: &str,
-        reason: ExtensionRunnerReason,
+        reason: ExtensionRunnerEmitResourcesDiscoverReason,
     ) -> anyhow::Result<ExtensionRunnerEmitResourcesDiscoverResult> {
         todo!("port core/extensions/runner.ts:ExtensionRunner.emitResourcesDiscover")
     }
@@ -676,7 +676,7 @@ impl ExtensionRunner {
         text: &str,
         images: Option<&[ImageContent]>,
         source: &InputSource,
-        streaming_behavior: Option<ExtensionRunnerStreamingBehavior>,
+        streaming_behavior: Option<ExtensionRunnerEmitInputStreamingBehavior>,
     ) -> anyhow::Result<InputEventResult> {
         todo!("port core/extensions/runner.ts:ExtensionRunner.emitInput")
     }

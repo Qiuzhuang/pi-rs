@@ -33,7 +33,7 @@ pub struct FullOutput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct OutputAccumulatorOptions2 {
+pub struct OutputAccumulatorSnapshotOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub persist_if_truncated: Option<bool>,
 }
@@ -60,7 +60,7 @@ impl OutputAccumulator {
         todo!("port core/tools/output-accumulator.ts:OutputAccumulator.finish")
     }
 
-    pub fn snapshot(&self, options: Option<&OutputAccumulatorOptions2>) -> OutputSnapshot {
+    pub fn snapshot(&self, options: Option<&OutputAccumulatorSnapshotOptions>) -> OutputSnapshot {
         todo!("port core/tools/output-accumulator.ts:OutputAccumulator.snapshot")
     }
 

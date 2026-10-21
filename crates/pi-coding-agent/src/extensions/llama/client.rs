@@ -170,13 +170,13 @@ pub fn llama_inference_url(server_url: &str) -> String {
 }
 
 #[derive(Debug, Clone)]
-pub struct LlamaClientOptions {
+pub struct LlamaClientListOptions {
     pub reload: Option<bool>,
     pub signal: Option<CancellationToken>,
 }
 
 #[derive(Debug, Clone)]
-pub struct LlamaClientOptions2 {
+pub struct LlamaClientPropsOptions {
     pub model: Option<String>,
     pub signal: Option<CancellationToken>,
 }
@@ -196,14 +196,14 @@ impl LlamaClient {
 
     pub async fn list(
         &self,
-        options: Option<&LlamaClientOptions>,
+        options: Option<&LlamaClientListOptions>,
     ) -> anyhow::Result<Vec<LlamaModelInfo>> {
         todo!("port extensions/llama/client.ts:LlamaClient.list")
     }
 
     pub async fn props(
         &self,
-        options: Option<&LlamaClientOptions2>,
+        options: Option<&LlamaClientPropsOptions>,
     ) -> anyhow::Result<LlamaServerProps> {
         todo!("port extensions/llama/client.ts:LlamaClient.props")
     }

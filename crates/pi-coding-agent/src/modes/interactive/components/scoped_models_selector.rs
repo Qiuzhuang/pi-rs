@@ -40,7 +40,7 @@ pub struct ModelsCallbacks {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum ScopedModelsSelectorComponentKind {
+pub enum ScopedModelsSelectorComponentSetRefreshStatusKind {
     #[serde(rename = "muted")]
     Muted,
     #[serde(rename = "success")]
@@ -49,7 +49,7 @@ pub enum ScopedModelsSelectorComponentKind {
     Warning,
 }
 
-impl ScopedModelsSelectorComponentKind {
+impl ScopedModelsSelectorComponentSetRefreshStatusKind {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Muted => "muted",
@@ -79,7 +79,11 @@ impl ScopedModelsSelectorComponent {
         )
     }
 
-    pub fn set_refresh_status(&self, message: &str, kind: ScopedModelsSelectorComponentKind) {
+    pub fn set_refresh_status(
+        &self,
+        message: &str,
+        kind: ScopedModelsSelectorComponentSetRefreshStatusKind,
+    ) {
         todo!(
             "port modes/interactive/components/scoped-models-selector.ts:ScopedModelsSelectorComponent.setRefreshStatus"
         )

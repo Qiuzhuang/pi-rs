@@ -21,7 +21,7 @@ pub struct ToolExecutionOptions {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ToolExecutionComponentResultContent {
+pub struct ToolExecutionComponentUpdateResultResultContent {
     pub r#type: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
@@ -33,8 +33,8 @@ pub struct ToolExecutionComponentResultContent {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ToolExecutionComponentResult {
-    pub content: Vec<ToolExecutionComponentResultContent>,
+pub struct ToolExecutionComponentUpdateResultResult {
+    pub content: Vec<ToolExecutionComponentUpdateResultResultContent>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub details: Option<Value>,
     pub is_error: bool,
@@ -91,7 +91,11 @@ impl ToolExecutionComponent {
         )
     }
 
-    pub fn update_result(&self, result: &ToolExecutionComponentResult, is_partial: Option<bool>) {
+    pub fn update_result(
+        &self,
+        result: &ToolExecutionComponentUpdateResultResult,
+        is_partial: Option<bool>,
+    ) {
         todo!(
             "port modes/interactive/components/tool-execution.ts:ToolExecutionComponent.updateResult"
         )

@@ -41,7 +41,9 @@ pub fn get_file_revision(path: &str) -> Option<String> {
 /// relative paths, and file: URLs are considered local.
 pub fn is_local_path(value: &str) -> bool {
     let trimmed = value.trim();
-    const NON_LOCAL: &[&str] = &["npm:", "git:", "github:", "http:", "https:", "ssh:", "builtin:"];
+    const NON_LOCAL: &[&str] = &[
+        "npm:", "git:", "github:", "http:", "https:", "ssh:", "builtin:",
+    ];
     !NON_LOCAL.iter().any(|prefix| trimmed.starts_with(prefix))
 }
 
@@ -50,20 +52,28 @@ pub fn normalize_windows_shell_path(file_path: &str) -> String {
     if !file_path.starts_with('/') || file_path.starts_with("//") || file_path.contains('\\') {
         return file_path.to_string();
     }
-    static RE: std::sync::LazyLock<regex::Regex> =
-        std::sync::LazyLock::new(|| regex::Regex::new(r"(?i)^/(?:mnt/|cygdrive/)?([a-z])(?:/(.*))?$").unwrap());
+    static RE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"(?i)^/(?:mnt/|cygdrive/)?([a-z])(?:/(.*))?$").unwrap()
+    });
     let Some(caps) = RE.captures(file_path) else {
         return file_path.to_string();
     };
     let drive = caps[1].to_uppercase();
-    let suffix = caps.get(2).map(|m| m.as_str().replace('/', "\\")).unwrap_or_default();
+    let suffix = caps
+        .get(2)
+        .map(|m| m.as_str().replace('/', "\\"))
+        .unwrap_or_default();
     format!("{drive}:\\{suffix}")
 }
 
 pub fn normalize_path(input: &str, options: Option<&PathInputOptions>) -> String {
     let default_options = PathInputOptions::default();
     let options = options.unwrap_or(&default_options);
-    let mut normalized = if options.trim.unwrap_or(false) { input.trim().to_string() } else { input.to_string() };
+    let mut normalized = if options.trim.unwrap_or(false) {
+        input.trim().to_string()
+    } else {
+        input.to_string()
+    };
     if options.normalize_unicode_spaces.unwrap_or(false) {
         normalized = normalized
             .chars()
@@ -80,15 +90,19 @@ pub fn normalize_path(input: &str, options: Option<&PathInputOptions>) -> String
         normalized = normalize_windows_shell_path(&normalized);
     }
     if options.expand_tilde.unwrap_or(true) {
-        let home = options
-            .home_dir
-            .clone()
-            .unwrap_or_else(|| dirs::home_dir().map(|h| h.to_string_lossy().into_owned()).unwrap_or_default());
+        let home = options.home_dir.clone().unwrap_or_else(|| {
+            dirs::home_dir()
+                .map(|h| h.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        });
         if normalized == "~" {
             return home;
         }
         if normalized.starts_with("~/") || (cfg!(windows) && normalized.starts_with("~\\")) {
-            return std::path::Path::new(&home).join(&normalized[2..]).to_string_lossy().into_owned();
+            return std::path::Path::new(&home)
+                .join(&normalized[2..])
+                .to_string_lossy()
+                .into_owned();
         }
     }
     if normalized.starts_with("file://")

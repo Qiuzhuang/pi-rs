@@ -42,10 +42,9 @@ pub struct OAuthDeviceCodePollOptions {
     pub signal: CancellationToken,
 }
 
-/// Monotonic milliseconds (tokio's clock, so paused test time applies).
-fn now_ms() -> f64 {
-    static START: once_cell::sync::Lazy<tokio::time::Instant> = once_cell::sync::Lazy::new(tokio::time::Instant::now);
-    tokio::time::Instant::now().saturating_duration_since(*START).as_secs_f64() * 1000.0
+/// Milliseconds since `origin` on tokio's clock (so paused test time applies).
+fn elapsed_ms(origin: tokio::time::Instant) -> f64 {
+    tokio::time::Instant::now().saturating_duration_since(origin).as_secs_f64() * 1000.0
 }
 
 /// Poll until the device authorization completes, fails, expires or is cancelled.
@@ -54,8 +53,10 @@ where
     F: FnMut() -> Fut,
     Fut: Future<Output = anyhow::Result<OAuthDeviceCodePollResult<T>>>,
 {
+    let origin = tokio::time::Instant::now();
+    let now_ms = || elapsed_ms(origin);
     let deadline = match options.expires_in_seconds {
-        Some(seconds) => now_ms() + seconds * 1000.0,
+        Some(seconds) => seconds * 1000.0,
         None => f64::INFINITY,
     };
     let mut interval_ms =

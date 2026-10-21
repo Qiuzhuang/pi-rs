@@ -529,37 +529,37 @@ fn parse_error_response(status: u16, status_text: &str, raw: &str) -> ErrorInfo 
     let mut message =
         if !raw.is_empty() { raw.to_string() } else if !status_text.is_empty() { status_text.to_string() } else { "Request failed".into() };
     let mut friendly_message = None;
-    if let Ok(parsed) = serde_json::from_str::<Value>(raw) {
-        if let Some(err) = parsed.get("error").filter(|e| !e.is_null()) {
-            let code = err
-                .get("code")
+    if let Ok(parsed) = serde_json::from_str::<Value>(raw)
+        && let Some(err) = parsed.get("error").filter(|e| !e.is_null())
+    {
+        let code = err
+            .get("code")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .or_else(|| err.get("type").and_then(Value::as_str))
+            .unwrap_or_default();
+        if CODE_RE.is_match(code) || status == 429 {
+            let plan = err
+                .get("plan_type")
                 .and_then(Value::as_str)
-                .filter(|s| !s.is_empty())
-                .or_else(|| err.get("type").and_then(Value::as_str))
+                .filter(|p| !p.is_empty())
+                .map(|p| format!(" ({} plan)", p.to_lowercase()))
                 .unwrap_or_default();
-            if CODE_RE.is_match(code) || status == 429 {
-                let plan = err
-                    .get("plan_type")
-                    .and_then(Value::as_str)
-                    .filter(|p| !p.is_empty())
-                    .map(|p| format!(" ({} plan)", p.to_lowercase()))
-                    .unwrap_or_default();
-                let when = err
-                    .get("resets_at")
-                    .and_then(Value::as_f64)
-                    .filter(|r| *r != 0.0)
-                    .map(|resets| {
-                        let mins = ((resets * 1000.0 - crate::utils::now_ms() as f64) / 60000.0).round().max(0.0);
-                        format!(" Try again in ~{mins} min.")
-                    })
-                    .unwrap_or_default();
-                friendly_message = Some(format!("You have hit your ChatGPT usage limit{plan}.{when}").trim().to_string());
-            }
-            if let Some(m) = err.get("message").and_then(Value::as_str).filter(|m| !m.is_empty()) {
-                message = m.to_string();
-            } else if let Some(f) = &friendly_message {
-                message = f.clone();
-            }
+            let when = err
+                .get("resets_at")
+                .and_then(Value::as_f64)
+                .filter(|r| *r != 0.0)
+                .map(|resets| {
+                    let mins = ((resets * 1000.0 - crate::utils::now_ms() as f64) / 60000.0).round().max(0.0);
+                    format!(" Try again in ~{mins} min.")
+                })
+                .unwrap_or_default();
+            friendly_message = Some(format!("You have hit your ChatGPT usage limit{plan}.{when}").trim().to_string());
+        }
+        if let Some(m) = err.get("message").and_then(Value::as_str).filter(|m| !m.is_empty()) {
+            message = m.to_string();
+        } else if let Some(f) = &friendly_message {
+            message = f.clone();
         }
     }
     ErrorInfo { message, friendly_message }
@@ -1020,39 +1020,39 @@ async fn open_tcp(target_url: &url::Url, env: Option<&ProviderEnv>) -> anyhow::R
     let host = target_url.host_str().ok_or_else(|| anyhow::anyhow!("Invalid WebSocket URL"))?.to_string();
     let port = target_url.port_or_known_default().unwrap_or(443);
     let http_target = target_url.as_str().replacen("wss:", "https:", 1).replacen("ws:", "http:", 1);
-    if let Some(proxy) = get_proxy_url_for_target(&http_target, env).and_then(|p| url::Url::parse(&p).ok()) {
-        if matches!(proxy.scheme(), "http" | "https") {
-            let proxy_host = proxy.host_str().unwrap_or_default().to_string();
-            let proxy_port = proxy.port_or_known_default().unwrap_or(80);
-            let mut stream = tokio::net::TcpStream::connect((proxy_host.as_str(), proxy_port)).await?;
-            let host_port = if host.contains(':') { format!("[{host}]:{port}") } else { format!("{host}:{port}") };
-            let mut request = format!("CONNECT {host_port} HTTP/1.1\r\nHost: {host_port}\r\n");
-            if !proxy.username().is_empty() {
-                let user = percent_decode(proxy.username());
-                let pass = percent_decode(proxy.password().unwrap_or_default());
-                let token = base64::engine::general_purpose::STANDARD.encode(format!("{user}:{pass}"));
-                request.push_str(&format!("Proxy-Authorization: Basic {token}\r\n"));
-            }
-            request.push_str("\r\n");
-            stream.write_all(request.as_bytes()).await?;
-            let mut response = Vec::new();
-            let mut byte = [0u8; 1];
-            while !response.ends_with(b"\r\n\r\n") {
-                if stream.read(&mut byte).await? == 0 {
-                    anyhow::bail!("Proxy closed the connection during CONNECT");
-                }
-                response.push(byte[0]);
-                if response.len() > 64 * 1024 {
-                    anyhow::bail!("Proxy CONNECT response too large");
-                }
-            }
-            let head = String::from_utf8_lossy(&response);
-            let status = head.split_whitespace().nth(1).unwrap_or_default();
-            if status != "200" {
-                anyhow::bail!("Proxy CONNECT failed: {}", head.lines().next().unwrap_or_default());
-            }
-            return Ok(Box::new(stream));
+    if let Some(proxy) = get_proxy_url_for_target(&http_target, env).and_then(|p| url::Url::parse(&p).ok())
+        && matches!(proxy.scheme(), "http" | "https")
+    {
+        let proxy_host = proxy.host_str().unwrap_or_default().to_string();
+        let proxy_port = proxy.port_or_known_default().unwrap_or(80);
+        let mut stream = tokio::net::TcpStream::connect((proxy_host.as_str(), proxy_port)).await?;
+        let host_port = if host.contains(':') { format!("[{host}]:{port}") } else { format!("{host}:{port}") };
+        let mut request = format!("CONNECT {host_port} HTTP/1.1\r\nHost: {host_port}\r\n");
+        if !proxy.username().is_empty() {
+            let user = percent_decode(proxy.username());
+            let pass = percent_decode(proxy.password().unwrap_or_default());
+            let token = base64::engine::general_purpose::STANDARD.encode(format!("{user}:{pass}"));
+            request.push_str(&format!("Proxy-Authorization: Basic {token}\r\n"));
         }
+        request.push_str("\r\n");
+        stream.write_all(request.as_bytes()).await?;
+        let mut response = Vec::new();
+        let mut byte = [0u8; 1];
+        while !response.ends_with(b"\r\n\r\n") {
+            if stream.read(&mut byte).await? == 0 {
+                anyhow::bail!("Proxy closed the connection during CONNECT");
+            }
+            response.push(byte[0]);
+            if response.len() > 64 * 1024 {
+                anyhow::bail!("Proxy CONNECT response too large");
+            }
+        }
+        let head = String::from_utf8_lossy(&response);
+        let status = head.split_whitespace().nth(1).unwrap_or_default();
+        if status != "200" {
+            anyhow::bail!("Proxy CONNECT failed: {}", head.lines().next().unwrap_or_default());
+        }
+        return Ok(Box::new(stream));
     }
     let stream = tokio::net::TcpStream::connect((host.as_str(), port)).await?;
     let _ = stream.set_nodelay(true);
@@ -1247,7 +1247,8 @@ fn get_cached_websocket_input_delta(body: &Value, continuation: &ContinuationSta
     if current.len() < baseline.len() {
         return None;
     }
-    if Value::Array(current[..baseline.len()].to_vec()).to_string() != Value::Array(baseline.clone()).to_string() {
+    let prefix = serde_json::to_string(&current[..baseline.len()]).unwrap_or_default();
+    if prefix != serde_json::to_string(&baseline).unwrap_or_default() {
         return None;
     }
     Some(current[baseline.len()..].to_vec())
@@ -1525,10 +1526,10 @@ async fn run_stream(model: Model, context: TranscriptContext, options: StreamOpt
             if options.cache_retention == Some(CacheRetention::None) { None } else { options.session_id.clone() };
         let codex_session_id = clamp_openai_prompt_cache_key(cache_session_id.as_deref());
         let mut body = build_request_body(&model, &normalized, &options, codex_session_id.as_deref(), &grammar)?;
-        if let Some(on_payload) = &options.on_payload {
-            if let Some(next) = on_payload(body.clone(), model.clone()).await {
-                body = next;
-            }
+        if let Some(on_payload) = &options.on_payload
+            && let Some(next) = on_payload(body.clone(), model.clone()).await
+        {
+            body = next;
         }
         let websocket_request_id = codex_session_id.clone().unwrap_or_else(uuidv7);
         let target = ClientIdentityTarget { provider: &model.provider, base_url: &model.base_url };

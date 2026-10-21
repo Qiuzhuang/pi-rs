@@ -34,4 +34,4 @@ tokio-tungstenite = { workspace = true }
 ruzstd = { workspace = true }
 
 [dev-dependencies]
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }

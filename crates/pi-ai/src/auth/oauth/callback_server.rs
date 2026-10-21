@@ -44,6 +44,7 @@ struct Shared<T> {
     state: Mutex<State<T>>,
     notify: Notify,
     shutdown: CancellationToken,
+    listener: SharedListener,
 }
 
 impl<T: Clone> Shared<T> {
@@ -88,13 +89,41 @@ impl<T: Clone + Send + Sync + 'static> OAuthCallbackServer<T> {
 
     pub fn close(&self) {
         self.shared.finish(Err("OAuth callback server closed".into()));
+        self.shared.listener.close();
         self.shared.shutdown.cancel();
     }
 }
 
 impl<T> Drop for OAuthCallbackServer<T> {
     fn drop(&mut self) {
+        self.shared.listener.close();
         self.shared.shutdown.cancel();
+    }
+}
+
+/// A listener that can be closed synchronously (like `server.close()`), releasing the port at once.
+#[derive(Clone)]
+pub(crate) struct SharedListener(Arc<Mutex<Option<TcpListener>>>);
+
+impl SharedListener {
+    pub(crate) fn new(listener: TcpListener) -> Self {
+        Self(Arc::new(Mutex::new(Some(listener))))
+    }
+
+    /// The next connection; `None` once closed.
+    pub(crate) async fn accept(&self) -> Option<std::io::Result<TcpStream>> {
+        futures::future::poll_fn(|cx| {
+            let guard = self.0.lock();
+            match guard.as_ref() {
+                Some(listener) => listener.poll_accept(cx).map(|r| Some(r.map(|(socket, _)| socket))),
+                None => std::task::Poll::Ready(None),
+            }
+        })
+        .await
+    }
+
+    pub(crate) fn close(&self) {
+        self.0.lock().take();
     }
 }
 
@@ -168,11 +197,11 @@ async fn handle_connection<T: Clone + Send + Sync + 'static>(
         return;
     }
     let param = |name: &str| url.query_pairs().find(|(k, _)| k == name).map(|(_, v)| v.into_owned());
-    if let Some(expected) = &state {
-        if param("state").as_deref() != Some(expected.as_str()) {
-            send_page(&mut socket, 400, &oauth_error_html("State mismatch.", None), true).await;
-            return;
-        }
+    if let Some(expected) = &state
+        && param("state").as_deref() != Some(expected.as_str())
+    {
+        send_page(&mut socket, 400, &oauth_error_html("State mismatch.", None), true).await;
+        return;
     }
     enum Decision {
         AlreadyHandled,
@@ -241,10 +270,12 @@ pub async fn start_oauth_callback_server<T: Clone + Send + Sync + 'static>(
     let host = options.host.trim_start_matches('[').trim_end_matches(']').to_string();
     let listener = TcpListener::bind((host.as_str(), options.port)).await?;
     let port = listener.local_addr()?.port();
+    let listener = SharedListener::new(listener);
     let shared = Arc::new(Shared {
         state: Mutex::new(State { claimed: false, settled: false, result: None }),
         notify: Notify::new(),
         shutdown: CancellationToken::new(),
+        listener: listener.clone(),
     });
 
     let accept_shared = shared.clone();
@@ -258,8 +289,9 @@ pub async fn start_oauth_callback_server<T: Clone + Send + Sync + 'static>(
                 accepted = listener.accept() => accepted,
                 _ = accept_shared.shutdown.cancelled() => return,
             };
+            let Some(accepted) = accepted else { return };
             match accepted {
-                Ok((socket, _)) => {
+                Ok(socket) => {
                     tokio::spawn(handle_connection(
                         socket,
                         accept_shared.clone(),

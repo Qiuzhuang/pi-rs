@@ -337,22 +337,22 @@ fn create_error_event(model: &Model, error: &anyhow::Error, aborted: bool) -> As
         timestamp: crate::utils::now_ms(),
         ..Default::default()
     };
-    if !aborted {
-        if let Some(response_error) = error.downcast_ref::<PiMessagesResponseError>() {
-            append_assistant_message_diagnostic(
-                &mut message.diagnostics,
-                create_assistant_message_diagnostic(
-                    "pi_messages_response_failure",
-                    DiagnosticErrorInfo {
-                        name: Some("PiMessagesResponseError".into()),
-                        message: response_error.message.clone(),
-                        stack: None,
-                        code: response_error.code.clone().map(crate::utils::diagnostics::DiagnosticErrorCode::String),
-                    },
-                    Some(response_error.diagnostic_details.clone()),
-                ),
-            );
-        }
+    if !aborted
+        && let Some(response_error) = error.downcast_ref::<PiMessagesResponseError>()
+    {
+        append_assistant_message_diagnostic(
+            &mut message.diagnostics,
+            create_assistant_message_diagnostic(
+                "pi_messages_response_failure",
+                DiagnosticErrorInfo {
+                    name: Some("PiMessagesResponseError".into()),
+                    message: response_error.message.clone(),
+                    stack: None,
+                    code: response_error.code.clone().map(crate::utils::diagnostics::DiagnosticErrorCode::String),
+                },
+                Some(response_error.diagnostic_details.clone()),
+            ),
+        );
     }
     AssistantMessageEvent::Error { reason, error: message }
 }
@@ -420,10 +420,10 @@ async fn run_stream(model: Model, context: TranscriptContext, options: StreamOpt
             request_options.insert("toolChoice".into(), choice);
         }
         let mut payload = json!({ "model": model.id, "context": context, "options": request_options });
-        if let Some(on_payload) = &options.on_payload {
-            if let Some(next) = on_payload(payload.clone(), model.clone()).await {
-                payload = next;
-            }
+        if let Some(on_payload) = &options.on_payload
+            && let Some(next) = on_payload(payload.clone(), model.clone()).await
+        {
+            payload = next;
         }
 
         let target = ClientIdentityTarget { provider: &model.provider, base_url: &model.base_url };

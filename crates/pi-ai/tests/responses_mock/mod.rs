@@ -1,5 +1,5 @@
 //! Local HTTP and WebSocket mock servers for the OpenAI Responses / Codex / pi-messages / OAuth tests.
-#![allow(dead_code)]
+#![allow(dead_code, clippy::result_large_err)]
 
 use std::sync::Arc;
 use std::time::Duration;

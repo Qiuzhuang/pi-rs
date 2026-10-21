@@ -35,10 +35,10 @@ struct DeviceAuthorization {
 
 fn error_detail(json: &Option<Map<String, Value>>) -> String {
     for key in ["error_description", "detail", "message", "error"] {
-        if let Some(value) = json.as_ref().and_then(|j| j.get(key)).and_then(Value::as_str) {
-            if !value.trim().is_empty() {
-                return format!(": {}", value.trim());
-            }
+        if let Some(value) = json.as_ref().and_then(|j| j.get(key)).and_then(Value::as_str)
+            && !value.trim().is_empty()
+        {
+            return format!(": {}", value.trim());
         }
     }
     String::new()
@@ -100,10 +100,10 @@ async fn poll_for_identity_token(fetch: &OAuthFetch, device: &DeviceAuthorizatio
             let response = send(fetch, request, Some(signal), Some(REQUEST_TIMEOUT_MS)).await?;
             let json = response.json_object();
             let field = |name: &str| json.as_ref().and_then(|j| j.get(name));
-            if response.ok() {
-                if let Some(token) = field("access_token").and_then(Value::as_str).filter(|s| !s.is_empty()) {
-                    return Ok(OAuthDeviceCodePollResult::Complete(token.to_string()));
-                }
+            if response.ok()
+                && let Some(token) = field("access_token").and_then(Value::as_str).filter(|s| !s.is_empty())
+            {
+                return Ok(OAuthDeviceCodePollResult::Complete(token.to_string()));
             }
             Ok(match field("error").and_then(Value::as_str) {
                 Some("authorization_pending") => OAuthDeviceCodePollResult::Pending,

@@ -14,7 +14,7 @@ use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
-use super::callback_server::{read_request_line, send_page};
+use super::callback_server::{SharedListener, read_request_line, send_page};
 use super::http::{OAuthFetch, OAuthHttpRequest, current_oauth_fetch, send};
 use super::pkce::{base64url_encode, generate_pkce};
 use crate::auth::types::{
@@ -85,10 +85,12 @@ fn authorization_result_from_manual_input(input: &str, expected_state: &str) -> 
 struct CallbackServer {
     result: oneshot::Receiver<Result<AuthorizationResult, String>>,
     shutdown: CancellationToken,
+    listener: SharedListener,
     connections: Arc<Mutex<Vec<tokio::task::AbortHandle>>>,
 }
 
-fn close_server(shutdown: &CancellationToken, connections: &Mutex<Vec<tokio::task::AbortHandle>>) {
+fn close_server(shutdown: &CancellationToken, listener: &SharedListener, connections: &Mutex<Vec<tokio::task::AbortHandle>>) {
+    listener.close();
     shutdown.cancel();
     // Also drop spare connections the browser opened ahead of time, so a later login's
     // callback is not handled (and rejected) by this server.
@@ -105,6 +107,8 @@ async fn start_callback_server(expected_state: String) -> anyhow::Result<Callbac
         ),
         Err(error) => return Err(error.into()),
     };
+    let listener = SharedListener::new(listener);
+    let accept_listener = listener.clone();
     let (tx, rx) = oneshot::channel();
     let tx = Arc::new(Mutex::new(Some(tx)));
     let shutdown = CancellationToken::new();
@@ -114,10 +118,11 @@ async fn start_callback_server(expected_state: String) -> anyhow::Result<Callbac
     tokio::spawn(async move {
         loop {
             let accepted = tokio::select! {
-                accepted = listener.accept() => accepted,
+                accepted = accept_listener.accept() => accepted,
                 _ = accept_shutdown.cancelled() => return,
             };
-            let Ok((mut socket, _)) = accepted else {
+            let Some(accepted) = accepted else { return };
+            let Ok(mut socket) = accepted else {
                 if let Some(tx) = tx.lock().take() {
                     let _ = tx.send(Err("OpenAI OAuth callback server failed".into()));
                 }
@@ -171,7 +176,7 @@ async fn start_callback_server(expected_state: String) -> anyhow::Result<Callbac
             accept_connections.lock().push(handle.abort_handle());
         }
     });
-    Ok(CallbackServer { result: rx, shutdown, connections })
+    Ok(CallbackServer { result: rx, shutdown, listener, connections })
 }
 
 async fn request_token(fetch: &OAuthFetch, fields: &[(&str, &str)], signal: &CancellationToken) -> anyhow::Result<Map<String, Value>> {
@@ -323,7 +328,7 @@ async fn login_openai_chatgpt(
         options: Vec::new(),
         signal: Some(manual_abort.clone()),
     };
-    let CallbackServer { result: callback_result, shutdown, connections } = callback;
+    let CallbackServer { result: callback_result, shutdown, listener, connections } = callback;
     let outcome = async {
         let manual = async {
             let input = interaction.interaction.prompt(prompt).await?;
@@ -344,7 +349,7 @@ async fn login_openai_chatgpt(
     }
     .await;
     manual_abort.cancel();
-    close_server(&shutdown, &connections);
+    close_server(&shutdown, &listener, &connections);
     match outcome {
         Err(_) if interaction.signal.is_cancelled() => anyhow::bail!("Login cancelled"),
         other => other,

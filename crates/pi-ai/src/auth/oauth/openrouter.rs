@@ -49,10 +49,10 @@ fn error_detail(body: &Map<String, Value>) -> Option<String> {
             return Some(text.clone());
         }
     }
-    if let Some(Value::Object(error)) = body.get("error") {
-        if let Some(Value::String(message)) = error.get("message") {
-            return Some(message.clone());
-        }
+    if let Some(Value::Object(error)) = body.get("error")
+        && let Some(Value::String(message)) = error.get("message")
+    {
+        return Some(message.clone());
     }
     None
 }

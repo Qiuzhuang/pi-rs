@@ -4,6 +4,7 @@ mod build_context;
 mod common;
 mod compaction;
 mod context_edit;
+mod export;
 mod interop;
 mod persistence;
 mod tree;

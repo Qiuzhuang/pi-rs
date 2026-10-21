@@ -19,6 +19,7 @@ pub mod provider_retry;
 pub mod retry;
 pub mod sanitize_unicode;
 pub mod sleep;
+pub mod sse;
 pub mod text;
 pub mod transcript;
 pub mod typebox_helpers;

@@ -52,6 +52,7 @@ pub fn resolve_builtin_api(api: &str) -> Option<Arc<dyn ProviderStreams>> {
         "google-generative-ai" => Some(Arc::new(super::google_generative_ai::GoogleGenerativeAiApi)),
         "google-vertex" => Some(Arc::new(super::google_vertex::GoogleVertexApi)),
         "mistral-conversations" => Some(Arc::new(super::mistral_conversations::MistralConversationsApi)),
+        "bedrock-converse-stream" => Some(Arc::new(super::bedrock_converse_stream::BedrockConverseStreamApi)),
         "openai-responses" => Some(Arc::new(super::openai_responses::OpenAIResponsesApi)),
         "azure-openai-responses" => Some(Arc::new(super::azure_openai_responses::AzureOpenAIResponsesApi)),
         "pi-messages" => Some(Arc::new(super::pi_messages::PiMessagesApi)),

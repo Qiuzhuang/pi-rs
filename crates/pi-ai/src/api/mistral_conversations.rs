@@ -406,10 +406,10 @@ fn build_headers(model: &Model, api_key: &str, options: &StreamOptions) -> Vec<(
     }
     let explicit_affinity = model.headers.as_ref().is_some_and(|h| h.keys().any(|k| k.eq_ignore_ascii_case("x-affinity")))
         || options.headers.as_ref().is_some_and(|h: &ProviderHeaders| h.keys().any(|k| k.eq_ignore_ascii_case("x-affinity")));
-    if let Some(session) = should_use_prompt_caching(options) {
-        if !explicit_affinity {
-            set(&mut headers, "x-affinity", Some(session));
-        }
+    if let Some(session) = should_use_prompt_caching(options)
+        && !explicit_affinity
+    {
+        set(&mut headers, "x-affinity", Some(session));
     }
     headers.into_values().collect()
 }

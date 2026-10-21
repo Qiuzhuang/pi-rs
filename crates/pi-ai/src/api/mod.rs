@@ -1,8 +1,12 @@
 //! API implementations and shared request helpers (port of `api/*`).
 
 pub mod anthropic_messages;
+pub mod aws_credentials;
+pub mod aws_eventstream;
+pub mod aws_sigv4;
 pub mod azure_openai_config;
 pub mod azure_openai_responses;
+pub mod bedrock_converse_stream;
 pub mod classifier_shared;
 pub mod cloudflare;
 pub mod cloudflare_workers_ai_system_one;

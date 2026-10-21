@@ -1,18 +1,31 @@
 //! Port of `packages/coding-agent/src/config.ts`.
+//!
+//! The Rust port ships as a single native executable, so it behaves like the TS "Bun compiled
+//! binary" distribution: package assets live next to the executable (or under `PI_PACKAGE_DIR`),
+//! and self-update is not done through a package manager. The npm/pnpm/yarn/bun install-method
+//! branches of the TS source do not apply and are not ported.
+//!
+//! App identity comes from constants instead of `package.json` `piConfig`.
+
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use std::sync::LazyLock;
 
-/// Detect if we're running as a Bun compiled binary.
-/// Bun binaries have import.meta.url containing "$bunfs", "~BUN", or "%7EBUN" (Bun's virtual filesystem path)
-pub static IS_BUN_BINARY: LazyLock<bool> = LazyLock::new(|| todo!("port config.ts:isBunBinary"));
+use crate::utils::paths::normalize_path;
 
-/// Detect if Bun is the runtime (compiled binary or bun run)
-pub static IS_BUN_RUNTIME: LazyLock<bool> = LazyLock::new(|| todo!("port config.ts:isBunRuntime"));
+/// The TS source distinguishes the Bun compiled binary; the Rust executable is equivalent.
+pub const IS_BUN_BINARY: bool = true;
 
-pub static IS_BUNDLED_NODE: LazyLock<bool> =
-    LazyLock::new(|| todo!("port config.ts:isBundledNode"));
+/// Detect if Bun is the runtime. Never true for the Rust port.
+pub const IS_BUN_RUNTIME: bool = false;
+
+/// Detect the esbuild-bundled Node.js distribution. Never true for the Rust port.
+pub const IS_BUNDLED_NODE: bool = false;
+
+// =============================================================================
+// Install Method Detection
+// =============================================================================
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum InstallMethod {
@@ -43,7 +56,7 @@ impl InstallMethod {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SelfUpdateCommandStep {
     pub command: String,
@@ -51,8 +64,7 @@ pub struct SelfUpdateCommandStep {
     pub display: String,
 }
 
-// TS: extends SelfUpdateCommandStep (inherited fields inlined)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SelfUpdateCommand {
     pub command: String,
@@ -62,31 +74,48 @@ pub struct SelfUpdateCommand {
     pub steps: Option<Vec<SelfUpdateCommandStep>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SelfUpdatePackageTargetVariant2 {
+pub struct SelfUpdatePackageSpec {
     pub package_name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub install_spec: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// `string | { packageName; installSpec? }`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum SelfUpdatePackageTarget {
-    String(String),
-    SelfUpdatePackageTargetVariant2(SelfUpdatePackageTargetVariant2),
+    Name(String),
+    Spec(SelfUpdatePackageSpec),
 }
 
+impl SelfUpdatePackageTarget {
+    /// `normalizeSelfUpdatePackageTarget`: `(packageName, installSpec)`.
+    pub fn normalize(&self) -> (String, String) {
+        match self {
+            Self::Name(name) => (name.clone(), name.clone()),
+            Self::Spec(spec) => (
+                spec.package_name.clone(),
+                spec.install_spec.clone().unwrap_or_else(|| spec.package_name.clone()),
+            ),
+        }
+    }
+}
+
+/// Always [`InstallMethod::BunBinary`] for the native executable.
 pub fn detect_install_method() -> InstallMethod {
-    todo!("port config.ts:detectInstallMethod")
+    InstallMethod::BunBinary
 }
 
+/// The command that updates this installation, if a package manager manages it. Never for the
+/// native executable.
 pub fn get_self_update_command(
     package_name: &str,
     npm_command: Option<&[String]>,
     update_package_target: Option<&SelfUpdatePackageTarget>,
 ) -> Option<SelfUpdateCommand> {
-    todo!("port config.ts:getSelfUpdateCommand")
+    None
 }
 
 pub fn get_self_update_unavailable_instruction(
@@ -94,157 +123,140 @@ pub fn get_self_update_unavailable_instruction(
     npm_command: Option<&[String]>,
     update_package_target: Option<&SelfUpdatePackageTarget>,
 ) -> String {
-    todo!("port config.ts:getSelfUpdateUnavailableInstruction")
+    "Download from: https://github.com/earendil-works/pi/releases/latest".to_string()
 }
 
 pub fn get_update_instruction(package_name: &str) -> String {
-    todo!("port config.ts:getUpdateInstruction")
+    match get_self_update_command(package_name, None, None) {
+        Some(command) => format!("Run: {}", command.display),
+        None => get_self_update_unavailable_instruction(package_name, None, None),
+    }
 }
 
-/// Get the base directory for resolving package assets (themes, package.json, README.md, CHANGELOG.md).
-/// - For Bun binary: returns the directory containing the executable
-/// - For Node.js: returns the package root containing package.json
-/// - Ignores Bun binary metadata copied into dist/ when the package root is available
+// =============================================================================
+// Package Asset Paths (shipped with executable)
+// =============================================================================
+
+fn path_string(path: impl AsRef<Path>) -> String {
+    path.as_ref().to_string_lossy().into_owned()
+}
+
+/// Walk up from `start_dir` to the directory containing `package.json` (skipping a `dist/` with a
+/// parent package). Returns `start_dir` when none is found.
 pub fn find_node_package_dir(start_dir: &str) -> String {
-    todo!("port config.ts:findNodePackageDir")
-}
-
-pub fn get_package_dir() -> String {
-    todo!("port config.ts:getPackageDir")
-}
-
-/// Get path to built-in themes directory (shipped with package)
-/// - For Bun binary: theme/ next to executable
-/// - For Node.js (dist/): dist/modes/interactive/theme/
-/// - For source (src/): src/modes/interactive/theme/
-pub fn get_themes_dir() -> String {
-    todo!("port config.ts:getThemesDir")
-}
-
-/// Get path to HTML export template directory (shipped with package)
-/// - For Bun binary: export-html/ next to executable
-/// - For Node.js (dist/): dist/core/export-html/
-/// - For source (src/): src/core/export-html/
-pub fn get_export_template_dir() -> String {
-    todo!("port config.ts:getExportTemplateDir")
-}
-
-/// Get path to package.json
-pub fn get_package_json_path() -> String {
-    todo!("port config.ts:getPackageJsonPath")
-}
-
-/// Get path to README.md
-pub fn get_readme_path() -> String {
-    todo!("port config.ts:getReadmePath")
-}
-
-/// Get path to docs directory
-pub fn get_docs_path() -> String {
-    todo!("port config.ts:getDocsPath")
-}
-
-/// Get path to examples directory
-pub fn get_examples_path() -> String {
-    todo!("port config.ts:getExamplesPath")
-}
-
-/// Get path to CHANGELOG.md
-pub fn get_changelog_path() -> String {
-    todo!("port config.ts:getChangelogPath")
-}
-
-/// Get path to built-in interactive assets directory.
-/// - For Bun binary: assets/ next to executable
-/// - For Node.js (dist/): dist/modes/interactive/assets/
-/// - For source (src/): src/modes/interactive/assets/
-pub fn get_interactive_assets_dir() -> String {
-    todo!("port config.ts:getInteractiveAssetsDir")
-}
-
-/// Get path to a bundled interactive asset
-pub fn get_bundled_interactive_asset_path(name: &str) -> String {
-    todo!("port config.ts:getBundledInteractiveAssetPath")
-}
-
-/// Called by the Bun entry with the path of the QuickJS wasm file embedded in the compiled executable.
-pub fn set_embedded_quick_js_wasm_path(path: &str) {
-    todo!("port config.ts:setEmbeddedQuickJSWasmPath")
-}
-
-/// Get path to `quickjs-wasi/quickjs.wasm`, the VM that runs codemode scripts. Resolved once so the
-/// compiled module cached per path keeps working after an update removes this install (#10439).
-pub fn get_quick_js_wasm_path() -> String {
-    todo!("port config.ts:getQuickJSWasmPath")
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum ResolveCodemodeWorkerSpecifierRuntime {
-    #[serde(rename = "bun-binary")]
-    BunBinary,
-    #[serde(rename = "bundled-node")]
-    BundledNode,
-    #[serde(rename = "unbundled")]
-    Unbundled,
-}
-
-impl ResolveCodemodeWorkerSpecifierRuntime {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::BunBinary => "bun-binary",
-            Self::BundledNode => "bundled-node",
-            Self::Unbundled => "unbundled",
+    let mut dir = PathBuf::from(start_dir);
+    loop {
+        if dir.join("package.json").exists() {
+            if let Some(parent) = dir.parent()
+                && dir.file_name().is_some_and(|n| n == "dist")
+                && parent.join("package.json").exists()
+            {
+                return path_string(parent);
+            }
+            return path_string(&dir);
+        }
+        match dir.parent() {
+            Some(parent) if parent != dir => dir = parent.to_path_buf(),
+            _ => return start_dir.to_string(),
         }
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum ResolveCodemodeWorkerSpecifierResult {
-    String(String),
-    String2(String),
+/// Base directory for package assets: `PI_PACKAGE_DIR`, else the directory of the executable.
+pub fn get_package_dir() -> String {
+    if let Ok(env_dir) = std::env::var("PI_PACKAGE_DIR")
+        && !env_dir.is_empty()
+    {
+        return normalize_path(&env_dir, None);
+    }
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(path_string))
+        .unwrap_or_else(|| ".".to_string())
 }
 
-/// Resolve the codemode worker entry for a release runtime.
-pub fn resolve_codemode_worker_specifier(
-    runtime: ResolveCodemodeWorkerSpecifierRuntime,
-    module_url: &str,
-) -> Option<ResolveCodemodeWorkerSpecifierResult> {
-    todo!("port config.ts:resolveCodemodeWorkerSpecifier")
+/// Built-in themes directory (`theme/` next to the executable).
+pub fn get_themes_dir() -> String {
+    path_string(Path::new(&get_package_dir()).join("theme"))
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum GetCodemodeWorkerSpecifierResult {
-    String(String),
-    String2(String),
+/// HTML export template directory (`export-html/` next to the executable).
+pub fn get_export_template_dir() -> String {
+    path_string(Path::new(&get_package_dir()).join("export-html"))
 }
 
-/// Get the codemode worker entry, or undefined to use the worker that ships next to pi-codemode.
-/// The Bun and Node release builds both pass the worker as an extra entrypoint.
-pub fn get_codemode_worker_specifier() -> Option<GetCodemodeWorkerSpecifierResult> {
-    todo!("port config.ts:getCodemodeWorkerSpecifier")
+/// Path to package.json.
+pub fn get_package_json_path() -> String {
+    path_string(Path::new(&get_package_dir()).join("package.json"))
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all_fields = "camelCase")]
+fn absolute(path: PathBuf) -> String {
+    path_string(std::path::absolute(&path).unwrap_or(path))
+}
+
+/// Path to README.md.
+pub fn get_readme_path() -> String {
+    absolute(Path::new(&get_package_dir()).join("README.md"))
+}
+
+/// Path to docs directory.
+pub fn get_docs_path() -> String {
+    absolute(Path::new(&get_package_dir()).join("docs"))
+}
+
+/// Path to examples directory.
+pub fn get_examples_path() -> String {
+    absolute(Path::new(&get_package_dir()).join("examples"))
+}
+
+/// Path to CHANGELOG.md.
+pub fn get_changelog_path() -> String {
+    absolute(Path::new(&get_package_dir()).join("CHANGELOG.md"))
+}
+
+/// Built-in interactive assets directory (`assets/` next to the executable).
+pub fn get_interactive_assets_dir() -> String {
+    path_string(Path::new(&get_package_dir()).join("assets"))
+}
+
+/// Path to a bundled interactive asset.
+pub fn get_bundled_interactive_asset_path(name: &str) -> String {
+    path_string(Path::new(&get_interactive_assets_dir()).join(name))
+}
+
+static QUICKJS_WASM_PATH: Mutex<Option<String>> = Mutex::new(None);
+
+/// TS: path of the QuickJS wasm embedded in the Bun executable. The Rust codemode runtime uses
+/// `pi-jsrt` instead; kept for API parity.
+pub fn set_embedded_quick_js_wasm_path(path: &str) {
+    *QUICKJS_WASM_PATH.lock().unwrap() = Some(path.to_string());
+}
+
+/// TS: path to `quickjs-wasi/quickjs.wasm`. Not used by the Rust codemode runtime.
+pub fn get_quick_js_wasm_path() -> Option<String> {
+    QUICKJS_WASM_PATH.lock().unwrap().clone()
+}
+
+/// Result of [`detect_install_change`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
 pub enum InstallChange {
-    #[serde(rename = "updated")]
     Updated { version: String },
-    #[serde(rename = "removed")]
-    Removed {},
+    Removed,
 }
 
-/// Detect that the package this process runs from changed on disk, for example after `pi update`
-/// in another terminal. Code loaded on demand can then be missing or from another version.
-///
-/// Checks the package.json read at startup. Resolving it again would walk up past a deleted install
-/// and could find an unrelated package.json, such as one in the home directory.
-pub fn detect_install_change(package_json_path: Option<Value>) -> Option<InstallChange> {
-    todo!("port config.ts:detectInstallChange")
+/// Detect that the package this process runs from changed on disk. The native executable embeds
+/// its code, so replacing it does not affect this process: always `None` (as for the Bun binary).
+pub fn detect_install_change(package_json_path: Option<&str>) -> Option<InstallChange> {
+    None
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+// =============================================================================
+// App Config
+// =============================================================================
+
+/// `package.json` shape read by the TS version (kept for package resources that ship one).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PackageJsonPiConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -253,7 +265,7 @@ pub struct PackageJsonPiConfig {
     pub config_dir: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PackageJson {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -264,78 +276,95 @@ pub struct PackageJson {
     pub pi_config: Option<PackageJsonPiConfig>,
 }
 
-pub static PACKAGE_NAME: LazyLock<String> = LazyLock::new(|| todo!("port config.ts:PACKAGE_NAME"));
+pub const PACKAGE_NAME: &str = "@earendil-works/pi-coding-agent";
+pub const APP_NAME: &str = "pi";
+pub const APP_TITLE: &str = "π";
+pub const CONFIG_DIR_NAME: &str = ".pi";
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-pub static APP_NAME: LazyLock<String> = LazyLock::new(|| todo!("port config.ts:APP_NAME"));
-
-pub static APP_TITLE: LazyLock<String> = LazyLock::new(|| todo!("port config.ts:APP_TITLE"));
-
-pub static CONFIG_DIR_NAME: LazyLock<String> =
-    LazyLock::new(|| todo!("port config.ts:CONFIG_DIR_NAME"));
-
-pub static VERSION: LazyLock<String> = LazyLock::new(|| todo!("port config.ts:VERSION"));
-
-pub static ENV_AGENT_DIR: LazyLock<String> =
-    LazyLock::new(|| todo!("port config.ts:ENV_AGENT_DIR"));
-
-pub static ENV_SESSION_DIR: LazyLock<String> =
-    LazyLock::new(|| todo!("port config.ts:ENV_SESSION_DIR"));
+/// e.g. `PI_CODING_AGENT_DIR`.
+pub const ENV_AGENT_DIR: &str = "PI_CODING_AGENT_DIR";
+/// e.g. `PI_CODING_AGENT_SESSION_DIR`.
+pub const ENV_SESSION_DIR: &str = "PI_CODING_AGENT_SESSION_DIR";
 
 pub fn expand_tilde_path(path: &str) -> String {
-    todo!("port config.ts:expandTildePath")
+    normalize_path(path, None)
 }
+
+const DEFAULT_SHARE_VIEWER_URL: &str = "https://pi.dev/session/";
 
 /// Get the share viewer URL for a gist ID.
 pub fn get_share_viewer_url(gist_id: &str) -> String {
-    todo!("port config.ts:getShareViewerUrl")
+    let base_url = std::env::var("PI_SHARE_VIEWER_URL")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| DEFAULT_SHARE_VIEWER_URL.to_string());
+    format!("{base_url}#{gist_id}")
 }
 
-/// Get the agent config directory (e.g., ~/.pi/agent/)
+// =============================================================================
+// User Config Paths (~/.pi/agent/*)
+// =============================================================================
+
+fn home_dir() -> PathBuf {
+    dirs::home_dir().unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// Get the agent config directory (e.g., `~/.pi/agent/`).
 pub fn get_agent_dir() -> String {
-    todo!("port config.ts:getAgentDir")
+    if let Ok(env_dir) = std::env::var(ENV_AGENT_DIR)
+        && !env_dir.is_empty()
+    {
+        return expand_tilde_path(&env_dir);
+    }
+    path_string(home_dir().join(CONFIG_DIR_NAME).join("agent"))
 }
 
-/// Get path to user's custom themes directory
+fn agent_path(name: &str) -> String {
+    path_string(Path::new(&get_agent_dir()).join(name))
+}
+
+/// Path to user's custom themes directory.
 pub fn get_custom_themes_dir() -> String {
-    todo!("port config.ts:getCustomThemesDir")
+    agent_path("themes")
 }
 
-/// Get path to models.json
+/// Path to models.json.
 pub fn get_models_path() -> String {
-    todo!("port config.ts:getModelsPath")
+    agent_path("models.json")
 }
 
-/// Get path to auth.json
+/// Path to auth.json.
 pub fn get_auth_path() -> String {
-    todo!("port config.ts:getAuthPath")
+    agent_path("auth.json")
 }
 
-/// Get path to settings.json
+/// Path to settings.json.
 pub fn get_settings_path() -> String {
-    todo!("port config.ts:getSettingsPath")
+    agent_path("settings.json")
 }
 
-/// Get path to tools directory
+/// Path to tools directory.
 pub fn get_tools_dir() -> String {
-    todo!("port config.ts:getToolsDir")
+    agent_path("tools")
 }
 
-/// Get path to managed binaries directory (fd, rg)
+/// Path to managed binaries directory (fd, rg).
 pub fn get_bin_dir() -> String {
-    todo!("port config.ts:getBinDir")
+    agent_path("bin")
 }
 
-/// Get path to prompt templates directory
+/// Path to prompt templates directory.
 pub fn get_prompts_dir() -> String {
-    todo!("port config.ts:getPromptsDir")
+    agent_path("prompts")
 }
 
-/// Get path to sessions directory
+/// Path to sessions directory.
 pub fn get_sessions_dir() -> String {
-    todo!("port config.ts:getSessionsDir")
+    agent_path("sessions")
 }
 
-/// Get path to debug log file
+/// Path to debug log file.
 pub fn get_debug_log_path() -> String {
-    todo!("port config.ts:getDebugLogPath")
+    agent_path(&format!("{APP_NAME}-debug.log"))
 }

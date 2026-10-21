@@ -57,15 +57,29 @@ pub const BUILTIN_PATH_PREFIX: &str = "builtin:";
 /// Source of a path that names no file: `builtin` for `builtin:<name>`, or the prefix of an
 /// angle-bracket path such as `inline` for `<inline:name>`. Undefined for file paths.
 pub fn get_synthetic_path_source(path: &str) -> Option<String> {
-    todo!("port core/source-info.ts:getSyntheticPathSource")
+    if path.starts_with(BUILTIN_PATH_PREFIX) {
+        return Some("builtin".to_string());
+    }
+    if path.starts_with('<') && path.ends_with('>') && path.len() >= 2 {
+        let inner = &path[1..path.len() - 1];
+        let prefix = inner.split(':').next().unwrap_or("");
+        return Some(if prefix.is_empty() { "temporary".to_string() } else { prefix.to_string() });
+    }
+    None
 }
 
 pub fn is_synthetic_path(path: &str) -> bool {
-    todo!("port core/source-info.ts:isSyntheticPath")
+    path.starts_with(BUILTIN_PATH_PREFIX) || path.starts_with('<')
 }
 
 pub fn create_source_info(path: &str, metadata: &PathMetadata) -> SourceInfo {
-    todo!("port core/source-info.ts:createSourceInfo")
+    SourceInfo {
+        path: path.to_string(),
+        source: metadata.source.clone(),
+        scope: metadata.scope,
+        origin: metadata.origin,
+        base_dir: metadata.base_dir.clone(),
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -84,5 +98,11 @@ pub fn create_synthetic_source_info(
     path: &str,
     options: &CreateSyntheticSourceInfoOptions,
 ) -> SourceInfo {
-    todo!("port core/source-info.ts:createSyntheticSourceInfo")
+    SourceInfo {
+        path: path.to_string(),
+        source: options.source.clone(),
+        scope: options.scope.unwrap_or(SourceScope::Temporary),
+        origin: options.origin.unwrap_or(SourceOrigin::TopLevel),
+        base_dir: options.base_dir.clone(),
+    }
 }

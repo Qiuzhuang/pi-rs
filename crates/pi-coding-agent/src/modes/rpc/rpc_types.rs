@@ -1,272 +1,212 @@
 //! Port of `packages/coding-agent/src/modes/rpc/rpc-types.ts`.
+//!
+//! RPC protocol types for headless operation. Commands are sent as JSON lines on stdin;
+//! responses and events are emitted as JSON lines on stdout.
+//!
+//! Field order of serialized objects matches the TS output: responses are
+//! `{ id, type, command, success, data | error }`, UI requests `{ type, id, method, ... }`.
 
-use crate::core::agent_session::PromptDisposition;
-use crate::core::agent_session::QueuedInputDisposition;
-use crate::core::agent_session::SessionStats;
-use crate::core::bash_executor::BashResult;
-use crate::core::compaction::compaction::CompactionResult;
-use crate::core::extensions::types::WidgetPlacement;
-use crate::core::session_manager::SessionEntry;
-use crate::core::session_manager::SessionTreeNode;
+use serde::de::Error as _;
+use serde::ser::SerializeMap;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_json::{Map, Value};
+
+use pi_agent::types::{AgentMessage, ThinkingLevel};
+use pi_ai::types::{ImageContent, Model};
+
+use crate::core::agent_session::{PromptDisposition, QueuedInputDisposition};
+use crate::core::extensions::types::{NotifyType, StreamingBehavior, WidgetPlacement};
+use crate::core::session_manager::{SessionEntry, SessionTreeNode};
 use crate::core::slash_commands::SlashCommandSource;
 use crate::core::source_info::SourceInfo;
-use pi_agent::types::AgentMessage;
-use pi_agent::types::ThinkingLevel;
-use pi_ai::types::ImageContent;
-use pi_ai::types::Model;
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
+/// `"all" | "one-at-a-time"` queue delivery mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum RpcCommandPromptStreamingBehavior {
-    #[serde(rename = "steer")]
-    Steer,
-    #[serde(rename = "followUp")]
-    FollowUp,
-}
-
-impl RpcCommandPromptStreamingBehavior {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Steer => "steer",
-            Self::FollowUp => "followUp",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum RpcCommandSetSteeringModeMode {
+pub enum RpcQueueMode {
     #[serde(rename = "all")]
     All,
     #[serde(rename = "one-at-a-time")]
     OneAtATime,
 }
 
-impl RpcCommandSetSteeringModeMode {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::All => "all",
-            Self::OneAtATime => "one-at-a-time",
-        }
-    }
+// ============================================================================
+// RPC Commands (stdin)
+// ============================================================================
+
+/// A command line read from stdin: optional `id` plus the command, tagged by `type`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RpcCommand {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(flatten)]
+    pub kind: RpcCommandKind,
 }
 
+/// The command variants of the TS `RpcCommand` union.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all_fields = "camelCase")]
-pub enum RpcCommand {
-    #[serde(rename = "prompt")]
+#[serde(tag = "type", rename_all = "snake_case", rename_all_fields = "camelCase")]
+pub enum RpcCommandKind {
+    // Prompting
     Prompt {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
         message: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         images: Option<Vec<ImageContent>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        streaming_behavior: Option<RpcCommandPromptStreamingBehavior>,
+        streaming_behavior: Option<StreamingBehavior>,
     },
-    #[serde(rename = "steer")]
     Steer {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
         message: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         images: Option<Vec<ImageContent>>,
     },
-    #[serde(rename = "follow_up")]
     FollowUp {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
         message: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         images: Option<Vec<ImageContent>>,
     },
-    #[serde(rename = "abort")]
-    Abort {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
-    },
-    #[serde(rename = "clear_queue")]
-    ClearQueue {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
-    },
-    #[serde(rename = "new_session")]
+    Abort,
+    ClearQueue,
     NewSession {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         parent_session: Option<String>,
     },
-    #[serde(rename = "get_state")]
-    GetState {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
-    },
-    #[serde(rename = "set_model")]
+    // State
+    GetState,
+    // Model
     SetModel {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
         provider: String,
         model_id: String,
     },
-    #[serde(rename = "cycle_model")]
-    CycleModel {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
-    },
-    #[serde(rename = "get_available_models")]
-    GetAvailableModels {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
-    },
-    #[serde(rename = "set_thinking_level")]
+    CycleModel,
+    GetAvailableModels,
+    // Thinking
     SetThinkingLevel {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
         level: ThinkingLevel,
     },
-    #[serde(rename = "cycle_thinking_level")]
-    CycleThinkingLevel {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
-    },
-    #[serde(rename = "get_available_thinking_levels")]
-    GetAvailableThinkingLevels {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
-    },
-    #[serde(rename = "set_steering_mode")]
+    CycleThinkingLevel,
+    GetAvailableThinkingLevels,
+    // Queue modes
     SetSteeringMode {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
-        mode: RpcCommandSetSteeringModeMode,
+        mode: RpcQueueMode,
     },
-    #[serde(rename = "set_follow_up_mode")]
     SetFollowUpMode {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
-        mode: RpcCommandSetSteeringModeMode,
+        mode: RpcQueueMode,
     },
-    #[serde(rename = "compact")]
+    // Compaction
     Compact {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         custom_instructions: Option<String>,
     },
-    #[serde(rename = "set_auto_compaction")]
     SetAutoCompaction {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
         enabled: bool,
     },
-    #[serde(rename = "set_auto_retry")]
+    // Retry
     SetAutoRetry {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
         enabled: bool,
     },
-    #[serde(rename = "abort_retry")]
-    AbortRetry {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
-    },
-    #[serde(rename = "bash")]
+    AbortRetry,
+    // Bash
     Bash {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
         command: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         exclude_from_context: Option<bool>,
     },
-    #[serde(rename = "abort_bash")]
-    AbortBash {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
-    },
-    #[serde(rename = "get_session_stats")]
-    GetSessionStats {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
-    },
-    #[serde(rename = "export_html")]
+    AbortBash,
+    // Session
+    GetSessionStats,
     ExportHtml {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         output_path: Option<String>,
     },
-    #[serde(rename = "switch_session")]
     SwitchSession {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
         session_path: String,
     },
-    #[serde(rename = "fork")]
     Fork {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
         entry_id: String,
     },
-    #[serde(rename = "clone")]
-    Clone {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
-    },
-    #[serde(rename = "get_fork_messages")]
-    GetForkMessages {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
-    },
-    #[serde(rename = "get_entries")]
+    Clone,
+    GetForkMessages,
     GetEntries {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         since: Option<String>,
     },
-    #[serde(rename = "get_tree")]
-    GetTree {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
-    },
-    #[serde(rename = "get_last_assistant_text")]
-    GetLastAssistantText {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
-    },
-    #[serde(rename = "set_session_name")]
+    GetTree,
+    GetLastAssistantText,
     SetSessionName {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
         name: String,
     },
-    #[serde(rename = "get_messages")]
-    GetMessages {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
-    },
-    #[serde(rename = "get_commands")]
-    GetCommands {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
-    },
+    // Messages
+    GetMessages,
+    // Commands (available for invocation via prompt)
+    GetCommands,
 }
 
-/// A command available for invocation via prompt
+impl RpcCommandKind {
+    /// The `type` discriminant (TS `RpcCommandType`).
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            Self::Prompt { .. } => "prompt",
+            Self::Steer { .. } => "steer",
+            Self::FollowUp { .. } => "follow_up",
+            Self::Abort => "abort",
+            Self::ClearQueue => "clear_queue",
+            Self::NewSession { .. } => "new_session",
+            Self::GetState => "get_state",
+            Self::SetModel { .. } => "set_model",
+            Self::CycleModel => "cycle_model",
+            Self::GetAvailableModels => "get_available_models",
+            Self::SetThinkingLevel { .. } => "set_thinking_level",
+            Self::CycleThinkingLevel => "cycle_thinking_level",
+            Self::GetAvailableThinkingLevels => "get_available_thinking_levels",
+            Self::SetSteeringMode { .. } => "set_steering_mode",
+            Self::SetFollowUpMode { .. } => "set_follow_up_mode",
+            Self::Compact { .. } => "compact",
+            Self::SetAutoCompaction { .. } => "set_auto_compaction",
+            Self::SetAutoRetry { .. } => "set_auto_retry",
+            Self::AbortRetry => "abort_retry",
+            Self::Bash { .. } => "bash",
+            Self::AbortBash => "abort_bash",
+            Self::GetSessionStats => "get_session_stats",
+            Self::ExportHtml { .. } => "export_html",
+            Self::SwitchSession { .. } => "switch_session",
+            Self::Fork { .. } => "fork",
+            Self::Clone => "clone",
+            Self::GetForkMessages => "get_fork_messages",
+            Self::GetEntries { .. } => "get_entries",
+            Self::GetTree => "get_tree",
+            Self::GetLastAssistantText => "get_last_assistant_text",
+            Self::SetSessionName { .. } => "set_session_name",
+            Self::GetMessages => "get_messages",
+            Self::GetCommands => "get_commands",
+        }
+    }
+}
+
+/// TS `RpcCommandType = RpcCommand["type"]`.
+pub type RpcCommandType = String;
+
+// ============================================================================
+// RPC Slash Command (for get_commands response)
+// ============================================================================
+
+/// A command available for invocation via prompt.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RpcSlashCommand {
-    /// Command name (without leading slash)
+    /// Command name (without leading slash).
     pub name: String,
-    /// Human-readable description
+    /// Human-readable description.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    /// What kind of command this is
+    /// What kind of command this is.
     pub source: SlashCommandSource,
-    /// Source metadata for the owning resource
+    /// Source metadata for the owning resource.
     pub source_info: SourceInfo,
 }
+
+// ============================================================================
+// RPC State
+// ============================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -276,764 +216,392 @@ pub struct RpcSessionState {
     pub thinking_level: ThinkingLevel,
     pub is_streaming: bool,
     pub is_compacting: bool,
-    pub steering_mode: RpcCommandSetSteeringModeMode,
-    pub follow_up_mode: RpcCommandSetSteeringModeMode,
+    pub steering_mode: RpcQueueMode,
+    pub follow_up_mode: RpcQueueMode,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_file: Option<String>,
     pub session_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_name: Option<String>,
     pub auto_compaction_enabled: bool,
-    pub message_count: i64,
-    pub pending_message_count: i64,
+    pub message_count: u64,
+    pub pending_message_count: u64,
 }
 
+// ============================================================================
+// RPC Responses (stdout)
+// ============================================================================
+
+/// A response line: `{ id?, type: "response", command, success, data? | error }`.
+///
+/// `data` is kept as JSON so every command's payload serializes exactly as in TS; the typed
+/// payloads are the `*Data` structs below (`RpcResponse::success(id, cmd, Some(&data))`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct RpcResponse {
+    pub id: Option<String>,
+    pub command: String,
+    /// `Ok(data)` for `success: true` (`None` = no `data` field; `Some(Value::Null)` = `data: null`),
+    /// `Err(message)` for `success: false`.
+    pub result: Result<Option<Value>, String>,
+}
+
+impl RpcResponse {
+    /// `success(id, command, data?)` of rpc-mode.ts.
+    pub fn success<T: Serialize>(id: Option<String>, command: &str, data: Option<&T>) -> anyhow::Result<Self> {
+        Ok(Self {
+            id,
+            command: command.to_string(),
+            result: Ok(match data {
+                Some(d) => Some(serde_json::to_value(d)?),
+                None => None,
+            }),
+        })
+    }
+
+    /// `error(id, command, message)` of rpc-mode.ts.
+    pub fn error(id: Option<String>, command: &str, message: impl Into<String>) -> Self {
+        Self {
+            id,
+            command: command.to_string(),
+            result: Err(message.into()),
+        }
+    }
+
+    pub fn is_success(&self) -> bool {
+        self.result.is_ok()
+    }
+}
+
+impl Serialize for RpcResponse {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut map = serializer.serialize_map(None)?;
+        if let Some(id) = &self.id {
+            map.serialize_entry("id", id)?;
+        }
+        map.serialize_entry("type", "response")?;
+        map.serialize_entry("command", &self.command)?;
+        match &self.result {
+            Ok(data) => {
+                map.serialize_entry("success", &true)?;
+                if let Some(data) = data {
+                    map.serialize_entry("data", data)?;
+                }
+            }
+            Err(error) => {
+                map.serialize_entry("success", &false)?;
+                map.serialize_entry("error", error)?;
+            }
+        }
+        map.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for RpcResponse {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let mut map = Map::<String, Value>::deserialize(deserializer)?;
+        if map.get("type").and_then(Value::as_str) != Some("response") {
+            return Err(D::Error::custom("expected type \"response\""));
+        }
+        let id = match map.shift_remove("id") {
+            Some(Value::String(s)) => Some(s),
+            _ => None,
+        };
+        let command = match map.shift_remove("command") {
+            Some(Value::String(s)) => s,
+            _ => return Err(D::Error::custom("missing command")),
+        };
+        let success = map.get("success").and_then(Value::as_bool).unwrap_or(false);
+        let result = if success {
+            Ok(map.shift_remove("data"))
+        } else {
+            Err(map.shift_remove("error").and_then(|e| e.as_str().map(str::to_string)).unwrap_or_default())
+        };
+        Ok(Self { id, command, result })
+    }
+}
+
+/// `data` of `prompt`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant1Data {
+pub struct RpcPromptData {
     pub disposition: PromptDisposition,
 }
 
+/// `data` of `steer` / `follow_up`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant1 {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    /// Always "response".
-    pub r#type: String,
-    /// Always "prompt".
-    pub command: String,
-    pub success: bool,
-    pub data: RpcResponseVariant1Data,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant2Data {
+pub struct RpcQueuedData {
     pub disposition: QueuedInputDisposition,
 }
 
+/// `data` of `clear_queue`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant2 {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    /// Always "response".
-    pub r#type: String,
-    /// Always "steer".
-    pub command: String,
-    pub success: bool,
-    pub data: RpcResponseVariant2Data,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant3Data {
-    pub disposition: QueuedInputDisposition,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant3 {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    /// Always "response".
-    pub r#type: String,
-    /// Always "follow_up".
-    pub command: String,
-    pub success: bool,
-    pub data: RpcResponseVariant3Data,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant4 {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    /// Always "response".
-    pub r#type: String,
-    /// Always "abort".
-    pub command: String,
-    pub success: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant5Data {
+pub struct RpcClearQueueData {
     pub steering: Vec<String>,
     pub follow_up: Vec<String>,
 }
 
+/// `data` of `new_session`, `switch_session`, `clone`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant5 {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    /// Always "response".
-    pub r#type: String,
-    /// Always "clear_queue".
-    pub command: String,
-    pub success: bool,
-    pub data: RpcResponseVariant5Data,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant6Data {
+pub struct RpcCancelledData {
     pub cancelled: bool,
 }
 
+/// `data` of `cycle_model` (or `null`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant6 {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    /// Always "response".
-    pub r#type: String,
-    /// Always "new_session".
-    pub command: String,
-    pub success: bool,
-    pub data: RpcResponseVariant6Data,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant7 {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    /// Always "response".
-    pub r#type: String,
-    /// Always "get_state".
-    pub command: String,
-    pub success: bool,
-    pub data: RpcSessionState,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant8 {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    /// Always "response".
-    pub r#type: String,
-    /// Always "set_model".
-    pub command: String,
-    pub success: bool,
-    pub data: Model,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant9Data {
+pub struct RpcCycleModelData {
     pub model: Model,
     pub thinking_level: ThinkingLevel,
     pub is_scoped: bool,
 }
 
+/// `data` of `get_available_models`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant9 {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    /// Always "response".
-    pub r#type: String,
-    /// Always "cycle_model".
-    pub command: String,
-    pub success: bool,
-    #[serde(default)]
-    pub data: Option<RpcResponseVariant9Data>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant10Data {
+pub struct RpcAvailableModelsData {
     pub models: Vec<Model>,
 }
 
+/// `data` of `cycle_thinking_level` (or `null`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant10 {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    /// Always "response".
-    pub r#type: String,
-    /// Always "get_available_models".
-    pub command: String,
-    pub success: bool,
-    pub data: RpcResponseVariant10Data,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant11 {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    /// Always "response".
-    pub r#type: String,
-    /// Always "set_thinking_level".
-    pub command: String,
-    pub success: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant12Data {
+pub struct RpcThinkingLevelData {
     pub level: ThinkingLevel,
 }
 
+/// `data` of `get_available_thinking_levels`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant12 {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    /// Always "response".
-    pub r#type: String,
-    /// Always "cycle_thinking_level".
-    pub command: String,
-    pub success: bool,
-    #[serde(default)]
-    pub data: Option<RpcResponseVariant12Data>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant13Data {
+pub struct RpcThinkingLevelsData {
     pub levels: Vec<ThinkingLevel>,
 }
 
+/// `data` of `export_html`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant13 {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    /// Always "response".
-    pub r#type: String,
-    /// Always "get_available_thinking_levels".
-    pub command: String,
-    pub success: bool,
-    pub data: RpcResponseVariant13Data,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant14 {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    /// Always "response".
-    pub r#type: String,
-    /// Always "set_steering_mode".
-    pub command: String,
-    pub success: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant15 {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    /// Always "response".
-    pub r#type: String,
-    /// Always "set_follow_up_mode".
-    pub command: String,
-    pub success: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant16 {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    /// Always "response".
-    pub r#type: String,
-    /// Always "compact".
-    pub command: String,
-    pub success: bool,
-    pub data: CompactionResult,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant17 {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    /// Always "response".
-    pub r#type: String,
-    /// Always "set_auto_compaction".
-    pub command: String,
-    pub success: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant18 {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    /// Always "response".
-    pub r#type: String,
-    /// Always "set_auto_retry".
-    pub command: String,
-    pub success: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant19 {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    /// Always "response".
-    pub r#type: String,
-    /// Always "abort_retry".
-    pub command: String,
-    pub success: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant20 {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    /// Always "response".
-    pub r#type: String,
-    /// Always "bash".
-    pub command: String,
-    pub success: bool,
-    pub data: BashResult,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant21 {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    /// Always "response".
-    pub r#type: String,
-    /// Always "abort_bash".
-    pub command: String,
-    pub success: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant22 {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    /// Always "response".
-    pub r#type: String,
-    /// Always "get_session_stats".
-    pub command: String,
-    pub success: bool,
-    pub data: SessionStats,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant23Data {
+pub struct RpcExportHtmlData {
     pub path: String,
 }
 
+/// `data` of `fork`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant23 {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    /// Always "response".
-    pub r#type: String,
-    /// Always "export_html".
-    pub command: String,
-    pub success: bool,
-    pub data: RpcResponseVariant23Data,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant24Data {
-    pub cancelled: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant24 {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    /// Always "response".
-    pub r#type: String,
-    /// Always "switch_session".
-    pub command: String,
-    pub success: bool,
-    pub data: RpcResponseVariant24Data,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant25Data {
+pub struct RpcForkData {
     pub text: String,
     pub cancelled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant25 {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    /// Always "response".
-    pub r#type: String,
-    /// Always "fork".
-    pub command: String,
-    pub success: bool,
-    pub data: RpcResponseVariant25Data,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant26Data {
-    pub cancelled: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant26 {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    /// Always "response".
-    pub r#type: String,
-    /// Always "clone".
-    pub command: String,
-    pub success: bool,
-    pub data: RpcResponseVariant26Data,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant27DataMessages {
+pub struct RpcForkMessage {
     pub entry_id: String,
     pub text: String,
 }
 
+/// `data` of `get_fork_messages`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant27Data {
-    pub messages: Vec<RpcResponseVariant27DataMessages>,
+pub struct RpcForkMessagesData {
+    pub messages: Vec<RpcForkMessage>,
 }
 
+/// `data` of `get_entries`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant27 {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    /// Always "response".
-    pub r#type: String,
-    /// Always "get_fork_messages".
-    pub command: String,
-    pub success: bool,
-    pub data: RpcResponseVariant27Data,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant28Data {
+pub struct RpcEntriesData {
     pub entries: Vec<SessionEntry>,
-    #[serde(default)]
     pub leaf_id: Option<String>,
 }
 
+/// `data` of `get_tree`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant28 {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    /// Always "response".
-    pub r#type: String,
-    /// Always "get_entries".
-    pub command: String,
-    pub success: bool,
-    pub data: RpcResponseVariant28Data,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant29Data {
+pub struct RpcTreeData {
     pub tree: Vec<SessionTreeNode>,
-    #[serde(default)]
     pub leaf_id: Option<String>,
 }
 
+/// `data` of `get_last_assistant_text`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant29 {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    /// Always "response".
-    pub r#type: String,
-    /// Always "get_tree".
-    pub command: String,
-    pub success: bool,
-    pub data: RpcResponseVariant29Data,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant30Data {
-    #[serde(default)]
+pub struct RpcLastAssistantTextData {
     pub text: Option<String>,
 }
 
+/// `data` of `get_messages`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant30 {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    /// Always "response".
-    pub r#type: String,
-    /// Always "get_last_assistant_text".
-    pub command: String,
-    pub success: bool,
-    pub data: RpcResponseVariant30Data,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant31 {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    /// Always "response".
-    pub r#type: String,
-    /// Always "set_session_name".
-    pub command: String,
-    pub success: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant32Data {
+pub struct RpcMessagesData {
     pub messages: Vec<AgentMessage>,
 }
 
+/// `data` of `get_commands`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant32 {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    /// Always "response".
-    pub r#type: String,
-    /// Always "get_messages".
-    pub command: String,
-    pub success: bool,
-    pub data: RpcResponseVariant32Data,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant33Data {
+pub struct RpcCommandsData {
     pub commands: Vec<RpcSlashCommand>,
 }
 
+// Remaining payloads: `get_state` → RpcSessionState, `set_model` → Model, `compact` →
+// CompactionResult, `bash` → BashResult, `get_session_stats` → SessionStats.
+
+// ============================================================================
+// Extension UI Events (stdout)
+// ============================================================================
+
+/// Always `"extension_ui_request"`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ExtensionUIRequestTag {
+    #[default]
+    #[serde(rename = "extension_ui_request")]
+    ExtensionUiRequest,
+}
+
+/// Emitted when an extension needs user input: `{ type, id, method, ... }`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant33 {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    /// Always "response".
-    pub r#type: String,
-    /// Always "get_commands".
-    pub command: String,
-    pub success: bool,
-    pub data: RpcResponseVariant33Data,
+pub struct RpcExtensionUIRequest {
+    #[serde(rename = "type")]
+    pub tag: ExtensionUIRequestTag,
+    pub id: String,
+    #[serde(flatten)]
+    pub request: RpcExtensionUIRequestMethod,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcResponseVariant34 {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    /// Always "response".
-    pub r#type: String,
-    pub command: String,
-    pub success: bool,
-    pub error: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum RpcResponse {
-    RpcResponseVariant1(RpcResponseVariant1),
-    RpcResponseVariant2(RpcResponseVariant2),
-    RpcResponseVariant3(RpcResponseVariant3),
-    RpcResponseVariant4(RpcResponseVariant4),
-    RpcResponseVariant5(RpcResponseVariant5),
-    RpcResponseVariant6(RpcResponseVariant6),
-    RpcResponseVariant7(RpcResponseVariant7),
-    RpcResponseVariant8(RpcResponseVariant8),
-    RpcResponseVariant9(RpcResponseVariant9),
-    RpcResponseVariant10(RpcResponseVariant10),
-    RpcResponseVariant11(RpcResponseVariant11),
-    RpcResponseVariant12(RpcResponseVariant12),
-    RpcResponseVariant13(RpcResponseVariant13),
-    RpcResponseVariant14(RpcResponseVariant14),
-    RpcResponseVariant15(RpcResponseVariant15),
-    RpcResponseVariant16(RpcResponseVariant16),
-    RpcResponseVariant17(RpcResponseVariant17),
-    RpcResponseVariant18(RpcResponseVariant18),
-    RpcResponseVariant19(RpcResponseVariant19),
-    RpcResponseVariant20(RpcResponseVariant20),
-    RpcResponseVariant21(RpcResponseVariant21),
-    RpcResponseVariant22(RpcResponseVariant22),
-    RpcResponseVariant23(RpcResponseVariant23),
-    RpcResponseVariant24(RpcResponseVariant24),
-    RpcResponseVariant25(RpcResponseVariant25),
-    RpcResponseVariant26(RpcResponseVariant26),
-    RpcResponseVariant27(RpcResponseVariant27),
-    RpcResponseVariant28(RpcResponseVariant28),
-    RpcResponseVariant29(RpcResponseVariant29),
-    RpcResponseVariant30(RpcResponseVariant30),
-    RpcResponseVariant31(RpcResponseVariant31),
-    RpcResponseVariant32(RpcResponseVariant32),
-    RpcResponseVariant33(RpcResponseVariant33),
-    RpcResponseVariant34(RpcResponseVariant34),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum RpcExtensionUIRequestNotifyNotifyType {
-    #[serde(rename = "info")]
-    Info,
-    #[serde(rename = "warning")]
-    Warning,
-    #[serde(rename = "error")]
-    Error,
-}
-
-impl RpcExtensionUIRequestNotifyNotifyType {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Info => "info",
-            Self::Warning => "warning",
-            Self::Error => "error",
-        }
-    }
-}
-
-/// Emitted when an extension needs user input
+/// The `method`-tagged payload of an [`RpcExtensionUIRequest`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "method", rename_all_fields = "camelCase")]
-pub enum RpcExtensionUIRequest {
+pub enum RpcExtensionUIRequestMethod {
     #[serde(rename = "select")]
     Select {
-        /// Always "extension_ui_request".
-        r#type: String,
-        id: String,
         title: String,
         options: Vec<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        timeout: Option<i64>,
+        timeout: Option<u64>,
     },
     #[serde(rename = "confirm")]
     Confirm {
-        /// Always "extension_ui_request".
-        r#type: String,
-        id: String,
         title: String,
         message: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        timeout: Option<i64>,
+        timeout: Option<u64>,
     },
     #[serde(rename = "input")]
     Input {
-        /// Always "extension_ui_request".
-        r#type: String,
-        id: String,
         title: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         placeholder: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        timeout: Option<i64>,
+        timeout: Option<u64>,
     },
     #[serde(rename = "editor")]
     Editor {
-        /// Always "extension_ui_request".
-        r#type: String,
-        id: String,
         title: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         prefill: Option<String>,
     },
     #[serde(rename = "notify")]
     Notify {
-        /// Always "extension_ui_request".
-        r#type: String,
-        id: String,
         message: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        notify_type: Option<RpcExtensionUIRequestNotifyNotifyType>,
+        notify_type: Option<NotifyType>,
     },
     #[serde(rename = "setStatus")]
     SetStatus {
-        /// Always "extension_ui_request".
-        r#type: String,
-        id: String,
         status_key: String,
+        /// `undefined` clears the status (field omitted).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         status_text: Option<String>,
     },
     #[serde(rename = "setWidget")]
     SetWidget {
-        /// Always "extension_ui_request".
-        r#type: String,
-        id: String,
         widget_key: String,
+        /// `undefined` removes the widget (field omitted).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         widget_lines: Option<Vec<String>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         widget_placement: Option<WidgetPlacement>,
     },
     #[serde(rename = "setTitle")]
-    SetTitle {
-        /// Always "extension_ui_request".
-        r#type: String,
-        id: String,
-        title: String,
-    },
+    SetTitle { title: String },
     #[serde(rename = "set_editor_text")]
-    SetEditorText {
-        /// Always "extension_ui_request".
-        r#type: String,
-        id: String,
-        text: String,
-    },
+    SetEditorText { text: String },
 }
 
+// ============================================================================
+// Extension UI Commands (stdin)
+// ============================================================================
+
+/// Always `"extension_ui_response"`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ExtensionUIResponseTag {
+    #[default]
+    #[serde(rename = "extension_ui_response")]
+    ExtensionUiResponse,
+}
+
+/// Response to an extension UI request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RpcExtensionUIResponseVariant1 {
-    /// Always "extension_ui_response".
-    pub r#type: String,
+pub struct RpcExtensionUIResponse {
+    #[serde(rename = "type")]
+    pub tag: ExtensionUIResponseTag,
     pub id: String,
-    pub value: String,
+    #[serde(flatten)]
+    pub response: RpcExtensionUIResponseValue,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcExtensionUIResponseVariant2 {
-    /// Always "extension_ui_response".
-    pub r#type: String,
-    pub id: String,
-    pub confirmed: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcExtensionUIResponseVariant3 {
-    /// Always "extension_ui_response".
-    pub r#type: String,
-    pub id: String,
-    pub cancelled: bool,
-}
-
-/// Response to an extension UI request
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// `{ value } | { confirmed } | { cancelled: true }`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum RpcExtensionUIResponse {
-    RpcExtensionUIResponseVariant1(RpcExtensionUIResponseVariant1),
-    RpcExtensionUIResponseVariant2(RpcExtensionUIResponseVariant2),
-    RpcExtensionUIResponseVariant3(RpcExtensionUIResponseVariant3),
+pub enum RpcExtensionUIResponseValue {
+    Value { value: String },
+    Confirmed { confirmed: bool },
+    Cancelled { cancelled: bool },
 }
 
-pub type RpcCommandType = Value;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn command_parses_with_id() {
+        let cmd: RpcCommand =
+            serde_json::from_value(json!({"id": "1", "type": "set_model", "provider": "p", "modelId": "m"})).unwrap();
+        assert_eq!(cmd.id.as_deref(), Some("1"));
+        assert_eq!(cmd.kind.type_name(), "set_model");
+        assert!(matches!(cmd.kind, RpcCommandKind::SetModel { ref model_id, .. } if model_id == "m"));
+        let cmd: RpcCommand = serde_json::from_value(json!({"type": "abort"})).unwrap();
+        assert!(matches!(cmd.kind, RpcCommandKind::Abort));
+    }
+
+    #[test]
+    fn response_field_order() {
+        let r = RpcResponse::success(Some("1".into()), "export_html", Some(&RpcExportHtmlData { path: "a".into() })).unwrap();
+        assert_eq!(
+            serde_json::to_string(&r).unwrap(),
+            r#"{"id":"1","type":"response","command":"export_html","success":true,"data":{"path":"a"}}"#
+        );
+        let e = RpcResponse::error(None, "x", "boom");
+        assert_eq!(serde_json::to_string(&e).unwrap(), r#"{"type":"response","command":"x","success":false,"error":"boom"}"#);
+        let back: RpcResponse = serde_json::from_str(&serde_json::to_string(&r).unwrap()).unwrap();
+        assert_eq!(back, r);
+    }
+
+    #[test]
+    fn ui_request_shape() {
+        let req = RpcExtensionUIRequest {
+            tag: ExtensionUIRequestTag::ExtensionUiRequest,
+            id: "u".into(),
+            request: RpcExtensionUIRequestMethod::SetStatus { status_key: "k".into(), status_text: None },
+        };
+        assert_eq!(
+            serde_json::to_string(&req).unwrap(),
+            r#"{"type":"extension_ui_request","id":"u","method":"setStatus","statusKey":"k"}"#
+        );
+    }
+}

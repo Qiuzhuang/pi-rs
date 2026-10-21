@@ -269,25 +269,9 @@ pub struct PackageManagerOptions {
     pub builtin_extensions: Option<Vec<String>>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum SourceScope {
-    #[serde(rename = "user")]
-    User,
-    #[serde(rename = "project")]
-    Project,
-    #[serde(rename = "temporary")]
-    Temporary,
-}
+/// TS: a local `SourceScope` alias identical to `source-info.ts`.
+pub use crate::core::source_info::SourceScope;
 
-impl SourceScope {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::User => "user",
-            Self::Project => "project",
-            Self::Temporary => "temporary",
-        }
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

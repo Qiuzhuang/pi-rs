@@ -10,7 +10,6 @@ use pi_ai::types::SystemMessage;
 use pi_ai::types::ToolResultMessage;
 use pi_ai::types::Usage;
 use pi_ai::types::UserContent;
-use pi_ai::types::UserContentBlock;
 use pi_ai::types::UserMessage;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -225,10 +224,10 @@ pub struct CustomMessageEntry {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ContextEditableContent {
-    UserContent(UserContent),
-    List(Vec<AssistantContent>),
-    List2(Vec<UserContentBlock>),
-    UserContent2(UserContent),
+    /// User, tool-result or custom message content (`string | (TextContent | ImageContent)[]`).
+    User(UserContent),
+    /// Assistant message content (text, thinking and tool call blocks).
+    Assistant(Vec<AssistantContent>),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

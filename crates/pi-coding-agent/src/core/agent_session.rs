@@ -25,7 +25,6 @@ use crate::core::settings_manager::SettingsManager;
 use crate::core::settings_schema::CacheWarmingMode;
 use crate::core::source_info::SourceInfo;
 use crate::core::tools::bash::BashOperations;
-use crate::modes::interactive::components::status_indicator::CompactionStatusReason;
 use futures::future::BoxFuture;
 use indexmap::IndexMap;
 use pi_agent::agent::Agent;
@@ -37,6 +36,9 @@ use pi_ai::types::ImageContent;
 use pi_ai::types::Model;
 use pi_ai::types::UserContent;
 use serde::{Deserialize, Serialize};
+use pi_agent::types::{AgentEvent, AgentToolResult};
+use pi_ai::types::{AssistantMessageEvent, ToolResultMessage};
+use crate::core::extensions::types::CompactionReason;
 use serde_json::Value;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
@@ -58,174 +60,152 @@ pub fn parse_skill_block(text: &str) -> Option<ParsedSkillBlock> {
     todo!("port core/agent-session.ts:parseSkillBlock")
 }
 
-/// Tool execution events of calls a tool made through `ctx.executeTool()` carry `parentToolCallId`.
-pub type WithParentToolCallId = Value;
-
+/// Source of a `summarization_retry_attempt_start` event (discriminated by `source`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentSessionEventVariant2 {
-    /// Always "agent_end".
-    pub r#type: String,
-    pub messages: Vec<AgentMessage>,
-    pub will_retry: bool,
+#[serde(tag = "source", rename_all_fields = "camelCase")]
+pub enum SummarizationRetrySource {
+    #[serde(rename = "branchSummary")]
+    BranchSummary,
+    #[serde(rename = "compaction")]
+    Compaction { reason: CompactionReason },
 }
 
+/// Session-specific events that extend the core `AgentEvent` (TS `AgentSessionEvent`).
+///
+/// The core agent events are repeated here (except `agent_end`, which gains `willRetry`), and
+/// the `tool_execution_*` events carry `parentToolCallId` for calls a tool made through
+/// `ctx.executeTool()` (TS `WithParentToolCallId`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentSessionEventVariant3 {
-    /// Always "agent_settled".
-    pub r#type: String,
-    pub aborted: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentSessionEventVariant4 {
-    /// Always "queue_update".
-    pub r#type: String,
-    pub steering: Vec<String>,
-    pub follow_up: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentSessionEventVariant5 {
-    /// Always "compaction_start".
-    pub r#type: String,
-    pub reason: CompactionStatusReason,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentSessionEventVariant6 {
-    /// Always "entry_appended".
-    pub r#type: String,
-    pub entry: SessionEntry,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentSessionEventVariant7 {
-    /// Always "session_info_changed".
-    pub r#type: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentSessionEventVariant8 {
-    /// Always "thinking_level_changed".
-    pub r#type: String,
-    pub level: ThinkingLevel,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentSessionEventVariant9 {
-    /// Always "compaction_end".
-    pub r#type: String,
-    pub reason: CompactionStatusReason,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub result: Option<CompactionResult>,
-    pub aborted: bool,
-    pub will_retry: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub error_message: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentSessionEventVariant10 {
-    /// Always "auto_retry_start".
-    pub r#type: String,
-    pub attempt: i64,
-    pub max_attempts: i64,
-    pub delay_ms: i64,
-    pub error_message: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentSessionEventVariant11 {
-    /// Always "auto_retry_end".
-    pub r#type: String,
-    pub success: bool,
-    pub attempt: i64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub final_error: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentSessionEventVariant12 {
-    /// Always "summarization_retry_scheduled".
-    pub r#type: String,
-    pub attempt: i64,
-    pub max_attempts: i64,
-    pub delay_ms: i64,
-    pub error_message: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentSessionEventVariant13 {
-    /// Always "summarization_retry_attempt_start".
-    pub r#type: String,
-    /// Always "branchSummary".
-    pub source: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentSessionEventVariant14 {
-    /// Always "summarization_retry_attempt_start".
-    pub r#type: String,
-    /// Always "compaction".
-    pub source: String,
-    pub reason: CompactionStatusReason,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentSessionEventVariant15 {
-    /// Always "summarization_retry_finished".
-    pub r#type: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentSessionEventVariant16 {
-    /// Always "bash_execution_update".
-    pub r#type: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    pub delta: String,
-}
-
-/// Session-specific events that extend the core AgentEvent
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
+#[serde(tag = "type", rename_all = "snake_case", rename_all_fields = "camelCase")]
 pub enum AgentSessionEvent {
-    WithParentToolCallId(WithParentToolCallId),
-    AgentSessionEventVariant2(AgentSessionEventVariant2),
-    AgentSessionEventVariant3(AgentSessionEventVariant3),
-    AgentSessionEventVariant4(AgentSessionEventVariant4),
-    AgentSessionEventVariant5(AgentSessionEventVariant5),
-    AgentSessionEventVariant6(AgentSessionEventVariant6),
-    AgentSessionEventVariant7(AgentSessionEventVariant7),
-    AgentSessionEventVariant8(AgentSessionEventVariant8),
-    AgentSessionEventVariant9(AgentSessionEventVariant9),
-    AgentSessionEventVariant10(AgentSessionEventVariant10),
-    AgentSessionEventVariant11(AgentSessionEventVariant11),
-    AgentSessionEventVariant12(AgentSessionEventVariant12),
-    AgentSessionEventVariant13(AgentSessionEventVariant13),
-    AgentSessionEventVariant14(AgentSessionEventVariant14),
-    AgentSessionEventVariant15(AgentSessionEventVariant15),
-    AgentSessionEventVariant16(AgentSessionEventVariant16),
+    AgentStart,
+    TurnStart,
+    TurnEnd {
+        message: AgentMessage,
+        tool_results: Vec<ToolResultMessage>,
+    },
+    MessageStart {
+        message: AgentMessage,
+    },
+    MessageUpdate {
+        message: AgentMessage,
+        assistant_message_event: Box<AssistantMessageEvent>,
+    },
+    MessageEnd {
+        message: AgentMessage,
+    },
+    ToolExecutionStart {
+        tool_call_id: String,
+        tool_name: String,
+        args: Value,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        parent_tool_call_id: Option<String>,
+    },
+    ToolExecutionUpdate {
+        tool_call_id: String,
+        tool_name: String,
+        args: Value,
+        partial_result: AgentToolResult,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        parent_tool_call_id: Option<String>,
+    },
+    ToolExecutionEnd {
+        tool_call_id: String,
+        tool_name: String,
+        result: AgentToolResult,
+        is_error: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        duration_ms: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        parent_tool_call_id: Option<String>,
+    },
+    AgentEnd {
+        messages: Vec<AgentMessage>,
+        will_retry: bool,
+    },
+    AgentSettled {
+        aborted: bool,
+    },
+    QueueUpdate {
+        steering: Vec<String>,
+        follow_up: Vec<String>,
+    },
+    CompactionStart {
+        reason: CompactionReason,
+    },
+    EntryAppended {
+        entry: SessionEntry,
+    },
+    SessionInfoChanged {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+    },
+    ThinkingLevelChanged {
+        level: ThinkingLevel,
+    },
+    CompactionEnd {
+        reason: CompactionReason,
+        /// `CompactionResult | undefined` (omitted when undefined).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        result: Option<CompactionResult>,
+        aborted: bool,
+        will_retry: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error_message: Option<String>,
+    },
+    AutoRetryStart {
+        attempt: u64,
+        max_attempts: u64,
+        delay_ms: u64,
+        error_message: String,
+    },
+    AutoRetryEnd {
+        success: bool,
+        attempt: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        final_error: Option<String>,
+    },
+    SummarizationRetryScheduled {
+        attempt: u64,
+        max_attempts: u64,
+        delay_ms: u64,
+        error_message: String,
+    },
+    SummarizationRetryAttemptStart(SummarizationRetrySource),
+    SummarizationRetryFinished,
+    BashExecutionUpdate {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        delta: String,
+    },
 }
 
-/// Listener function for agent session events
+impl AgentSessionEvent {
+    /// Map a core agent event (except `agent_end`, which the session re-emits with `will_retry`).
+    pub fn from_agent_event(event: AgentEvent, parent_tool_call_id: Option<String>) -> Option<Self> {
+        Some(match event {
+            AgentEvent::AgentStart => Self::AgentStart,
+            AgentEvent::AgentEnd { .. } => return None,
+            AgentEvent::TurnStart => Self::TurnStart,
+            AgentEvent::TurnEnd { message, tool_results } => Self::TurnEnd { message, tool_results },
+            AgentEvent::MessageStart { message } => Self::MessageStart { message },
+            AgentEvent::MessageUpdate { message, assistant_message_event } => {
+                Self::MessageUpdate { message, assistant_message_event }
+            }
+            AgentEvent::MessageEnd { message } => Self::MessageEnd { message },
+            AgentEvent::ToolExecutionStart { tool_call_id, tool_name, args } => {
+                Self::ToolExecutionStart { tool_call_id, tool_name, args, parent_tool_call_id }
+            }
+            AgentEvent::ToolExecutionUpdate { tool_call_id, tool_name, args, partial_result } => {
+                Self::ToolExecutionUpdate { tool_call_id, tool_name, args, partial_result, parent_tool_call_id }
+            }
+            AgentEvent::ToolExecutionEnd { tool_call_id, tool_name, result, is_error, duration_ms } => {
+                Self::ToolExecutionEnd { tool_call_id, tool_name, result, is_error, duration_ms, parent_tool_call_id }
+            }
+        })
+    }
+}
+
 pub type AgentSessionEventListener = Arc<dyn Fn(AgentSessionEvent) + Send + Sync>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -63,6 +63,11 @@ ruzstd = "0.8"
 hmac = "0.12"
 rsa = { version = "0.9", features = ["sha2"] }
 crc32fast = "1"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
+unicode-normalization = "0.1"
+yaml-rust2 = "0.10"
+ignore = "0.4"
+tempfile = "3"
 
 # Disk is limited in the build environment: keep debug info small.
 [profile.dev]

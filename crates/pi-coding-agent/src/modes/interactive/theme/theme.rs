@@ -249,14 +249,14 @@ impl TerminalTheme {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct EmptyParseAutoThemeSettingResult {
+pub struct ParseAutoThemeSettingResult {
     pub light_theme: String,
     pub dark_theme: String,
 }
 
 pub fn parse_auto_theme_setting(
     theme_setting: Option<&str>,
-) -> Option<EmptyParseAutoThemeSettingResult> {
+) -> Option<ParseAutoThemeSettingResult> {
     todo!("port modes/interactive/theme/theme.ts:parseAutoThemeSetting")
 }
 
@@ -305,13 +305,13 @@ pub fn init_theme(theme_name: Option<&str>, enable_watcher: Option<bool>) {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct EmptySetThemeResult {
+pub struct SetThemeResult {
     pub success: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
 
-pub fn set_theme(name: &str, enable_watcher: Option<bool>) -> EmptySetThemeResult {
+pub fn set_theme(name: &str, enable_watcher: Option<bool>) -> SetThemeResult {
     todo!("port modes/interactive/theme/theme.ts:setTheme")
 }
 
@@ -340,7 +340,7 @@ pub fn is_light_theme(theme_name: Option<&str>) -> bool {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct EmptyGetThemeExportColorsResult {
+pub struct GetThemeExportColorsResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub page_bg: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -351,7 +351,7 @@ pub struct EmptyGetThemeExportColorsResult {
 
 /// Get explicit export colors from theme JSON, if specified.
 /// Returns undefined for each color that isn't explicitly set.
-pub fn get_theme_export_colors(theme_name: Option<&str>) -> EmptyGetThemeExportColorsResult {
+pub fn get_theme_export_colors(theme_name: Option<&str>) -> GetThemeExportColorsResult {
     todo!("port modes/interactive/theme/theme.ts:getThemeExportColors")
 }
 

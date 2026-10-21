@@ -233,27 +233,27 @@ pub struct RunWithProgressOptions {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct EmptyRunWithProgressResultVariant1 {
+pub struct RunWithProgressResultVariant1 {
     pub cancelled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct EmptyRunWithProgressResultVariant2 {
+pub struct RunWithProgressResultVariant2 {
     pub cancelled: bool,
     pub value: Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum EmptyRunWithProgressResult {
-    EmptyRunWithProgressResultVariant1(EmptyRunWithProgressResultVariant1),
-    EmptyRunWithProgressResultVariant2(EmptyRunWithProgressResultVariant2),
+pub enum RunWithProgressResult {
+    RunWithProgressResultVariant1(RunWithProgressResultVariant1),
+    RunWithProgressResultVariant2(RunWithProgressResultVariant2),
 }
 
 pub async fn run_with_progress(
     ui: Arc<dyn LlamaUi>,
     options: &RunWithProgressOptions,
-) -> anyhow::Result<EmptyRunWithProgressResult> {
+) -> anyhow::Result<RunWithProgressResult> {
     todo!("port extensions/llama/ui.ts:runWithProgress")
 }

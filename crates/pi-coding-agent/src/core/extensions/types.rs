@@ -67,8 +67,8 @@ use pi_agent::types::{
 };
 use pi_ai::models::{Provider, ProviderClassifier, ProviderImages, RefreshModelsContext};
 use pi_ai::types::{
-    Api, AssistantMessageEvent, ConstrainedSamplingConfig, ImageContent, JsonObject,
-    Message, Model, ModelCompat, ModelCost, ModelInputLimits, ModelInputModality, ModelPromptCache,
+    Api, AssistantMessageEvent, ConstrainedSamplingConfig, ImageContent, JsonObject, Message,
+    Model, ModelCompat, ModelCost, ModelInputLimits, ModelInputModality, ModelPromptCache,
     ProviderHeaders, ProviderId, ToolResultMessage, TranscriptContext, Usage, UserContent,
     UserContentBlock,
 };

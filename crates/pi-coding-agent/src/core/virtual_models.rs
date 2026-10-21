@@ -161,7 +161,7 @@ pub fn find_latest_response(messages: &[AgentMessage]) -> Option<AssistantMessag
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct EmptyGetBranchSelectionResult {
+pub struct GetBranchSelectionResult {
     pub provider: String,
     pub model_id: String,
 }
@@ -175,7 +175,7 @@ pub struct EmptyGetBranchSelectionResult {
 pub fn get_branch_selection(
     branch: &[SessionEntry],
     get_model: Arc<dyn Fn(String, String) -> Option<Model> + Send + Sync>,
-) -> Option<EmptyGetBranchSelectionResult> {
+) -> Option<GetBranchSelectionResult> {
     todo!("port core/virtual-models.ts:getBranchSelection")
 }
 

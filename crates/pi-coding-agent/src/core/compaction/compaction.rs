@@ -190,7 +190,7 @@ pub async fn generate_summary(
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct EmptyGenerateSummaryWithUsageResult {
+pub struct GenerateSummaryWithUsageResult {
     pub text: String,
     pub usage: Usage,
 }
@@ -211,7 +211,7 @@ pub async fn generate_summary_with_usage(
     retry: Option<RetryPolicy>,
     callbacks: Option<RetryCallbacks>,
     session_id: Option<&str>,
-) -> anyhow::Result<EmptyGenerateSummaryWithUsageResult> {
+) -> anyhow::Result<GenerateSummaryWithUsageResult> {
     todo!("port core/compaction/compaction.ts:generateSummaryWithUsage")
 }
 

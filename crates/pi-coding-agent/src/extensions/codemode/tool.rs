@@ -129,7 +129,7 @@ pub static DEFAULT_CODEMODE_INLINE_BUDGET: LazyLock<i64> =
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct EmptyToCodemodeDeclarationResult {
+pub struct ToCodemodeDeclarationResult {
     /// The script calls tools as `tools.<id>(args)`, where `<id>` is the name with characters that
     /// are not valid in identifiers replaced by `_` (see `toCodemodeIdentifier`), and also as
     /// `tools["<name>"](args)`. Globals are called as `<name>(args)` and must be identifiers, or
@@ -158,7 +158,7 @@ pub struct EmptyToCodemodeDeclarationResult {
 pub fn to_codemode_declaration(
     tool: AgentToolRef,
     guidelines: Option<&[String]>,
-) -> EmptyToCodemodeDeclarationResult {
+) -> ToCodemodeDeclarationResult {
     todo!("port extensions/codemode/tool.ts:toCodemodeDeclaration")
 }
 

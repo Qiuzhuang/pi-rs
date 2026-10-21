@@ -4,13 +4,13 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct EmptySplitBomResult {
+pub struct SplitBomResult {
     pub bom: String,
     pub text: String,
 }
 
 /// Split a leading UTF-8 byte order mark from decoded text.
-pub fn split_bom(content: &str) -> EmptySplitBomResult {
+pub fn split_bom(content: &str) -> SplitBomResult {
     todo!("port utils/text.ts:splitBom")
 }
 

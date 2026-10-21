@@ -18,12 +18,12 @@ pub struct InteractiveTuiOptions {
 }
 
 #[derive(Clone)]
-pub enum EmptyCreateInteractiveTuiResult {
+pub enum CreateInteractiveTuiResult {
     Arc(Arc<Tui>),
     Arc2(Arc<Tui>),
 }
 
-pub fn create_interactive_tui(options: &InteractiveTuiOptions) -> EmptyCreateInteractiveTuiResult {
+pub fn create_interactive_tui(options: &InteractiveTuiOptions) -> CreateInteractiveTuiResult {
     todo!("port modes/interactive/tui-renderer.ts:createInteractiveTui")
 }
 

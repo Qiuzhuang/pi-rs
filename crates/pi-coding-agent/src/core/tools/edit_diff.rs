@@ -3,14 +3,14 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum EmptyDetectLineEndingResult {
+pub enum DetectLineEndingResult {
     #[serde(rename = "\r\n")]
     Empty,
     #[serde(rename = "\n")]
     Empty2,
 }
 
-impl EmptyDetectLineEndingResult {
+impl DetectLineEndingResult {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Empty => "\r\n",
@@ -19,7 +19,7 @@ impl EmptyDetectLineEndingResult {
     }
 }
 
-pub fn detect_line_ending(content: &str) -> EmptyDetectLineEndingResult {
+pub fn detect_line_ending(content: &str) -> DetectLineEndingResult {
     todo!("port core/tools/edit-diff.ts:detectLineEnding")
 }
 
@@ -27,7 +27,7 @@ pub fn normalize_to_lf(text: &str) -> String {
     todo!("port core/tools/edit-diff.ts:normalizeToLF")
 }
 
-pub fn restore_line_endings(text: &str, ending: EmptyDetectLineEndingResult) -> String {
+pub fn restore_line_endings(text: &str, ending: DetectLineEndingResult) -> String {
     todo!("port core/tools/edit-diff.ts:restoreLineEndings")
 }
 
@@ -146,7 +146,7 @@ pub fn generate_unified_patch(
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct EmptyGenerateDiffStringResult {
+pub struct GenerateDiffStringResult {
     pub diff: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub first_changed_line: Option<i64>,
@@ -158,7 +158,7 @@ pub fn generate_diff_string(
     old_content: &str,
     new_content: &str,
     context_lines: Option<i64>,
-) -> EmptyGenerateDiffStringResult {
+) -> GenerateDiffStringResult {
     todo!("port core/tools/edit-diff.ts:generateDiffString")
 }
 
@@ -178,7 +178,7 @@ pub struct EditDiffError {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum EmptyComputeEditsDiffResult {
+pub enum ComputeEditsDiffResult {
     EditDiffResult(EditDiffResult),
     EditDiffError(EditDiffError),
 }
@@ -189,13 +189,13 @@ pub async fn compute_edits_diff(
     path: &str,
     edits: &[Edit],
     cwd: &str,
-) -> anyhow::Result<EmptyComputeEditsDiffResult> {
+) -> anyhow::Result<ComputeEditsDiffResult> {
     todo!("port core/tools/edit-diff.ts:computeEditsDiff")
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum EmptyComputeEditDiffResult {
+pub enum ComputeEditDiffResult {
     EditDiffResult(EditDiffResult),
     EditDiffError(EditDiffError),
 }
@@ -207,6 +207,6 @@ pub async fn compute_edit_diff(
     old_text: &str,
     new_text: &str,
     cwd: &str,
-) -> anyhow::Result<EmptyComputeEditDiffResult> {
+) -> anyhow::Result<ComputeEditDiffResult> {
     todo!("port core/tools/edit-diff.ts:computeEditDiff")
 }

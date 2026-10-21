@@ -255,7 +255,7 @@ pub async fn find_initial_model(
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct EmptyRestoreModelFromSessionResult {
+pub struct RestoreModelFromSessionResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<Model>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -269,6 +269,6 @@ pub async fn restore_model_from_session(
     current_model: Option<Model>,
     should_print_messages: bool,
     model_runtime: Arc<ModelRuntime>,
-) -> anyhow::Result<EmptyRestoreModelFromSessionResult> {
+) -> anyhow::Result<RestoreModelFromSessionResult> {
     todo!("port core/model-resolver.ts:restoreModelFromSession")
 }

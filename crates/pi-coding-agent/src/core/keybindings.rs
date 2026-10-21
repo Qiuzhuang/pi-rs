@@ -20,14 +20,14 @@ pub static KEYBINDINGS: LazyLock<Value> =
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct EmptyMigrateKeybindingsConfigResult {
+pub struct MigrateKeybindingsConfigResult {
     pub config: IndexMap<String, Value>,
     pub migrated: bool,
 }
 
 pub fn migrate_keybindings_config(
     raw_config: IndexMap<String, Value>,
-) -> EmptyMigrateKeybindingsConfigResult {
+) -> MigrateKeybindingsConfigResult {
     todo!("port core/keybindings.ts:migrateKeybindingsConfig")
 }
 

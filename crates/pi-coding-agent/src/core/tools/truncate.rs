@@ -95,14 +95,14 @@ pub fn truncate_tail(content: &str, options: Option<&TruncationOptions>) -> Trun
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct EmptyTruncateLineResult {
+pub struct TruncateLineResult {
     pub text: String,
     pub was_truncated: bool,
 }
 
 /// Truncate a single line to max characters, adding [truncated] suffix.
 /// Used for grep match lines.
-pub fn truncate_line(line: &str, max_chars: Option<i64>) -> EmptyTruncateLineResult {
+pub fn truncate_line(line: &str, max_chars: Option<i64>) -> TruncateLineResult {
     todo!("port core/tools/truncate.ts:truncateLine")
 }
 

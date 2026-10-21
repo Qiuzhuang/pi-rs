@@ -13,7 +13,7 @@ pub async fn convert_image_bytes_to_png(bytes: &[u8]) -> anyhow::Result<Option<V
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct EmptyConvertToPngResult {
+pub struct ConvertToPngResult {
     pub data: String,
     pub mime_type: String,
 }
@@ -23,7 +23,7 @@ pub struct EmptyConvertToPngResult {
 pub async fn convert_to_png(
     base64_data: &str,
     mime_type: &str,
-) -> anyhow::Result<Option<EmptyConvertToPngResult>> {
+) -> anyhow::Result<Option<ConvertToPngResult>> {
     todo!("port utils/image-convert.ts:convertToPng")
 }
 

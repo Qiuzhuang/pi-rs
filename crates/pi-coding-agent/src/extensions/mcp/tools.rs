@@ -95,7 +95,7 @@ pub fn create_mcp_result_schema(
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct EmptyLimitMcpContentResult {
+pub struct LimitMcpContentResult {
     pub content: Vec<UserContentBlock>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub full_output_path: Option<String>,
@@ -106,7 +106,7 @@ pub struct EmptyLimitMcpContentResult {
 pub async fn limit_mcp_content(
     content: &[UserContentBlock],
     save_output: Option<&McpOutputSaver>,
-) -> anyhow::Result<EmptyLimitMcpContentResult> {
+) -> anyhow::Result<LimitMcpContentResult> {
     todo!("port extensions/mcp/tools.ts:limitMcpContent")
 }
 

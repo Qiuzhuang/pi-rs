@@ -13,7 +13,7 @@ pub struct UploadBugReportOptions {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct EmptyUploadBugReportResult {
+pub struct UploadBugReportResult {
     pub id: String,
 }
 
@@ -21,6 +21,6 @@ pub struct EmptyUploadBugReportResult {
 pub async fn upload_bug_report(
     bundle: &BugReportBundle,
     options: Option<&UploadBugReportOptions>,
-) -> anyhow::Result<EmptyUploadBugReportResult> {
+) -> anyhow::Result<UploadBugReportResult> {
     todo!("port core/bug-report-upload.ts:uploadBugReport")
 }

@@ -309,7 +309,7 @@ pub async fn emit_session_shutdown_event(
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct EmptyEmitProjectTrustEventResult {
+pub struct EmitProjectTrustEventResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub result: Option<ProjectTrustEventResult>,
     pub errors: Vec<ExtensionError>,
@@ -319,7 +319,7 @@ pub async fn emit_project_trust_event(
     extensions_result: &LoadExtensionsResult,
     event: &ProjectTrustEvent,
     ctx: &ProjectTrustContext,
-) -> anyhow::Result<EmptyEmitProjectTrustEventResult> {
+) -> anyhow::Result<EmitProjectTrustEventResult> {
     todo!("port core/extensions/runner.ts:emitProjectTrustEvent")
 }
 

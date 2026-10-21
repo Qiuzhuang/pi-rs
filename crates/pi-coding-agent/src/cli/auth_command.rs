@@ -74,7 +74,7 @@ pub fn parse_auth_command(args: &[String]) -> anyhow::Result<Option<AuthCommand>
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct EmptyValidateAuthCommandArgsResult {
+pub struct ValidateAuthCommandArgsResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -84,7 +84,7 @@ pub struct EmptyValidateAuthCommandArgsResult {
 pub fn validate_auth_command_args(
     args: &Args,
     kind: &AuthCommandKind,
-) -> anyhow::Result<EmptyValidateAuthCommandArgsResult> {
+) -> anyhow::Result<ValidateAuthCommandArgsResult> {
     todo!("port cli/auth-command.ts:validateAuthCommandArgs")
 }
 

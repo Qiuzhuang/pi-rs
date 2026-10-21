@@ -53,6 +53,8 @@ oxc_transformer = "0.155"
 oxc_codegen = "0.155"
 oxc_span = "0.155"
 oxc_diagnostics = "0.155"
+oxc_ast = "0.155"
+oxc_ast_visit = "0.155"
 md-5 = "0.10"
 sha1 = "0.10"
 indexmap = { version = "2", features = ["serde"] }
@@ -61,3 +63,13 @@ ruzstd = "0.8"
 hmac = "0.12"
 rsa = { version = "0.9", features = ["sha2"] }
 crc32fast = "1"
+
+# Disk is limited in the build environment: keep debug info small.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.test]
+debug = "line-tables-only"

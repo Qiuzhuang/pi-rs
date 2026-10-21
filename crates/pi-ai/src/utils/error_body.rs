@@ -151,12 +151,15 @@ pub struct NormalizedProviderError {
 /// Normalize any error into status/body/message.
 pub fn normalize_provider_error(error: &anyhow::Error) -> NormalizedProviderError {
     if let Some(http) = error.downcast_ref::<ProviderHttpError>() {
-        let body = http
-            .body
-            .as_deref()
-            .map(str::trim)
-            .filter(|b| !b.is_empty())
-            .map(|b| truncate_error_text(b, MAX_PROVIDER_ERROR_BODY_CHARS));
+        // Like the SDK error objects: the parsed error body (`error.error`) is the body when it is
+        // a non-empty object.
+        let body = match &http.error {
+            Some(Value::Object(map)) if !map.is_empty() => Some(Value::Object(map.clone()).to_string()),
+            _ => None,
+        }
+        .map(|b| b.trim().to_string())
+        .filter(|b| !b.is_empty())
+        .map(|b| truncate_error_text(&b, MAX_PROVIDER_ERROR_BODY_CHARS));
         let message_carries_body = match &body {
             None => true,
             Some(b) => http.message.contains(b.as_str()),
@@ -192,4 +195,40 @@ pub fn truncate_error_text(text: &str, max_chars: usize) -> String {
 
 pub fn safe_json_stringify(value: &Value) -> String {
     value.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use reqwest::header::HeaderMap;
+
+    #[test]
+    fn sdk_messages_and_normalization() {
+        let anthropic = ProviderHttpError::from_response(
+            400,
+            HeaderMap::new(),
+            r#"{"type":"error","error":{"type":"invalid_request_error","message":"bad"}}"#.into(),
+            SdkErrorStyle::Anthropic,
+        );
+        assert_eq!(anthropic.message, r#"400 {"type":"error","error":{"type":"invalid_request_error","message":"bad"}}"#);
+        let norm = normalize_provider_error(&anyhow::Error::new(anthropic));
+        assert!(norm.message_carries_body);
+        assert_eq!(format_provider_error(&norm, None), norm.message);
+
+        let openai = ProviderHttpError::from_response(
+            400,
+            HeaderMap::new(),
+            r#"{"error":{"message":"Bad things","code":null}}"#.into(),
+            SdkErrorStyle::OpenAI,
+        );
+        assert_eq!(openai.message, "400 Bad things");
+        let norm = normalize_provider_error(&anyhow::Error::new(openai));
+        assert_eq!(format_provider_error(&norm, None), r#"400: {"message":"Bad things","code":null}"#);
+
+        let no_body = ProviderHttpError::from_response(403, HeaderMap::new(), String::new(), SdkErrorStyle::OpenAI);
+        assert_eq!(no_body.message, "403 status code (no body)");
+        let detail = ProviderHttpError::from_response(502, HeaderMap::new(), r#"{"detail":"x"}"#.into(), SdkErrorStyle::OpenAI);
+        assert_eq!(detail.message, "502 status code (no body)");
+        assert_eq!(truncate_error_text("abcdef", 3), "abc... [truncated 3 chars]");
+    }
 }

@@ -26,6 +26,8 @@ dirs = { workspace = true }
 tracing = { workspace = true }
 bytes = { workspace = true }
 indexmap = { workspace = true }
+tokio-tungstenite = { workspace = true }
+ruzstd = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

@@ -234,3 +234,74 @@ pub fn resolve_grammar_constrained_sampling(
         input_property,
     }))
 }
+
+/// Streaming state for re-encoding grammar tool input as JSON argument deltas.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct GrammarToolInputJsonBuffer {
+    pub input: String,
+    pub started: bool,
+    pub closed: bool,
+}
+
+/// The raw grammar input string of a grammar tool call.
+pub fn get_grammar_tool_input(
+    tool_name: &str,
+    arguments: &serde_json::Map<String, Value>,
+    input_property: &str,
+) -> anyhow::Result<String> {
+    match arguments.get(input_property) {
+        Some(Value::String(input)) => Ok(input.clone()),
+        _ => anyhow::bail!("Grammar tool call \"{tool_name}\" requires argument \"{input_property}\" to be a string."),
+    }
+}
+
+/// Append grammar input and return the JSON text delta for `{"<property>":"<input>"}`.
+pub fn append_grammar_tool_input_json_delta(
+    buffer: &mut GrammarToolInputJsonBuffer,
+    input_property: &str,
+    next_input: &str,
+    close: bool,
+) -> anyhow::Result<Option<String>> {
+    if buffer.closed {
+        if close && next_input == buffer.input {
+            return Ok(None);
+        }
+        anyhow::bail!("grammar tool input for property \"{input_property}\" changed after it was closed");
+    }
+    if !next_input.starts_with(buffer.input.as_str()) {
+        anyhow::bail!("grammar tool input for property \"{input_property}\" changed non-monotonically");
+    }
+    let input_delta = &next_input[buffer.input.len()..];
+    if !close && input_delta.is_empty() {
+        return Ok(None);
+    }
+    let mut delta = String::new();
+    if !buffer.started {
+        delta.push('{');
+        delta.push_str(&Value::String(input_property.to_string()).to_string());
+        delta.push_str(":\"");
+        buffer.started = true;
+    }
+    let encoded = Value::String(input_delta.to_string()).to_string();
+    delta.push_str(&encoded[1..encoded.len() - 1]);
+    buffer.input = next_input.to_string();
+    if close {
+        delta.push_str("\"}");
+        buffer.closed = true;
+    }
+    Ok(Some(delta))
+}
+
+/// Map of grammar tool names to their input property.
+pub fn create_grammar_tool_input_properties(
+    tools: &[Tool],
+    supports_openai_grammar_tools: bool,
+) -> anyhow::Result<std::collections::HashMap<String, String>> {
+    let mut properties = std::collections::HashMap::new();
+    for tool in tools {
+        if let Some(grammar) = resolve_grammar_constrained_sampling(tool, supports_openai_grammar_tools)? {
+            properties.insert(tool.name.clone(), grammar.input_property);
+        }
+    }
+    Ok(properties)
+}

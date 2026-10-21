@@ -129,11 +129,10 @@ pub async fn generate_images(model: &ImageModel, context: &ImagesContext, option
             anyhow::bail!("No API key for provider: {}", model.provider);
         };
         let mut params = build_params(model, context);
-        if let Some(on_payload) = &options.on_payload {
-            if let Some(next) = on_payload(params.clone(), image_hook_model(model)).await {
+        if let Some(on_payload) = &options.on_payload
+            && let Some(next) = on_payload(params.clone(), image_hook_model(model)).await {
                 params = next;
             }
-        }
         let timeout_ms = options.timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS);
         let url = format!("{}/chat/completions", model.base_url.trim_end_matches('/'));
         let headers = build_headers(model, &api_key, &options, timeout_ms);

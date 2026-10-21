@@ -41,8 +41,8 @@ pub fn timeout_http_error(timeout_ms: u64) -> ProviderHttpError {
 /// [`normalize_provider_error`] that also reads the raw body text of [`body_text_http_error`]s
 /// (TS: a `body` string field wins over the parsed `error` object).
 pub fn normalize_classifier_error(error: &anyhow::Error) -> NormalizedProviderError {
-    if let Some(http) = error.downcast_ref::<ProviderHttpError>() {
-        if http.name == BODY_TEXT_HTTP_ERROR {
+    if let Some(http) = error.downcast_ref::<ProviderHttpError>()
+        && http.name == BODY_TEXT_HTTP_ERROR {
             let body = http
                 .body
                 .as_deref()
@@ -55,7 +55,6 @@ pub fn normalize_classifier_error(error: &anyhow::Error) -> NormalizedProviderEr
             };
             return NormalizedProviderError { status: http.status, body, message: http.message.clone(), message_carries_body };
         }
-    }
     normalize_provider_error(error)
 }
 
@@ -160,11 +159,10 @@ pub(crate) async fn post_json_attempt(
 }
 
 fn map_send_error(error: reqwest::Error, timeout_ms: Option<u64>) -> anyhow::Error {
-    if error.is_timeout() {
-        if let Some(timeout) = timeout_ms {
+    if error.is_timeout()
+        && let Some(timeout) = timeout_ms {
             return timeout_http_error(timeout).into();
         }
-    }
     // A fetch failure (not an HTTP error): not retried, like a `TypeError` from `fetch`.
     anyhow::anyhow!("fetch failed: {error}")
 }
@@ -192,11 +190,10 @@ pub async fn post_classifier_request(
         anyhow::bail!("No API key for provider: {}", model.provider);
     };
     let mut payload = body;
-    if let Some(on_payload) = &options.on_payload {
-        if let Some(next) = on_payload(payload.clone(), classifier_hook_model(model)).await {
+    if let Some(on_payload) = &options.on_payload
+        && let Some(next) = on_payload(payload.clone(), classifier_hook_model(model)).await {
             payload = next;
         }
-    }
     let headers = request_headers(model, Some(&api_key), options);
     let client = http_client(url, options)?;
     let retry = ProviderRetryOptions {

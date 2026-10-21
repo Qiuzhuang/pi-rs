@@ -53,6 +53,26 @@ pub fn resolve_builtin_api(api: &str) -> Option<Arc<dyn ProviderStreams>> {
     }
 }
 
+/// The built-in implementation of image API `api`, if one exists.
+pub fn resolve_builtin_images_api(api: &str) -> Option<Arc<dyn ProviderImages>> {
+    match api {
+        "openrouter-images" => Some(Arc::new(super::openrouter_images::OpenRouterImagesApi)),
+        _ => None,
+    }
+}
+
+/// The built-in implementation of classifier API `api`, if one exists.
+pub fn resolve_builtin_classifier_api(api: &str) -> Option<Arc<dyn ProviderClassifier>> {
+    match api {
+        "typesafe-system-one" => Some(Arc::new(super::typesafe_system_one::TypesafeSystemOneApi)),
+        "cloudflare-workers-ai-system-one" => {
+            Some(Arc::new(super::cloudflare_workers_ai_system_one::CloudflareWorkersAiSystemOneApi))
+        }
+        "llama-cpp-classify" => Some(Arc::new(super::llama_cpp_classify::LlamaCppClassifyApi)),
+        _ => None,
+    }
+}
+
 fn not_implemented(model: &Model, api: &str) -> AssistantMessageEventStream {
     error_stream(model, anyhow::anyhow!("API \"{api}\" is not implemented in this build"))
 }
@@ -151,7 +171,7 @@ pub fn builtin_images_api(api: &str) -> Arc<dyn ProviderImages> {
 #[async_trait]
 impl ProviderImages for BuiltinImagesApi {
     async fn generate_images(&self, model: &ImageModel, context: &ImagesContext, options: StreamOptions) -> AssistantImages {
-        let implementation = IMAGE_IMPLS.read().get(&self.api).cloned();
+        let implementation = IMAGE_IMPLS.read().get(&self.api).cloned().or_else(|| resolve_builtin_images_api(&self.api));
         match implementation {
             Some(implementation) => implementation.generate_images(model, context, options).await,
             None => image_error_result(
@@ -175,7 +195,8 @@ pub fn builtin_classifier_api(api: &str) -> Arc<dyn ProviderClassifier> {
 #[async_trait]
 impl ProviderClassifier for BuiltinClassifierApi {
     async fn classify(&self, model: &ClassifierModel, context: &ClassifierContext, options: StreamOptions) -> ClassifierResult {
-        let implementation = CLASSIFIER_IMPLS.read().get(&self.api).cloned();
+        let implementation =
+            CLASSIFIER_IMPLS.read().get(&self.api).cloned().or_else(|| resolve_builtin_classifier_api(&self.api));
         match implementation {
             Some(implementation) => implementation.classify(model, context, options).await,
             None => classifier_error_result(

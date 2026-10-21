@@ -107,11 +107,10 @@ pub fn wire_request(context: &ClassifierContext) -> SystemOneWireRequest {
         .iter()
         .map(|(id, question)| {
             let mut value = serde_json::to_value(question).unwrap_or(Value::Null);
-            if matches!(question, ClassifierQuestion::Bool { .. }) {
-                if let Value::Object(map) = &mut value {
+            if matches!(question, ClassifierQuestion::Bool { .. })
+                && let Value::Object(map) = &mut value {
                     map.insert("type".into(), json!("noul"));
                 }
-            }
             (id.clone(), value)
         })
         .collect();

@@ -417,3 +417,36 @@ fn keeps_cursor_when_overlay_ends_directly_left_of_it() {
         h.tui.stop(Default::default());
     }
 }
+
+#[test]
+fn fake_cursor_reverse_video_and_hardware_cursor() {
+    use pi_tui::components::input::Input;
+    let h = Harness::new(20, 5);
+    let input = Arc::new(Input::default());
+    input.set_value("abc");
+    let c = h.add(input);
+    h.tui.set_focus(Some(c));
+    h.tui.start();
+    h.wait_for_render();
+    assert!(h.terminal.get_writes().contains("> \x1b[7ma\x1b[27mbc"));
+    h.terminal.clear_writes();
+    h.tui.set_show_hardware_cursor(true);
+    h.wait_for_render();
+    let writes = h.terminal.get_writes();
+    assert!(!writes.contains("\x1b[7m"));
+    assert!(!writes.contains("\x1b_pi:"));
+    h.tui.stop(Default::default());
+}
+
+#[test]
+fn keeps_fake_cursor_of_unfocused_input() {
+    use pi_tui::components::input::Input;
+    let h = Harness::with_options(20, 5, pi_tui::tui::TuiOptions { show_hardware_cursor: Some(true), ..Default::default() });
+    let input = Arc::new(Input::default());
+    input.set_value("abc");
+    h.add(input);
+    h.tui.start();
+    h.wait_for_render();
+    assert!(h.terminal.get_writes().contains("> \x1b[7ma\x1b[27mbc"));
+    h.tui.stop(Default::default());
+}

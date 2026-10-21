@@ -20,65 +20,19 @@ pub use pi_tui::tui::ComponentRef;
 // ---------------------------------------------------------------------------
 
 /// `AuthOperationOptions` (`packages/ai/src/auth/types.ts`): optional cancellation for public
-/// auth and credential operations.
+/// auth and credential operations. pi-ai's Rust API takes the signal directly
+/// (`Option<&CancellationToken>`); coding-agent APIs keep the TS options shape.
 #[derive(Debug, Clone, Default)]
 pub struct AuthOperationOptions {
     pub signal: Option<CancellationToken>,
 }
 
-/// `OAuthDeviceCodeInfo` (`packages/ai/src/compat/extension-oauth-types.ts`).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OAuthDeviceCodeInfo {
-    pub user_code: String,
-    pub verification_uri: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub interval_seconds: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub expires_in_seconds: Option<u64>,
-}
-
-/// `OAuthAuthInfo` (`packages/ai/src/compat/extension-oauth-types.ts`).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OAuthAuthInfo {
-    pub url: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub instructions: Option<String>,
-}
-
-/// `OAuthSelectOption` / `OAuthSelectPrompt` (`packages/ai/src/compat/extension-oauth-types.ts`).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OAuthSelectOption {
-    pub id: String,
-    pub label: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OAuthSelectPrompt {
-    pub message: String,
-    pub options: Vec<OAuthSelectOption>,
-}
-
-/// `OAuthLoginCallbacks` (`packages/ai/src/compat/extension-oauth-types.ts`): the legacy callback
-/// surface handed to extension OAuth `login()` implementations.
-#[async_trait::async_trait]
-pub trait OAuthLoginCallbacks: Send + Sync {
-    fn on_auth(&self, info: OAuthAuthInfo);
-    fn on_device_code(&self, info: OAuthDeviceCodeInfo);
-    /// `onPrompt(prompt: OAuthPrompt)`; the prompt is passed as JSON until pi-ai exports `OAuthPrompt`.
-    async fn on_prompt(&self, prompt: Value) -> anyhow::Result<String>;
-    fn on_progress(&self, _message: &str) {}
-    async fn on_manual_code_input(&self) -> Option<anyhow::Result<String>> {
-        None
-    }
-    async fn on_select(&self, prompt: OAuthSelectPrompt) -> anyhow::Result<Option<String>>;
-    fn signal(&self) -> Option<CancellationToken> {
-        None
-    }
-}
+/// Extension OAuth compat types (`packages/ai/src/compat/extension-oauth-types.ts`), exported by
+/// pi-ai.
+pub use pi_ai::auth::extension_oauth_types::{
+    OAuthAuthInfo, OAuthDeviceCodeInfo, OAuthLoginCallbacks, OAuthPrompt, OAuthSelectOption,
+    OAuthSelectPrompt,
+};
 
 // ---------------------------------------------------------------------------
 // pi-tui

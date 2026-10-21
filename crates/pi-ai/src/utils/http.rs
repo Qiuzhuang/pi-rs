@@ -17,8 +17,27 @@ static CLIENTS: Lazy<Mutex<HashMap<String, reqwest::Client>>> = Lazy::new(|| Mut
 /// SDK default request timeout (10 minutes).
 pub const DEFAULT_TIMEOUT_MS: u64 = 600_000;
 
+/// Idle timeout for response headers and body reads (`None` = disabled).
+static IDLE_TIMEOUT: Lazy<Mutex<Option<Duration>>> = Lazy::new(|| Mutex::new(None));
+
+/// Set the idle timeout applied to every shared client: a request fails when no response data
+/// arrives for this long (undici's `headersTimeout`/`bodyTimeout`). `None` or zero disables it.
+/// Cached clients are rebuilt.
+pub fn set_http_idle_timeout(timeout: Option<Duration>) {
+    *IDLE_TIMEOUT.lock() = timeout.filter(|t| !t.is_zero());
+    CLIENTS.lock().clear();
+}
+
+/// The idle timeout set with [`set_http_idle_timeout`].
+pub fn http_idle_timeout() -> Option<Duration> {
+    *IDLE_TIMEOUT.lock()
+}
+
 fn build_client(proxy: Option<&str>) -> anyhow::Result<reqwest::Client> {
     let mut builder = reqwest::Client::builder().no_proxy().connect_timeout(Duration::from_secs(60));
+    if let Some(timeout) = http_idle_timeout() {
+        builder = builder.read_timeout(timeout);
+    }
     if let Some(proxy) = proxy {
         builder = builder.proxy(reqwest::Proxy::all(proxy)?);
     }

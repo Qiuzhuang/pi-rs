@@ -1888,23 +1888,17 @@ impl AgentSession {
 
     fn refresh_finalized_context(&self) {
         let projection = self.session_manager.build_session_projection();
-        {
-            let mut state = self.state.lock();
-            for entry in &projection.entries {
-                for message in &entry.messages {
-                    let id = entry.source_entry.id().to_string();
-                    if let Some(existing) = state
-                        .entry_ids_by_message
-                        .iter_mut()
-                        .find(|(m, _)| m == message)
-                    {
-                        existing.1 = id;
-                    } else {
-                        state.entry_ids_by_message.push((message.clone(), id));
-                    }
-                }
-            }
-        }
+        // Rebuild the message -> entry map from the projection (TS keeps a WeakMap keyed by the
+        // projected message objects; Rust keys by value).
+        let mapping: Vec<(AgentMessage, String)> = projection
+            .entries
+            .iter()
+            .flat_map(|entry| {
+                let id = entry.source_entry.id().to_string();
+                entry.messages.iter().map(move |m| (m.clone(), id.clone()))
+            })
+            .collect();
+        self.state.lock().entry_ids_by_message = mapping;
         self.agent.set_messages(projection.messages);
     }
 
@@ -2934,12 +2928,19 @@ impl AgentSession {
         let mut declared = tools.clone();
         if !hooks.is_empty() {
             let active: HashSet<String> = tools.iter().map(|t| t.name().to_string()).collect();
+            let (definitions_snapshot, guidelines_snapshot) = {
+                let state = self.state.lock();
+                (
+                    state.tool_definitions.clone(),
+                    state.tool_prompt_guidelines.clone(),
+                )
+            };
             let loadout = SessionToolLoadout {
                 declared: tools.clone(),
                 callable: self.get_callable_tools(Some(&active)),
                 registered: registry.values().cloned().collect(),
-                definitions: self.state.lock().tool_definitions.clone(),
-                guidelines: self.state.lock().tool_prompt_guidelines.clone(),
+                definitions: definitions_snapshot,
+                guidelines: guidelines_snapshot,
             };
             let mut descriptions: IndexMap<String, String> = IndexMap::new();
             for ToolDefinitionEntry { definition, source_info } in &hooks {
@@ -3405,9 +3406,8 @@ impl AgentSession {
                 self.agent.continue_run().await?;
                 continue;
             }
-            if self.state.lock().agent_run_abort_requested
-                || !self.run_before_settle_boundary().await
-            {
+            let abort_requested = self.state.lock().agent_run_abort_requested;
+            if abort_requested || !self.run_before_settle_boundary().await {
                 break;
             }
             if self.state.lock().agent_run_abort_requested {

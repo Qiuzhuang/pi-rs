@@ -1,14 +1,14 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+//! pi-ai: unified LLM API with model catalog, streaming and provider implementations.
+//!
+//! Rust port of the `@earendil-works/pi-ai` TypeScript package.
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub mod providers;
+pub mod serde_util;
+pub mod types;
+pub mod utils;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub use types::*;
+pub use utils::diagnostics::*;
+pub use utils::event_stream::*;
+pub use utils::identity::*;
+pub use utils::version::PI_AI_VERSION;

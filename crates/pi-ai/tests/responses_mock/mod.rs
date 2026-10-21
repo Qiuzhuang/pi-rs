@@ -307,3 +307,101 @@ pub fn data_sse(events: &[serde_json::Value]) -> String {
 pub fn refusing_client() -> reqwest::Client {
     reqwest::Client::builder().proxy(reqwest::Proxy::all("http://127.0.0.1:1").unwrap()).build().unwrap()
 }
+
+/// One port serving both plain HTTP requests and WebSocket upgrades (the Codex endpoint shape).
+pub struct MockCodex {
+    pub base_url: String,
+    pub requests: Arc<Mutex<Vec<Request>>>,
+    pub connections: Arc<Mutex<Vec<WsConnection>>>,
+}
+
+impl MockCodex {
+    pub fn requests(&self) -> Vec<Request> {
+        self.requests.lock().clone()
+    }
+    pub fn connections(&self) -> Vec<WsConnection> {
+        self.connections.lock().clone()
+    }
+}
+
+async fn is_websocket_upgrade(socket: &TcpStream) -> bool {
+    let mut buffer = vec![0u8; 16384];
+    for _ in 0..200 {
+        let Ok(n) = socket.peek(&mut buffer).await else { return false };
+        if n == 0 {
+            return false;
+        }
+        let text = String::from_utf8_lossy(&buffer[..n]).to_lowercase();
+        if text.contains("\r\n\r\n") {
+            return text.contains("upgrade: websocket");
+        }
+        tokio::time::sleep(Duration::from_millis(2)).await;
+    }
+    false
+}
+
+pub async fn serve_codex(http: Handler, ws: WsHandler, ws_accept_delay_ms: u64) -> MockCodex {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let requests: Arc<Mutex<Vec<Request>>> = Arc::default();
+    let connections: Arc<Mutex<Vec<WsConnection>>> = Arc::default();
+    let (captured_requests, captured_connections) = (requests.clone(), connections.clone());
+    tokio::spawn(async move {
+        loop {
+            let Ok((socket, _)) = listener.accept().await else { return };
+            let (http, ws) = (http.clone(), ws.clone());
+            let (captured_requests, captured_connections) = (captured_requests.clone(), captured_connections.clone());
+            tokio::spawn(async move {
+                if is_websocket_upgrade(&socket).await {
+                    handle_ws(socket, ws, captured_connections, ws_accept_delay_ms).await;
+                } else {
+                    handle_connection(socket, http, captured_requests).await;
+                }
+            });
+        }
+    });
+    MockCodex { base_url: format!("http://{addr}"), requests, connections }
+}
+
+async fn handle_ws(socket: TcpStream, handler: WsHandler, captured: Arc<Mutex<Vec<WsConnection>>>, accept_delay_ms: u64) {
+    if accept_delay_ms > 0 {
+        tokio::time::sleep(Duration::from_millis(accept_delay_ms)).await;
+    }
+    let headers: Arc<Mutex<Vec<(String, String)>>> = Arc::default();
+    let header_sink = headers.clone();
+    let callback = move |request: &WsRequest, response: WsResponse| {
+        *header_sink.lock() = request
+            .headers()
+            .iter()
+            .map(|(k, v)| (k.as_str().to_string(), v.to_str().unwrap_or_default().to_string()))
+            .collect();
+        Ok(response)
+    };
+    let Ok(mut ws) = tokio_tungstenite::accept_hdr_async(socket, callback).await else { return };
+    let index = {
+        let mut list = captured.lock();
+        list.push(WsConnection { headers: headers.lock().clone(), messages: Vec::new() });
+        list.len() - 1
+    };
+    while let Some(Ok(message)) = ws.next().await {
+        let Message::Text(text) = message else { continue };
+        let value: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
+        captured.lock()[index].messages.push(value.clone());
+        for action in handler(index, &value) {
+            match action {
+                WsAction::Send(text) => {
+                    if ws.send(Message::text(text)).await.is_err() {
+                        return;
+                    }
+                }
+                WsAction::Close(code, reason) => {
+                    let frame =
+                        tokio_tungstenite::tungstenite::protocol::CloseFrame { code: code.into(), reason: reason.into() };
+                    let _ = ws.close(Some(frame)).await;
+                    return;
+                }
+                WsAction::Sleep(ms) => tokio::time::sleep(Duration::from_millis(ms)).await,
+            }
+        }
+    }
+}

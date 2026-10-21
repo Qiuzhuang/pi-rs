@@ -3,5 +3,40 @@ name = "pi-jsrt"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "Embedded pure-Rust JavaScript runtime (Boa + oxc) used by pi extensions and code mode"
 
 [dependencies]
+boa_engine.workspace = true
+oxc_allocator.workspace = true
+oxc_parser.workspace = true
+oxc_semantic.workspace = true
+oxc_transformer.workspace = true
+oxc_codegen.workspace = true
+oxc_span.workspace = true
+oxc_diagnostics.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+reqwest.workspace = true
+url.workspace = true
+uuid.workspace = true
+parking_lot.workspace = true
+base64.workspace = true
+sha2.workspace = true
+sha1.workspace = true
+md-5.workspace = true
+rand.workspace = true
+dirs.workspace = true
+tracing.workspace = true
+bytes.workspace = true
+libc.workspace = true
+unicode-segmentation.workspace = true
+regex.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { workspace = true }

@@ -422,3 +422,153 @@ impl<T> Future for Deferred<T> {
         Poll::Pending
     }
 }
+
+// ---------------------------------------------------------------------------
+// Abort signals
+// ---------------------------------------------------------------------------
+
+type AbortListener = Box<dyn FnOnce() + Send>;
+
+#[derive(Default)]
+struct AbortInner {
+    aborted: std::sync::atomic::AtomicBool,
+    listeners: Mutex<Vec<AbortListener>>,
+}
+
+/// A cancellation flag (like the DOM `AbortSignal`).
+#[derive(Clone, Default)]
+pub struct AbortSignal(Arc<AbortInner>);
+
+impl std::fmt::Debug for AbortSignal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AbortSignal").field("aborted", &self.is_aborted()).finish()
+    }
+}
+
+impl AbortSignal {
+    pub fn is_aborted(&self) -> bool {
+        self.0.aborted.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Run `f` once when aborted (immediately if already aborted).
+    pub fn on_abort(&self, f: impl FnOnce() + Send + 'static) {
+        if self.is_aborted() {
+            f();
+            return;
+        }
+        let mut l = self.0.listeners.lock().unwrap_or_else(|e| e.into_inner());
+        if self.is_aborted() {
+            drop(l);
+            f();
+            return;
+        }
+        l.push(Box::new(f));
+    }
+}
+
+/// Owner side of an [`AbortSignal`].
+#[derive(Clone, Default, Debug)]
+pub struct AbortController {
+    signal: AbortSignal,
+}
+
+impl AbortController {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn signal(&self) -> AbortSignal {
+        self.signal.clone()
+    }
+
+    pub fn abort(&self) {
+        if self.signal.0.aborted.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        let listeners: Vec<AbortListener> =
+            std::mem::take(&mut *self.signal.0.listeners.lock().unwrap_or_else(|e| e.into_inner()));
+        for l in listeners {
+            l();
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Futures
+// ---------------------------------------------------------------------------
+
+/// A boxed, sendable future.
+pub type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send + 'static>>;
+
+/// Spawns futures on behalf of the TUI (e.g. autocomplete requests).
+pub type FutureSpawner = Arc<dyn Fn(BoxFuture<()>) + Send + Sync>;
+
+static FUTURE_SPAWNER: Mutex<Option<FutureSpawner>> = Mutex::new(None);
+
+/// Route futures spawned by components (e.g. autocomplete providers) to an external executor,
+/// such as `tokio::spawn`. Without a spawner, futures are polled on the [`current`] event loop.
+pub fn set_future_spawner(spawner: Option<FutureSpawner>) {
+    *FUTURE_SPAWNER.lock().unwrap_or_else(|e| e.into_inner()) = spawner;
+}
+
+struct LoopTask {
+    lp: EventLoop,
+    fut: Mutex<Option<BoxFuture<()>>>,
+    scheduled: std::sync::atomic::AtomicBool,
+}
+
+impl std::task::Wake for LoopTask {
+    fn wake(self: Arc<Self>) {
+        LoopTask::schedule(&self);
+    }
+    fn wake_by_ref(self: &Arc<Self>) {
+        LoopTask::schedule(self);
+    }
+}
+
+impl LoopTask {
+    fn schedule(task: &Arc<LoopTask>) {
+        if task.scheduled.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        let t = task.clone();
+        task.lp.post(move || LoopTask::poll(&t));
+    }
+
+    fn poll(task: &Arc<LoopTask>) {
+        task.scheduled.store(false, std::sync::atomic::Ordering::SeqCst);
+        let mut slot = task.fut.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(mut fut) = slot.take() else { return };
+        let waker = Waker::from(task.clone());
+        let mut cx = Context::from_waker(&waker);
+        if fut.as_mut().poll(&mut cx).is_pending() {
+            *slot = Some(fut);
+        }
+    }
+}
+
+impl EventLoop {
+    /// Poll a future on this loop until it completes.
+    pub fn spawn_future(&self, fut: impl Future<Output = ()> + Send + 'static) {
+        let task = Arc::new(LoopTask {
+            lp: self.clone(),
+            fut: Mutex::new(Some(Box::pin(fut))),
+            scheduled: std::sync::atomic::AtomicBool::new(false),
+        });
+        LoopTask::schedule(&task);
+    }
+}
+
+/// Spawn a future using the configured spawner, or on `fallback`.
+pub fn spawn(fallback: &EventLoop, fut: impl Future<Output = ()> + Send + 'static) {
+    let spawner = FUTURE_SPAWNER.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    match spawner {
+        Some(s) => s(Box::pin(fut)),
+        None => fallback.spawn_future(fut),
+    }
+}
+
+/// A future that is immediately ready.
+pub fn ready<T: Send + 'static>(value: T) -> BoxFuture<T> {
+    Box::pin(std::future::ready(value))
+}

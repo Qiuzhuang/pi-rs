@@ -1,5 +1,6 @@
 //! Terminal UI framework with differential rendering (Rust port of `@earendil-works/pi-tui`).
 
+pub mod autocomplete;
 pub mod colors;
 pub mod components;
 pub mod event_loop;

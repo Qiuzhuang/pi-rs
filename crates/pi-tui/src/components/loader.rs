@@ -1,13 +1,13 @@
 //! Animated loading indicator. Port of `components/loader.ts` and
 //! `components/cancellable-loader.ts`.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::Duration;
 
 use crate::StyleFn;
 use crate::components::text::Text;
-use crate::event_loop::{EventLoop, TimerId};
+use crate::event_loop::{AbortController, EventLoop, TimerId};
+pub use crate::event_loop::AbortSignal;
 use crate::keybindings::get_keybindings;
 use crate::tui::{Component, Tui};
 
@@ -174,23 +174,10 @@ impl Component for Loader {
     }
 }
 
-/// A cancellation flag shared with async work.
-#[derive(Debug, Clone, Default)]
-pub struct AbortSignal(Arc<AtomicBool>);
-
-impl AbortSignal {
-    pub fn is_aborted(&self) -> bool {
-        self.0.load(Ordering::SeqCst)
-    }
-    fn abort(&self) {
-        self.0.store(true, Ordering::SeqCst);
-    }
-}
-
 /// Loader that can be cancelled with Escape.
 pub struct CancellableLoader {
     loader: Arc<Loader>,
-    signal: AbortSignal,
+    controller: AbortController,
     on_abort: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
@@ -204,7 +191,7 @@ impl CancellableLoader {
     ) -> Arc<Self> {
         Arc::new(Self {
             loader: Loader::new(ui, spinner_color, message_color, message, indicator),
-            signal: AbortSignal::default(),
+            controller: AbortController::new(),
             on_abort: Mutex::new(None),
         })
     }
@@ -219,11 +206,11 @@ impl CancellableLoader {
     }
 
     pub fn signal(&self) -> AbortSignal {
-        self.signal.clone()
+        self.controller.signal()
     }
 
     pub fn aborted(&self) -> bool {
-        self.signal.is_aborted()
+        self.controller.signal().is_aborted()
     }
 
     pub fn dispose(&self) {
@@ -243,7 +230,7 @@ impl Component for CancellableLoader {
     }
     fn handle_input(&self, data: &str) {
         if get_keybindings().matches(data, "tui.select.cancel") {
-            self.signal.abort();
+            self.controller.abort();
             let cb = self.on_abort.lock().unwrap_or_else(|e| e.into_inner()).clone();
             if let Some(cb) = cb {
                 cb();

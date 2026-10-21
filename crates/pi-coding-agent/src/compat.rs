@@ -39,10 +39,7 @@ pub use pi_ai::auth::extension_oauth_types::{
 // ---------------------------------------------------------------------------
 
 /// `MarkdownTheme` (`packages/tui/src/components/markdown.ts`).
-#[derive(Clone, Default)]
-pub struct MarkdownTheme {
-    pub styles: Value,
-}
+pub use pi_tui::components::markdown::MarkdownTheme;
 
 /// `EditorTheme` (`packages/tui/src/components/editor.ts`).
 pub type EditorTheme = pi_tui::components::editor::EditorTheme;

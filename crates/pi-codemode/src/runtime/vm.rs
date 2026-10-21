@@ -712,7 +712,7 @@ impl Vm {
             }
             jobs += 1;
             let st = self.state();
-            let stop = if st.budget.is_some() || jobs % JOBS_PER_POLL == 0 { st.tick().err() } else { st.stopped.get() };
+            let stop = if st.budget.is_some() || jobs.is_multiple_of(JOBS_PER_POLL) { st.tick().err() } else { st.stopped.get() };
             if let Some(stop) = stop {
                 let fatal = self.stop_fatal(stop);
                 self.fail(fatal);

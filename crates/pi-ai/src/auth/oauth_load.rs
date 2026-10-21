@@ -35,7 +35,10 @@ pub fn load_oauth_flow(key: &str, args: &OAuthFlowArgs) -> anyhow::Result<Arc<dy
     let loader = LOADERS.read().get(key).cloned();
     match loader {
         Some(loader) => loader(args),
-        None => anyhow::bail!("OAuth flow \"{key}\" is not available in this build"),
+        None => match super::oauth::builtin_oauth_flow(key, args) {
+            Some(flow) => flow,
+            None => anyhow::bail!("OAuth flow \"{key}\" is not available in this build"),
+        },
     }
 }
 

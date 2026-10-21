@@ -51,6 +51,19 @@ pub struct SourceInfo {
     pub base_dir: Option<String>,
 }
 
+impl Default for SourceInfo {
+    /// An empty temporary top-level source (the `createSyntheticSourceInfo` defaults).
+    fn default() -> Self {
+        Self {
+            path: String::new(),
+            source: String::new(),
+            scope: SourceScope::Temporary,
+            origin: SourceOrigin::TopLevel,
+            base_dir: None,
+        }
+    }
+}
+
 /// Prefix of built-in tool and extension paths, such as `builtin:read` or `builtin:mcp`.
 pub const BUILTIN_PATH_PREFIX: &str = "builtin:";
 

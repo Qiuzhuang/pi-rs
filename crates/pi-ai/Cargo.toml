@@ -26,6 +26,9 @@ dirs = { workspace = true }
 tracing = { workspace = true }
 bytes = { workspace = true }
 indexmap = { workspace = true }
+hmac = { workspace = true }
+rsa = { workspace = true }
+crc32fast = { workspace = true }
 tokio-tungstenite = { workspace = true }
 ruzstd = { workspace = true }
 

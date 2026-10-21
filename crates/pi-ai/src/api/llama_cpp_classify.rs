@@ -460,7 +460,7 @@ pub async fn classify(model: &ClassifierModel, context: &ClassifierContext, opti
             anyhow::bail!("{LABEL} classification does not support image input");
         }
         let temperature = options.temperature.unwrap_or(1.0);
-        if !(temperature > 0.0) || !temperature.is_finite() {
+        if temperature.is_nan() || temperature <= 0.0 || !temperature.is_finite() {
             anyhow::bail!("Temperature must be a positive number, got {}", js_number_string(temperature));
         }
         // Validate every question before the first request.

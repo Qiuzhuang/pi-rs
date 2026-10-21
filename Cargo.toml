@@ -57,3 +57,6 @@ sha1 = "0.10"
 indexmap = { version = "2", features = ["serde"] }
 tokio-tungstenite = { version = "0.26", default-features = false, features = ["connect", "handshake", "rustls-tls-native-roots"] }
 ruzstd = "0.8"
+hmac = "0.12"
+rsa = { version = "0.9", features = ["sha2"] }
+crc32fast = "1"

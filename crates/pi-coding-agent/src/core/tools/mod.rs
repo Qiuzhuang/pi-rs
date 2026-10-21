@@ -6,7 +6,10 @@ pub mod edit_diff;
 pub mod file_mutation_queue;
 pub mod find;
 pub mod grep;
+pub mod jsdiff;
+pub mod js_util;
 pub mod ls;
+pub mod node_fs;
 pub mod output_accumulator;
 pub mod path_utils;
 pub mod powershell;
@@ -125,10 +128,32 @@ impl ToolName {
     }
 }
 
-pub static ALL_TOOL_NAMES: LazyLock<IndexSet<ToolName>> =
-    LazyLock::new(|| todo!("port core/tools/index.ts:allToolNames"));
+pub static ALL_TOOL_NAMES: LazyLock<IndexSet<ToolName>> = LazyLock::new(|| {
+    IndexSet::from([
+        ToolName::Read,
+        ToolName::Bash,
+        ToolName::Powershell,
+        ToolName::Edit,
+        ToolName::Write,
+        ToolName::Grep,
+        ToolName::Find,
+        ToolName::Ls,
+    ])
+});
 
-#[derive(Clone)]
+impl std::str::FromStr for ToolName {
+    type Err = anyhow::Error;
+
+    fn from_str(name: &str) -> anyhow::Result<Self> {
+        ALL_TOOL_NAMES
+            .iter()
+            .find(|tool| tool.as_str() == name)
+            .copied()
+            .ok_or_else(|| anyhow::anyhow!("Unknown tool name: {name}"))
+    }
+}
+
+#[derive(Clone, Default)]
 pub struct ToolsOptions {
     pub read: Option<ReadToolOptions>,
     pub bash: Option<BashToolOptions>,
@@ -145,7 +170,16 @@ pub fn create_tool_definition(
     cwd: &str,
     options: Option<&ToolsOptions>,
 ) -> anyhow::Result<ToolDef> {
-    todo!("port core/tools/index.ts:createToolDefinition")
+    Ok(match tool_name {
+        ToolName::Read => create_read_tool_definition(cwd, options.and_then(|o| o.read.as_ref())),
+        ToolName::Bash => create_bash_tool_definition(cwd, options.and_then(|o| o.bash.as_ref())),
+        ToolName::Powershell => create_power_shell_tool_definition(cwd, options.and_then(|o| o.powershell.as_ref())),
+        ToolName::Edit => create_edit_tool_definition(cwd, options.and_then(|o| o.edit.as_ref())),
+        ToolName::Write => create_write_tool_definition(cwd, options.and_then(|o| o.write.as_ref())),
+        ToolName::Grep => create_grep_tool_definition(cwd, options.and_then(|o| o.grep.as_ref())),
+        ToolName::Find => create_find_tool_definition(cwd, options.and_then(|o| o.find.as_ref())),
+        ToolName::Ls => create_ls_tool_definition(cwd, options.and_then(|o| o.ls.as_ref())),
+    })
 }
 
 pub fn create_tool(
@@ -153,35 +187,62 @@ pub fn create_tool(
     cwd: &str,
     options: Option<&ToolsOptions>,
 ) -> anyhow::Result<Tool> {
-    todo!("port core/tools/index.ts:createTool")
+    Ok(match tool_name {
+        ToolName::Read => create_read_tool(cwd, options.and_then(|o| o.read.as_ref())),
+        ToolName::Bash => create_bash_tool(cwd, options.and_then(|o| o.bash.as_ref())),
+        ToolName::Powershell => create_power_shell_tool(cwd, options.and_then(|o| o.powershell.as_ref())),
+        ToolName::Edit => create_edit_tool(cwd, options.and_then(|o| o.edit.as_ref())),
+        ToolName::Write => create_write_tool(cwd, options.and_then(|o| o.write.as_ref())),
+        ToolName::Grep => create_grep_tool(cwd, options.and_then(|o| o.grep.as_ref())),
+        ToolName::Find => create_find_tool(cwd, options.and_then(|o| o.find.as_ref())),
+        ToolName::Ls => create_ls_tool(cwd, options.and_then(|o| o.ls.as_ref())),
+    })
 }
 
 pub fn create_coding_tool_definitions(cwd: &str, options: Option<&ToolsOptions>) -> Vec<ToolDef> {
-    todo!("port core/tools/index.ts:createCodingToolDefinitions")
+    [ToolName::Read, ToolName::Bash, ToolName::Edit, ToolName::Write]
+        .iter()
+        .filter_map(|name| create_tool_definition(name, cwd, options).ok())
+        .collect()
 }
 
 pub fn create_read_only_tool_definitions(
     cwd: &str,
     options: Option<&ToolsOptions>,
 ) -> Vec<ToolDef> {
-    todo!("port core/tools/index.ts:createReadOnlyToolDefinitions")
+    [ToolName::Read, ToolName::Grep, ToolName::Find, ToolName::Ls]
+        .iter()
+        .filter_map(|name| create_tool_definition(name, cwd, options).ok())
+        .collect()
 }
 
 pub fn create_all_tool_definitions(
     cwd: &str,
     options: Option<&ToolsOptions>,
 ) -> IndexMap<ToolName, ToolDef> {
-    todo!("port core/tools/index.ts:createAllToolDefinitions")
+    ALL_TOOL_NAMES
+        .iter()
+        .filter_map(|name| create_tool_definition(name, cwd, options).ok().map(|def| (*name, def)))
+        .collect()
 }
 
 pub fn create_coding_tools(cwd: &str, options: Option<&ToolsOptions>) -> Vec<Tool> {
-    todo!("port core/tools/index.ts:createCodingTools")
+    [ToolName::Read, ToolName::Bash, ToolName::Edit, ToolName::Write]
+        .iter()
+        .filter_map(|name| create_tool(name, cwd, options).ok())
+        .collect()
 }
 
 pub fn create_read_only_tools(cwd: &str, options: Option<&ToolsOptions>) -> Vec<Tool> {
-    todo!("port core/tools/index.ts:createReadOnlyTools")
+    [ToolName::Read, ToolName::Grep, ToolName::Find, ToolName::Ls]
+        .iter()
+        .filter_map(|name| create_tool(name, cwd, options).ok())
+        .collect()
 }
 
 pub fn create_all_tools(cwd: &str, options: Option<&ToolsOptions>) -> IndexMap<ToolName, Tool> {
-    todo!("port core/tools/index.ts:createAllTools")
+    ALL_TOOL_NAMES
+        .iter()
+        .filter_map(|name| create_tool(name, cwd, options).ok().map(|tool| (*name, tool)))
+        .collect()
 }

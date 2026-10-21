@@ -1025,7 +1025,8 @@ impl SettingsManager {
         modified_fields: IndexSet<String>,
         modified_nested: IndexMap<String, IndexSet<String>>,
     ) {
-        let _write = self.write_lock.lock();
+        // Callers hold `write_lock` from before they take the snapshot until the write is done, so
+        // snapshots are persisted in the order they were taken.
         let result = (|| -> anyhow::Result<()> {
             if scope == SettingsScope::Project && !self.state.lock().project_trusted {
                 anyhow::bail!("Project is not trusted; refusing to write project settings");
@@ -1093,6 +1094,7 @@ impl SettingsManager {
 
     /// Mutate global settings, mark the field modified and save.
     fn update_global(&self, field: &str, nested_key: Option<&str>, update: impl FnOnce(&mut JsonMap)) {
+        let _write = self.write_lock.lock();
         let snapshot = {
             let mut state = self.state.lock();
             update(&mut state.global_settings);
@@ -1140,6 +1142,7 @@ impl SettingsManager {
         update: impl FnOnce(&mut JsonMap),
     ) -> anyhow::Result<()> {
         self.assert_project_trusted_for_write()?;
+        let _write = self.write_lock.lock();
         let snapshot = {
             let mut state = self.state.lock();
             let mut project_settings = state.project_settings.clone();
@@ -1212,6 +1215,7 @@ impl SettingsManager {
     }
 
     pub fn set_default_model_and_provider(&self, provider: &str, model_id: &str) {
+        let _write = self.write_lock.lock();
         let snapshot = {
             let mut state = self.state.lock();
             state.global_settings.insert(
@@ -1686,6 +1690,7 @@ impl SettingsManager {
 
     /// Set the analytics opt-in preference; generates a tracking identifier on first opt-in
     pub fn set_enable_analytics(&self, enabled: bool) {
+        let _write = self.write_lock.lock();
         let snapshot = {
             let mut state = self.state.lock();
             state

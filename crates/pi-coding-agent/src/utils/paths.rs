@@ -387,3 +387,141 @@ pub fn node_relative(from: &str, to: &str) -> String {
     parts.extend_from_slice(&to_parts[common..]);
     parts.join(&std::path::MAIN_SEPARATOR.to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn canonicalize_path_resolves_symlinks_and_falls_back() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = std::fs::canonicalize(temp.path()).unwrap();
+        let target = dir.join("target.txt");
+        let link = dir.join("link.txt");
+        std::fs::write(&target, "hello").unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        assert_eq!(canonicalize_path(link.to_str().unwrap()), target.to_str().unwrap());
+        let target_dir = dir.join("target-dir");
+        let link_dir = dir.join("link-dir");
+        std::fs::create_dir(&target_dir).unwrap();
+        std::os::unix::fs::symlink(&target_dir, &link_dir).unwrap();
+        assert_eq!(canonicalize_path(link_dir.to_str().unwrap()), target_dir.to_str().unwrap());
+        let missing = dir.join("no-such-file");
+        assert_eq!(canonicalize_path(missing.to_str().unwrap()), missing.to_str().unwrap());
+        let dangling = dir.join("dangling");
+        std::os::unix::fs::symlink(dir.join("nope"), &dangling).unwrap();
+        assert_eq!(canonicalize_path(dangling.to_str().unwrap()), dangling.to_str().unwrap());
+    }
+
+    #[test]
+    fn cwd_relative_paths() {
+        let cwd = node_join(&[&std::env::temp_dir().to_string_lossy(), "pi-paths-cwd"]);
+        assert_eq!(
+            get_cwd_relative_path(&node_join(&[&cwd, "..config", "AGENTS.md"]), &cwd),
+            Some(node_join(&["..config", "AGENTS.md"]))
+        );
+        assert_eq!(
+            get_cwd_relative_path(&node_join(&[&cwd, "..", "AGENTS.md"]), &cwd),
+            None
+        );
+        assert_eq!(get_cwd_relative_path(&cwd, &cwd).as_deref(), Some("."));
+        assert_eq!(
+            format_path_relative_to_cwd_or_absolute("sub/file.txt", &cwd),
+            "sub/file.txt"
+        );
+    }
+
+    #[test]
+    fn resolve_path_expands_only_home_tilde() {
+        let home = dirs::home_dir().unwrap().to_string_lossy().into_owned();
+        let cwd = node_join(&[&std::env::temp_dir().to_string_lossy(), "pi-paths-cwd"]);
+        assert_eq!(normalize_path("~", None), home);
+        assert_eq!(normalize_path("~/file.txt", None), node_join(&[&home, "file.txt"]));
+        assert_eq!(
+            resolve_path("~draft.md", Some(&cwd), None),
+            node_resolve(&[&cwd, "~draft.md"])
+        );
+        assert_eq!(normalize_path("~draft.md", None), "~draft.md");
+    }
+
+    #[test]
+    fn resolve_path_handles_relative_paths_and_file_urls() {
+        let temp = tempfile::tempdir().unwrap();
+        let cwd = temp.path().to_string_lossy().into_owned();
+        assert_eq!(
+            resolve_path("subdir/file.txt", Some(&cwd), None),
+            node_resolve(&[&cwd, "subdir/file.txt"])
+        );
+        let cwd_url = url::Url::from_file_path(&cwd).unwrap().to_string();
+        assert_eq!(
+            resolve_path("subdir/file.txt", Some(&cwd_url), None),
+            node_resolve(&[&cwd, "subdir/file.txt"])
+        );
+        let file_path = node_join(&[&cwd, "file with spaces.txt"]);
+        let file_url = url::Url::from_file_path(&file_path).unwrap().to_string();
+        assert_eq!(
+            resolve_path(&file_url, Some(&node_join(&[&cwd, "base"])), None),
+            file_path
+        );
+        if cfg!(unix) {
+            for name in ["report%2026.md", "foo%2Fbar", "malformed%A.md"] {
+                let path = node_join(&[&cwd, name]);
+                assert_eq!(resolve_path(&path, Some(&node_join(&[&cwd, "base"])), None), path);
+            }
+        }
+    }
+
+    #[test]
+    fn normalizes_windows_shell_paths() {
+        assert_eq!(
+            normalize_windows_shell_path("/c/Users/example/project"),
+            "C:\\Users\\example\\project"
+        );
+        assert_eq!(normalize_windows_shell_path("/cygdrive/d/work"), "D:\\work");
+        assert_eq!(normalize_windows_shell_path("/mnt/e/source"), "E:\\source");
+        assert_eq!(normalize_windows_shell_path("/c"), "C:\\");
+        for path in [
+            "C:/Users/example",
+            "C:\\Users\\example",
+            "//server/share/file",
+            "/c/Users\\example",
+            "relative/file",
+            "/tmp/file",
+        ] {
+            assert_eq!(normalize_windows_shell_path(path), path);
+        }
+    }
+
+    #[test]
+    fn detects_local_paths() {
+        assert!(is_local_path("my-package"));
+        assert!(is_local_path("./foo"));
+        assert!(is_local_path("file:///tmp/foo"));
+        assert!(!is_local_path("npm:package"));
+        assert!(!is_local_path("git://repo"));
+        assert!(!is_local_path("https://example.com"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn node_path_helpers() {
+        assert_eq!(node_normalize("/a/b/../c/./d/"), "/a/c/d");
+        assert_eq!(node_normalize("a/../../b"), "../b");
+        assert_eq!(node_normalize("/.."), "/");
+        assert_eq!(node_join(&["/a", "b", "../c"]), "/a/c");
+        assert_eq!(node_join(&["", ""]), ".");
+        assert_eq!(node_dirname("/a/b/c"), "/a/b");
+        assert_eq!(node_dirname("/a"), "/");
+        assert_eq!(node_dirname("/"), "/");
+        assert_eq!(node_dirname("file"), ".");
+        assert_eq!(node_basename("/a/b/c.md"), "c.md");
+        assert_eq!(node_basename("/a/b/"), "b");
+        assert_eq!(node_relative("/a/b", "/a/b/c/d"), "c/d");
+        assert_eq!(node_relative("/a/b/c", "/a/x"), "../../x");
+        assert_eq!(node_relative("/a", "/a"), "");
+        assert_eq!(node_resolve(&["/a", "/b", "c"]), "/b/c");
+        assert!(get_file_revision("/").is_some());
+        assert!(get_file_revision("/definitely/missing/file").is_none());
+    }
+}

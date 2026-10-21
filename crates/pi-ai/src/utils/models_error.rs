@@ -30,11 +30,13 @@ impl ModelsErrorCode {
 pub struct ModelsError {
     pub code: ModelsErrorCode,
     pub message: String,
+    /// Message of the underlying error (`error.cause.message`), when constructed with a cause.
+    pub cause: Option<String>,
 }
 
 impl ModelsError {
     pub fn new(code: ModelsErrorCode, message: impl Into<String>) -> Self {
-        Self { code, message: message.into() }
+        Self { code, message: message.into(), cause: None }
     }
 
     /// Construct with a cause whose text is appended unless already contained.
@@ -42,7 +44,7 @@ impl ModelsError {
         let message = message.into();
         let detail = cause.to_string().trim().to_string();
         let message = if detail.is_empty() || message.contains(&detail) { message } else { format!("{message}: {detail}") };
-        Self { code, message }
+        Self { code, message, cause: Some(cause.to_string()) }
     }
 }
 

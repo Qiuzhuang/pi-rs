@@ -1,55 +1,72 @@
 //! Port of `packages/coding-agent/src/core/model-runtime.ts`.
+//!
+//! Configured pi-ai `Models` collection used by coding-agent and SDK consumers: built-in providers
+//! (with pi.dev catalog overlays), models.json overlays, extension providers and virtual models,
+//! plus a synchronous snapshot of model availability.
 
 use crate::compat::AuthOperationOptions;
+use crate::config::get_agent_dir;
+use crate::core::auth_storage::AuthStorage;
 use crate::core::model_config::ModelConfig;
-use crate::core::provider_composer::AuthStatus;
-use crate::core::provider_composer::CompatibilityRequestConfig;
-use crate::core::provider_composer::ProviderConfigInput;
+use crate::core::models_store::{FileModelsStore, InMemoryCodingAgentModelsStore};
+use crate::core::provider_composer::{
+    AuthStatus, AuthStatusSource, CompatibilityRequestConfig, ProviderConfigInput,
+    compose_model_provider, configured_request_auth_status, resolve_compatibility_request_config,
+    resolve_configured_model_headers, validate_extension_provider,
+};
+use crate::core::remote_catalog_provider::{
+    PersonalizeCatalog, with_personalized_catalog, with_remote_catalog,
+};
 use crate::core::runtime_credentials::RuntimeCredentials;
-use crate::core::virtual_models::ModelRoute;
-use crate::core::virtual_models::ModelRouteReason;
-use crate::core::virtual_models::VirtualModelDefinition;
+use crate::core::virtual_models::{
+    ModelRoute, ModelRouteReason, ModelRouteRequest, ModelRouteRequestFailed,
+    ModelRouteRequestPrevious, VirtualModelDefinition, VirtualModelRouteFn, create_virtual_model,
+    find_latest_llm_response, is_virtual_model, with_virtual_models,
+};
+use futures::FutureExt;
 use indexmap::{IndexMap, IndexSet};
-use pi_ai::auth::types::AuthCheck;
-use pi_ai::auth::types::AuthInteraction;
-use pi_ai::auth::types::AuthResult;
-use pi_ai::auth::types::AuthType;
-use pi_ai::auth::types::Credential;
-use pi_ai::auth::types::CredentialInfo;
-use pi_ai::auth::types::CredentialStore;
-use pi_ai::auth::types::LoginOptions;
-use pi_ai::models::ModelsRefreshOptions;
-use pi_ai::models::ModelsRefreshResult;
-use pi_ai::models::ModelsRequestOptions;
-use pi_ai::models::Provider;
+use parking_lot::Mutex;
+use pi_ai::api::lazy::lazy_stream;
+use pi_ai::auth::resolve::AuthResolutionOverrides;
+use pi_ai::auth::types::{
+    ApiKeyCredential, AuthCheck, AuthInteraction, AuthResult, AuthType, Credential,
+    CredentialInfo, CredentialStore, LoginOptions,
+};
+use pi_ai::models::{
+    CreateModelsOptions, Models, ModelsError, ModelsErrorCode, ModelsRefreshOptions,
+    ModelsRefreshResult, ModelsRequestOptions, Provider, clamp_thinking_level, create_models,
+    merge_headers,
+};
 use pi_ai::models_store::ModelsStore;
 use pi_ai::providers::model_schema::ModelThinkingLevel;
-use pi_ai::types::AnyModel;
-use pi_ai::types::AssistantImages;
-use pi_ai::types::AssistantMessage;
-use pi_ai::types::ClassifierContext;
-use pi_ai::types::ClassifierModel;
-use pi_ai::types::ClassifierResult;
-use pi_ai::types::Context;
-use pi_ai::types::DeferredHandle;
-use pi_ai::types::ImageModel;
-use pi_ai::types::ImagesContext;
-use pi_ai::types::Message;
-use pi_ai::types::Model;
-use pi_ai::utils::event_stream::AssistantMessageEventStream;
+use pi_ai::types::{
+    AnyModel, AssistantImages, AssistantMessage, AssistantMessageEventStream, ClassifierContext,
+    ClassifierModel, ClassifierResult, Context, DeferredHandle, ImageModel, ImagesContext,
+    Message, Model, ModelType, ProviderHeaders, StreamOptions,
+};
+use pi_ai::utils::identity::{ClientIdentityTarget, get_open_code_session_headers};
+use pi_ai::utils::model_operations::{
+    assert_chat_model, assert_classifier_input_supported, assert_classifier_model,
+    assert_image_model, classifier_error_result, image_error_result,
+};
+use pi_ai::utils::provider_retry::AbortError;
+use pi_ai::utils::transcript::normalize_context;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::path::Path;
+use std::sync::{Arc, Weak};
 use tokio_util::sync::CancellationToken;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+/// A virtual model registered with the runtime.
+#[derive(Clone)]
 pub struct RegisteredVirtualModel {
     pub model: Model,
-    pub route: ModelRoute,
+    pub route: VirtualModelRouteFn,
 }
 
-#[derive(Debug, Clone)]
+/// Synchronous model/auth snapshot, refreshed by availability passes.
+#[derive(Debug, Clone, Default)]
 pub struct ModelRuntimeSnapshot {
     pub all: Vec<Model>,
     pub available: Vec<Model>,
@@ -58,11 +75,13 @@ pub struct ModelRuntimeSnapshot {
     pub auth: IndexMap<String, AuthCheck>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct CreateModelRuntimeOptions {
     /// Credential storage. Defaults to the file at authPath.
     pub credentials: Option<Arc<dyn CredentialStore>>,
     pub auth_path: Option<String>,
+    /// models.json path. Defaults to `<agentDir>/models.json`; an empty string disables
+    /// models.json and the file-backed models store (TS `modelsPath: null`).
     pub models_path: Option<String>,
     pub models_store: Option<Arc<dyn ModelsStore>>,
     pub models_store_path: Option<String>,
@@ -78,7 +97,7 @@ pub struct CreateModelRuntimeOptions {
 }
 
 // TS: extends AuthOperationOptions (inherited fields inlined)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ModelRuntimeAuthOverrides {
     pub signal: Option<CancellationToken>,
     pub api_key: Option<String>,
@@ -115,6 +134,10 @@ impl CredentialSynchronizationOperation {
 #[derive(Debug, Clone)]
 pub struct CredentialSynchronizationError {
     pub message: String,
+    provider_id: String,
+    operation: CredentialSynchronizationOperation,
+    credential: Option<Credential>,
+    cause: Arc<anyhow::Error>,
 }
 
 impl std::fmt::Display for CredentialSynchronizationError {
@@ -123,36 +146,69 @@ impl std::fmt::Display for CredentialSynchronizationError {
     }
 }
 
-impl std::error::Error for CredentialSynchronizationError {}
+impl std::error::Error for CredentialSynchronizationError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.cause.as_ref().as_ref())
+    }
+}
 
 impl CredentialSynchronizationError {
     pub fn new(
         provider_id: &str,
-        operation: &CredentialSynchronizationOperation,
+        operation: CredentialSynchronizationOperation,
         credential: Option<Credential>,
-        options: Value, /* TS: ErrorOptions */
+        cause: anyhow::Error,
     ) -> Self {
-        todo!("port core/model-runtime.ts:CredentialSynchronizationError.constructor")
+        Self {
+            message: format!(
+                "Credential {} committed for {provider_id}, but local synchronization failed",
+                operation.as_str()
+            ),
+            provider_id: provider_id.to_string(),
+            operation,
+            credential,
+            cause: Arc::new(cause),
+        }
+    }
+
+    /// Always "CredentialSynchronizationError".
+    pub fn name(&self) -> &'static str {
+        "CredentialSynchronizationError"
     }
 
     pub fn provider_id(&self) -> String {
-        todo!("port core/model-runtime.ts:CredentialSynchronizationError.providerId")
+        self.provider_id.clone()
     }
 
     pub fn operation(&self) -> CredentialSynchronizationOperation {
-        todo!("port core/model-runtime.ts:CredentialSynchronizationError.operation")
+        self.operation
     }
 
     pub fn credential(&self) -> Option<Credential> {
-        todo!("port core/model-runtime.ts:CredentialSynchronizationError.credential")
+        self.credential.clone()
+    }
+
+    pub fn cause(&self) -> &anyhow::Error {
+        &self.cause
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
+#[derive(Debug, Clone)]
 pub enum ModelRuntimeGetAuthProviderOrModel {
     String(String),
     AnyModel(AnyModel),
+}
+
+impl From<&str> for ModelRuntimeGetAuthProviderOrModel {
+    fn from(value: &str) -> Self {
+        Self::String(value.to_string())
+    }
+}
+
+impl From<&Model> for ModelRuntimeGetAuthProviderOrModel {
+    fn from(value: &Model) -> Self {
+        Self::AnyModel(AnyModel::Chat(value.clone()))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -164,10 +220,61 @@ pub struct ModelRuntimeResolveModelOptions {
     pub state: Option<Value>,
 }
 
+fn throw_if_aborted(signal: &CancellationToken) -> anyhow::Result<()> {
+    if signal.is_cancelled() {
+        return Err(AbortError.into());
+    }
+    Ok(())
+}
+
+fn error_message(error: &anyhow::Error) -> String {
+    error.to_string()
+}
+
+fn to_provider_env(env: &IndexMap<String, String>) -> pi_ai::types::ProviderEnv {
+    env.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+}
+
+fn spawn_detached(future: futures::future::BoxFuture<'static, ()>) {
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        handle.spawn(future);
+    }
+}
+
+/// Mutable runtime state. Never held across an await or a call into a provider.
+struct RuntimeState {
+    builtins: IndexMap<String, Arc<dyn Provider>>,
+    native_extension_providers: IndexMap<String, Arc<dyn Provider>>,
+    extension_providers: IndexMap<String, ProviderConfigInput>,
+    /// Virtual models by provider id, then model id.
+    virtual_models: IndexMap<String, IndexMap<String, RegisteredVirtualModel>>,
+    composition_errors: IndexMap<String, String>,
+    config: Arc<ModelConfig>,
+    snapshot: ModelRuntimeSnapshot,
+    availability_refresh_seq: u64,
+    availability_error_seq: u64,
+    provider_availability_seq: HashMap<String, u64>,
+    availability_error: Option<String>,
+}
+
 /// Configured pi-ai Models collection used by coding-agent and SDK consumers.
 /// TS: `implements Models`
 pub struct ModelRuntime {
-    // TODO(port): private state (interior mutability; methods take &self)
+    weak: Weak<ModelRuntime>,
+    models: Models,
+    credentials: Arc<RuntimeCredentials>,
+    default_builtins: IndexMap<String, Arc<dyn Provider>>,
+    models_path: Option<String>,
+    model_network_enabled: bool,
+    state: Mutex<RuntimeState>,
+    credential_operations: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+}
+
+/// Request prepared by `prepare_request`.
+struct PreparedRequest {
+    provider: Arc<dyn Provider>,
+    model: AnyModel,
+    options: StreamOptions,
 }
 
 impl ModelRuntime {
@@ -178,60 +285,449 @@ impl ModelRuntime {
         models_store: Arc<dyn ModelsStore>,
         providers: Vec<Arc<dyn Provider>>,
         model_network_enabled: bool,
-    ) -> Self {
-        todo!("port core/model-runtime.ts:ModelRuntime.constructor")
+    ) -> Arc<Self> {
+        let default_builtins: IndexMap<String, Arc<dyn Provider>> = providers
+            .into_iter()
+            .map(|provider| (provider.id().to_string(), provider))
+            .collect();
+        let models = create_models(CreateModelsOptions {
+            credentials: Some(credentials.clone() as Arc<dyn CredentialStore>),
+            models_store: Some(models_store),
+            auth_context: None,
+            identity: None,
+        });
+        let runtime = Arc::new_cyclic(|weak| ModelRuntime {
+            weak: weak.clone(),
+            models,
+            credentials,
+            models_path: models_path.map(str::to_string),
+            model_network_enabled,
+            state: Mutex::new(RuntimeState {
+                builtins: default_builtins.clone(),
+                native_extension_providers: IndexMap::new(),
+                extension_providers: IndexMap::new(),
+                virtual_models: IndexMap::new(),
+                composition_errors: IndexMap::new(),
+                config,
+                snapshot: ModelRuntimeSnapshot::default(),
+                availability_refresh_seq: 0,
+                availability_error_seq: 0,
+                provider_availability_seq: HashMap::new(),
+                availability_error: None,
+            }),
+            default_builtins,
+            credential_operations: Mutex::new(HashMap::new()),
+        });
+        runtime.rebuild_providers();
+        runtime
     }
 
-    pub async fn create(
-        options: Option<&CreateModelRuntimeOptions>,
-    ) -> anyhow::Result<Arc<ModelRuntime>> {
-        todo!("port core/model-runtime.ts:ModelRuntime.create")
+    pub async fn create(options: Option<&CreateModelRuntimeOptions>) -> anyhow::Result<Arc<ModelRuntime>> {
+        let options = options.cloned().unwrap_or_default();
+        let store: Arc<dyn CredentialStore> = match options.credentials.clone() {
+            Some(store) => store,
+            None => AuthStorage::create(options.auth_path.as_deref()),
+        };
+        let credentials = Arc::new(RuntimeCredentials::new(store));
+        let models_path: Option<String> = match &options.models_path {
+            Some(path) if path.is_empty() => None,
+            Some(path) => Some(path.clone()),
+            None => Some(Path::new(&get_agent_dir()).join("models.json").to_string_lossy().into_owned()),
+        };
+        let config = ModelConfig::load(models_path.as_deref()).await;
+        let models_store: Arc<dyn ModelsStore> = match (&options.models_store, &models_path) {
+            (Some(store), _) => store.clone(),
+            (None, Some(models_path)) => {
+                let store_path = options.models_store_path.clone().unwrap_or_else(|| {
+                    Path::new(models_path)
+                        .parent()
+                        .unwrap_or_else(|| Path::new(""))
+                        .join("models-store.json")
+                        .to_string_lossy()
+                        .into_owned()
+                });
+                Arc::new(FileModelsStore::new(Some(&store_path)))
+            }
+            (None, None) => Arc::new(InMemoryCodingAgentModelsStore::new()),
+        };
+        let generated_at = pi_ai::providers::all::get_builtin_model_data_generated_at();
+        let personalize: PersonalizeCatalog = Arc::new(|catalog, context| {
+            async move { pi_ai::providers::openrouter::personalize_open_router_catalog(catalog, &context).await }
+                .boxed()
+        });
+        let providers: Vec<Arc<dyn Provider>> = pi_ai::providers::all::builtin_providers()
+            .into_iter()
+            .map(|provider| match provider.id() {
+                "radius" => provider,
+                // OpenRouter narrows the catalog to the models, limits and prices of the user's key.
+                "openrouter" => with_personalized_catalog(
+                    provider,
+                    &personalize,
+                    options.catalog_base_url.as_deref(),
+                    generated_at,
+                ),
+                _ => with_remote_catalog(provider, options.catalog_base_url.as_deref(), generated_at),
+            })
+            .collect();
+        let runtime = ModelRuntime::new(
+            credentials,
+            config,
+            models_path.as_deref(),
+            models_store,
+            providers,
+            std::env::var_os("PI_OFFLINE").is_none(),
+        );
+        runtime.configure_radius_providers();
+        runtime.rebuild_providers();
+        let refresh_from_network = runtime.model_network_enabled && options.allow_model_network == Some(true);
+        let timeout = options
+            .model_refresh_timeout_ms
+            .filter(|_| refresh_from_network)
+            .map(|ms| std::time::Duration::from_millis(ms.max(0) as u64));
+        let signal = match timeout {
+            Some(timeout) => {
+                let combined = CancellationToken::new();
+                let target = combined.clone();
+                let caller = options.signal.clone();
+                let watcher = tokio::spawn(async move {
+                    let caller_cancelled = async {
+                        match caller {
+                            Some(caller) => caller.cancelled().await,
+                            None => std::future::pending().await,
+                        }
+                    };
+                    tokio::select! {
+                        _ = tokio::time::sleep(timeout) => target.cancel(),
+                        _ = caller_cancelled => target.cancel(),
+                        _ = target.cancelled() => {}
+                    }
+                });
+                Some((combined, watcher))
+            }
+            None => None,
+        };
+        if options.refresh_on_create != Some(false) {
+            let refresh_signal = signal.as_ref().map(|(s, _)| s.clone()).or(options.signal.clone());
+            let _ = runtime
+                .refresh(Some(ModelsRefreshOptions {
+                    allow_network: Some(refresh_from_network),
+                    providers: None,
+                    force: None,
+                    signal: refresh_signal,
+                }))
+                .await;
+        }
+        if let Some((_, watcher)) = signal {
+            watcher.abort();
+        }
+        Ok(runtime)
+    }
+
+    fn configure_radius_providers(&self) {
+        let config = self.state.lock().config.clone();
+        let mut builtins = self.default_builtins.clone();
+        for provider_id in config.get_provider_ids() {
+            let Some(provider) = config.get_provider(&provider_id) else { continue };
+            if provider.oauth.as_deref() != Some("radius") {
+                continue;
+            }
+            let Some(base_url) = provider.base_url.as_deref().filter(|u| !u.is_empty()) else {
+                continue;
+            };
+            let gateway = base_url
+                .strip_suffix("/v1/")
+                .or_else(|| base_url.strip_suffix("/v1"))
+                .unwrap_or(base_url)
+                .to_string();
+            builtins.insert(
+                provider_id.clone(),
+                pi_ai::providers::radius::radius_provider(pi_ai::providers::radius::RadiusProviderOptions {
+                    id: Some(provider_id.clone()),
+                    name: Some(provider.name.clone().unwrap_or_else(|| provider_id.clone())),
+                    gateway: Some(gateway),
+                }),
+            );
+        }
+        self.state.lock().builtins = builtins;
+    }
+
+    fn provider_ids(&self) -> IndexSet<String> {
+        let state = self.state.lock();
+        let mut ids: IndexSet<String> = IndexSet::new();
+        ids.extend(state.builtins.keys().cloned());
+        ids.extend(state.native_extension_providers.keys().cloned());
+        ids.extend(state.config.get_provider_ids());
+        ids.extend(state.extension_providers.keys().cloned());
+        ids.extend(state.virtual_models.keys().cloned());
+        ids
+    }
+
+    /// Returns the provider without virtual models, or None when only virtual models define it.
+    fn recompose_provider(&self, provider_id: &str) -> Option<Arc<dyn Provider>> {
+        let provider = self.compose_provider(provider_id);
+        let virtual_models: Vec<Model> = self
+            .state
+            .lock()
+            .virtual_models
+            .get(provider_id)
+            .map(|models| models.values().map(|entry| entry.model.clone()).collect())
+            .unwrap_or_default();
+        if !virtual_models.is_empty() {
+            self.models
+                .set_provider(with_virtual_models(provider_id, provider.clone(), &virtual_models));
+        } else if let Some(provider) = &provider {
+            self.models.set_provider(provider.clone());
+        } else {
+            self.models.delete_provider(provider_id);
+        }
+        provider
+    }
+
+    /// The provider without virtual models, or None when nothing defines it.
+    fn compose_provider(&self, provider_id: &str) -> Option<Arc<dyn Provider>> {
+        let (base, extension, config) = {
+            let state = self.state.lock();
+            (
+                state
+                    .native_extension_providers
+                    .get(provider_id)
+                    .or_else(|| state.builtins.get(provider_id))
+                    .cloned(),
+                state.extension_providers.get(provider_id).cloned(),
+                state.config.clone(),
+            )
+        };
+        if config.get_provider(provider_id).is_none() && extension.is_none() {
+            // No overlays: use the builtin untouched so its auth/login/stream behavior is exact.
+            self.state.lock().composition_errors.shift_remove(provider_id);
+            return base;
+        }
+        match compose_model_provider(provider_id, base.clone(), config, extension.as_ref()) {
+            Ok(provider) => {
+                self.state.lock().composition_errors.shift_remove(provider_id);
+                Some(provider)
+            }
+            Err(error) => {
+                self.state
+                    .lock()
+                    .composition_errors
+                    .insert(provider_id.to_string(), error_message(&error));
+                base
+            }
+        }
+    }
+
+    fn rebuild_providers(&self) {
+        self.models.clear_providers();
+        self.state.lock().composition_errors.clear();
+        for provider_id in self.provider_ids() {
+            self.recompose_provider(&provider_id);
+        }
+        self.update_model_snapshot();
+    }
+
+    fn update_model_snapshot(&self) {
+        let all = self.models.get_models(None);
+        let mut state = self.state.lock();
+        let available = all
+            .iter()
+            .filter(|model| state.snapshot.configured_providers.contains(&model.provider))
+            .cloned()
+            .collect();
+        state.snapshot.all = all;
+        state.snapshot.available = available;
+    }
+
+    async fn run_availability_refresh(
+        &self,
+        seq: u64,
+        error_seq: u64,
+        signal: &CancellationToken,
+    ) -> anyhow::Result<()> {
+        let providers = self.models.get_providers();
+        let checks = futures::future::try_join_all(providers.iter().map(|provider| {
+            let id = provider.id().to_string();
+            async move {
+                let check = self.models.check_auth(&id, Some(signal.clone())).await?;
+                anyhow::Ok((id, check))
+            }
+        }));
+        let (available, checks, credentials) = futures::future::try_join3(
+            self.models.get_available(None, Some(signal.clone())),
+            checks,
+            self.credentials.list(Some(signal)),
+        )
+        .await?;
+        let all = self.models.get_models(None);
+        let mut state = self.state.lock();
+        if seq != state.availability_refresh_seq {
+            return Ok(());
+        }
+        let mut auth = IndexMap::new();
+        let mut configured_providers = IndexSet::new();
+        for (id, check) in checks {
+            if let Some(check) = check {
+                configured_providers.insert(id.clone());
+                auth.insert(id, check);
+            }
+        }
+        state.snapshot = ModelRuntimeSnapshot {
+            all,
+            available,
+            configured_providers,
+            stored_providers: credentials.into_iter().map(|entry| entry.provider_id).collect(),
+            auth,
+        };
+        if error_seq == state.availability_error_seq {
+            state.availability_error = None;
+        }
+        Ok(())
+    }
+
+    async fn queue_availability_refresh(&self, signal: Option<CancellationToken>) -> anyhow::Result<()> {
+        let (seq, error_seq) = {
+            let mut state = self.state.lock();
+            state.availability_refresh_seq += 1;
+            for value in state.provider_availability_seq.values_mut() {
+                *value += 1;
+            }
+            state.availability_error_seq += 1;
+            (state.availability_refresh_seq, state.availability_error_seq)
+        };
+        let effective_signal = signal.unwrap_or_default();
+        let result = self.run_availability_refresh(seq, error_seq, &effective_signal).await;
+        if let Err(error) = &result {
+            let mut state = self.state.lock();
+            if error_seq == state.availability_error_seq && !effective_signal.is_cancelled() {
+                state.availability_error = Some(error_message(error));
+            }
+        }
+        result
+    }
+
+    async fn refresh_provider_availability(&self, provider_id: &str, signal: &CancellationToken) -> anyhow::Result<()> {
+        // Invalidate any full availability pass that started before this credential change.
+        let (provider_seq, error_seq) = {
+            let mut state = self.state.lock();
+            state.availability_refresh_seq += 1;
+            let provider_seq = state.provider_availability_seq.get(provider_id).copied().unwrap_or(0) + 1;
+            state.provider_availability_seq.insert(provider_id.to_string(), provider_seq);
+            state.availability_error_seq += 1;
+            (provider_seq, state.availability_error_seq)
+        };
+        let result: anyhow::Result<()> = async {
+            let (available, auth, credential) = futures::future::try_join3(
+                self.models.get_available(Some(provider_id), Some(signal.clone())),
+                self.models.check_auth(provider_id, Some(signal.clone())),
+                self.credentials.read(provider_id, Some(signal)),
+            )
+            .await?;
+            throw_if_aborted(signal)?;
+            let all = self.models.get_models(None);
+            let mut state = self.state.lock();
+            if state.provider_availability_seq.get(provider_id) != Some(&provider_seq) {
+                return Ok(());
+            }
+            let mut configured_providers = state.snapshot.configured_providers.clone();
+            let mut stored_providers = state.snapshot.stored_providers.clone();
+            let mut auth_by_provider = state.snapshot.auth.clone();
+            match auth {
+                Some(auth) => {
+                    configured_providers.insert(provider_id.to_string());
+                    auth_by_provider.insert(provider_id.to_string(), auth);
+                }
+                None => {
+                    configured_providers.shift_remove(provider_id);
+                    auth_by_provider.shift_remove(provider_id);
+                }
+            }
+            if credential.is_some() {
+                stored_providers.insert(provider_id.to_string());
+            } else {
+                stored_providers.shift_remove(provider_id);
+            }
+            let mut available_by_id: HashMap<(String, String), Model> = HashMap::new();
+            for model in state
+                .snapshot
+                .available
+                .iter()
+                .filter(|model| model.provider != provider_id)
+                .cloned()
+                .chain(available)
+            {
+                available_by_id.insert((model.provider.clone(), model.id.clone()), model);
+            }
+            let available = all
+                .iter()
+                .filter_map(|model| available_by_id.get(&(model.provider.clone(), model.id.clone())).cloned())
+                .collect();
+            state.snapshot = ModelRuntimeSnapshot {
+                all,
+                available,
+                configured_providers,
+                stored_providers,
+                auth: auth_by_provider,
+            };
+            if error_seq == state.availability_error_seq {
+                state.availability_error = None;
+            }
+            Ok(())
+        }
+        .await;
+        if let Err(error) = &result {
+            let mut state = self.state.lock();
+            if state.provider_availability_seq.get(provider_id) == Some(&provider_seq)
+                && error_seq == state.availability_error_seq
+                && !signal.is_cancelled()
+            {
+                state.availability_error = Some(error_message(error));
+            }
+        }
+        result
+    }
+
+    /// The underlying pi-ai `Models` collection.
+    pub fn models(&self) -> &Models {
+        &self.models
     }
 
     pub fn get_providers(&self) -> Vec<Arc<dyn Provider>> {
-        todo!("port core/model-runtime.ts:ModelRuntime.getProviders")
+        self.models.get_providers()
     }
 
     pub fn get_provider(&self, provider_id: &str) -> Option<Arc<dyn Provider>> {
-        todo!("port core/model-runtime.ts:ModelRuntime.getProvider")
+        self.models.get_provider(provider_id)
     }
 
     pub fn get_models(&self, provider_id: Option<&str>) -> Vec<Model> {
-        todo!("port core/model-runtime.ts:ModelRuntime.getModels")
+        self.models.get_models(provider_id)
     }
 
     pub fn get_model(&self, provider_id: &str, model_id: &str) -> Option<Model> {
-        todo!("port core/model-runtime.ts:ModelRuntime.getModel")
+        self.models.get_model(provider_id, model_id)
     }
 
-    pub fn get_models_of_type(
-        &self,
-        r#type: pi_ai::types::ModelType,
-        provider_id: Option<&str>,
-    ) -> Vec<pi_ai::types::AnyModel> {
-        todo!("port core/model-runtime.ts:ModelRuntime.getModelsOfType")
+    pub fn get_models_of_type(&self, r#type: ModelType, provider_id: Option<&str>) -> Vec<AnyModel> {
+        self.models.get_models_of_type(r#type, provider_id)
     }
 
-    pub fn get_model_of_type(
-        &self,
-        r#type: pi_ai::types::ModelType,
-        provider_id: &str,
-        model_id: &str,
-    ) -> Option<pi_ai::types::AnyModel> {
-        todo!("port core/model-runtime.ts:ModelRuntime.getModelOfType")
+    pub fn get_model_of_type(&self, r#type: ModelType, provider_id: &str, model_id: &str) -> Option<AnyModel> {
+        self.models.get_model_of_type(r#type, provider_id, model_id)
     }
 
     pub fn get_all_models(&self, provider_id: Option<&str>) -> Vec<AnyModel> {
-        todo!("port core/model-runtime.ts:ModelRuntime.getAllModels")
+        self.models.get_all_models(provider_id)
     }
 
     pub async fn get_available_of_type(
         &self,
-        r#type: pi_ai::types::ModelType,
+        r#type: ModelType,
         provider_id: Option<&str>,
         options: Option<&AuthOperationOptions>,
-    ) -> anyhow::Result<Vec<pi_ai::types::AnyModel>> {
-        todo!("port core/model-runtime.ts:ModelRuntime.getAvailableOfType")
+    ) -> anyhow::Result<Vec<AnyModel>> {
+        self.models
+            .get_available_of_type(r#type, provider_id, options.and_then(|o| o.signal.clone()))
+            .await
     }
 
     pub async fn get_all_available(
@@ -239,7 +735,9 @@ impl ModelRuntime {
         provider_id: Option<&str>,
         options: Option<&AuthOperationOptions>,
     ) -> anyhow::Result<Vec<AnyModel>> {
-        todo!("port core/model-runtime.ts:ModelRuntime.getAllAvailable")
+        self.models
+            .get_all_available(provider_id, options.and_then(|o| o.signal.clone()))
+            .await
     }
 
     pub async fn check_auth(
@@ -247,7 +745,9 @@ impl ModelRuntime {
         provider_id: &str,
         options: Option<&AuthOperationOptions>,
     ) -> anyhow::Result<Option<AuthCheck>> {
-        todo!("port core/model-runtime.ts:ModelRuntime.checkAuth")
+        self.models
+            .check_auth(provider_id, options.and_then(|o| o.signal.clone()))
+            .await
     }
 
     pub async fn get_available(
@@ -255,44 +755,98 @@ impl ModelRuntime {
         provider_id: Option<&str>,
         options: Option<&AuthOperationOptions>,
     ) -> anyhow::Result<Vec<Model>> {
-        todo!("port core/model-runtime.ts:ModelRuntime.getAvailable")
+        let signal = options.and_then(|o| o.signal.clone());
+        if let Some(provider_id) = provider_id {
+            let error_seq = {
+                let mut state = self.state.lock();
+                state.availability_error_seq += 1;
+                state.availability_error_seq
+            };
+            let result = self.models.get_available(Some(provider_id), signal.clone()).await;
+            let mut state = self.state.lock();
+            match &result {
+                Ok(_) if error_seq == state.availability_error_seq => state.availability_error = None,
+                Err(error)
+                    if error_seq == state.availability_error_seq
+                        && !signal.as_ref().is_some_and(CancellationToken::is_cancelled) =>
+                {
+                    state.availability_error = Some(error_message(error));
+                }
+                _ => {}
+            }
+            return result;
+        }
+        self.queue_availability_refresh(signal).await?;
+        Ok(self.state.lock().snapshot.available.clone())
     }
 
     pub fn get_available_snapshot(&self) -> Vec<Model> {
-        todo!("port core/model-runtime.ts:ModelRuntime.getAvailableSnapshot")
+        self.state.lock().snapshot.available.clone()
     }
 
     pub fn get_error(&self) -> Option<String> {
-        todo!("port core/model-runtime.ts:ModelRuntime.getError")
+        let state = self.state.lock();
+        let mut errors = Vec::new();
+        if let Some(config_error) = state.config.get_error() {
+            errors.push(config_error);
+        }
+        for (provider_id, error) in &state.composition_errors {
+            errors.push(format!("Provider \"{provider_id}\": {error}"));
+        }
+        if let Some(error) = &state.availability_error {
+            errors.push(format!("Availability refresh: {error}"));
+        }
+        (!errors.is_empty()).then(|| errors.join("\n\n"))
     }
 
     pub fn get_registered_provider_config(&self, provider_id: &str) -> Option<ProviderConfigInput> {
-        todo!("port core/model-runtime.ts:ModelRuntime.getRegisteredProviderConfig")
+        self.state.lock().extension_providers.get(provider_id).cloned()
     }
 
     pub fn get_registered_provider_ids(&self) -> Vec<String> {
-        todo!("port core/model-runtime.ts:ModelRuntime.getRegisteredProviderIds")
+        let state = self.state.lock();
+        let mut ids: IndexSet<String> = state.extension_providers.keys().cloned().collect();
+        ids.extend(state.native_extension_providers.keys().cloned());
+        ids.into_iter().collect()
     }
 
     pub fn get_registered_native_provider(&self, provider_id: &str) -> Option<Arc<dyn Provider>> {
-        todo!("port core/model-runtime.ts:ModelRuntime.getRegisteredNativeProvider")
+        self.state.lock().native_extension_providers.get(provider_id).cloned()
     }
 
     /// @internal Compatibility fallback for ModelRegistry when provider auth is unconfigured.
-    pub fn get_compatibility_request_config(&self, model: Model) -> CompatibilityRequestConfig {
-        todo!("port core/model-runtime.ts:ModelRuntime.getCompatibilityRequestConfig")
+    pub fn get_compatibility_request_config(&self, model: &Model) -> anyhow::Result<CompatibilityRequestConfig> {
+        let (config, extension) = {
+            let state = self.state.lock();
+            (state.config.clone(), state.extension_providers.get(&model.provider).cloned())
+        };
+        resolve_compatibility_request_config(
+            &AnyModel::Chat(model.clone()),
+            config.get_provider(&model.provider),
+            extension.as_ref(),
+        )
     }
 
     pub fn is_using_o_auth(&self, provider_id: &str) -> bool {
-        todo!("port core/model-runtime.ts:ModelRuntime.isUsingOAuth")
+        self.state
+            .lock()
+            .snapshot
+            .auth
+            .get(provider_id)
+            .is_some_and(|check| check.auth_type == AuthType::OAuth)
     }
 
     pub fn is_using_subscription(&self, provider_id: &str) -> bool {
-        todo!("port core/model-runtime.ts:ModelRuntime.isUsingSubscription")
+        self.is_using_o_auth(provider_id)
+            && self
+                .models
+                .get_provider(provider_id)
+                .and_then(|provider| provider.auth().oauth.clone())
+                .is_some_and(|oauth| oauth.is_subscription() == Some(true))
     }
 
     pub fn has_configured_auth(&self, provider_id: &str) -> bool {
-        todo!("port core/model-runtime.ts:ModelRuntime.hasConfiguredAuth")
+        self.state.lock().snapshot.configured_providers.contains(provider_id)
     }
 
     pub async fn get_auth(
@@ -300,7 +854,106 @@ impl ModelRuntime {
         provider_or_model: &ModelRuntimeGetAuthProviderOrModel,
         overrides: Option<&ModelRuntimeAuthOverrides>,
     ) -> anyhow::Result<Option<AuthResult>> {
-        todo!("port core/model-runtime.ts:ModelRuntime.getAuth")
+        let overrides = overrides.cloned().unwrap_or_default();
+        let resolution_overrides = AuthResolutionOverrides {
+            api_key: overrides.api_key.clone(),
+            env: overrides.env.as_ref().map(to_provider_env),
+            min_oauth_validity_ms: overrides.min_o_auth_validity_ms,
+            signal: overrides.signal.clone(),
+        };
+        let model = match provider_or_model {
+            ModelRuntimeGetAuthProviderOrModel::String(provider_id) => {
+                return self.models.get_auth(provider_id, resolution_overrides).await;
+            }
+            ModelRuntimeGetAuthProviderOrModel::AnyModel(model) => model,
+        };
+        let Some(mut resolution) = self.models.get_auth_for_model(model, resolution_overrides).await? else {
+            return Ok(None);
+        };
+        let (config, extension) = {
+            let state = self.state.lock();
+            (state.config.clone(), state.extension_providers.get(model.provider()).cloned())
+        };
+        let mut env: IndexMap<String, String> = resolution
+            .env
+            .as_ref()
+            .map(|env| env.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+            .unwrap_or_default();
+        if let Some(extra) = &overrides.env {
+            env.extend(extra.iter().map(|(k, v)| (k.clone(), v.clone())));
+        }
+        let configured = resolve_configured_model_headers(
+            model,
+            config.get_provider(model.provider()),
+            extension.as_ref(),
+            Some(&env),
+        )?;
+        let configured: Option<ProviderHeaders> =
+            configured.map(|headers| headers.into_iter().map(|(k, v)| (k, Some(v))).collect());
+        resolution.auth.headers = merge_headers(resolution.auth.headers.as_ref(), configured.as_ref());
+        Ok(Some(resolution))
+    }
+
+    /// Per-provider serialization of credential changes. An operation waits for earlier ones; a
+    /// caller aborted before its operation starts stops waiting.
+    async fn enqueue_credential_operation<T>(
+        &self,
+        provider_id: &str,
+        signal: &CancellationToken,
+        task: impl std::future::Future<Output = anyhow::Result<T>>,
+    ) -> anyhow::Result<T> {
+        let lock = self
+            .credential_operations
+            .lock()
+            .entry(provider_id.to_string())
+            .or_default()
+            .clone();
+        let guard = tokio::select! {
+            guard = lock.lock_owned() => guard,
+            _ = signal.cancelled() => return Err(AbortError.into()),
+        };
+        throw_if_aborted(signal)?;
+        let result = task.await;
+        drop(guard);
+        result
+    }
+
+    async fn synchronize_credential_state(
+        &self,
+        provider_id: &str,
+        operation: CredentialSynchronizationOperation,
+        credential: Option<Credential>,
+        signal: &CancellationToken,
+    ) -> anyhow::Result<()> {
+        let result: anyhow::Result<()> = async {
+            throw_if_aborted(signal)?;
+            self.recompose_provider(provider_id);
+            let composition_error = self.state.lock().composition_errors.get(provider_id).cloned();
+            if let Some(error) = composition_error {
+                anyhow::bail!(error);
+            }
+            let result = self
+                .models
+                .refresh(ModelsRefreshOptions {
+                    allow_network: Some(false),
+                    providers: Some(vec![provider_id.to_string()]),
+                    force: None,
+                    signal: Some(signal.clone()),
+                })
+                .await;
+            if result.aborted {
+                throw_if_aborted(signal)?;
+            }
+            if let Some(error) = result.errors.get(provider_id) {
+                anyhow::bail!(error.clone());
+            }
+            self.update_model_snapshot();
+            self.refresh_provider_availability(provider_id, signal).await
+        }
+        .await;
+        result.map_err(|cause| {
+            CredentialSynchronizationError::new(provider_id, operation, credential, cause).into()
+        })
     }
 
     pub async fn set_runtime_api_key(
@@ -309,7 +962,18 @@ impl ModelRuntime {
         api_key: &str,
         options: Option<&AuthOperationOptions>,
     ) -> anyhow::Result<()> {
-        todo!("port core/model-runtime.ts:ModelRuntime.setRuntimeApiKey")
+        let signal = options.and_then(|o| o.signal.clone()).unwrap_or_default();
+        self.enqueue_credential_operation(provider_id, &signal, async {
+            self.credentials.set_runtime_api_key(provider_id, api_key);
+            self.synchronize_credential_state(
+                provider_id,
+                CredentialSynchronizationOperation::SetRuntimeApiKey,
+                Some(Credential::ApiKey(ApiKeyCredential { key: Some(api_key.to_string()), env: None })),
+                &signal,
+            )
+            .await
+        })
+        .await
     }
 
     pub async fn remove_runtime_api_key(
@@ -317,36 +981,129 @@ impl ModelRuntime {
         provider_id: &str,
         options: Option<&AuthOperationOptions>,
     ) -> anyhow::Result<()> {
-        todo!("port core/model-runtime.ts:ModelRuntime.removeRuntimeApiKey")
+        let signal = options.and_then(|o| o.signal.clone()).unwrap_or_default();
+        self.enqueue_credential_operation(provider_id, &signal, async {
+            self.credentials.remove_runtime_api_key(provider_id);
+            self.synchronize_credential_state(
+                provider_id,
+                CredentialSynchronizationOperation::RemoveRuntimeApiKey,
+                None,
+                &signal,
+            )
+            .await
+        })
+        .await
     }
 
-    pub async fn list_credentials(
-        &self,
-        options: Option<&AuthOperationOptions>,
-    ) -> anyhow::Result<Vec<CredentialInfo>> {
-        todo!("port core/model-runtime.ts:ModelRuntime.listCredentials")
+    pub async fn list_credentials(&self, options: Option<&AuthOperationOptions>) -> anyhow::Result<Vec<CredentialInfo>> {
+        let signal = options.and_then(|o| o.signal.clone());
+        self.credentials.list(signal.as_ref()).await
     }
 
     pub fn get_provider_auth_status(&self, provider_id: &str) -> AuthStatus {
-        todo!("port core/model-runtime.ts:ModelRuntime.getProviderAuthStatus")
+        if self.credentials.has_runtime_api_key(provider_id) {
+            return AuthStatus::configured(AuthStatusSource::Runtime, None);
+        }
+        let (stored, config, extension, check) = {
+            let state = self.state.lock();
+            (
+                state.snapshot.stored_providers.contains(provider_id),
+                state.config.clone(),
+                state.extension_providers.get(provider_id).cloned(),
+                state.snapshot.auth.get(provider_id).cloned(),
+            )
+        };
+        if stored {
+            return AuthStatus::configured(AuthStatusSource::Stored, None);
+        }
+        if let Some(configured) = configured_request_auth_status(config.get_provider(provider_id), extension.as_ref()) {
+            return configured;
+        }
+        match check {
+            Some(check) => AuthStatus::configured(AuthStatusSource::Environment, check.source),
+            None => AuthStatus::unconfigured(),
+        }
     }
 
-    pub fn stream(
-        &self,
-        model: Model,
-        context: Context,
-        options: Option<ModelsRequestOptions>,
-    ) -> AssistantMessageEventStream {
-        todo!("port core/model-runtime.ts:ModelRuntime.stream")
+    async fn prepare_request(&self, model: AnyModel, request: ModelsRequestOptions) -> anyhow::Result<PreparedRequest> {
+        let provider = self.models.get_provider(model.provider()).ok_or_else(|| {
+            ModelsError::new(ModelsErrorCode::Provider, format!("Unknown provider: {}", model.provider()))
+        })?;
+        let options = request.options;
+        let resolution = self
+            .get_auth(
+                &ModelRuntimeGetAuthProviderOrModel::AnyModel(model.clone()),
+                Some(&ModelRuntimeAuthOverrides {
+                    api_key: options.api_key.clone(),
+                    env: options
+                        .env
+                        .as_ref()
+                        .map(|env| env.iter().map(|(k, v)| (k.clone(), v.clone())).collect()),
+                    signal: options.signal.clone(),
+                    min_o_auth_validity_ms: None,
+                }),
+            )
+            .await?
+            .ok_or_else(|| {
+                ModelsError::new(ModelsErrorCode::Auth, format!("Provider is not configured: {}", model.provider()))
+            })?;
+        let mut request_model = model;
+        if let Some(base_url) = resolution.auth.base_url.clone().filter(|url| !url.is_empty()) {
+            request_model.set_base_url(base_url);
+        }
+        let session_headers: Option<ProviderHeaders> = get_open_code_session_headers(
+            ClientIdentityTarget { provider: request_model.provider(), base_url: request_model.base_url() },
+            options.session_id.as_deref(),
+        )
+        .map(|headers| headers.into_iter().map(|(k, v)| (k, Some(v))).collect());
+        let mut headers = merge_headers(
+            merge_headers(session_headers.as_ref(), resolution.auth.headers.as_ref()).as_ref(),
+            options.headers.as_ref(),
+        );
+        if let Some(transform) = &request.transform_headers {
+            headers = Some(transform(headers.unwrap_or_default()).await);
+        }
+        let env = if resolution.env.is_some() || options.env.is_some() {
+            let mut env = resolution.env.clone().unwrap_or_default();
+            env.extend(options.env.clone().unwrap_or_default());
+            Some(env)
+        } else {
+            None
+        };
+        let mut options = options;
+        options.api_key = options.api_key.clone().or(resolution.auth.api_key.clone());
+        options.headers = headers;
+        options.env = env;
+        Ok(PreparedRequest { provider, model: request_model, options })
     }
 
-    pub async fn complete(
-        &self,
-        model: Model,
-        context: Context,
-        options: Option<ModelsRequestOptions>,
-    ) -> anyhow::Result<AssistantMessage> {
-        todo!("port core/model-runtime.ts:ModelRuntime.complete")
+    fn this(&self) -> anyhow::Result<Arc<ModelRuntime>> {
+        self.weak
+            .upgrade()
+            .ok_or_else(|| anyhow::anyhow!("Model runtime is no longer available"))
+    }
+
+    pub fn stream(&self, model: Model, context: Context, options: Option<ModelsRequestOptions>) -> AssistantMessageEventStream {
+        let transcript = normalize_context(&context);
+        let this = self.this();
+        let request = options.unwrap_or_default();
+        let owned = model.clone();
+        lazy_stream(
+            &model,
+            async move {
+                let this = this?;
+                assert_chat_model(&owned)?;
+                let prepared = this.prepare_request(AnyModel::Chat(owned), request).await?;
+                let model = prepared.model.into_chat().expect("chat model stays chat");
+                Ok(prepared.provider.stream(&model, &transcript, prepared.options))
+            }
+            .boxed(),
+            None,
+        )
+    }
+
+    pub async fn complete(&self, model: Model, context: Context, options: Option<ModelsRequestOptions>) -> AssistantMessage {
+        self.stream(model, context, options).result().await
     }
 
     pub fn stream_simple(
@@ -355,7 +1112,72 @@ impl ModelRuntime {
         context: Context,
         options: Option<ModelsRequestOptions>,
     ) -> AssistantMessageEventStream {
-        todo!("port core/model-runtime.ts:ModelRuntime.streamSimple")
+        let transcript = normalize_context(&context);
+        let this = self.this();
+        let request = options.unwrap_or_default();
+        let owned = model.clone();
+        if is_virtual_model(&model) {
+            // Requests outside the agent loop are routed here. Callers sized them before routing, so
+            // cap the output budget to the routed model.
+            return lazy_stream(
+                &model,
+                async move {
+                    let this = this?;
+                    let options = request.options.clone();
+                    let route = this
+                        .resolve_model(
+                            owned.clone(),
+                            &transcript.messages,
+                            &ModelRuntimeResolveModelOptions {
+                                reason: ModelRouteReason::Direct,
+                                thinking_level: options
+                                    .reasoning
+                                    .map(ModelThinkingLevel::from)
+                                    .unwrap_or(ModelThinkingLevel::Off),
+                                signal: options.signal.clone(),
+                                failed: None,
+                                state: None,
+                            },
+                        )
+                        .await?;
+                    let limit = route.model.max_tokens;
+                    let max_tokens = match options.max_tokens {
+                        Some(requested) if requested > 0 && limit > 0 => Some(requested.min(limit)),
+                        other => other,
+                    };
+                    let reasoning = route.thinking_level.thinking();
+                    let mut next = options;
+                    // Caller credentials were resolved for the virtual model's provider. Another provider
+                    // resolves its own, so they are not sent to the wrong vendor.
+                    if route.model.provider != owned.provider {
+                        next.api_key = None;
+                        next.headers = None;
+                        next.env = None;
+                    }
+                    next.max_tokens = max_tokens;
+                    next.reasoning = reasoning;
+                    Ok(this.stream_simple(
+                        route.model,
+                        context,
+                        Some(ModelsRequestOptions { options: next, transform_headers: request.transform_headers }),
+                    ))
+                }
+                .boxed(),
+                None,
+            );
+        }
+        lazy_stream(
+            &model,
+            async move {
+                let this = this?;
+                assert_chat_model(&owned)?;
+                let prepared = this.prepare_request(AnyModel::Chat(owned), request).await?;
+                let model = prepared.model.into_chat().expect("chat model stays chat");
+                Ok(prepared.provider.stream_simple(&model, &transcript, prepared.options))
+            }
+            .boxed(),
+            None,
+        )
     }
 
     pub async fn complete_simple(
@@ -363,8 +1185,8 @@ impl ModelRuntime {
         model: Model,
         context: Context,
         options: Option<ModelsRequestOptions>,
-    ) -> anyhow::Result<AssistantMessage> {
-        todo!("port core/model-runtime.ts:ModelRuntime.completeSimple")
+    ) -> AssistantMessage {
+        self.stream_simple(model, context, options).result().await
     }
 
     pub fn stream_deferred(
@@ -372,8 +1194,29 @@ impl ModelRuntime {
         model: Model,
         handle: DeferredHandle,
         options: Option<ModelsRequestOptions>,
-    ) -> anyhow::Result<AssistantMessageEventStream> {
-        todo!("port core/model-runtime.ts:ModelRuntime.streamDeferred")
+    ) -> AssistantMessageEventStream {
+        let this = self.this();
+        let request = options.unwrap_or_default();
+        let owned = model.clone();
+        lazy_stream(
+            &model,
+            async move {
+                let this = this?;
+                assert_chat_model(&owned)?;
+                let prepared = this.prepare_request(AnyModel::Chat(owned.clone()), request).await?;
+                if !prepared.provider.supports_fetch_deferred() {
+                    return Err(ModelsError::new(
+                        ModelsErrorCode::Provider,
+                        format!("Provider {} does not support deferred responses", owned.provider),
+                    )
+                    .into());
+                }
+                let model = prepared.model.into_chat().expect("chat model stays chat");
+                Ok(prepared.provider.fetch_deferred(&model, &handle, prepared.options))
+            }
+            .boxed(),
+            None,
+        )
     }
 
     pub async fn fetch_deferred(
@@ -381,8 +1224,8 @@ impl ModelRuntime {
         model: Model,
         handle: DeferredHandle,
         options: Option<ModelsRequestOptions>,
-    ) -> anyhow::Result<AssistantMessage> {
-        todo!("port core/model-runtime.ts:ModelRuntime.fetchDeferred")
+    ) -> AssistantMessage {
+        self.stream_deferred(model, handle, options).result().await
     }
 
     pub async fn cancel_deferred(
@@ -391,80 +1234,343 @@ impl ModelRuntime {
         handle: DeferredHandle,
         options: Option<ModelsRequestOptions>,
     ) -> anyhow::Result<()> {
-        todo!("port core/model-runtime.ts:ModelRuntime.cancelDeferred")
+        assert_chat_model(&model)?;
+        let prepared = self
+            .prepare_request(AnyModel::Chat(model.clone()), options.unwrap_or_default())
+            .await?;
+        if !prepared.provider.supports_cancel_deferred() {
+            return Err(ModelsError::new(
+                ModelsErrorCode::Provider,
+                format!("Provider {} does not support deferred responses", model.provider),
+            )
+            .into());
+        }
+        let model = prepared.model.into_chat().expect("chat model stays chat");
+        prepared.provider.cancel_deferred(&model, &handle, prepared.options).await
     }
 
+    /// Generate images with request-time authentication. Never fails: errors become results.
     pub async fn generate_images(
         &self,
         model: ImageModel,
         context: ImagesContext,
         options: Option<ModelsRequestOptions>,
-    ) -> anyhow::Result<AssistantImages> {
-        todo!("port core/model-runtime.ts:ModelRuntime.generateImages")
+    ) -> AssistantImages {
+        let request = options.unwrap_or_default();
+        let signal = request.options.signal.clone();
+        let result: anyhow::Result<AssistantImages> = async {
+            assert_image_model(&model)?;
+            let prepared = self.prepare_request(AnyModel::Image(model.clone()), request).await?;
+            if !prepared.provider.supports_images() {
+                return Err(ModelsError::new(
+                    ModelsErrorCode::Provider,
+                    format!("Provider {} does not support image generation", model.provider),
+                )
+                .into());
+            }
+            let AnyModel::Image(request_model) = prepared.model else { unreachable!("image model stays image") };
+            Ok(prepared.provider.generate_images(&request_model, &context, prepared.options).await)
+        }
+        .await;
+        match result {
+            Ok(images) => images,
+            Err(error) => image_error_result(&model, &error, signal.is_some_and(|s| s.is_cancelled())),
+        }
     }
 
+    /// Classify with request-time authentication. Never fails: errors become results.
     pub async fn classify(
         &self,
         model: ClassifierModel,
         context: ClassifierContext,
         options: Option<ModelsRequestOptions>,
-    ) -> anyhow::Result<ClassifierResult> {
-        todo!("port core/model-runtime.ts:ModelRuntime.classify")
+    ) -> ClassifierResult {
+        let request = options.unwrap_or_default();
+        let signal = request.options.signal.clone();
+        let result: anyhow::Result<ClassifierResult> = async {
+            assert_classifier_model(&model)?;
+            assert_classifier_input_supported(&model, &context)?;
+            let prepared = self.prepare_request(AnyModel::Classifier(model.clone()), request).await?;
+            if !prepared.provider.supports_classify() {
+                return Err(ModelsError::new(
+                    ModelsErrorCode::Provider,
+                    format!("Provider {} does not support classification", model.provider),
+                )
+                .into());
+            }
+            let AnyModel::Classifier(request_model) = prepared.model else {
+                unreachable!("classifier model stays classifier")
+            };
+            Ok(prepared.provider.classify(&request_model, &context, prepared.options).await)
+        }
+        .await;
+        match result {
+            Ok(result) => result,
+            Err(error) => classifier_error_result(&model, &error, signal.is_some_and(|s| s.is_cancelled())),
+        }
     }
 
+    /// Run a provider login flow, persist the credential, and synchronize the snapshot.
+    /// `signal` is the interaction's cancellation signal.
     pub async fn login(
         &self,
         provider_id: &str,
         r#type: AuthType,
         interaction: Arc<dyn AuthInteraction>,
+        signal: Option<CancellationToken>,
         options: Option<LoginOptions>,
     ) -> anyhow::Result<Credential> {
-        todo!("port core/model-runtime.ts:ModelRuntime.login")
+        let signal = signal.unwrap_or_default();
+        self.enqueue_credential_operation(provider_id, &signal, async {
+            let credential = self
+                .models
+                .login(provider_id, r#type, interaction, Some(signal.clone()), options)
+                .await?;
+            self.synchronize_credential_state(
+                provider_id,
+                CredentialSynchronizationOperation::Login,
+                Some(credential.clone()),
+                &signal,
+            )
+            .await?;
+            Ok(credential)
+        })
+        .await
     }
 
-    pub async fn logout(
-        &self,
-        provider_id: &str,
-        options: Option<&AuthOperationOptions>,
-    ) -> anyhow::Result<()> {
-        todo!("port core/model-runtime.ts:ModelRuntime.logout")
+    pub async fn logout(&self, provider_id: &str, options: Option<&AuthOperationOptions>) -> anyhow::Result<()> {
+        let signal = options.and_then(|o| o.signal.clone()).unwrap_or_default();
+        self.enqueue_credential_operation(provider_id, &signal, async {
+            self.models.logout(provider_id, Some(signal.clone())).await?;
+            self.synchronize_credential_state(provider_id, CredentialSynchronizationOperation::Logout, None, &signal)
+                .await
+        })
+        .await
     }
 
-    pub async fn refresh(
-        &self,
-        options: Option<ModelsRefreshOptions>,
-    ) -> anyhow::Result<ModelsRefreshResult> {
-        todo!("port core/model-runtime.ts:ModelRuntime.refresh")
+    pub async fn refresh(&self, options: Option<ModelsRefreshOptions>) -> anyhow::Result<ModelsRefreshResult> {
+        let options = options.unwrap_or_default();
+        let config = ModelConfig::load(self.models_path.as_deref()).await;
+        self.state.lock().config = config;
+        self.configure_radius_providers();
+        let selected: Option<Vec<String>> = options.providers.as_ref().map(|providers| {
+            providers.iter().cloned().collect::<IndexSet<String>>().into_iter().collect()
+        });
+        match &selected {
+            Some(providers) => {
+                for provider_id in providers {
+                    self.recompose_provider(provider_id);
+                }
+                self.update_model_snapshot();
+            }
+            None => self.rebuild_providers(),
+        }
+        let refresh_options = ModelsRefreshOptions {
+            allow_network: Some(options.allow_network.unwrap_or(self.model_network_enabled)),
+            ..options.clone()
+        };
+        let result = self.models.refresh(refresh_options).await;
+        let mut errors = result.errors.clone();
+        self.update_model_snapshot();
+        let caller_aborted = || options.signal.as_ref().is_some_and(CancellationToken::is_cancelled);
+        match &selected {
+            Some(providers) => {
+                let signal = options.signal.clone().unwrap_or_default();
+                let results = futures::future::join_all(
+                    providers.iter().map(|provider_id| {
+                        let signal = signal.clone();
+                        async move { (provider_id.clone(), self.refresh_provider_availability(provider_id, &signal).await) }
+                    }),
+                )
+                .await;
+                for (provider_id, result) in results {
+                    if let Err(error) = result
+                        && !caller_aborted()
+                    {
+                        errors.insert(provider_id, error_message(&error));
+                    }
+                }
+            }
+            None => {
+                // Availability errors are recorded by the latest pass; refreshed models remain usable.
+                let _ = self.queue_availability_refresh(options.signal.clone()).await;
+            }
+        }
+        Ok(ModelsRefreshResult { aborted: result.aborted || caller_aborted(), errors })
+    }
+
+    fn spawn_offline_refresh(&self) {
+        if let Some(this) = self.weak.upgrade() {
+            spawn_detached(
+                async move {
+                    let _ = this
+                        .refresh(Some(ModelsRefreshOptions { allow_network: Some(false), ..Default::default() }))
+                        .await;
+                }
+                .boxed(),
+            );
+        }
     }
 
     pub fn register_native_provider(&self, provider: Arc<dyn Provider>) -> anyhow::Result<()> {
-        todo!("port core/model-runtime.ts:ModelRuntime.registerNativeProvider")
+        if provider.id().trim().is_empty() {
+            anyhow::bail!("Provider id must not be empty.");
+        }
+        let provider_id = provider.id().to_string();
+        let auth_type = if provider.auth().oauth.is_some() && provider.auth().api_key.is_none() {
+            AuthType::OAuth
+        } else {
+            AuthType::ApiKey
+        };
+        {
+            let mut state = self.state.lock();
+            state.extension_providers.shift_remove(&provider_id);
+            state.native_extension_providers.insert(provider_id.clone(), provider);
+        }
+        self.recompose_provider(&provider_id);
+        self.update_model_snapshot();
+        let config = self.state.lock().config.clone();
+        self.mark_provisionally_configured(
+            &provider_id,
+            configured_request_auth_status(config.get_provider(&provider_id), None),
+            auth_type,
+        );
+        self.spawn_offline_refresh();
+        Ok(())
     }
 
-    pub fn register_provider(
-        &self,
-        provider_id: &str,
-        config: &ProviderConfigInput,
-    ) -> anyhow::Result<()> {
-        todo!("port core/model-runtime.ts:ModelRuntime.registerProvider")
+    /// Mark a newly registered provider as configured when it has a stored credential or a configured
+    /// API key. Availability checks run asynchronously, and callers such as initial model selection
+    /// read the snapshot before they finish. The next availability pass replaces this entry.
+    fn mark_provisionally_configured(&self, provider_id: &str, configured_status: Option<AuthStatus>, auth_type: AuthType) {
+        let mut state = self.state.lock();
+        if !state.snapshot.stored_providers.contains(provider_id)
+            && !configured_status.is_some_and(|status| status.configured)
+        {
+            return;
+        }
+        state.snapshot.configured_providers.insert(provider_id.to_string());
+        // Never clobber a real check result.
+        if !state.snapshot.auth.contains_key(provider_id) {
+            state.snapshot.auth.insert(
+                provider_id.to_string(),
+                AuthCheck { source: Some("configured provider".to_string()), auth_type },
+            );
+        }
+        let configured = state.snapshot.configured_providers.clone();
+        state.snapshot.available = state
+            .snapshot
+            .all
+            .iter()
+            .filter(|model| configured.contains(&model.provider))
+            .cloned()
+            .collect();
+    }
+
+    pub fn register_provider(&self, provider_id: &str, config: &ProviderConfigInput) -> anyhow::Result<()> {
+        // Validate the incoming registration on its own, like the legacy registry:
+        // a broken re-registration must throw without touching the stored config.
+        let (base, models_config) = {
+            let state = self.state.lock();
+            (state.builtins.get(provider_id).cloned(), state.config.clone())
+        };
+        validate_extension_provider(provider_id, base, models_config.get_provider(provider_id), config)?;
+        // Re-registration merges defined values over the previous registration and
+        // preserves undefined ones, matching the legacy ModelRegistry contract.
+        let effective = {
+            let mut state = self.state.lock();
+            state.native_extension_providers.shift_remove(provider_id);
+            let effective = match state.extension_providers.get(provider_id) {
+                Some(previous) => merge_provider_config(previous, config),
+                None => config.clone(),
+            };
+            state.extension_providers.insert(provider_id.to_string(), effective.clone());
+            effective
+        };
+        self.recompose_provider(provider_id);
+        self.update_model_snapshot();
+        let auth_type = if effective.oauth.is_some() && effective.api_key.is_none() {
+            AuthType::OAuth
+        } else {
+            AuthType::ApiKey
+        };
+        self.mark_provisionally_configured(
+            provider_id,
+            configured_request_auth_status(models_config.get_provider(provider_id), Some(&effective)),
+            auth_type,
+        );
+        self.spawn_offline_refresh();
+        Ok(())
     }
 
     pub fn unregister_provider(&self, provider_id: &str) {
-        todo!("port core/model-runtime.ts:ModelRuntime.unregisterProvider")
+        {
+            let mut state = self.state.lock();
+            state.extension_providers.shift_remove(provider_id);
+            state.native_extension_providers.shift_remove(provider_id);
+        }
+        self.recompose_provider(provider_id);
+        self.update_model_snapshot();
+        self.spawn_offline_refresh();
     }
 
     /// Register a virtual model under `definition.provider`, which may also list physical models or
     /// several virtual models. Re-registering the same provider and id replaces the virtual model.
     /// Throws when the id belongs to a physical model of that provider.
-    pub fn register_virtual_model(
-        &self,
-        definition: &VirtualModelDefinition,
-    ) -> anyhow::Result<()> {
-        todo!("port core/model-runtime.ts:ModelRuntime.registerVirtualModel")
+    pub fn register_virtual_model(&self, definition: &VirtualModelDefinition) -> anyhow::Result<()> {
+        let provider_id = definition.provider.clone();
+        let id = definition.id.clone();
+        if provider_id.trim().is_empty() || id.trim().is_empty() {
+            anyhow::bail!("Virtual model provider and id must not be empty.");
+        }
+        if let Some(existing) = self.models.get_model(&provider_id, &id)
+            && !is_virtual_model(&existing)
+        {
+            anyhow::bail!("Virtual model {provider_id}/{id} conflicts with a physical model.");
+        }
+        self.state
+            .lock()
+            .virtual_models
+            .entry(provider_id.clone())
+            .or_default()
+            .insert(
+                id,
+                RegisteredVirtualModel {
+                    model: create_virtual_model(&definition.without_route()),
+                    route: definition.route.clone(),
+                },
+            );
+        if self.recompose_provider(&provider_id).is_none() {
+            let mut state = self.state.lock();
+            if !state.snapshot.configured_providers.contains(&provider_id) {
+                // A provider of only virtual models needs no credentials. Mark it configured now: session
+                // restore checks auth before the refresh below lands.
+                state.snapshot.auth.insert(
+                    provider_id.clone(),
+                    AuthCheck { source: Some("virtual".to_string()), auth_type: AuthType::ApiKey },
+                );
+                state.snapshot.configured_providers.insert(provider_id.clone());
+            }
+        }
+        self.update_model_snapshot();
+        self.spawn_offline_refresh();
+        Ok(())
     }
 
     pub fn unregister_virtual_model(&self, provider_id: &str, id: &str) {
-        todo!("port core/model-runtime.ts:ModelRuntime.unregisterVirtualModel")
+        {
+            let mut state = self.state.lock();
+            let Some(models) = state.virtual_models.get_mut(provider_id) else { return };
+            if models.shift_remove(id).is_none() {
+                return;
+            }
+            if models.is_empty() {
+                state.virtual_models.shift_remove(provider_id);
+            }
+        }
+        self.recompose_provider(provider_id);
+        self.update_model_snapshot();
+        self.spawn_offline_refresh();
     }
 
     /// Ask a virtual model's router for the model and thinking level of one request. The router must
@@ -480,13 +1586,75 @@ impl ModelRuntime {
         messages: &[Message],
         options: &ModelRuntimeResolveModelOptions,
     ) -> anyhow::Result<ModelRoute> {
-        todo!("port core/model-runtime.ts:ModelRuntime.resolveModel")
+        let name = format!("Virtual model {}/{}", model.provider, model.id);
+        let route_fn = self
+            .state
+            .lock()
+            .virtual_models
+            .get(&model.provider)
+            .and_then(|models| models.get(&model.id))
+            .map(|entry| entry.route.clone());
+        let Some(route_fn) = route_fn else {
+            anyhow::bail!("{name} is not registered.");
+        };
+        let latest = find_latest_llm_response(messages);
+        let previous = latest.as_ref().and_then(|latest| {
+            self.get_physical_model(&latest.provider, &latest.model)
+                .map(|model| ModelRouteRequestPrevious { model, thinking_level: latest.thinking_level })
+        });
+        // A failed routing attempt names the virtual model; there is no physical request to report.
+        let failed = options.failed.as_ref().and_then(|failed| {
+            self.get_physical_model(&failed.provider, &failed.model).map(|model| ModelRouteRequestFailed {
+                model,
+                thinking_level: failed.thinking_level,
+                message: failed.clone(),
+            })
+        });
+        let route = route_fn(ModelRouteRequest {
+            model: model.clone(),
+            thinking_level: options.thinking_level,
+            reason: options.reason,
+            previous,
+            failed,
+            state: options.state.clone(),
+            messages: messages.to_vec(),
+            signal: options.signal.clone(),
+        })
+        .await?;
+        let routed = format!("{name} routed to {}/{}", route.model.provider, route.model.id);
+        let Some(target) = self.get_physical_model(&route.model.provider, &route.model.id) else {
+            anyhow::bail!("{routed}, which is not a physical model.");
+        };
+        if !self.has_configured_auth(&target.provider) {
+            anyhow::bail!("{routed}, which has no credentials.");
+        }
+        let thinking_level = clamp_thinking_level(&target, route.thinking_level);
+        Ok(ModelRoute { model: target, thinking_level, state: route.state })
     }
 
     /// A catalog chat model that is not virtual.
     pub fn get_physical_model(&self, provider_id: &str, model_id: &str) -> Option<Model> {
-        todo!("port core/model-runtime.ts:ModelRuntime.getPhysicalModel")
+        self.models
+            .get_model(provider_id, model_id)
+            .filter(|model| !is_virtual_model(model))
     }
 }
 
-// TODO(port): impl pi-ai::Models for ModelRuntime
+/// `{ ...previous, ...defined(config) }`: defined values of a re-registration replace the
+/// previous ones; undefined values keep them.
+fn merge_provider_config(previous: &ProviderConfigInput, config: &ProviderConfigInput) -> ProviderConfigInput {
+    ProviderConfigInput {
+        name: config.name.clone().or_else(|| previous.name.clone()),
+        base_url: config.base_url.clone().or_else(|| previous.base_url.clone()),
+        api_key: config.api_key.clone().or_else(|| previous.api_key.clone()),
+        api: config.api.clone().or_else(|| previous.api.clone()),
+        stream_simple: config.stream_simple.clone().or_else(|| previous.stream_simple.clone()),
+        images: config.images.clone().or_else(|| previous.images.clone()),
+        classifiers: config.classifiers.clone().or_else(|| previous.classifiers.clone()),
+        headers: config.headers.clone().or_else(|| previous.headers.clone()),
+        auth_header: config.auth_header.or(previous.auth_header),
+        models: config.models.clone().or_else(|| previous.models.clone()),
+        refresh_models: config.refresh_models.clone().or_else(|| previous.refresh_models.clone()),
+        oauth: config.oauth.clone().or_else(|| previous.oauth.clone()),
+    }
+}

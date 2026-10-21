@@ -19,10 +19,8 @@ use parking_lot::Mutex;
 use pi_agent::agent::{Agent, AgentInitialState, AgentOptions};
 use pi_agent::types::{AgentMessage, AgentToolRef};
 use pi_ai::auth::types::{ApiKeyCredential, Credential};
-use pi_ai::compat::{
-    FauxProviderRegistration, RegisterFauxProviderOptions, register_faux_provider,
-};
-use pi_ai::providers::faux::{FauxModelDefinition, FauxResponseStep};
+use pi_ai::compat::{FauxProviderRegistration, register_faux_provider};
+use pi_ai::providers::faux::{FauxModelDefinition, FauxResponseStep, RegisterFauxProviderOptions};
 use pi_ai::types::{
     Context, Model, SimpleStreamOptions, ToolResultMessage, TranscriptContext, UserContent,
 };
@@ -49,6 +47,7 @@ use pi_coding_agent::core::session_manager::SessionManager;
 use pi_coding_agent::core::settings_manager::SettingsManager;
 use serde_json::{Map, Value};
 
+#[allow(unused_imports)]
 pub use pi_ai::providers::faux::{
     FauxMessageOptions, faux_assistant_message, faux_text, faux_text_message, faux_thinking,
     faux_tool_call,

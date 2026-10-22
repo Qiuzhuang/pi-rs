@@ -113,62 +113,8 @@ pub(crate) fn register_stream(bridge: &Arc<Bridge>, mut stream: AssistantMessage
 /// `streamSimple(model, context, options)` implemented by JS.
 fn js_stream_simple(bridge: Arc<Bridge>, handle: JsHandle) -> StreamSimpleFn {
     Arc::new(move |model: Model, context: TranscriptContext, options: Option<pi_ai::types::SimpleStreamOptions>| {
-        let (sender, stream) = AssistantMessageEventStream::new();
-        let bridge = bridge.clone();
-        let handle = handle.clone();
-        tokio_spawn(async move {
-            let options = options.unwrap_or_default();
-            let (signal, _guard) = match &options.signal {
-                Some(token) => {
-                    let (v, g) = bridge.signal_for(token);
-                    (v, Some(g))
-                }
-                None => (Value::Null, None),
-            };
-            let sender2 = sender.clone();
-            let push = bridge.register_callback(Arc::new(move |args: Vec<Value>| {
-                let event = args.into_iter().next().unwrap_or(Value::Null);
-                match serde_json::from_value(event) {
-                    Ok(event) => sender2.push(event),
-                    Err(e) => tracing::warn!("invalid assistant message event from extension provider: {e}"),
-                }
-                Ok(Value::Null)
-            }));
-            let result = async {
-                let stream_handle = bridge
-                    .glue_call(
-                        "invokeStreamSimple",
-                        vec![
-                            handle.to_value(),
-                            serde_json::to_value(&model)?,
-                            json!({ "messages": serde_json::to_value(&context.messages)? }),
-                            stream_options_to_json(&options),
-                            signal,
-                        ],
-                    )
-                    .await?;
-                bridge.glue_call("pumpStream", vec![stream_handle, json!(push)]).await
-            }
-            .await;
-            bridge.callbacks.remove(push);
-            if let Err(err) = result {
-                let (message, _) = crate::core::extensions::runner::error_parts(&err);
-                sender.push(pi_ai::types::AssistantMessageEvent::Error {
-                    reason: pi_ai::types::StopReason::Error,
-                    error: pi_ai::types::AssistantMessage {
-                        api: model.api.clone(),
-                        provider: model.provider.clone(),
-                        model: model.id.clone(),
-                        stop_reason: pi_ai::types::StopReason::Error,
-                        error_message: Some(message),
-                        timestamp: chrono::Utc::now().timestamp_millis(),
-                        ..Default::default()
-                    },
-                });
-            }
-            sender.end(None);
-        });
-        stream
+        let context = serde_json::to_value(&context).unwrap_or(Value::Null);
+        super::native::js_stream(bridge.clone(), handle.clone(), None, model, vec![context], options.unwrap_or_default())
     })
 }
 
@@ -286,27 +232,49 @@ pub(crate) fn js_provider_config(bridge: &Arc<Bridge>, value: &Value) -> anyhow:
             let b = b.clone();
             let h = h.clone();
             Box::pin(async move {
-                let (signal, _guard) = b.signal_for(&ctx.signal);
-                let context = json!({
-                    "credential": serde_json::to_value(&ctx.credential).unwrap_or(Value::Null),
-                    "allowNetwork": ctx.allow_network,
-                    "force": ctx.force,
-                    "baseUrl": ctx.base_url,
-                });
-                let result = b.glue_call("invokeWithSignal", vec![h.to_value(), json!([context]), signal]).await?;
-                let models: Vec<ProviderModelConfig> = serde_json::from_value(result)?;
+                let (context, _guard, publish_id) = super::native::refresh_context_to_js(&b, &ctx);
+                let result = b.glue_call("invokeRefreshModelsFn", vec![h.to_value(), context]).await;
+                b.async_callbacks.remove(publish_id);
+                let models: Vec<ProviderModelConfig> = serde_json::from_value(result?)?;
                 Ok(models)
             }) as BoxFuture<'static, anyhow::Result<Vec<ProviderModelConfig>>>
         }) as RefreshModelsFn
     });
+    let images = match value["images"].as_object() {
+        Some(map) => {
+            let mut out = indexmap::IndexMap::new();
+            for (api, implementation) in map {
+                if let Some(h) = bridge.handle(implementation) {
+                    out.insert(api.clone(), Arc::new(super::native::JsImages::new(bridge, h)) as Arc<dyn pi_ai::models::ProviderImages>);
+                }
+            }
+            Some(out)
+        }
+        None => None,
+    };
+    let classifiers = match value["classifiers"].as_object() {
+        Some(map) => {
+            let mut out = indexmap::IndexMap::new();
+            for (api, implementation) in map {
+                if let Some(h) = bridge.handle(implementation) {
+                    out.insert(
+                        api.clone(),
+                        Arc::new(super::native::JsClassifier::new(bridge, h)) as Arc<dyn pi_ai::models::ProviderClassifier>,
+                    );
+                }
+            }
+            Some(out)
+        }
+        None => None,
+    };
     Ok(ProviderConfig {
         name: value["name"].as_str().map(str::to_string),
         base_url: value["baseUrl"].as_str().map(str::to_string),
         api_key: value["apiKey"].as_str().map(str::to_string),
         api: value["api"].as_str().map(str::to_string),
         stream_simple: bridge.handle(&value["streamSimple"]).map(|h| js_stream_simple(bridge.clone(), h)),
-        images: None,
-        classifiers: None,
+        images,
+        classifiers,
         headers: opt(&value["headers"])?,
         auth_header: value["authHeader"].as_bool(),
         models,
@@ -383,7 +351,32 @@ pub(crate) fn dispatch(_bridge: &Arc<Bridge>, _op: &str, payload: Value) -> anyh
         "getModel" => serde_json::to_value(pi_ai::providers::all::get_builtin_model(&s(0), &s(1)))?,
         "getModels" => serde_json::to_value(pi_ai::providers::all::get_builtin_models(&s(0)))?,
         "getProviders" => json!(pi_ai::providers::all::get_builtin_providers()),
-        "getEnvApiKey" => json!(pi_ai::env_api_keys::get_env_api_key(&s(0), None)),
+        "getEnvApiKey" => {
+            let env: Option<pi_ai::types::ProviderEnv> = opt(&a(1))?;
+            json!(pi_ai::env_api_keys::get_env_api_key(&s(0), env.as_ref()))
+        }
+        "findEnvKeys" => {
+            let env: Option<pi_ai::types::ProviderEnv> = opt(&a(1))?;
+            json!(pi_ai::env_api_keys::find_env_keys(&s(0), env.as_ref()))
+        }
+        "version" => json!(pi_ai::utils::version::PI_AI_VERSION),
+        "formatUserAgent" => {
+            let identity: Option<pi_ai::utils::identity::ClientIdentity> = opt(&a(0))?;
+            json!(pi_ai::utils::identity::format_user_agent(identity.as_ref()))
+        }
+        "partialParse" => match pi_ai::utils::json_parse::partial_parse(a(0).as_str().unwrap_or_default()) {
+            Ok(v) => v,
+            Err(e) => json!({ "$error": e.to_string() }),
+        },
+        "getBuiltinImageModel" => serde_json::to_value(pi_ai::providers::all::get_builtin_image_model(&s(0), &s(1)))?,
+        "getBuiltinClassifierModel" => serde_json::to_value(pi_ai::providers::all::get_builtin_classifier_model(&s(0), &s(1)))?,
+        "getBuiltinImageModels" => serde_json::to_value(pi_ai::providers::all::get_builtin_image_models(&s(0)))?,
+        "getBuiltinClassifierModels" => serde_json::to_value(pi_ai::providers::all::get_builtin_classifier_models(&s(0)))?,
+        "getAllBuiltinModels" => serde_json::to_value(pi_ai::providers::all::get_all_builtin_models(&s(0)))?,
+        "getBuiltinModelDataGeneratedAt" => json!(pi_ai::providers::all::get_builtin_model_data_generated_at()),
+        "getImageModel" => serde_json::to_value(pi_ai::image_models::get_image_model(&s(0), &s(1)))?,
+        "getImageProviders" => json!(pi_ai::image_models::get_image_providers()),
+        "getImageModels" => serde_json::to_value(pi_ai::image_models::get_image_models(&s(0)))?,
         "getCurrentSystemMessage" => serde_json::to_value(transcript::get_current_system_message(&messages_arg(&a(0))))?,
         "getCurrentSystemPrompt" => json!(transcript::get_current_system_prompt(&messages_arg(&a(0)))),
         "getCurrentTools" => serde_json::to_value(transcript::get_current_tools(&messages_arg(&a(0))))?,

@@ -534,8 +534,15 @@ export function createPi(api) {
 	return pi;
 }
 
+function refs(map) {
+	if (!map || typeof map !== "object") return map;
+	return Object.fromEntries(Object.entries(map).map(([key, value]) => [key, value ? ref(value) : value]));
+}
+
 function describeProviderConfig(config) {
 	const out = { ...config };
+	if (config.images) out.images = refs(config.images);
+	if (config.classifiers) out.classifiers = refs(config.classifiers);
 	if (config.oauth) {
 		out.oauth = {
 			name: config.oauth.name,
@@ -550,11 +557,52 @@ function describeProviderConfig(config) {
 	return out;
 }
 
+/** Describe an auth object (`ProviderAuth`) for Rust: names, capabilities and object handles. */
+export function describeAuth(auth) {
+	const apiKey = auth?.apiKey;
+	const oauth = auth?.oauth;
+	return {
+		apiKey: apiKey
+			? {
+					name: apiKey.name,
+					login: typeof apiKey.login === "function",
+					check: typeof apiKey.check === "function",
+					object: ref(apiKey),
+				}
+			: null,
+		oauth: oauth
+			? {
+					name: oauth.name,
+					isSubscription: oauth.isSubscription,
+					loginLabel: oauth.loginLabel,
+					object: ref(oauth),
+				}
+			: null,
+	};
+}
+
+/** Describe a pi-ai `Provider` object for `pi.registerProvider(provider)`. */
 function describeNativeProvider(provider) {
+	if (!provider || typeof provider !== "object") throw new Error("registerProvider() expects a provider object");
+	if (provider.__piNative !== undefined) return { native: provider.__piNative };
+	const has = (name) => typeof provider[name] === "function";
 	return {
 		id: provider.id,
 		name: provider.name,
+		baseUrl: provider.baseUrl,
+		headers: provider.headers,
+		auth: describeAuth(provider.auth),
 		object: ref(provider),
+		methods: {
+			getAllModels: has("getAllModels"),
+			refreshModels: has("refreshModels"),
+			filterModels: has("filterModels"),
+			filterAllModels: has("filterAllModels"),
+			fetchDeferred: has("fetchDeferred"),
+			cancelDeferred: has("cancelDeferred"),
+			generateImages: has("generateImages"),
+			classify: has("classify"),
+		},
 	};
 }
 
@@ -1026,10 +1074,128 @@ export async function pumpStream(stream, push) {
 	return null;
 }
 
-export function invokeStreamSimple(fn, model, context, options, signal) {
-	const opts = options ? { ...options } : {};
-	if (signal) opts.signal = signalFor(signal.id, signal.aborted);
-	return ref(fn(model, context, opts));
+/** Request options from Rust (`native::options_to_js`): markers become a signal and callbacks. */
+export function streamOptionsFromRust(options) {
+	if (!options || typeof options !== "object") return options ?? undefined;
+	const { $signal, $onPayload, $onResponse, $onProviderStreamEvent, ...rest } = options;
+	const out = { ...rest };
+	if ($signal) out.signal = signalFor($signal.id, $signal.aborted);
+	if ($onPayload !== undefined && $onPayload !== null) out.onPayload = rustAsyncCallback($onPayload);
+	if ($onResponse !== undefined && $onResponse !== null) out.onResponse = rustAsyncCallback($onResponse);
+	if ($onProviderStreamEvent !== undefined && $onProviderStreamEvent !== null) {
+		out.onProviderStreamEvent = rustAsyncCallback($onProviderStreamEvent);
+	}
+	return out;
+}
+
+/** Call a stream function (`target`, or `target[method]`) with Rust options; returns the stream. */
+export function invokeStream(target, method, args, options) {
+	const all = [...(args ?? []), streamOptionsFromRust(options)];
+	return ref(method ? target[method](...all) : target(...all));
+}
+
+/** Call `target[method](...args, options)` where the last argument is Rust stream options. */
+export async function invokeWithRustOptions(target, method, args) {
+	const all = [...(args ?? [])];
+	if (all.length > 0) all[all.length - 1] = streamOptionsFromRust(all[all.length - 1]);
+	return (await target[method](...all)) ?? null;
+}
+
+/** A Rust `AuthContext` as a JavaScript auth context. */
+function authContextProxy(id) {
+	return {
+		env: async (name) => u(await callAsync("aip.ctx", { id, m: "env", a: [name] })),
+		fileExists: async (path) => !!(await callAsync("aip.ctx", { id, m: "fileExists", a: [path] })),
+	};
+}
+
+/** A Rust login interaction as a JavaScript `ProviderAuthInteraction`. */
+function interactionProxy(value) {
+	const id = value.$interaction;
+	return {
+		signal: signalFor(value.$signal?.id, value.$signal?.aborted) ?? new AbortController().signal,
+		prompt: async (prompt) => {
+			const { signal, ...rest } = prompt ?? {};
+			return await callAsync("aip.interaction.prompt", { id, prompt: { ...rest, signal: tokenFor(signal) ?? null } });
+		},
+		notify: (event) => void call("aip.interaction.notify", { id, event }),
+	};
+}
+
+/** Call a method of a JavaScript `ApiKeyAuth` / `OAuthAuth` with Rust arguments. */
+export async function invokeAuthMethod(auth, method, payload) {
+	const signal = payload.$signal ? signalFor(payload.$signal.id, payload.$signal.aborted) : undefined;
+	switch (method) {
+		case "resolve":
+		case "check":
+			return (
+				(await auth[method]({
+					ctx: authContextProxy(payload.ctx.$authContext),
+					credential: payload.credential ?? undefined,
+					signal: signal ?? new AbortController().signal,
+				})) ?? null
+			);
+		case "login": {
+			const interaction = interactionProxy(payload.interaction);
+			if (payload.options === null || payload.options === undefined) return (await auth.login(interaction)) ?? null;
+			const { $getDeviceId, ...options } = payload.options;
+			if ($getDeviceId !== undefined && $getDeviceId !== null) options.getDeviceId = rustCallback($getDeviceId);
+			return (await auth.login(interaction, options)) ?? null;
+		}
+		case "refresh":
+			return (await auth.refresh(payload.credential, signal ?? new AbortController().signal)) ?? null;
+		case "toAuth":
+			return (await auth.toAuth(payload.credential)) ?? null;
+		default:
+			throw new Error(`Unknown auth method ${method}`);
+	}
+}
+
+/** Prompt through a JavaScript login interaction for a Rust login flow. */
+export async function invokeInteractionPrompt(interaction, prompt) {
+	const { $signal, ...rest } = prompt;
+	if ($signal) rest.signal = signalFor($signal.id, $signal.aborted);
+	return await interaction.prompt(rest);
+}
+
+/** `RefreshModelsContext` from Rust (`native::refresh_context_to_js`). */
+function refreshContextFromRust(context) {
+	const { $signal, $publish, ...rest } = context;
+	return {
+		...rest,
+		credential: rest.credential ?? undefined,
+		stored: rest.stored ?? undefined,
+		signal: signalFor($signal.id, $signal.aborted),
+		publish: async (publication) => !!(await callAsync("cb.async", { id: $publish, args: [publication] })),
+	};
+}
+
+export async function invokeRefreshModels(provider, context) {
+	await provider.refreshModels(refreshContextFromRust(context));
+	return null;
+}
+
+export async function invokeRefreshModelsFn(refreshModels, context) {
+	return (await refreshModels(refreshContextFromRust(context))) ?? [];
+}
+
+export function invokeFilter(provider, method, args) {
+	const [models, credential] = args;
+	return provider[method](models, credential ?? undefined) ?? null;
+}
+
+/** Call a JavaScript `context.publish` for a Rust provider's model refresh. */
+export async function invokePublish(publish, value) {
+	const publication = {};
+	if ("persist" in value) publication.persist = value.persist;
+	if (value.$update !== undefined && value.$update !== null) publication.update = rustCallback(value.$update);
+	return !!(await publish(publication));
+}
+
+/** pi's session teardown runs JavaScript session-resource cleanups too. */
+export function cleanupJsSessionResources(sessionId) {
+	globalThis.__piSessionCleanup?.(sessionId ?? undefined);
+	return null;
 }
 
 /** Resolve a tool renderer: `next` returns the precomputed renderers (Rust ids). */

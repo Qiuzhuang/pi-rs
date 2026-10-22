@@ -344,3 +344,66 @@ pub async fn wait_until(cond: impl Fn() -> bool) {
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
 }
+
+/// A local HTTP server answering every request with an Anthropic Messages SSE stream whose text
+/// is `reply`. Returns the base URL and the received requests (request line, headers and body).
+pub async fn mock_anthropic_server(reply: &str) -> (String, Arc<Mutex<Vec<String>>>) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let base_url = format!("http://{}", listener.local_addr().unwrap());
+    let requests: Arc<Mutex<Vec<String>>> = Arc::default();
+    let seen = requests.clone();
+    let text = serde_json::to_string(reply).unwrap();
+    let events = [
+        r#"{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","content":[],"model":"mock","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":5,"output_tokens":1}}}"#.to_string(),
+        r#"{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#.to_string(),
+        format!(r#"{{"type":"content_block_delta","index":0,"delta":{{"type":"text_delta","text":{text}}}}}"#),
+        r#"{"type":"content_block_stop","index":0}"#.to_string(),
+        r#"{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":3}}"#.to_string(),
+        r#"{"type":"message_stop"}"#.to_string(),
+    ];
+    let body: String = events
+        .iter()
+        .map(|data| {
+            let kind: Value = serde_json::from_str(data).unwrap();
+            format!("event: {}\ndata: {data}\n\n", kind["type"].as_str().unwrap())
+        })
+        .collect();
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else { return };
+            let seen = seen.clone();
+            let body = body.clone();
+            tokio::spawn(async move {
+                let mut buf = Vec::new();
+                let mut chunk = [0u8; 8192];
+                // Read headers, then the body by Content-Length.
+                loop {
+                    let Ok(n) = socket.read(&mut chunk).await else { return };
+                    if n == 0 {
+                        return;
+                    }
+                    buf.extend_from_slice(&chunk[..n]);
+                    let text = String::from_utf8_lossy(&buf).to_string();
+                    if let Some(end) = text.find("\r\n\r\n") {
+                        let length = text[..end]
+                            .lines()
+                            .find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap_or(0)))
+                            .unwrap_or(0);
+                        if buf.len() >= end + 4 + length {
+                            seen.lock().push(text);
+                            break;
+                        }
+                    }
+                }
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncache-control: no-cache\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = socket.write_all(response.as_bytes()).await;
+                let _ = socket.shutdown().await;
+            });
+        }
+    });
+    (base_url, requests)
+}

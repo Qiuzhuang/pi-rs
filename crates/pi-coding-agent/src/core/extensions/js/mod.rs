@@ -17,6 +17,7 @@ mod api;
 mod builtin;
 mod component;
 mod context;
+mod native;
 mod provider;
 
 use std::collections::HashMap;
@@ -38,6 +39,11 @@ const BRIDGE_JS: &str = include_str!("../../../../js/bridge.js");
 const TYPEBOX_JS: &str = include_str!("../../../../js/typebox.js");
 const PI_TUI_JS: &str = include_str!("../../../../js/pi-tui.js");
 const PI_AI_JS: &str = include_str!("../../../../js/pi-ai.js");
+const PI_AI_CORE_JS: &str = include_str!("../../../../js/pi-ai/core.js");
+const PI_AI_FAUX_JS: &str = include_str!("../../../../js/pi-ai/faux.js");
+const PI_AI_RUST_JS: &str = include_str!("../../../../js/pi-ai/rust.js");
+const PI_AI_MODELS_JS: &str = include_str!("../../../../js/pi-ai-models.js");
+const PI_AI_PROVIDERS_ALL_JS: &str = include_str!("../../../../js/pi-ai-providers-all.js");
 const PI_AGENT_CORE_JS: &str = include_str!("../../../../js/pi-agent-core.js");
 const PI_CODING_AGENT_JS: &str = include_str!("../../../../js/pi-coding-agent.js");
 
@@ -148,6 +154,10 @@ pub(crate) struct Bridge {
     pub(crate) streams: Registry<Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<Value>>>>,
     pub(crate) components: component::ComponentRegistries,
     pub(crate) builtins: Registry<builtin::BuiltinTool>,
+    /// Rust pi-ai objects behind JavaScript proxies (providers, API implementations, auth).
+    pub(crate) natives: Registry<native::Native>,
+    /// Unregisters the JavaScript session-resource cleanup (`registerSessionResourceCleanup`).
+    session_cleanup: Mutex<Option<Box<dyn FnOnce() + Send + Sync>>>,
     /// Ordered executor for UI calls made from JS (see [`Bridge::ui_dispatch`]).
     ui_tx: Mutex<std::sync::mpsc::Sender<Box<dyn FnOnce() + Send>>>,
 }
@@ -262,6 +272,14 @@ impl Bridge {
     }
 }
 
+impl Drop for Bridge {
+    fn drop(&mut self) {
+        if let Some(unregister) = self.session_cleanup.get_mut().take() {
+            unregister();
+        }
+    }
+}
+
 /// Stops mirroring a token into JS when dropped.
 pub(crate) struct SignalGuard(CancellationToken);
 
@@ -350,6 +368,14 @@ impl JsExtensionHost {
         virtual_modules.insert("typebox".to_string(), VirtualModule::Esm(TYPEBOX_JS.to_string()));
         virtual_modules.insert("@earendil-works/pi-tui".to_string(), VirtualModule::Esm(PI_TUI_JS.to_string()));
         virtual_modules.insert("@earendil-works/pi-ai".to_string(), VirtualModule::Esm(PI_AI_JS.to_string()));
+        virtual_modules.insert("pi-rs:ai-core".to_string(), VirtualModule::Esm(PI_AI_CORE_JS.to_string()));
+        virtual_modules.insert("pi-rs:ai-faux".to_string(), VirtualModule::Esm(PI_AI_FAUX_JS.to_string()));
+        virtual_modules.insert("pi-rs:ai-rust".to_string(), VirtualModule::Esm(PI_AI_RUST_JS.to_string()));
+        virtual_modules.insert("@earendil-works/pi-ai/models".to_string(), VirtualModule::Esm(PI_AI_MODELS_JS.to_string()));
+        virtual_modules
+            .insert("@earendil-works/pi-ai/providers/all".to_string(), VirtualModule::Esm(PI_AI_PROVIDERS_ALL_JS.to_string()));
+        // Types only (OAuth declaration compatibility entry point).
+        virtual_modules.insert("@earendil-works/pi-ai/oauth".to_string(), VirtualModule::Esm("export {};".to_string()));
         virtual_modules
             .insert("@earendil-works/pi-agent-core".to_string(), VirtualModule::Esm(PI_AGENT_CORE_JS.to_string()));
         virtual_modules
@@ -363,17 +389,15 @@ impl JsExtensionHost {
             ("typebox/compile", "typebox"),
             ("typebox/type", "typebox"),
             ("@earendil-works/pi-ai/compat", "@earendil-works/pi-ai"),
-            ("@earendil-works/pi-ai/models", "@earendil-works/pi-ai"),
-            ("@earendil-works/pi-ai/oauth", "@earendil-works/pi-ai"),
-            ("@earendil-works/pi-ai/providers/all", "@earendil-works/pi-ai"),
+
             ("@mariozechner/pi-coding-agent", "@earendil-works/pi-coding-agent"),
             ("@mariozechner/pi-agent-core", "@earendil-works/pi-agent-core"),
             ("@mariozechner/pi-tui", "@earendil-works/pi-tui"),
             ("@mariozechner/pi-ai", "@earendil-works/pi-ai"),
             ("@mariozechner/pi-ai/compat", "@earendil-works/pi-ai"),
-            ("@mariozechner/pi-ai/models", "@earendil-works/pi-ai"),
-            ("@mariozechner/pi-ai/oauth", "@earendil-works/pi-ai"),
-            ("@mariozechner/pi-ai/providers/all", "@earendil-works/pi-ai"),
+            ("@mariozechner/pi-ai/models", "@earendil-works/pi-ai/models"),
+            ("@mariozechner/pi-ai/oauth", "@earendil-works/pi-ai/oauth"),
+            ("@mariozechner/pi-ai/providers/all", "@earendil-works/pi-ai/providers/all"),
         ] {
             aliases.insert(from.to_string(), to.to_string());
         }
@@ -438,9 +462,21 @@ impl JsExtensionHost {
             streams: Registry::new(),
             components: component::ComponentRegistries::default(),
             builtins: Registry::new(),
+            natives: Registry::new(),
+            session_cleanup: Mutex::new(None),
             ui_tx: Mutex::new(ui_tx),
         });
         *bridge_slot.lock() = Arc::downgrade(&bridge);
+        // pi's session teardown (`cleanupSessionResources()`) also runs cleanups registered from
+        // JavaScript with pi-ai's `registerSessionResourceCleanup`.
+        let weak = Arc::downgrade(&bridge);
+        let unregister = pi_ai::session_resources::register_session_resource_cleanup(Arc::new(move |session_id| {
+            if let Some(bridge) = weak.upgrade() {
+                bridge.glue_call_blocking("cleanupJsSessionResources", vec![serde_json::json!(session_id)])?;
+            }
+            Ok(())
+        }));
+        *bridge.session_cleanup.lock() = Some(Box::new(unregister));
         // pi-ai defines the stream class used by host-backed streams.
         rt.import("@earendil-works/pi-ai").await.map_err(js_error)?;
         Ok(JsExtensionHost { bridge })

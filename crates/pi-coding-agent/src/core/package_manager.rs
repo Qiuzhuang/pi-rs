@@ -1441,6 +1441,13 @@ struct NpmCommand {
     args: Vec<String>,
 }
 
+/// `npm install --omit=dev` in a package directory with pi's built-in (pure-Rust) npm client,
+/// the fallback pi uses when `npm` is not on `PATH`. Installs the dependencies of `dir`'s
+/// `package.json` into `dir/node_modules`.
+pub async fn install_dependencies_with_builtin_npm(dir: &Path) -> anyhow::Result<()> {
+    npm_registry::NpmRegistryClient::new(&[dir.to_path_buf()]).install_dependencies(dir).await
+}
+
 /// TS: `implements PackageManager`
 pub struct DefaultPackageManager {
     cwd: String,

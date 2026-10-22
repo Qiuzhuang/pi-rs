@@ -8,7 +8,7 @@ use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
-use super::{Bridge, CtxEntry, builtin, component, context, js_error, provider};
+use super::{Bridge, CtxEntry, builtin, component, context, js_error, native, provider};
 use crate::compat::AutocompleteItem;
 use crate::core::bash_executor::BashResult;
 use crate::core::exec::ExecOptions;
@@ -81,6 +81,7 @@ pub(crate) fn dispatch(bridge: &Arc<Bridge>, rt: &JsRuntime, op: &str, payload: 
         | "tui.markdownTheme" | "renderer.call" | "renderer.result" | "ac" => component::dispatch(bridge, op, payload),
         _ if op.starts_with("builtin.") || op.starts_with("ca") => builtin::dispatch(bridge, op, payload),
         "ai" => provider::dispatch(bridge, op, payload),
+        _ if op.starts_with("aip.") => native::dispatch(bridge, op, payload),
         _ => Err(anyhow::anyhow!("unknown host call {op}")),
     }
 }
@@ -117,6 +118,7 @@ pub(crate) async fn dispatch_async(bridge: Arc<Bridge>, _rt: JsRuntime, op: Stri
         "ac.async" => component::dispatch_async(bridge, &op, payload).await,
         "builtin.execute" | "ca.localBashExec" | "ca.copyToClipboard" => builtin::dispatch_async(bridge, &op, payload).await,
         "ai.stream" | "stream.next" => provider::dispatch_async(bridge, &op, payload).await,
+        _ if op.starts_with("aip.") => native::dispatch_async(bridge, &op, payload).await,
         _ => Err(anyhow::anyhow!("unknown async host call {op}")),
     }
 }
@@ -301,9 +303,11 @@ fn pi_op(bridge: &Arc<Bridge>, _rt: &JsRuntime, op: &str, payload: Value) -> any
             api.register_provider(ProviderRegistration::Config { name, config })?;
             Ok(Value::Null)
         }
-        "pi.registerNativeProvider" => Err(anyhow::anyhow!(
-            "Registering pi-ai Provider objects from JavaScript extensions is not supported in pi-rs; use pi.registerProvider(name, config)"
-        )),
+        "pi.registerNativeProvider" => {
+            let provider = native::native_provider(bridge, &payload["provider"])?;
+            api.register_provider(ProviderRegistration::Native(provider))?;
+            Ok(Value::Null)
+        }
         "pi.unregisterProvider" => {
             api.unregister_provider(&str_arg(&payload, "name"))?;
             Ok(Value::Null)

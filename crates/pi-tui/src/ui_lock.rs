@@ -21,7 +21,8 @@
 
 use std::cell::Cell;
 use std::marker::PhantomData;
-use std::sync::{Condvar, Mutex};
+use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
+use std::sync::{Condvar, LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
 /// How long [`lock_ui`] waits for another holder before it proceeds without the lock.
@@ -29,6 +30,43 @@ pub const MAX_WAIT: Duration = Duration::from_millis(500);
 
 static OWNER: Mutex<Option<std::thread::ThreadId>> = Mutex::new(None);
 static RELEASED: Condvar = Condvar::new();
+
+/// Waits that gave up after [`MAX_WAIT`] (each one is a stall and a missed exclusion).
+static WAIT_TIMEOUTS: AtomicU64 = AtomicU64::new(0);
+
+/// Diagnostics: with `PI_TUI_UI_LOCK_LOG=<file>`, every give-up appends the waiter's backtrace and
+/// the backtrace where the current owner took the lock to `<file>` (stress tests fail on any).
+static LOG_PATH: LazyLock<Option<String>> =
+    LazyLock::new(|| std::env::var("PI_TUI_UI_LOCK_LOG").ok().filter(|p| !p.is_empty()));
+static OWNER_SITE: Mutex<Option<(Instant, String)>> = Mutex::new(None);
+
+/// Number of [`lock_ui`] waits that gave up after [`MAX_WAIT`] since the process started.
+pub fn wait_timeouts() -> u64 {
+    WAIT_TIMEOUTS.load(AtomicOrdering::SeqCst)
+}
+
+fn thread_label() -> String {
+    let t = std::thread::current();
+    format!("{} ({:?})", t.name().unwrap_or("unnamed"), t.id())
+}
+
+fn log_timeout() {
+    WAIT_TIMEOUTS.fetch_add(1, AtomicOrdering::SeqCst);
+    let Some(path) = LOG_PATH.as_ref() else { return };
+    let owner_site = match OWNER_SITE.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+        Some((since, site)) => format!("(held for {:?}) {site}", since.elapsed()),
+        None => String::new(),
+    };
+    let entry = format!(
+        "=== ui_lock wait gave up after {MAX_WAIT:?} on {}\n--- waiter:\n{}\n--- owner took the lock at:\n{owner_site}\n",
+        thread_label(),
+        std::backtrace::Backtrace::force_capture()
+    );
+    use std::io::Write;
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        let _ = f.write_all(entry.as_bytes());
+    }
+}
 
 thread_local! {
     /// Guards alive on this thread.
@@ -68,6 +106,14 @@ pub fn lock_ui() -> UiLockGuard {
         }
         if acquired {
             *owner = Some(me);
+            drop(owner);
+            if LOG_PATH.is_some() {
+                *OWNER_SITE.lock().unwrap_or_else(|e| e.into_inner()) =
+                    Some((Instant::now(), format!("{}\n{}", thread_label(), std::backtrace::Backtrace::force_capture())));
+            }
+        } else {
+            drop(owner);
+            log_timeout();
         }
         OWNED.with(|o| o.set(acquired));
     }
@@ -89,6 +135,26 @@ impl Drop for UiLockGuard {
             RELEASED.notify_one();
         }
     }
+}
+
+/// A future whose every `poll` holds the UI lock (see [`atomic`]).
+pub struct UiAtomic<F> {
+    inner: std::pin::Pin<Box<F>>,
+}
+
+impl<F: std::future::Future> std::future::Future for UiAtomic<F> {
+    type Output = F::Output;
+    fn poll(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<F::Output> {
+        let _ui = lock_ui();
+        self.inner.as_mut().poll(cx)
+    }
+}
+
+/// Run each synchronous segment of `future` (the code between two `.await`s) under the UI lock,
+/// like a JS async function whose segments run to completion before the next frame: a frame never
+/// shows a rebuild that segment left half-applied. The lock is not held across `.await`s.
+pub fn atomic<F: std::future::Future>(future: F) -> UiAtomic<F> {
+    UiAtomic { inner: Box::pin(future) }
 }
 
 #[cfg(test)]
@@ -147,6 +213,28 @@ mod tests {
         .join()
         .unwrap();
         drop(held);
+    }
+
+    #[test]
+    fn atomic_futures_hold_the_lock_per_poll_only() {
+        use std::future::Future;
+        use std::task::{Context, Poll, Waker};
+        let mut yielded = false;
+        let mut fut = Box::pin(atomic(std::future::poll_fn(move |_cx| {
+            assert!(is_ui_locked_by_current_thread(), "each poll runs under the UI lock");
+            if yielded {
+                Poll::Ready(())
+            } else {
+                yielded = true;
+                Poll::Pending
+            }
+        })));
+        let mut cx = Context::from_waker(Waker::noop());
+        assert!(fut.as_mut().poll(&mut cx).is_pending());
+        // Not held between polls (across the await).
+        assert!(!is_ui_locked_by_current_thread());
+        assert!(fut.as_mut().poll(&mut cx).is_ready());
+        assert!(!is_ui_locked_by_current_thread());
     }
 
     #[test]

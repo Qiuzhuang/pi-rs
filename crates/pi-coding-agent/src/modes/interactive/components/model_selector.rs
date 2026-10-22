@@ -512,7 +512,7 @@ impl ModelSelectorComponent {
         }
         inner.tui.request_render(false);
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            crate::utils::uncaught::spawn_on(&handle, inner.clone().refresh_models());
+            crate::utils::uncaught::spawn_on(&handle, pi_tui::ui_lock::atomic(inner.clone().refresh_models()));
         }
         Self { inner }
     }

@@ -940,7 +940,8 @@ impl Inner {
         F::Output: Send + 'static,
     {
         // Detached like a promise nobody awaits: a panic is uncaught (TS `unhandledRejection`).
-        self.rt.spawn(crate::utils::uncaught::supervise(future));
+        // Each segment between awaits updates the UI atomically, like JS (see `ui_lock::atomic`).
+        self.rt.spawn(crate::utils::uncaught::supervise(pi_tui::ui_lock::atomic(future)));
     }
 
     /// Run `future` up to its first suspension point now, like calling an async function in JS, and
@@ -950,7 +951,8 @@ impl Inner {
         F: std::future::Future<Output = ()> + Send + 'static,
     {
         let _guard = self.rt.enter();
-        let mut future = Box::pin(crate::utils::uncaught::supervise(future));
+        // Each segment between awaits updates the UI atomically, like JS (see `ui_lock::atomic`).
+        let mut future = Box::pin(crate::utils::uncaught::supervise(pi_tui::ui_lock::atomic(future)));
         let waker = futures::task::noop_waker();
         let mut cx = std::task::Context::from_waker(&waker);
         if future.as_mut().poll(&mut cx).is_pending() {

@@ -1147,6 +1147,8 @@ impl Inner {
         let weak = self.weak.clone();
         let on_chunk: Arc<dyn Fn(String) + Send + Sync> = Arc::new(move |chunk: String| {
             if let Some(this) = weak.upgrade() {
+                // Runs on the command's reader thread: update the row as one step for the renderer.
+                let _ui = pi_tui::ui_lock::lock_ui();
                 let component = this.state.lock().bash_component.clone();
                 if let Some(component) = component {
                     component.append_output(&chunk);

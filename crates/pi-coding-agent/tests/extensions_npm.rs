@@ -278,3 +278,76 @@ async fn custom_provider_gitlab_duo_streams_through_both_backends() {
     assert!(openai.contains("authorization: bearer direct-token") && openai.contains("x-gitlab-instance-id: instance-1"), "{openai}");
     harness.cleanup();
 }
+
+/// Start a runner with a recording UI and emit `session_start`.
+async fn start_session(runner: &Arc<ExtensionRunner>) -> Arc<TestUi> {
+    use pi_coding_agent::core::extensions::types::{ExtensionEvent, ExtensionMode, SessionStartEvent, SessionStartReason};
+    let ui = Arc::new(TestUi::default());
+    runner.set_ui_context(Some(ui.clone()), Some(ExtensionMode::Tui));
+    runner
+        .emit(ExtensionEvent::SessionStart(SessionStartEvent { reason: SessionStartReason::Startup, previous_session_file: None }))
+        .await
+        .unwrap();
+    ui
+}
+
+fn on_path(binary: &str) -> bool {
+    std::env::var_os("PATH").is_some_and(|paths| std::env::split_paths(&paths).any(|dir| dir.join(binary).is_file()))
+}
+
+/// `sandbox` (`@anthropic-ai/sandbox-runtime`): `SandboxManager.initialize` starts its HTTP and SOCKS
+/// filtering proxies on pi-jsrt's `node:net`/`node:http`, then the example's `bash` tool runs commands
+/// in bubblewrap (writes only to the allowed paths). Needs bwrap, socat, rg and curl (skipped
+/// otherwise). Platform limits seen identically under Node in this container: bubblewrap's private
+/// network namespace has no IPv6, so the in-sandbox `socat TCP-LISTEN` bridge to the proxies cannot
+/// listen (commands get "Failed to connect to localhost port 3128"), and bubblewrap leaves its mount
+/// points for denied paths as empty files in the writable working directory, after which
+/// sandbox-runtime 0.0.26 cannot build the next sandbox ("Can't mkdir parents for .claude/commands").
+/// So everything is checked in one command, and the proxies are exercised from the host side.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn sandbox_runs_bash_in_bubblewrap_behind_its_filtering_proxies() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    if !["bwrap", "socat", "rg", "curl"].iter().all(|b| on_path(b)) {
+        eprintln!("skipping: sandbox needs bwrap, socat, rg and curl");
+        return;
+    }
+    let Some(dir) = prepare("sandbox").await else { return };
+    let runner = load(&dir, "index.ts").await;
+    let ui = start_session(&runner).await;
+    assert_eq!(*ui.notifications.lock(), vec!["Sandbox initialized".to_string()]);
+    let command = [
+        "touch ./inside && echo ok-inside",
+        "(touch /etc/pi-sandbox-probe 2>/dev/null && echo etc-writable) || echo etc-denied",
+        "echo proxy=$HTTPS_PROXY",
+        "echo ports=$CLAUDE_CODE_HOST_HTTP_PROXY_PORT,$CLAUDE_CODE_HOST_SOCKS_PROXY_PORT",
+    ]
+    .join("; ");
+    let output = text_of(&execute(&runner, "bash", json!({ "command": command })).await.unwrap());
+    let lines: Vec<&str> = output.lines().collect();
+    assert_eq!(lines[..3], ["ok-inside", "etc-denied", "proxy=http://localhost:3128"], "{output}");
+    assert!(dir.join("inside").is_file());
+    assert!(!Path::new("/etc/pi-sandbox-probe").exists());
+    let ports: Vec<u16> = lines[3].trim_start_matches("ports=").split(',').map(|p| p.parse().unwrap()).collect();
+
+    // The HTTP proxy (pi-jsrt node:http server) refuses a CONNECT to a host outside the allowlist.
+    let mut http = tokio::net::TcpStream::connect(("127.0.0.1", ports[0])).await.unwrap();
+    http.write_all(b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n").await.unwrap();
+    let mut reply = String::new();
+    http.read_to_string(&mut reply).await.unwrap();
+    assert!(reply.starts_with("HTTP/1.1 403 Forbidden") && reply.contains("X-Proxy-Error: blocked-by-allowlist"), "{reply}");
+
+    // The SOCKS5 proxy (node:net server) negotiates and refuses the same destination.
+    let mut socks = tokio::net::TcpStream::connect(("127.0.0.1", ports[1])).await.unwrap();
+    socks.write_all(&[5, 1, 0]).await.unwrap();
+    let mut greeting = [0u8; 2];
+    socks.read_exact(&mut greeting).await.unwrap();
+    assert_eq!(greeting, [5, 0]);
+    let mut request = vec![5, 1, 0, 3, b"example.com".len() as u8];
+    request.extend_from_slice(b"example.com");
+    request.extend_from_slice(&443u16.to_be_bytes());
+    socks.write_all(&request).await.unwrap();
+    let mut response = [0u8; 2];
+    socks.read_exact(&mut response).await.unwrap();
+    assert_eq!(response[0], 5);
+    assert_ne!(response[1], 0, "the SOCKS proxy must not connect to a host outside the allowlist");
+}

@@ -755,13 +755,6 @@ stubModule("zlib", [
   "createBrotliCompress",
   "createBrotliDecompress",
 ], { constants: {} });
-stubModule("http", ["createServer", "request", "get", "Agent", "Server", "IncomingMessage", "ServerResponse"], { METHODS: [], STATUS_CODES: {} });
-stubModule("https", ["createServer", "request", "get", "Agent", "Server"]);
-stubModule("net", ["createServer", "createConnection", "connect", "Socket", "Server"], {
-  isIP: (s) => (/^\d{1,3}(\.\d{1,3}){3}$/.test(s) ? 4 : String(s).includes(":") ? 6 : 0),
-  isIPv4: (s) => /^\d{1,3}(\.\d{1,3}){3}$/.test(s),
-  isIPv6: (s) => String(s).includes(":"),
-});
 stubModule("tls", ["connect", "createServer", "createSecureContext", "TLSSocket"]);
 stubModule("dns", ["lookup", "resolve", "resolve4", "resolve6", "reverse"], { promises: {} });
 stubModule("dgram", ["createSocket"]);
@@ -775,7 +768,7 @@ stubModule("v8", ["serialize", "deserialize", "getHeapSnapshot", "writeHeapSnaps
   setFlagsFromString: () => {},
 });
 stubModule("inspector", ["open", "close", "url", "Session"]);
-stubModule("http2", ["connect", "createServer"]);
+stubModule("http2", ["connect", "createServer"], { constants: {}, sensitiveHeaders: Symbol("nodejs.http2.sensitiveHeaders") });
 stubModule("diagnostics_channel", [], {
   channel: () => ({ hasSubscribers: false, publish() {}, subscribe() {}, unsubscribe() {} }),
   hasSubscribers: () => false,

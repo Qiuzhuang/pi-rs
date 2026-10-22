@@ -14,6 +14,7 @@ pub(crate) mod crypto;
 pub(crate) mod encoding;
 pub(crate) mod fetch;
 pub(crate) mod fs;
+pub(crate) mod net;
 pub(crate) mod process;
 
 /// Glue scripts installed in every runtime.
@@ -105,9 +106,6 @@ const LAZY_GLUE: &[LazyGlue] = &[
             "worker_threads",
             "console",
             "zlib",
-            "http",
-            "https",
-            "net",
             "tls",
             "dns",
             "dgram",
@@ -119,6 +117,18 @@ const LAZY_GLUE: &[LazyGlue] = &[
             "diagnostics_channel",
             "constants",
         ],
+        globals: &[],
+    },
+    LazyGlue {
+        file: "node/net.js",
+        src: include_str!("../../js/node/net.js"),
+        builtins: &["net"],
+        globals: &[],
+    },
+    LazyGlue {
+        file: "node/http.js",
+        src: include_str!("../../js/node/http.js"),
+        builtins: &["http", "https"],
         globals: &[],
     },
     LazyGlue {
@@ -196,6 +206,7 @@ pub(crate) fn bootstrap(ctx: &mut Context) -> JsResult<()> {
         define_ops(ctx, &ops, child_process::OPS)?;
         define_ops(ctx, &ops, crypto::OPS)?;
         define_ops(ctx, &ops, fetch::OPS)?;
+        define_ops(ctx, &ops, net::OPS)?;
     }
     let config = process::config_object(ctx)?;
     if node && let Some(cfg) = config.as_object() {
@@ -221,6 +232,7 @@ pub(crate) fn bootstrap(ctx: &mut Context) -> JsResult<()> {
 /// Release OS resources owned by ops (child processes, open files).
 pub(crate) fn teardown(ctx: &mut Context) {
     child_process::teardown(ctx);
+    net::teardown(ctx);
     fs::teardown(ctx);
 }
 

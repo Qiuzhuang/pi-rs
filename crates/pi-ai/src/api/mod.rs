@@ -1,5 +1,6 @@
 //! API implementations and shared request helpers (port of `api/*`).
 
+pub mod anthropic_federation;
 pub mod anthropic_messages;
 pub mod aws_credentials;
 pub mod aws_eventstream;

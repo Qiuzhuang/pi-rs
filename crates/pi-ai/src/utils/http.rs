@@ -107,34 +107,63 @@ impl HeaderList {
     }
 }
 
+/// `process.version` reported in the Stainless runtime headers.
+const STAINLESS_NODE_VERSION: &str = "v22.19.0";
+
+/// Stainless `normalizePlatform` applied to the Node `process.platform` of this target.
+fn stainless_os() -> String {
+    let platform = match std::env::consts::OS {
+        "macos" => "darwin",
+        "windows" => "win32",
+        "solaris" | "illumos" => "sunos",
+        other => other,
+    };
+    match platform {
+        p if p.contains("ios") => "iOS".into(),
+        "android" => "Android".into(),
+        "darwin" => "MacOS".into(),
+        "win32" => "Windows".into(),
+        "freebsd" => "FreeBSD".into(),
+        "openbsd" => "OpenBSD".into(),
+        "linux" => "Linux".into(),
+        "" => "Unknown".into(),
+        other => format!("Other:{other}"),
+    }
+}
+
+/// Stainless `normalizeArch` applied to the Node `process.arch` of this target.
+fn stainless_arch() -> String {
+    let arch = match std::env::consts::ARCH {
+        "x86" => "ia32",
+        "powerpc64" => "ppc64",
+        "powerpc" => "ppc",
+        "loongarch64" => "loong64",
+        other => other,
+    };
+    match arch {
+        "x32" => "x32".into(),
+        "x86_64" | "x64" => "x64".into(),
+        "arm" => "arm".into(),
+        "aarch64" | "arm64" => "arm64".into(),
+        "" => "unknown".into(),
+        other => format!("other:{other}"),
+    }
+}
+
 /// Stainless SDK platform headers (`X-Stainless-*`) sent by the OpenAI and Anthropic SDKs.
 pub fn stainless_headers(package_version: &str, timeout_ms: u64) -> Vec<(String, String)> {
-    let os = match std::env::consts::OS {
-        "macos" => "MacOS",
-        "linux" => "Linux",
-        "windows" => "Windows",
-        "freebsd" => "FreeBSD",
-        "openbsd" => "OpenBSD",
-        "android" => "Android",
-        "ios" => "iOS",
-        other => other,
-    };
-    let arch = match std::env::consts::ARCH {
-        "x86_64" => "x64",
-        "aarch64" => "arm64",
-        "x86" => "x32",
-        "arm" => "arm",
-        other => other,
-    };
+    let os = stainless_os();
+    let arch = stainless_arch();
     vec![
         ("X-Stainless-Retry-Count".into(), "0".into()),
         ("X-Stainless-Timeout".into(), (timeout_ms / 1000).to_string()),
         ("X-Stainless-Lang".into(), "js".into()),
         ("X-Stainless-Package-Version".into(), package_version.into()),
-        ("X-Stainless-OS".into(), os.into()),
-        ("X-Stainless-Arch".into(), arch.into()),
-        ("X-Stainless-Runtime".into(), "unknown".into()),
-        ("X-Stainless-Runtime-Version".into(), "unknown".into()),
+        ("X-Stainless-OS".into(), os),
+        ("X-Stainless-Arch".into(), arch),
+        // The TS SDKs run on Node (or Bun, which reports itself as Node).
+        ("X-Stainless-Runtime".into(), "node".into()),
+        ("X-Stainless-Runtime-Version".into(), STAINLESS_NODE_VERSION.into()),
     ]
 }
 
@@ -177,4 +206,22 @@ pub async fn post_json(
     let response_headers = response.headers().clone();
     let text = response.text().await.unwrap_or_default();
     Err(ProviderHttpError::from_response(status.as_u16(), response_headers, text, style).into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stainless_headers_report_a_node_runtime() {
+        let headers = stainless_headers("1.2.3", 600_000);
+        let get = |name: &str| headers.iter().find(|(n, _)| n == name).map(|(_, v)| v.as_str());
+        assert_eq!(get("X-Stainless-Runtime"), Some("node"));
+        assert_eq!(get("X-Stainless-Runtime-Version"), Some("v22.19.0"));
+        assert_eq!(get("X-Stainless-Timeout"), Some("600"));
+        if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+            assert_eq!(get("X-Stainless-OS"), Some("Linux"));
+            assert_eq!(get("X-Stainless-Arch"), Some("x64"));
+        }
+    }
 }

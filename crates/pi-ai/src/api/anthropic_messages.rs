@@ -15,7 +15,7 @@ use super::constrained_sampling::{get_json_schema_tool_parameters, resolve_json_
 use super::github_copilot_headers::{build_copilot_dynamic_headers, has_copilot_vision_input};
 use super::simple_options::{adjust_max_tokens_for_thinking, build_base_options, clamp_max_tokens_to_context};
 use super::transform_messages::{split_error_tool_result_images, transform_messages};
-use crate::env_api_keys::{ANTHROPIC_FEDERATION_RULE_ID_ENV, ANTHROPIC_IDENTITY_TOKEN_FILE_ENV, ANTHROPIC_ORGANIZATION_ID_ENV};
+use super::anthropic_federation::{AnthropicFederationConfig, federation_token_cache, with_oauth_beta};
 use crate::models::{ProviderStreams, calculate_cost};
 use crate::types::{
     AssistantContent, AssistantMessage, AssistantMessageEvent, CacheRetention, ConstrainedSamplingConfig, ImageContent,
@@ -204,13 +204,23 @@ fn has_request_auth(api_key: Option<&str>, headers: Option<&ProviderHeaders>) ->
         || has_header(headers, "cf-aig-authorization")
 }
 
-fn has_federation(model: &Model, api_key: Option<&str>, headers: Option<&ProviderHeaders>, env: Option<&ProviderEnv>) -> bool {
+/// Workload identity federation config from the ANTHROPIC_* variables the Anthropic SDK documents.
+/// Only for the anthropic provider (the exchange is an Anthropic API endpoint), and only when no
+/// key or auth header was resolved.
+fn get_anthropic_federation(
+    model: &Model,
+    api_key: Option<&str>,
+    headers: Option<&ProviderHeaders>,
+    env: Option<&ProviderEnv>,
+) -> Option<AnthropicFederationConfig> {
     if model.provider != "anthropic" || has_request_auth(api_key, headers) {
-        return false;
+        return None;
     }
-    get_provider_env_value(ANTHROPIC_FEDERATION_RULE_ID_ENV, env).is_some()
-        && get_provider_env_value(ANTHROPIC_ORGANIZATION_ID_ENV, env).is_some()
-        && get_provider_env_value(ANTHROPIC_IDENTITY_TOKEN_FILE_ENV, env).is_some()
+    AnthropicFederationConfig::from_env(env)
+}
+
+fn has_federation(model: &Model, api_key: Option<&str>, headers: Option<&ProviderHeaders>, env: Option<&ProviderEnv>) -> bool {
+    get_anthropic_federation(model, api_key, headers, env).is_some()
 }
 
 fn is_oauth_token(api_key: &str) -> bool {
@@ -893,10 +903,8 @@ async fn run_stream(
 
     let result: anyhow::Result<()> = async {
         let api_key = options.api_key.clone().filter(|k| !k.is_empty());
-        if has_federation(&model, api_key.as_deref(), options.headers.as_ref(), options.env.as_ref()) {
-            anyhow::bail!("Anthropic workload identity federation is not supported in this build");
-        }
-        if !has_request_auth(api_key.as_deref(), options.headers.as_ref()) {
+        let federation = get_anthropic_federation(&model, api_key.as_deref(), options.headers.as_ref(), options.env.as_ref());
+        if federation.is_none() && !has_request_auth(api_key.as_deref(), options.headers.as_ref()) {
             anyhow::bail!("No API key for provider: {}", model.provider);
         }
         let dynamic_headers = if model.provider == "github-copilot" {
@@ -915,6 +923,11 @@ async fn run_stream(
             Some(client) => client.clone(),
             None => client_for(&url, options.env.as_ref())?,
         };
+        // The SDK exchanges the identity token itself, caches the access token per federation
+        // client, and appends the OAuth beta to requests it authenticates.
+        let token_cache = federation.as_ref().map(|config| {
+            federation_token_cache(config, &model.base_url, client.clone(), format!("Anthropic/JS {ANTHROPIC_SDK_VERSION}"))
+        });
 
         let mut disable_preferred_strict = false;
         let response = loop {
@@ -953,7 +966,27 @@ async fn run_stream(
                 no_retry_statuses: Vec::new(),
             };
             let attempt = retry_provider_request(
-                || post_json(&client, &url, &headers, &params, Some(timeout_ms), signal.as_ref(), SdkErrorStyle::Anthropic),
+                || {
+                    let mut headers = headers.clone();
+                    let (client, url, params, signal, token_cache) = (&client, &url, &params, signal.as_ref(), token_cache.clone());
+                    async move {
+                        if let Some(cache) = &token_cache {
+                            let token = cache.get_token().await?;
+                            headers.set("Authorization", Some(&format!("Bearer {token}")));
+                            let beta = with_oauth_beta(headers.get("anthropic-beta"));
+                            headers.set("anthropic-beta", Some(&beta));
+                        }
+                        let result =
+                            post_json(client, url, &headers, params, Some(timeout_ms), signal, SdkErrorStyle::Anthropic).await;
+                        if let (Some(cache), Err(error)) = (&token_cache, &result)
+                            && error.downcast_ref::<ProviderHttpError>().is_some_and(|e| e.status == Some(401))
+                        {
+                            // The server rejected the token although it looked fresh.
+                            cache.invalidate();
+                        }
+                        result
+                    }
+                },
                 &retry,
             )
             .await;

@@ -193,3 +193,130 @@ async fn missing_api_key_errors() {
     let result = anthropic_messages::stream_simple(&model, &context("x"), StreamOptions::default()).result().await;
     assert_eq!(result.error_message.as_deref(), Some("No API key for provider: anthropic"));
 }
+
+fn federation_env(token_file: &std::path::Path, workspace: Option<&str>) -> ProviderEnv {
+    let mut env = ProviderEnv::new();
+    env.insert("ANTHROPIC_FEDERATION_RULE_ID".into(), "fdrl_rule".into());
+    env.insert("ANTHROPIC_ORGANIZATION_ID".into(), "org-uuid".into());
+    env.insert("ANTHROPIC_IDENTITY_TOKEN_FILE".into(), token_file.to_string_lossy().into_owned());
+    env.insert("ANTHROPIC_SERVICE_ACCOUNT_ID".into(), "svac_account".into());
+    if let Some(workspace) = workspace {
+        env.insert("ANTHROPIC_WORKSPACE_ID".into(), workspace.into());
+    }
+    env
+}
+
+fn identity_token_file(name: &str, contents: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("pi-ai-federation-{}-{name}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("token.jwt");
+    std::fs::write(&path, contents).unwrap();
+    path
+}
+
+/// Workload identity federation: the SDK exchanges the identity token at `/v1/oauth/token`,
+/// sends the access token as a bearer with the OAuth beta, and caches it across requests.
+#[tokio::test]
+async fn workload_identity_federation_exchanges_and_caches_the_token() {
+    let token = r#"{"access_token":"fed-access","expires_in":3600,"token_type":"Bearer"}"#;
+    let server = serve(vec![
+        MockResponse::json(200, token),
+        MockResponse::sse(minimal_events()),
+        MockResponse::sse(minimal_events()),
+    ])
+    .await;
+    let model = model_at(&server.base_url, "claude-haiku-4-5");
+    let token_file = identity_token_file("cache", "  header.payload.sig\n");
+    let options = || StreamOptions { env: Some(federation_env(&token_file, Some("wrkspc_1"))), ..Default::default() };
+    for _ in 0..2 {
+        let result = anthropic_messages::stream(&model, &context("Hello"), options()).result().await;
+        assert_eq!(result.stop_reason, StopReason::Stop, "{:?}", result.error_message);
+    }
+
+    let requests = server.requests.lock().clone();
+    assert_eq!(requests.len(), 3);
+    let exchange = &requests[0];
+    assert_eq!(exchange.path, "/v1/oauth/token");
+    assert_eq!(exchange.header("anthropic-beta"), Some("oauth-2025-04-20,oidc-federation-2026-04-01"));
+    assert_eq!(exchange.header("user-agent"), Some("Anthropic/JS 0.129.0"));
+    assert_eq!(exchange.header("content-type"), Some("application/json"));
+    assert_eq!(
+        exchange.json(),
+        json!({
+            "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+            "assertion": "header.payload.sig",
+            "federation_rule_id": "fdrl_rule",
+            "organization_id": "org-uuid",
+            "service_account_id": "svac_account",
+            "workspace_id": "wrkspc_1"
+        })
+    );
+    for request in &requests[1..] {
+        assert_eq!(request.path, "/v1/messages?beta=true");
+        assert_eq!(request.header("authorization"), Some("Bearer fed-access"));
+        assert_eq!(request.header("x-api-key"), None);
+        assert!(request.header("anthropic-beta").unwrap().split(',').any(|b| b == "oauth-2025-04-20"));
+    }
+}
+
+#[tokio::test]
+async fn workload_identity_federation_reexchanges_after_401_and_reports_exchange_errors() {
+    let server = serve(vec![
+        MockResponse::json(200, r#"{"access_token":"first","expires_in":3600}"#),
+        MockResponse::json(401, r#"{"type":"error","error":{"type":"authentication_error","message":"invalid token"}}"#),
+        MockResponse::json(200, r#"{"access_token":"second","expires_in":3600}"#),
+        MockResponse::sse(minimal_events()),
+        MockResponse::json(401, r#"{"error":"invalid_grant","assertion":"leaked"}"#),
+    ])
+    .await;
+    let model = model_at(&server.base_url, "claude-haiku-4-5");
+    let token_file = identity_token_file("retry", "jwt");
+    let options = || StreamOptions { env: Some(federation_env(&token_file, None)), ..Default::default() };
+
+    let first = anthropic_messages::stream(&model, &context("Hello"), options()).result().await;
+    assert_eq!(first.stop_reason, StopReason::Error);
+    let second = anthropic_messages::stream(&model, &context("Hello"), options()).result().await;
+    assert_eq!(second.stop_reason, StopReason::Stop, "{:?}", second.error_message);
+    let requests = server.requests.lock().clone();
+    assert_eq!(requests[3].header("authorization"), Some("Bearer second"));
+    assert!(requests[2].json().get("workspace_id").is_none());
+
+    // A rejected exchange surfaces the SDK's redacted error with the 401 hint.
+    let model = model_at(&server.base_url, "claude-sonnet-4-5");
+    let other_file = identity_token_file("reject", "jwt2");
+    let rejected = anthropic_messages::stream(
+        &model,
+        &context("Hello"),
+        StreamOptions { env: Some(federation_env(&other_file, None)), ..Default::default() },
+    )
+    .result()
+    .await;
+    assert_eq!(rejected.stop_reason, StopReason::Error);
+    assert_eq!(
+        rejected.error_message.as_deref(),
+        Some(
+            "Token exchange failed with status 401: {\"error\":\"invalid_grant\"} Ensure your federation rule matches your identity token. If your federation rule is scoped to multiple workspaces, set the ANTHROPIC_WORKSPACE_ID environment variable, the 'workspace_id' config key, or the `workspaceId` option. View your authentication events in the Workload identity page of Claude Console for more details."
+        )
+    );
+}
+
+#[tokio::test]
+async fn workload_identity_federation_requires_a_readable_identity_token() {
+    let model = model_at("https://api.anthropic.com", "claude-haiku-4-5");
+    let missing = std::env::temp_dir().join("pi-ai-federation-missing/token.jwt");
+    let result = anthropic_messages::stream(
+        &model,
+        &context("Hello"),
+        StreamOptions { env: Some(federation_env(&missing, None)), ..Default::default() },
+    )
+    .result()
+    .await;
+    assert_eq!(result.stop_reason, StopReason::Error);
+    assert_eq!(
+        result.error_message,
+        Some(format!(
+            "Failed to read identity token file at {0}: Error: ENOENT: no such file or directory, open '{0}'",
+            missing.display()
+        ))
+    );
+}

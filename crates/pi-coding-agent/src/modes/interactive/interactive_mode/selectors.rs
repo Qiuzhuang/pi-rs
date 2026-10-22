@@ -731,7 +731,10 @@ impl Inner {
                     let Some(this) = weak.upgrade() else { return };
                     let done = done.clone();
                     let target = this.clone();
-                    this.spawn(async move {
+                    // Like the TS async handler: run synchronously up to the first await, so a fast
+                    // `setModel` closes the selector before the next key arrives (keys typed in
+                    // between would otherwise go to the closing selector).
+                    this.start_now(async move {
                         let result = target
                             .session()
                             .set_model(model.clone(), Some(&crate::core::agent_session::ModelMutationOptions { persist: Some(persist) }))

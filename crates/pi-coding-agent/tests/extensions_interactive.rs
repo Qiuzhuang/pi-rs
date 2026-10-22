@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 use pi_ai::types::StopReason;
 use pi_coding_agent::core::agent_session_runtime::{AgentSessionRuntime, CreateAgentSessionRuntimeFactory};
 use pi_coding_agent::core::agent_session_services::AgentSessionServices;
-use pi_coding_agent::core::extensions::loader::load_extensions;
+use pi_coding_agent::core::resource_loader::{DefaultResourceLoader, DefaultResourceLoaderOptions, ResourceLoader};
 use pi_coding_agent::modes::interactive::interactive_mode::{InteractiveMode, InteractiveModeOptions};
 use pi_tui::terminal::Terminal;
 use pi_tui::testing::VirtualTerminal;
@@ -119,14 +119,26 @@ impl Fixture {
         std::fs::create_dir_all(&cwd).unwrap();
         let cwd = cwd.display().to_string();
         let paths: Vec<String> = files.iter().map(|f| examples.join(f).display().to_string()).collect();
-        let loaded = load_extensions(&paths, &cwd, None, None).await.unwrap();
+        // Like `pi -e <path>`: the real resource loader loads (and reloads) the extensions.
+        let loader = Arc::new(DefaultResourceLoader::new(&DefaultResourceLoaderOptions {
+            cwd: cwd.clone(),
+            agent_dir: agent_dir.display().to_string(),
+            additional_extension_paths: Some(paths),
+            no_skills: Some(true),
+            no_prompt_templates: Some(true),
+            no_context_files: Some(true),
+            ..Default::default()
+        }));
+        loader.reload(None).await.unwrap();
+        let loaded = loader.get_extensions();
         assert!(loaded.errors.is_empty(), "extensions failed to load: {:#?}", loaded.errors);
+        assert_eq!(loaded.extensions.len(), files.len());
         for (name, value) in &options.flags {
             loaded.runtime.flag_values.lock().insert(name.clone(), value.clone());
         }
         let harness = create_harness(HarnessOptions {
             settings: Some(options.settings.clone()),
-            resource_loader: Some(TestResourceLoader::new(Some(loaded))),
+            resource_loader: Some(loader),
             models: options
                 .models
                 .iter()
@@ -635,5 +647,369 @@ async fn preset_selects_model_tools_and_instructions() {
     fx.wait_text("terse").await;
     let prompt = system_prompt_of(&captured.lock()[0]);
     assert!(prompt.ends_with("\n\nPRESET-INSTRUCTIONS"), "{prompt}");
+    fx.cleanup();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn message_renderer_renders_custom_messages() {
+    let Some(dir) = examples() else { return };
+    let _lock = LOCK.lock().await;
+    let fx = Fixture::new(&dir, &["message-renderer.ts"]).await;
+
+    fx.submit("/status warn disk almost full");
+    fx.wait_text("[WARN] disk almost full").await;
+    fx.submit("/status all good");
+    fx.wait_text("[INFO] all good").await;
+    fx.cleanup();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn entry_renderer_renders_custom_entries() {
+    let Some(dir) = examples() else { return };
+    let _lock = LOCK.lock().await;
+    let fx = Fixture::new(&dir, &["entry-renderer.ts"]).await;
+
+    fx.submit("/status-card deploy finished");
+    fx.wait_text("[status] deploy finished").await;
+    assert_eq!(custom_entries(&fx, "status-card").len(), 1);
+    fx.cleanup();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn built_in_tool_renderer_wraps_builtin_tools() {
+    let Some(dir) = examples() else { return };
+    let _lock = LOCK.lock().await;
+    let fx = Fixture::new(&dir, &["built-in-tool-renderer.ts"]).await;
+    let file = fx.agent_dir.join("notes.txt");
+    std::fs::write(&file, "one\ntwo\nthree").unwrap();
+
+    fx.respond(vec![
+        tool_call("read", json!({ "path": file.display().to_string() })),
+        tool_call("bash", json!({ "command": "echo hi" })),
+        text("all read"),
+    ]);
+    fx.submit("read it");
+    let screen = fx.wait_text("all read").await;
+    assert!(screen.contains(&format!("read {}", file.display())), "{screen}");
+    assert!(screen.contains("3 lines"), "{screen}");
+    assert!(screen.contains("$ echo hi"), "{screen}");
+    assert!(screen.contains("done (1 lines)"), "{screen}");
+    fx.cleanup();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn tool_override_replaces_read_and_blocks_secrets() {
+    let Some(dir) = examples() else { return };
+    let _lock = LOCK.lock().await;
+    let fx = Fixture::new(&dir, &["tool-override.ts"]).await;
+    let file = fx.agent_dir.join("plain.txt");
+    std::fs::write(&file, "visible content").unwrap();
+    let secret = fx.agent_dir.join(".env");
+    std::fs::write(&secret, "TOKEN=1").unwrap();
+
+    fx.respond(vec![
+        tool_call("read", json!({ "path": file.display().to_string() })),
+        tool_call("read", json!({ "path": secret.display().to_string() })),
+        text("checked"),
+    ]);
+    fx.submit("read both");
+    fx.wait_text("checked").await;
+    let results: Vec<String> = fx
+        .harness
+        .session
+        .messages()
+        .iter()
+        .filter(|m| matches!(m, pi_agent::types::AgentMessage::ToolResult(_)))
+        .map(get_message_text)
+        .collect();
+    assert_eq!(results[0], "visible content");
+    assert!(results[1].starts_with("Access denied"), "{results:?}");
+    let log = std::fs::read_to_string(fx.agent_dir.join("read-access.log")).unwrap();
+    assert!(log.contains("ALLOWED") && log.contains("BLOCKED"), "{log}");
+    fx.cleanup();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn input_transform_handles_and_rewrites_input() {
+    let Some(dir) = examples() else { return };
+    let _lock = LOCK.lock().await;
+    let fx = Fixture::new(&dir, &["input-transform.ts"]).await;
+
+    fx.submit("ping");
+    fx.wait_text("pong").await;
+    assert!(fx.harness.user_texts().is_empty());
+    fx.respond(vec![text("brief answer")]);
+    fx.submit("?quick what is rust");
+    fx.wait_text("brief answer").await;
+    assert_eq!(fx.harness.user_texts(), vec!["Respond briefly in 1-2 sentences: what is rust".to_string()]);
+    fx.cleanup();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn send_user_message_commands() {
+    let Some(dir) = examples() else { return };
+    let _lock = LOCK.lock().await;
+    let fx = Fixture::new(&dir, &["send-user-message.ts"]).await;
+
+    fx.respond(vec![text("answer one")]);
+    fx.submit("/ask first question");
+    fx.wait_text("answer one").await;
+    fx.respond(vec![text("answer two")]);
+    fx.submit("/askwith second");
+    fx.wait_text("answer two").await;
+    assert_eq!(
+        fx.harness.user_texts(),
+        vec!["first question".to_string(), "User request: second\nPlease respond concisely.".to_string()]
+    );
+    fx.submit("/ask");
+    fx.wait_text("Usage: /ask <message>").await;
+    fx.cleanup();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn trigger_compact_compacts_on_command() {
+    let Some(dir) = examples() else { return };
+    let _lock = LOCK.lock().await;
+    let fx = Fixture::with_options(
+        &dir,
+        &["trigger-compact.ts"],
+        FixtureOptions {
+            settings: json!({ "quietStartup": true, "compaction": { "keepRecentTokens": 1 } }),
+            ..Default::default()
+        },
+    )
+    .await;
+
+    fx.respond(vec![text("first answer")]);
+    fx.submit("hello");
+    fx.wait_text("first answer").await;
+    fx.wait_idle().await;
+    fx.respond(vec![text("second answer")]);
+    fx.submit("and again");
+    fx.wait_text("second answer").await;
+    fx.wait_idle().await;
+    // History summary and turn-prefix summary.
+    fx.respond(vec![text("SUMMARY OF THE CONVERSATION"), text("TURN PREFIX")]);
+    fx.submit("/trigger-compact keep it short");
+    // The chat is rebuilt after compaction, so "Compaction started" may already be gone.
+    let screen = fx.wait_text("Compaction completed").await;
+    assert!(screen.contains("[compaction]"), "{screen}");
+    let compactions: Vec<Value> = fx
+        .harness
+        .session_manager
+        .get_entries()
+        .iter()
+        .filter_map(|e| serde_json::to_value(e).ok())
+        .filter(|e| e["type"] == "compaction")
+        .collect();
+    assert_eq!(compactions.len(), 1);
+    assert!(compactions[0]["summary"].as_str().unwrap().contains("SUMMARY OF THE CONVERSATION"));
+    fx.cleanup();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn session_name_sets_and_shows_the_name() {
+    let Some(dir) = examples() else { return };
+    let _lock = LOCK.lock().await;
+    let fx = Fixture::new(&dir, &["session-name.ts"]).await;
+
+    fx.submit("/session-name");
+    fx.wait_text("No session name set").await;
+    fx.submit("/session-name refactor parser");
+    fx.wait_text("Session named: refactor parser").await;
+    assert_eq!(fx.harness.session_manager.get_session_name().as_deref(), Some("refactor parser"));
+    fx.submit("/session-name");
+    fx.wait_text("Session: refactor parser").await;
+    fx.cleanup();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn bookmark_labels_the_last_assistant_message() {
+    let Some(dir) = examples() else { return };
+    let _lock = LOCK.lock().await;
+    let fx = Fixture::new(&dir, &["bookmark.ts"]).await;
+
+    fx.submit("/bookmark");
+    fx.wait_text("No assistant message to bookmark").await;
+    fx.respond(vec![text("worth keeping")]);
+    fx.submit("hi");
+    fx.wait_text("worth keeping").await;
+    fx.wait_idle().await;
+    fx.submit("/bookmark keeper");
+    fx.wait_text("Bookmarked as: keeper").await;
+    let assistant_id = fx
+        .harness
+        .session_manager
+        .get_entries()
+        .iter()
+        .filter_map(|e| serde_json::to_value(e).ok())
+        .filter(|e| e["type"] == "message" && e["message"]["role"] == "assistant")
+        .map(|e| e["id"].as_str().unwrap().to_string())
+        .last()
+        .unwrap();
+    assert_eq!(fx.harness.session_manager.get_label(&assistant_id).as_deref(), Some("keeper"));
+    fx.submit("/unbookmark");
+    fx.wait_text("Removed bookmark: keeper").await;
+    assert_eq!(fx.harness.session_manager.get_label(&assistant_id), None);
+    fx.cleanup();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn custom_compaction_hooks_session_before_compact() {
+    let Some(dir) = examples() else { return };
+    let _lock = LOCK.lock().await;
+    let fx = Fixture::with_options(
+        &dir,
+        &["custom-compaction.ts"],
+        FixtureOptions {
+            settings: json!({ "quietStartup": true, "compaction": { "keepRecentTokens": 1 } }),
+            ..Default::default()
+        },
+    )
+    .await;
+    for (prompt, reply) in [("hello", "first answer"), ("again", "second answer")] {
+        fx.respond(vec![text(reply)]);
+        fx.submit(prompt);
+        fx.wait_text(reply).await;
+        fx.wait_idle().await;
+    }
+    // Gemini Flash has no API key here: the extension reports the failure and pi falls back to
+    // the default compaction (two faux summaries).
+    fx.respond(vec![text("DEFAULT SUMMARY"), text("TURN PREFIX")]);
+    fx.submit("/compact");
+    fx.wait_text("[compaction]").await;
+    let notes: Vec<String> = fx.screen().lines().map(str::to_string).collect();
+    let _ = notes;
+    let compactions: Vec<Value> = fx
+        .harness
+        .session_manager
+        .get_entries()
+        .iter()
+        .filter_map(|e| serde_json::to_value(e).ok())
+        .filter(|e| e["type"] == "compaction")
+        .collect();
+    assert_eq!(compactions.len(), 1);
+    assert!(compactions[0]["summary"].as_str().unwrap().contains("DEFAULT SUMMARY"));
+    fx.cleanup();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn event_bus_delivers_events_between_handlers() {
+    let Some(dir) = examples() else { return };
+    let _lock = LOCK.lock().await;
+    let fx = Fixture::new(&dir, &["event-bus.ts"]).await;
+
+    fx.wait_text("Event from event-bus-example: Session started").await;
+    fx.submit("/emit ping from test");
+    fx.wait_text("Event from /emit command: ping from test").await;
+    fx.cleanup();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn dynamic_tools_register_after_startup() {
+    let Some(dir) = examples() else { return };
+    let _lock = LOCK.lock().await;
+    let fx = Fixture::new(&dir, &["dynamic-tools.ts"]).await;
+
+    fx.wait_text("Registered dynamic tool: echo_session").await;
+    fx.submit("/add-echo-tool shout");
+    fx.wait_text("Registered dynamic tool: shout").await;
+    fx.submit("/add-echo-tool shout");
+    fx.wait_text("Tool already registered: shout").await;
+    fx.respond(vec![tool_call("shout", json!({ "message": "hey" })), tool_call("echo_session", json!({ "message": "yo" })), text("echoed")]);
+    fx.submit("echo");
+    fx.wait_text("echoed").await;
+    let results: Vec<String> = fx
+        .harness
+        .session
+        .messages()
+        .iter()
+        .filter(|m| matches!(m, pi_agent::types::AgentMessage::ToolResult(_)))
+        .map(get_message_text)
+        .collect();
+    assert_eq!(results, vec!["[shout] hey".to_string(), "[session] yo".to_string()]);
+    fx.cleanup();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn reload_runtime_reloads_extensions() {
+    let Some(dir) = examples() else { return };
+    let _lock = LOCK.lock().await;
+    let fx = Fixture::new(&dir, &["reload-runtime.ts"]).await;
+
+    fx.submit("/reload-runtime");
+    fx.wait_text("Reloaded").await;
+    // Reload resets the global API registry (TS `resetApiProviders()`), which also holds the test
+    // harness's faux API: register it again.
+    pi_ai::compat::register_api_provider(
+        &fx.harness.faux.core.api,
+        Arc::new(pi_ai::providers::faux::FauxStreams(fx.harness.faux.core.clone())),
+        None,
+    );
+    // The reloaded extension still works: the tool queues the command as a follow-up.
+    fx.respond(vec![tool_call("reload_runtime", json!({})), text("reload queued")]);
+    fx.submit("reload please");
+    fx.wait_text("reload queued").await;
+    let result = get_message_text(&pi_agent::types::AgentMessage::ToolResult(fx.harness.tool_result("reload_runtime")));
+    assert_eq!(result, "Queued /reload-runtime as a follow-up command.");
+    fx.cleanup();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn shutdown_command_exits_the_interactive_mode() {
+    let Some(dir) = examples() else { return };
+    let _lock = LOCK.lock().await;
+    let mut fx = Fixture::new(&dir, &["shutdown-command.ts"]).await;
+    let exit_code = Arc::new(parking_lot::Mutex::new(None));
+    let code = exit_code.clone();
+    // `process.exit()` unwinds instead of ending the test process.
+    pi_coding_agent::utils::process_exit::set_exit_hook(Some(Arc::new(move |c| {
+        *code.lock() = Some(c);
+        panic!("process.exit({c})");
+    })));
+
+    fx.submit("/quit");
+    fx.wait_until("process.exit", || exit_code.lock().is_some()).await;
+    pi_coding_agent::utils::process_exit::set_exit_hook(None);
+    assert_eq!(*exit_code.lock(), Some(0));
+    let _ = fx.run.take();
+    fx.cleanup();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn provider_payload_logs_requests() {
+    let Some(dir) = examples() else { return };
+    let _lock = LOCK.lock().await;
+    let fx = Fixture::new(&dir, &["provider-payload.ts"]).await;
+    let pi_dir = fx.harness.temp_dir.join(".pi");
+    std::fs::create_dir_all(&pi_dir).unwrap();
+
+    fx.respond(vec![text("logged")]);
+    fx.submit("log this request");
+    fx.wait_text("logged").await;
+    fx.wait_idle().await;
+    // The faux provider reports a response but, like the TS one, never builds a payload.
+    let log = std::fs::read_to_string(pi_dir.join("provider-payload.log")).unwrap();
+    assert_eq!(log, "[200] {}\n\n");
+    fx.cleanup();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn structured_output_terminates_with_a_rendered_result() {
+    let Some(dir) = examples() else { return };
+    let _lock = LOCK.lock().await;
+    let fx = Fixture::new(&dir, &["structured-output.ts"]).await;
+
+    fx.respond(vec![tool_call(
+        "structured_output",
+        json!({ "headline": "Release plan", "summary": "Ship on Friday.", "actionItems": ["Freeze", "Tag"] }),
+    )]);
+    fx.submit("structure it");
+    let screen = fx.wait_text("Release plan").await;
+    assert!(screen.contains("Ship on Friday.") && screen.contains("1. Freeze") && screen.contains("2. Tag"), "{screen}");
+    fx.wait_idle().await;
+    // `terminate: true` ends the run without another model call.
+    assert_eq!(fx.harness.get_pending_response_count(), 0);
+    assert_eq!(fx.harness.assistant_texts().len(), 1);
     fx.cleanup();
 }

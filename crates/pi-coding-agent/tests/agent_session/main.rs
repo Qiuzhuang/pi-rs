@@ -10,3 +10,5 @@ mod retry_events;
 mod compaction;
 mod compaction_model_overrides;
 mod boundaries;
+mod extension_mutations;
+mod runtime;

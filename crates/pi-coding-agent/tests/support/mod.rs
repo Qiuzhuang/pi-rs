@@ -340,7 +340,7 @@ fn create_temp_dir() -> std::path::PathBuf {
 }
 
 /// The faux models as provider model configs for `registerProvider`.
-fn provider_models(faux: &FauxProviderRegistration) -> Vec<ProviderModelConfig> {
+pub fn provider_models(faux: &FauxProviderRegistration) -> Vec<ProviderModelConfig> {
     faux.models()
         .iter()
         .map(|m| {

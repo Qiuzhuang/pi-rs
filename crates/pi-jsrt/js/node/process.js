@@ -90,9 +90,15 @@ let exitCode;
 
 Object.assign(process, {
   title: "pi",
-  version: "v22.0.0",
-  versions: { node: "22.0.0", pi_jsrt: config.version, boa: "0.22.0", v8: "0.0", uv: "0.0", modules: "127" },
-  release: { name: "node", lts: undefined },
+  // pi's `engines` minimum (">=22.19.0"), the version pi-ai reports in User-Agent/Stainless
+  // headers too; it satisfies the version checks of the packages in tests/npm_packages.rs.
+  // No `napi`/`openssl` entries: native addons cannot load, and the crypto is not OpenSSL.
+  version: "v22.19.0",
+  versions: {
+    node: "22.19.0", pi_jsrt: config.version, boa: "0.22.0", v8: "0.0", uv: "1.51.0", modules: "127",
+    zlib: "1.3.1", brotli: "1.1.0", unicode: "16.0",
+  },
+  release: { name: "node", lts: "Jod" },
   platform: config.platform,
   arch: config.arch,
   pid: config.pid,

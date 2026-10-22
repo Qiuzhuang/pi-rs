@@ -73,22 +73,32 @@
 //!
 //! ## Node compatibility
 //!
-//! With [`RuntimeOptions::node_compat`] (the default) the runtime provides `process`,
-//! `Buffer`, `fetch`/`Headers`/`Request`/`Response`, `crypto`, and the builtins
-//! `node:fs`, `node:fs/promises`, `node:path`, `node:os`, `node:child_process`,
-//! `node:events`, `node:util`, `node:url`, `node:readline`, `node:assert`,
-//! `node:stream`, `node:buffer`, `node:crypto`, `node:module`, `node:timers`,
-//! `node:timers/promises`, `node:string_decoder`, `node:tty`, `node:querystring`,
-//! `node:perf_hooks`, `node:async_hooks` and `node:process` (unprefixed names work too).
-//! Without it, only ECMAScript plus web-style globals (`console`, timers,
+//! With [`RuntimeOptions::node_compat`] (the default) the runtime provides `process`
+//! (`process.version` is `v22.19.0`, pi's `engines` minimum), `Buffer`,
+//! `fetch`/`Headers`/`Request`/`Response`, `crypto` (WebCrypto included), `WebAssembly`,
+//! `MessageChannel`/`BroadcastChannel`, `CompressionStream`/`DecompressionStream`, `navigator`, and
+//! the builtins `node:fs`, `node:fs/promises`, `node:path`, `node:os`, `node:child_process`,
+//! `node:events`, `node:util`, `node:url`, `node:readline`, `node:assert`, `node:stream`,
+//! `node:buffer`, `node:crypto`, `node:zlib`, `node:net`, `node:tls`, `node:http`, `node:https`,
+//! `node:dns`, `node:module`, `node:timers`, `node:timers/promises`, `node:string_decoder`,
+//! `node:tty`, `node:querystring`, `node:perf_hooks`, `node:async_hooks`, `node:worker_threads`
+//! (no `Worker`) and `node:process` (unprefixed names work too). They are compiled on first use
+//! (see `ops/mod.rs`), so they cost nothing at startup.
+//!
+//! Native parts are pure Rust: zlib/brotli/zstd on miniz_oxide, brotli and ruzstd; ciphers, keys,
+//! signatures and KDFs on RustCrypto (`ops/cipher.rs`, `ops/keys.rs`); TLS on rustls
+//! (`ops/tls.rs`, sans I/O over any duplex); WebAssembly on the wasmi interpreter with linear
+//! memory shared zero-copy with the JS `ArrayBuffer` (`ops/wasm.rs`).
+//!
+//! Without `node_compat`, only ECMAScript plus web-style globals (`console`, timers,
 //! `TextEncoder`/`TextDecoder`, `URL`, `AbortController`, `structuredClone`, ...) exist,
 //! which is the sandbox used by code mode.
 //!
 //! ## Limitations
 //!
 //! See `PORTING-STATUS.md`: no `Intl` beyond a small shim, no interruption of
-//! synchronous infinite loops (use [`RuntimeOptions::loop_iteration_limit`]), no
-//! `node:net`/`http`/`zlib`/`worker_threads`, and `AsyncLocalStorage` does not
+//! synchronous infinite loops (use [`RuntimeOptions::loop_iteration_limit`]), no HTTP/2,
+//! `worker_threads.Worker` or DNS record queries beyond A/AAAA, and `AsyncLocalStorage` does not
 //! propagate across `await`.
 
 #![warn(missing_docs)]

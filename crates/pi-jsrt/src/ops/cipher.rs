@@ -535,7 +535,7 @@ pub(crate) fn aes_kw(key: &[u8], data: &[u8], wrap: bool) -> CResult<Vec<u8>> {
     };
     let iv = [0xa6u8; 8];
     if wrap {
-        if data.len() % 8 != 0 || data.len() < 16 {
+        if !data.len().is_multiple_of(8) || data.len() < 16 {
             return Err(CipherError::new("Error", "Invalid data length", None));
         }
         let n = data.len() / 8;
@@ -561,7 +561,7 @@ pub(crate) fn aes_kw(key: &[u8], data: &[u8], wrap: bool) -> CResult<Vec<u8>> {
         }
         Ok(out)
     } else {
-        if data.len() % 8 != 0 || data.len() < 24 {
+        if !data.len().is_multiple_of(8) || data.len() < 24 {
             return Err(CipherError::new("Error", "Invalid data length", None));
         }
         let n = data.len() / 8 - 1;

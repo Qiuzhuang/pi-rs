@@ -1,6 +1,7 @@
 //! RPC mode, print mode and JSON event tests (ports of `test/rpc-prompt-response-semantics.test.ts`,
 //! `test/suite/regressions/5868-rpc-unknown-command-id.test.ts`,
-//! `test/suite/regressions/7925-toolcall-start-metadata.test.ts` and `test/print-mode.test.ts`),
+//! `test/suite/regressions/7925-toolcall-start-metadata.test.ts`, `test/print-mode.test.ts` and the RPC
+//! half of `test/suite/regressions/9068-user-bash-fail-closed.test.ts`),
 //! driven through a real `AgentSession` on the faux provider.
 
 mod support;
@@ -263,4 +264,77 @@ fn print_mode_returns_exit_codes_and_disposes_the_runtime() {
         assert_eq!(code, 1);
         harness.cleanup();
     });
+}
+
+// ---------------------------------------------------------------------------
+// #9068: RPC `bash` fails closed when a `user_bash` handler fails (the interactive half belongs
+// to the interactive-mode audit). The TS test spies on `session.executeBash`; here the command
+// creates a marker file, so a skipped execution leaves no file behind.
+// ---------------------------------------------------------------------------
+
+mod user_bash_fail_closed {
+    use super::*;
+    use pi_coding_agent::core::extensions::types::{
+        ExtensionAPIRef, ExtensionEventResult, ExtensionFactory, ExtensionHandler,
+    };
+
+    fn extension(result: fn() -> anyhow::Result<Option<ExtensionEventResult>>) -> TestExtension {
+        let factory: ExtensionFactory = Arc::new(move |pi: ExtensionAPIRef| {
+            Box::pin(async move {
+                let handler: ExtensionHandler = Arc::new(move |_event, _ctx| Box::pin(async move { result() }));
+                pi.on("user_bash", handler)?;
+                Ok(())
+            })
+        });
+        TestExtension::new(factory)
+    }
+
+    fn run_case(result: fn() -> anyhow::Result<Option<ExtensionEventResult>>, error: Option<&str>) {
+        local(async {
+            let harness = create_harness(HarnessOptions {
+                extension_factories: vec![extension(result)],
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+            let marker = harness.temp_dir.join("executed");
+            let mut rpc = RpcTest::start(runtime_for(&harness));
+            let command = format!("touch '{}' && printf 'local output'", marker.display());
+            rpc.send(json!({ "id": "bash-request", "type": "bash", "command": command })).await;
+            let response = rpc.wait_for(|l| l["type"] == "response" && l["id"] == "bash-request").await;
+            assert_eq!(response["command"], "bash");
+            assert_eq!(response["success"], error.is_none(), "{response}");
+            match error {
+                Some(error) => {
+                    assert!(response["error"].as_str().unwrap().contains(error), "{response}");
+                    let extension_error = rpc.wait_for(|l| l["type"] == "extension_error").await;
+                    assert_eq!(extension_error["event"], "user_bash");
+                    assert!(extension_error["error"].as_str().unwrap().contains(error), "{extension_error}");
+                    assert!(!marker.exists(), "bash ran despite the failing handler");
+                }
+                None => {
+                    assert_eq!(response["data"]["output"], "local output");
+                    assert_eq!(response["data"]["exitCode"], 0);
+                    assert!(marker.exists());
+                }
+            }
+            rpc.finish().await;
+            harness.cleanup();
+        });
+    }
+
+    #[test]
+    fn fails_the_request_without_executing_bash_when_a_handler_throws() {
+        run_case(|| anyhow::bail!("Routing failed"), Some("Routing failed"));
+    }
+
+    #[test]
+    fn fails_the_request_without_executing_bash_when_a_handler_returns_an_empty_result() {
+        run_case(|| Ok(Some(ExtensionEventResult::Json(json!({})))), Some("Invalid user_bash handler result"));
+    }
+
+    #[test]
+    fn executes_bash_normally_when_a_handler_returns_undefined() {
+        run_case(|| Ok(None), None);
+    }
 }

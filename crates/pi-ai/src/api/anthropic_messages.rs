@@ -931,8 +931,9 @@ async fn run_stream(
 
         let mut disable_preferred_strict = false;
         let response = loop {
+            // `signal.throwIfAborted()` throws the reason of an `abort()` without one.
             if aborted() {
-                anyhow::bail!(crate::utils::provider_retry::AbortError);
+                anyhow::bail!("This operation was aborted");
             }
             let built = build_params(&model, &normalized, is_oauth, &options, &anthropic, disable_preferred_strict)?;
             if let Some(level) = &built.provider_thinking_level {
@@ -1334,13 +1335,10 @@ async fn run_stream(
     }
 }
 
-/// Error text as surfaced on the assistant message.
+/// Error text as surfaced on the assistant message (`error.message`): an abort before the
+/// response is `provider-retry`'s "Request aborted", the abort check of the SSE loop is "Request
+/// was aborted", and an abort during a body read is undici's "This operation was aborted".
 fn error_message_of(error: &anyhow::Error) -> String {
-    if error.downcast_ref::<crate::utils::provider_retry::AbortError>().is_some()
-        || error.downcast_ref::<crate::utils::sse::StreamAborted>().is_some()
-    {
-        return "Request was aborted".to_string();
-    }
     error.to_string()
 }
 

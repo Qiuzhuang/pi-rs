@@ -20,7 +20,8 @@ fn parse_deployment_name_map(value: Option<&str>) -> HashMap<String, String> {
         if trimmed.is_empty() {
             continue;
         }
-        let mut parts = trimmed.splitn(2, '=');
+        // JS `split("=", 2)`: the first two pieces; anything after a second `=` is dropped.
+        let mut parts = trimmed.split('=');
         let (Some(model_id), Some(deployment)) = (parts.next(), parts.next()) else { continue };
         if model_id.is_empty() || deployment.is_empty() {
             continue;
@@ -112,5 +113,8 @@ mod tests {
         let map = parse_deployment_name_map(Some("gpt-4o=prod-4o, bad, x="));
         assert_eq!(map.get("gpt-4o").map(String::as_str), Some("prod-4o"));
         assert_eq!(map.len(), 1);
+        // JS `split("=", 2)` drops the text after a second `=`.
+        let map = parse_deployment_name_map(Some("a=b=c"));
+        assert_eq!(map.get("a").map(String::as_str), Some("b"));
     }
 }

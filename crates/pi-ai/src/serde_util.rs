@@ -39,6 +39,39 @@ pub fn js_number(value: f64) -> serde_json::Value {
     }
 }
 
+/// JavaScript truthiness of a JSON value.
+pub fn js_truthy(value: &serde_json::Value) -> bool {
+    use serde_json::Value;
+    match value {
+        Value::Null => false,
+        Value::Bool(b) => *b,
+        Value::Number(n) => n.as_f64().is_some_and(|f| f != 0.0 && !f.is_nan()),
+        Value::String(s) => !s.is_empty(),
+        Value::Array(_) | Value::Object(_) => true,
+    }
+}
+
+/// JavaScript `String(value)` of a JSON value.
+pub fn js_string(value: &serde_json::Value) -> String {
+    use serde_json::Value;
+    match value {
+        Value::Null => "null".into(),
+        Value::Bool(b) => b.to_string(),
+        Value::Number(n) => match n.as_f64() {
+            Some(f) if is_js_integer(f) => (f as i64).to_string(),
+            _ => n.to_string(),
+        },
+        Value::String(s) => s.clone(),
+        // Array.prototype.join: null and undefined elements print as "".
+        Value::Array(items) => items
+            .iter()
+            .map(|item| if item.is_null() { String::new() } else { js_string(item) })
+            .collect::<Vec<_>>()
+            .join(","),
+        Value::Object(_) => "[object Object]".into(),
+    }
+}
+
 pub mod js_f64 {
     use super::*;
     pub fn serialize<S: Serializer>(value: &f64, serializer: S) -> Result<S::Ok, S::Error> {

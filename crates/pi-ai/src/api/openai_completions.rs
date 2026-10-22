@@ -29,12 +29,11 @@ use crate::utils::error_body::{SdkErrorStyle, format_provider_error, normalize_p
 use crate::utils::event_stream::{AssistantMessageEventSender, AssistantMessageEventStream};
 use crate::utils::hash::short_hash;
 use crate::utils::headers::headers_to_record;
-use crate::utils::http::{HeaderList, client_for, post_json, stainless_headers};
+use crate::utils::http::{HeaderList, apply_openai_custom_headers_env, client_for, post_json};
 use crate::utils::identity::{ClientIdentityTarget, get_identity_headers};
 use crate::utils::json_parse::{parse_streaming_json_object, parse_tool_call_arguments};
 use crate::utils::provider_env::get_provider_env_value;
 use crate::utils::provider_retry::{ProviderRetryOptions, retry_provider_request};
-use crate::utils::sse::sse_reader;
 use crate::utils::text::{get_system_message_text, render_system_message_update};
 use crate::utils::transcript::{TranscriptToolSupport, get_declared_tools, resolve_transcript, resolve_transcript_tools};
 
@@ -285,19 +284,30 @@ fn parse_legacy_encrypted_reasoning_detail(signature: Option<&str>) -> Option<Va
     if valid { Some(parsed) } else { None }
 }
 
+/// `target[key] ??= source[key]` (`nullish_only`) or `target[key] ||= source[key]`: an absent
+/// source value assigns `undefined`, which drops the key from the serialized detail.
+fn js_assign_if_unset(target: &mut Map<String, Value>, key: &str, source: &Map<String, Value>, nullish_only: bool) {
+    let unset = match target.get(key) {
+        None | Some(Value::Null) => true,
+        Some(value) => !nullish_only && !crate::serde_util::js_truthy(value),
+    };
+    if !unset {
+        return;
+    }
+    match source.get(key) {
+        Some(value) => {
+            target.insert(key.into(), value.clone());
+        }
+        None => {
+            target.remove(key);
+        }
+    }
+}
+
 fn fill_missing_common_fields(target: &mut Map<String, Value>, source: &Map<String, Value>) {
-    if matches!(target.get("id"), None | Some(Value::Null))
-        && let Some(id) = source.get("id") {
-            target.insert("id".into(), id.clone());
-        }
-    if !target.get("format").and_then(Value::as_str).is_some_and(|s| !s.is_empty())
-        && let Some(format) = source.get("format") {
-            target.insert("format".into(), format.clone());
-        }
-    if matches!(target.get("index"), None | Some(Value::Null))
-        && let Some(index) = source.get("index") {
-            target.insert("index".into(), index.clone());
-        }
+    js_assign_if_unset(target, "id", source, true);
+    js_assign_if_unset(target, "format", source, false);
+    js_assign_if_unset(target, "index", source, true);
 }
 
 fn append_openai_reasoning_detail(details: &mut Vec<Value>, detail: &Value) {
@@ -312,11 +322,7 @@ fn append_openai_reasoning_detail(details: &mut Vec<Value>, detail: &Value) {
                 detail_obj.get("text").and_then(Value::as_str).unwrap_or_default()
             );
             last.insert("text".into(), json!(text));
-            let has_signature = last.get("signature").and_then(Value::as_str).is_some_and(|s| !s.is_empty());
-            if !has_signature
-                && let Some(sig) = detail_obj.get("signature") {
-                    last.insert("signature".into(), sig.clone());
-                }
+            js_assign_if_unset(last, "signature", &detail_obj, false);
             fill_missing_common_fields(last, &detail_obj);
             return;
         }
@@ -643,11 +649,11 @@ fn add_cache_control_to_text_content(message: &mut Value, cache_control: &Value)
 fn apply_anthropic_cache_control(messages: &mut [Value], tools: Option<&mut Vec<Value>>, cache_control: &Value) {
     for message in messages.iter_mut() {
         let role = message.get("role").and_then(Value::as_str).unwrap_or_default();
-        if (role == "system" || role == "developer")
-            && message.get("content").is_some() {
-                add_cache_control_to_text_content(message, cache_control);
-                break;
-            }
+        // The first instruction message, even a tools-only one without content.
+        if role == "system" || role == "developer" {
+            add_cache_control_to_text_content(message, cache_control);
+            break;
+        }
     }
     if let Some(tools) = tools
         && let Some(Value::Object(last)) = tools.last_mut() {
@@ -960,14 +966,10 @@ fn build_headers(
     session_id: Option<&str>,
     compat: &ResolvedCompat,
     timeout_ms: u64,
-) -> HeaderList {
-    let mut headers = HeaderList::new();
-    headers.set("Accept", Some("application/json"));
-    headers.set("User-Agent", Some(&format!("OpenAI/JS {OPENAI_SDK_VERSION}")));
-    for (name, value) in stainless_headers(OPENAI_SDK_VERSION, timeout_ms) {
-        headers.set(&name, Some(&value));
-    }
+) -> anyhow::Result<HeaderList> {
+    let mut headers = super::openai_responses::openai_sdk_base_headers(timeout_ms);
     headers.set("Authorization", Some(&format!("Bearer {api_key}")));
+    apply_openai_custom_headers_env(&mut headers)?;
     let target = ClientIdentityTarget { provider: &model.provider, base_url: &model.base_url };
     headers.extend_strings(&get_identity_headers(target, options.identity.as_ref()));
     if let Some(model_headers) = &model.headers {
@@ -993,7 +995,7 @@ fn build_headers(
         headers.extend_optional(h);
     }
     headers.set("Content-Type", Some("application/json"));
-    headers
+    Ok(headers)
 }
 
 fn chat_completions_url(base_url: &str) -> String {
@@ -1109,7 +1111,7 @@ async fn run_stream(model: Model, context: TranscriptContext, options: StreamOpt
         let cache_retention = resolve_cache_retention(options.cache_retention, options.env.as_ref());
         let cache_session_id = if cache_retention == CacheRetention::None { None } else { options.session_id.as_deref() };
         let timeout_ms = options.timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS);
-        let headers = build_headers(&model, &normalized, &api_key, &options, cache_session_id, &compat, timeout_ms);
+        let headers = build_headers(&model, &normalized, &api_key, &options, cache_session_id, &compat, timeout_ms)?;
         let mut params = build_params(&model, &normalized, &options, &compat)?;
         if let Some(on_payload) = &options.on_payload
             && let Some(next) = on_payload(params.clone(), model.clone()).await {
@@ -1143,35 +1145,11 @@ async fn run_stream(model: Model, context: TranscriptContext, options: StreamOpt
         let mut has_finish_reason = false;
         let mut by_index: HashMap<i64, usize> = HashMap::new();
         let mut by_id: HashMap<String, usize> = HashMap::new();
-        let mut reader = sse_reader(response, signal.clone());
-        while let Some(sse) = reader.next_event().await? {
-            if sse.data.starts_with("[DONE]") {
-                break;
-            }
-            let event_name = sse.event.clone();
-            let chunk: Value = serde_json::from_str(&sse.data)
-                .map_err(|e| anyhow::anyhow!("Could not parse JSON: {e}; data={}", sse.data))?;
-            if event_name.as_deref() == Some("error") || chunk.get("error").is_some_and(|e| !e.is_null()) {
-                let error = chunk.get("error").cloned().unwrap_or(chunk.clone());
-                let message = match error.get("message") {
-                    Some(Value::String(m)) if !m.is_empty() => m.clone(),
-                    _ => error.to_string(),
-                };
-                let raw = error.get("metadata").and_then(|m| m.get("raw")).map(|r| match r {
-                    Value::String(s) => s.clone(),
-                    other => other.to_string(),
-                });
-                let mut full = message;
-                if let Some(raw) = raw
-                    && !full.contains(&raw) {
-                        full.push('\n');
-                        full.push_str(&raw);
-                    }
-                anyhow::bail!(StreamChunkError(full));
-            }
-            if event_name.is_some() && !event_name.as_deref().is_some_and(|e| e.starts_with("response.") || e.starts_with("transcript.")) {
-                continue;
-            }
+        // The SDK stream ends quietly when the request is aborted mid-stream; the blocks are then
+        // finished and the abort is reported below.
+        let mut events = super::openai_responses::openai_sse_events(response, signal.clone());
+        while let Some(chunk) = futures::StreamExt::next(&mut events).await {
+            let chunk = chunk?;
             if let Some(observer) = &options.on_provider_stream_event {
                 observer(chunk.clone(), model.clone()).await;
             }
@@ -1264,8 +1242,10 @@ async fn run_stream(model: Model, context: TranscriptContext, options: StreamOpt
                     let id = tool_call.get("id").and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_string);
                     let function = tool_call.get("function").filter(|f| f.is_object());
                     let custom = tool_call.get("custom").filter(|c| c.is_object());
+                    // `function?.name ?? custom?.name`: null falls through.
                     let name = function
                         .and_then(|f| f.get("name"))
+                        .filter(|n| !n.is_null())
                         .or_else(|| custom.and_then(|c| c.get("name")))
                         .and_then(Value::as_str)
                         .map(str::to_string);
@@ -1388,24 +1368,27 @@ async fn run_stream(model: Model, context: TranscriptContext, options: StreamOpt
                 block.thinking_signature = Some(serde_json::to_string(details).unwrap_or_default());
             }
         output.stop_reason = if aborted() { StopReason::Aborted } else { StopReason::Error };
-        output.error_message = Some(if error.downcast_ref::<StreamChunkError>().is_some() {
-            error.to_string()
-        } else if error.downcast_ref::<crate::utils::provider_retry::AbortError>().is_some()
-            || error.downcast_ref::<crate::utils::sse::StreamAborted>().is_some()
+        let mut message = format_provider_error(&normalize_provider_error(&error), None);
+        // Some providers via OpenRouter give additional information in `error.metadata.raw`;
+        // append it unless the message already carries it.
+        if let Some(raw) = error
+            .downcast_ref::<crate::utils::error_body::ProviderHttpError>()
+            .and_then(|e| e.error.as_ref())
+            .and_then(|e| e.get("metadata"))
+            .and_then(|m| m.get("raw"))
+            .filter(|raw| crate::serde_util::js_truthy(raw))
         {
-            "Request was aborted".to_string()
-        } else {
-            format_provider_error(&normalize_provider_error(&error), None)
-        });
+            let raw = crate::serde_util::js_string(raw);
+            if !message.contains(&raw) {
+                message.push('\n');
+                message.push_str(&raw);
+            }
+        }
+        output.error_message = Some(message);
         sender.push(AssistantMessageEvent::Error { reason: output.stop_reason, error: output.clone() });
         sender.end(None);
     }
 }
-
-/// An error relayed inside the stream (`data.error`), formatted like the SDK's APIError.
-#[derive(Debug, Clone, thiserror::Error)]
-#[error("{0}")]
-struct StreamChunkError(String);
 
 fn finish_blocks(
     output: &mut AssistantMessage,
@@ -1518,6 +1501,32 @@ mod tests {
         assert_eq!(append_grammar_tool_input_json_delta(&mut buffer, "input", "a\"b", false).unwrap().as_deref(), Some("{\"input\":\"a\\\"b"));
         assert_eq!(append_grammar_tool_input_json_delta(&mut buffer, "input", "a\"bc", true).unwrap().as_deref(), Some("c\"}"));
         assert_eq!(append_grammar_tool_input_json_delta(&mut buffer, "input", "a\"bc", true).unwrap(), None);
+    }
+
+    #[test]
+    fn reasoning_detail_merge_assigns_undefined_like_js() {
+        // `target.id ??= source.id` with no source id leaves `undefined`: the key is dropped.
+        let mut details = vec![json!({"type": "reasoning.text", "text": "a", "id": null, "format": "", "signature": null})];
+        append_openai_reasoning_detail(&mut details, &json!({"type": "reasoning.text", "text": "b"}));
+        assert_eq!(details, vec![json!({"type": "reasoning.text", "text": "ab"})]);
+        let mut details = vec![json!({"type": "reasoning.text", "text": "a", "format": ""})];
+        append_openai_reasoning_detail(&mut details, &json!({"type": "reasoning.text", "text": "b", "format": "f", "signature": "s", "id": "x"}));
+        assert_eq!(details, vec![json!({"type": "reasoning.text", "text": "ab", "format": "f", "signature": "s", "id": "x"})]);
+    }
+
+    #[test]
+    fn anthropic_cache_control_targets_the_first_instruction_message() {
+        // A tools-only system message (no content) is the first instruction message: nothing
+        // else gets the system cache marker.
+        let mut messages = vec![
+            json!({"role": "system", "tools": []}),
+            json!({"role": "system", "content": "later"}),
+            json!({"role": "user", "content": "hi"}),
+        ];
+        let cc = json!({"type": "ephemeral"});
+        apply_anthropic_cache_control(&mut messages, None, &cc);
+        assert_eq!(messages[1], json!({"role": "system", "content": "later"}));
+        assert_eq!(messages[2], json!({"role": "user", "content": [{"type": "text", "text": "hi", "cache_control": cc}]}));
     }
 
     #[test]

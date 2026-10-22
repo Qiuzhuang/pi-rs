@@ -32,7 +32,7 @@ use crate::types::{
 use crate::utils::error_body::SdkErrorStyle;
 use crate::utils::event_stream::{AssistantMessageEventSender, AssistantMessageEventStream};
 use crate::utils::headers::headers_to_record;
-use crate::utils::http::{HeaderList, client_for, post_json};
+use crate::utils::http::{HeaderList, apply_openai_custom_headers_env, client_for, post_json};
 use crate::utils::identity::{ClientIdentityTarget, get_identity_headers};
 use crate::utils::provider_retry::{ProviderRetryOptions, retry_provider_request};
 use crate::utils::transcript::{get_declared_tools, resolve_transcript, resolve_transcript_tools};
@@ -107,7 +107,8 @@ fn build_params(
             )?),
         );
     }
-    if let Some(choice) = options.extra_value("toolChoice").filter(|v| !v.is_null()) {
+    // `toolChoice !== undefined`: an explicit null is sent.
+    if let Some(choice) = options.extra_value("toolChoice") {
         params.insert("tool_choice".into(), choice.clone());
     }
 
@@ -162,9 +163,10 @@ fn build_headers(
     api_key: &str,
     options: &StreamOptions,
     timeout_ms: u64,
-) -> HeaderList {
+) -> anyhow::Result<HeaderList> {
     let mut headers = openai_sdk_base_headers(timeout_ms);
     headers.set("api-key", Some(api_key));
+    apply_openai_custom_headers_env(&mut headers)?;
     let target = ClientIdentityTarget {
         provider: &model.provider,
         base_url: &model.base_url,
@@ -177,7 +179,7 @@ fn build_headers(
         headers.extend_optional(h);
     }
     headers.set("Content-Type", Some("application/json"));
-    headers
+    Ok(headers)
 }
 
 async fn run_stream(
@@ -205,8 +207,8 @@ async fn run_stream(
             anyhow::bail!("No API key for provider: {}", model.provider);
         };
         let timeout_ms = options.timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS);
-        let headers = build_headers(&model, &api_key, &options, timeout_ms);
         let (base_url, api_version) = resolve_azure_config(&model, Some(&options))?;
+        let headers = build_headers(&model, &api_key, &options, timeout_ms)?;
         let grammar_props = create_grammar_tool_input_properties(
             &get_declared_tools(&normalized.messages),
             compat.supports_openai_grammar_tools.unwrap_or(false),

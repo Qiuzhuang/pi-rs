@@ -32,7 +32,10 @@ use crate::utils::error_body::{
 };
 use crate::utils::event_stream::{AssistantMessageEventSender, AssistantMessageEventStream};
 use crate::utils::headers::headers_to_record;
-use crate::utils::http::{HeaderList, client_for, post_json, stainless_headers};
+use crate::utils::http::{
+    HeaderList, apply_openai_custom_headers_env, apply_openai_sdk_tenant_headers, client_for, post_json,
+    stainless_headers,
+};
 use crate::utils::identity::{ClientIdentityTarget, get_identity_headers};
 use crate::utils::provider_env::get_provider_env_value;
 use crate::utils::provider_retry::{ProviderRetryOptions, retry_provider_request};
@@ -172,10 +175,8 @@ impl ResponsesOptions {
                 .extra_value("serviceTier")
                 .and_then(Value::as_str)
                 .map(str::to_string),
-            tool_choice: options
-                .extra_value("toolChoice")
-                .filter(|v| !v.is_null())
-                .cloned(),
+            // `toolChoice !== undefined`: an explicit null is sent.
+            tool_choice: options.extra_value("toolChoice").cloned(),
         }
     }
 }
@@ -289,7 +290,8 @@ fn build_params(
             crate::serde_util::js_number(temperature),
         );
     }
-    if let Some(tier) = options.extra_value("serviceTier").filter(|v| !v.is_null()) {
+    // `serviceTier !== undefined`: an explicit null is sent.
+    if let Some(tier) = options.extra_value("serviceTier") {
         params.insert("service_tier".into(), tier.clone());
     }
     if !transcript_tools.request_tools.is_empty() {
@@ -365,9 +367,10 @@ fn build_headers(
     session_id: Option<&str>,
     compat: &ResponsesCompat,
     timeout_ms: u64,
-) -> HeaderList {
+) -> anyhow::Result<HeaderList> {
     let mut headers = openai_sdk_base_headers(timeout_ms);
     headers.set("Authorization", Some(&format!("Bearer {api_key}")));
+    apply_openai_custom_headers_env(&mut headers)?;
     let target = ClientIdentityTarget {
         provider: &model.provider,
         base_url: &model.base_url,
@@ -397,7 +400,7 @@ fn build_headers(
         headers.extend_optional(h);
     }
     headers.set("Content-Type", Some("application/json"));
-    headers
+    Ok(headers)
 }
 
 /// The `Accept`, `User-Agent` and Stainless headers the `openai` SDK sends on every request.
@@ -411,19 +414,26 @@ pub(crate) fn openai_sdk_base_headers(timeout_ms: u64) -> HeaderList {
     for (name, value) in stainless_headers(OPENAI_SDK_VERSION, timeout_ms) {
         headers.set(&name, Some(&value));
     }
+    apply_openai_sdk_tenant_headers(&mut headers);
     headers
 }
 
+/// `APIError.makeMessage` of the `openai` SDK for an error without a status.
 fn sdk_error_message(error: &Value) -> String {
     match error.get("message") {
         Some(Value::String(s)) if !s.is_empty() => s.clone(),
-        Some(m) if !m.is_null() && m != &Value::Bool(false) => m.to_string(),
+        Some(m) if truthy(m) => m.to_string(),
         _ => error.to_string(),
     }
 }
 
-/// Events of an `openai` SDK `Stream` over an SSE response: `[DONE]` ends it and data objects
-/// with an `error` field raise an `APIError`.
+/// The error the `openai` SDK raises for an SSE frame whose data is not JSON.
+pub(crate) const MALFORMED_SSE_JSON: &str = "Error reading response: malformed server-sent event JSON.";
+
+/// Events of an `openai` SDK `Stream` over an SSE response (`Stream.fromSSEResponse`): `[DONE]`
+/// ends it, an `error` event or a data object with a truthy `error` field raises an `APIError`,
+/// `thread.*` events yield `{ event, data }`, and an abort of the request signal ends the stream
+/// without an error (the SDK swallows transport aborts).
 pub(crate) fn openai_sse_events(
     response: reqwest::Response,
     signal: Option<tokio_util::sync::CancellationToken>,
@@ -436,40 +446,45 @@ pub(crate) fn openai_sse_events(
             if done {
                 return None;
             }
-            loop {
-                match reader.next_event().await {
-                    Err(error) => return Some((Err(error), (reader, headers, true))),
-                    Ok(None) => return None,
-                    Ok(Some(sse)) => {
-                        if sse.data.starts_with("[DONE]") {
-                            return None;
-                        }
-                        if sse
-                            .event
-                            .as_deref()
-                            .is_some_and(|e| e.starts_with("thread."))
-                        {
-                            continue;
-                        }
-                        let data: Value = match serde_json::from_str(&sse.data) {
-                            Ok(data) => data,
-                            Err(error) => {
-                                return Some((Err(error.into()), (reader, headers, true)));
-                            }
-                        };
-                        if let Some(error) = data.get("error").filter(|e| truthy(e)) {
-                            let http = ProviderHttpError {
-                                status: None,
-                                headers: Some(headers.clone()),
-                                message: sdk_error_message(error),
-                                body: None,
-                                error: Some(error.clone()),
-                                name: "APIError".to_string(),
-                            };
-                            return Some((Err(http.into()), (reader, headers, true)));
-                        }
-                        return Some((Ok(data), (reader, headers, false)));
+            let api_error = |error: Value, headers: &reqwest::header::HeaderMap| ProviderHttpError {
+                status: None,
+                headers: Some(headers.clone()),
+                message: sdk_error_message(&error),
+                body: None,
+                error: Some(error),
+                name: "APIError".to_string(),
+            };
+            match reader.next_event().await {
+                Err(error) if error.downcast_ref::<crate::utils::sse::StreamAborted>().is_some() => None,
+                Err(error) => Some((Err(error), (reader, headers, true))),
+                Ok(None) => None,
+                Ok(Some(sse)) => {
+                    if sse.data == "[DONE]" {
+                        return None;
                     }
+                    let data: Value = match serde_json::from_str(&sse.data) {
+                        Ok(data) => data,
+                        Err(_) => {
+                            return Some((Err(anyhow::anyhow!(MALFORMED_SSE_JSON)), (reader, headers, true)));
+                        }
+                    };
+                    if sse.event.as_deref().is_some_and(|e| e.starts_with("thread.")) {
+                        let event = json!({ "event": sse.event, "data": data });
+                        return Some((Ok(event), (reader, headers, false)));
+                    }
+                    if sse.event.as_deref() == Some("error") {
+                        let error = match data.get("error") {
+                            Some(e) if !e.is_null() => e.clone(),
+                            _ => data,
+                        };
+                        let http = api_error(error, &headers);
+                        return Some((Err(http.into()), (reader, headers, true)));
+                    }
+                    if let Some(error) = data.get("error").filter(|e| truthy(e)) {
+                        let http = api_error(error.clone(), &headers);
+                        return Some((Err(http.into()), (reader, headers, true)));
+                    }
+                    Some((Ok(data), (reader, headers, false)))
                 }
             }
         },
@@ -500,17 +515,10 @@ fn get_service_tier_cost_multiplier(model: &Model, service_tier: Option<&str>) -
     }
 }
 
-/// Error text as surfaced on the assistant message.
+/// Error text as surfaced on the assistant message. An abort before the response surfaces as
+/// `provider-retry`'s "Request aborted"; an abort mid-stream ends the SDK stream quietly and
+/// fails the "Request was aborted" check after it.
 pub(crate) fn error_message_of(error: &anyhow::Error, prefix: Option<&str>) -> String {
-    if error
-        .downcast_ref::<crate::utils::provider_retry::AbortError>()
-        .is_some()
-        || error
-            .downcast_ref::<crate::utils::sse::StreamAborted>()
-            .is_some()
-    {
-        return "Request was aborted".to_string();
-    }
     format_provider_error(&normalize_provider_error(error), prefix)
 }
 
@@ -562,7 +570,7 @@ async fn run_stream(
             cache_session_id,
             &compat,
             timeout_ms,
-        );
+        )?;
         let mut params = build_params(
             &model,
             &normalized,

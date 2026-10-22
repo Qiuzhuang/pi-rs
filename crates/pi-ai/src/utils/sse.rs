@@ -140,9 +140,17 @@ impl SseDecoder {
 }
 
 /// Error raised when the signal aborts while reading the stream.
-#[derive(Debug, Clone, thiserror::Error)]
-#[error("Request was aborted")]
-pub struct StreamAborted;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum StreamAborted {
+    /// The signal was already aborted when the next read was due (the TS reader loops check
+    /// `signal.aborted` and throw `new Error("Request was aborted")`).
+    #[error("Request was aborted")]
+    BeforeRead,
+    /// The signal aborted while a read was pending: the fetch body read rejects with the
+    /// `DOMException` `AbortError` of an `abort()` without a reason.
+    #[error("This operation was aborted")]
+    DuringRead,
+}
 
 /// An async SSE event reader over a byte stream.
 pub struct SseReader<S> {
@@ -171,12 +179,13 @@ where
                 return Ok(None);
             }
             if self.signal.as_ref().is_some_and(|s| s.is_cancelled()) {
-                return Err(StreamAborted.into());
+                return Err(StreamAborted::BeforeRead.into());
             }
             let chunk = match &self.signal {
                 Some(signal) => tokio::select! {
+                    biased;
+                    _ = signal.cancelled() => return Err(StreamAborted::DuringRead.into()),
                     chunk = self.body.next() => chunk,
-                    _ = signal.cancelled() => return Err(StreamAborted.into()),
                 },
                 None => self.body.next().await,
             };

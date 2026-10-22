@@ -1383,7 +1383,8 @@ pub fn map_stop_reason(
     status: Option<&str>,
     incomplete_reason: Option<&str>,
 ) -> anyhow::Result<(StopReason, Option<String>)> {
-    let Some(status) = status else {
+    // `if (!status)`: a missing or empty status is a normal stop.
+    let Some(status) = status.filter(|s| !s.is_empty()) else {
         return Ok((StopReason::Stop, None));
     };
     Ok(match status {

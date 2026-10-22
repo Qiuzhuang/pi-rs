@@ -167,6 +167,37 @@ pub fn stainless_headers(package_version: &str, timeout_ms: u64) -> Vec<(String,
     ]
 }
 
+/// The `openai` SDK's `readEnv`: the trimmed process env value, empty counting as unset.
+fn openai_read_env(name: &str) -> Option<String> {
+    std::env::var(name).ok().map(|v| v.trim().to_string()).filter(|v| !v.is_empty())
+}
+
+/// `OpenAI-Organization`/`OpenAI-Project` that every `openai` SDK client sends from
+/// `OPENAI_ORG_ID`/`OPENAI_PROJECT_ID` (set after the platform headers, before auth).
+pub fn apply_openai_sdk_tenant_headers(headers: &mut HeaderList) {
+    if let Some(org) = openai_read_env("OPENAI_ORG_ID") {
+        headers.set("OpenAI-Organization", Some(&org));
+    }
+    if let Some(project) = openai_read_env("OPENAI_PROJECT_ID") {
+        headers.set("OpenAI-Project", Some(&project));
+    }
+}
+
+/// `OPENAI_CUSTOM_HEADERS` (`Name: value` lines) that the `openai` SDK client merges into its
+/// default headers ahead of the caller's default headers (set after auth).
+pub fn apply_openai_custom_headers_env(headers: &mut HeaderList) -> anyhow::Result<()> {
+    let Some(value) = openai_read_env("OPENAI_CUSTOM_HEADERS") else { return Ok(()) };
+    for line in value.split('\n') {
+        let Some(colon) = line.find(':') else { continue };
+        let name = line[..colon].trim();
+        if name.is_empty() || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b)) {
+            anyhow::bail!("Header name must be a valid HTTP token [\"{name}\"]");
+        }
+        headers.set(name, Some(line[colon + 1..].trim()));
+    }
+    Ok(())
+}
+
 /// Send a JSON POST request; non-2xx responses become [`ProviderHttpError`]s in the SDK's style.
 pub async fn post_json(
     client: &reqwest::Client,

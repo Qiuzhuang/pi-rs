@@ -53,6 +53,7 @@ pub fn build_base_options(
         sampling_params,
         max_tokens: Some(clamp_max_tokens_to_context(model, context, options.max_tokens.unwrap_or(model.max_tokens))),
         signal: options.signal.clone(),
+        telemetry: options.telemetry.clone(),
         api_key: api_key.filter(|k| !k.is_empty()).map(str::to_string).or_else(|| options.api_key.clone()),
         http_client: options.http_client.clone(),
         transport: options.transport,

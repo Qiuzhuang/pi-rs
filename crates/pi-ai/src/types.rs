@@ -213,6 +213,8 @@ pub enum DeferredOption {
 #[derive(Clone, Default)]
 pub struct StreamOptions {
     pub signal: Option<CancellationToken>,
+    /// Explicit parent span for telemetry produced by this logical request.
+    pub telemetry: Option<pi_telemetry::SpanRef>,
     pub api_key: Option<String>,
     /// Custom HTTP client (the `fetch` option equivalent).
     pub http_client: Option<reqwest::Client>,
@@ -285,6 +287,7 @@ impl fmt::Debug for StreamOptions {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("StreamOptions")
             .field("signal", &self.signal.as_ref().map(|s| s.is_cancelled()))
+            .field("telemetry", &self.telemetry.is_some())
             .field("api_key", &self.api_key.as_ref().map(|_| "<redacted>"))
             .field("env", &self.env.as_ref().map(|e| e.keys().collect::<Vec<_>>()))
             .field("on_payload", &self.on_payload.is_some())

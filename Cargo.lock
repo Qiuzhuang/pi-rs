@@ -2328,6 +2328,7 @@ dependencies = [
  "indexmap",
  "once_cell",
  "parking_lot",
+ "pi-telemetry",
  "rand 0.8.8",
  "regex",
  "reqwest",

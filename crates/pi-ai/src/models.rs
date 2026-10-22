@@ -19,6 +19,7 @@ use crate::auth::types::{
     ApiKeyCredential, ApiKeyResolveInput, AuthCheck, AuthContext, AuthInteraction, AuthResult, AuthType, Credential,
     CredentialStore, LoginOptions, ProviderAuth, ProviderAuthInteraction,
 };
+use crate::telemetry::observe_model_request;
 use crate::models_store::{InMemoryModelsStore, ModelsStore, ModelsStoreEntry};
 use crate::types::{
     AnyModel, AssistantImages, AssistantMessage, AssistantMessageEventStream, ClassifierContext, ClassifierModel,
@@ -570,6 +571,8 @@ pub struct Models {
 }
 
 pub type MutableModels = Models;
+
+pub use crate::telemetry::AI_TELEMETRY_SCHEMA;
 
 /// Merge headers case-insensitively; override entries replace base entries.
 pub fn merge_headers(base: Option<&ProviderHeaders>, override_: Option<&ProviderHeaders>) -> Option<ProviderHeaders> {
@@ -1192,7 +1195,8 @@ impl Models {
     pub fn stream(&self, model: &Model, context: &Context, options: impl Into<ModelsRequestOptions>) -> AssistantMessageEventStream {
         let transcript = normalize_context(context);
         let this = self.clone();
-        let request = options.into();
+        let request: ModelsRequestOptions = options.into();
+        let observer = observe_model_request(model, Some(&request.options), false);
         let owned_model = model.clone();
         lazy_stream(
             model,
@@ -1200,7 +1204,7 @@ impl Models {
                 let (provider, request_model, options) = this.prepare_chat(&owned_model, request).await?;
                 Ok(provider.stream(&request_model, &transcript, options))
             }),
-            None,
+            Some(observer),
         )
     }
 
@@ -1217,7 +1221,8 @@ impl Models {
     ) -> AssistantMessageEventStream {
         let transcript = normalize_context(context);
         let this = self.clone();
-        let request = options.into();
+        let request: ModelsRequestOptions = options.into();
+        let observer = observe_model_request(model, Some(&request.options), false);
         let owned_model = model.clone();
         lazy_stream(
             model,
@@ -1225,7 +1230,7 @@ impl Models {
                 let (provider, request_model, options) = this.prepare_chat(&owned_model, request).await?;
                 Ok(provider.stream_simple(&request_model, &transcript, options))
             }),
-            None,
+            Some(observer),
         )
     }
 
@@ -1245,7 +1250,8 @@ impl Models {
         options: impl Into<ModelsRequestOptions>,
     ) -> AssistantMessageEventStream {
         let this = self.clone();
-        let request = options.into();
+        let request: ModelsRequestOptions = options.into();
+        let observer = observe_model_request(model, Some(&request.options), true);
         let owned_model = model.clone();
         let handle = handle.clone();
         lazy_stream(
@@ -1263,7 +1269,7 @@ impl Models {
                 let (_, request_model, options) = this.prepare_chat(&owned_model, request).await?;
                 Ok(provider.fetch_deferred(&request_model, &handle, options))
             }),
-            None,
+            Some(observer),
         )
     }
 

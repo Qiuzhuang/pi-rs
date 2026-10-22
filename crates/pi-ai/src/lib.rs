@@ -17,6 +17,7 @@ pub mod models_store;
 pub mod providers;
 pub mod serde_util;
 pub mod session_resources;
+pub mod telemetry;
 pub mod types;
 pub mod utils;
 

@@ -772,8 +772,7 @@ static NEXT_RELOAD_ID: AtomicU64 = AtomicU64::new(1);
 
 fn parse_storage_data(content: Option<&str>) -> anyhow::Result<RawAuthData> {
     match content {
-        None => Ok(RawAuthData::new()),
-        Some(content) if content.is_empty() => Ok(RawAuthData::new()),
+        None | Some("") => Ok(RawAuthData::new()),
         Some(content) => {
             let parsed: Value = serde_json::from_str(&strip_bom(content))?;
             match parsed {

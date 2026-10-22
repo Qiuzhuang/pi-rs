@@ -112,6 +112,7 @@ pub struct ModelReferenceRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all_fields = "camelCase")]
+#[allow(clippy::large_enum_variant)]
 pub enum ModelReferenceResult {
     #[serde(rename = "resolved")]
     Resolved {
@@ -1521,13 +1522,17 @@ mod tests {
                 .collect()
         };
         assert_eq!(ids("*sonnet*"), ["anthropic/claude-sonnet-4-5"]);
-        assert_eq!(ids("openai/*"), ["openai/gpt-4o"]);
+        // The id-only match also catches OpenRouter's `openai/...` ids.
+        assert_eq!(ids("openai/*"), ["openai/gpt-4o", "openrouter/openai/gpt-4o:extended"]);
         // `*` does not match `/`, as in minimatch.
         assert!(ids("openrouter/*").is_empty());
         assert_eq!(ids("openrouter/**"), ["openrouter/qwen/qwen3-coder:exacto", "openrouter/openai/gpt-4o:extended"]);
         assert_eq!(ids("ANTHROPIC/*"), ["anthropic/claude-sonnet-4-5"]);
         assert_eq!(ids("gpt-?o"), ["openai/gpt-4o"]);
-        assert_eq!(ids("{openai,anthropic}/*"), ["anthropic/claude-sonnet-4-5", "openai/gpt-4o"]);
+        assert_eq!(
+            ids("{openai,anthropic}/*"),
+            ["anthropic/claude-sonnet-4-5", "openai/gpt-4o", "openrouter/openai/gpt-4o:extended"]
+        );
         let with_thinking = resolve_model_scope_from_models(&["anthropic/*:high".to_string()], &models);
         assert_eq!(with_thinking.scoped_models[0].thinking_level, Some(ThinkingLevel::High));
         assert!(minimatch("a/b/c", "a/**"));

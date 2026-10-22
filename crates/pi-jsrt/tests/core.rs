@@ -442,3 +442,53 @@ async fn finalization_registry_does_not_block_the_job_queue() {
     .unwrap();
     assert_eq!(ns.get("ok").await.unwrap(), json!("function"));
 }
+
+/// Concurrency regression: another thread's blocking call into JS that was queued *before* the JS
+/// thread started waiting on that thread (in a sync host function) must still be serviced. The
+/// extension bridge hit this when a handler queued `addAutocompleteProvider` (the UI thread reads
+/// the provider's trigger characters from JS) and then blocked on a UI getter.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn blocking_call_queued_before_the_js_thread_starts_servicing() {
+    let rt = JsRuntime::new(RuntimeOptions::default()).unwrap();
+    let slot: Arc<std::sync::Mutex<Option<std::sync::mpsc::Receiver<pi_jsrt::Result<serde_json::Value>>>>> =
+        Arc::new(std::sync::Mutex::new(None));
+    let s1 = slot.clone();
+    rt.register_function("host.queueCall", move |rt, args| {
+        let callback = rt.handle(&args[0]).expect("function marker");
+        let (tx, rx) = std::sync::mpsc::channel();
+        *s1.lock().unwrap() = Some(rx);
+        std::thread::spawn(move || {
+            let _ = tx.send(callback.call_blocking(vec![json!(21)]));
+        });
+        // Let the worker's call reach the JS thread's queue while this host call still runs.
+        std::thread::sleep(Duration::from_millis(100));
+        Ok(json!(null))
+    })
+    .await
+    .unwrap();
+    let s2 = slot.clone();
+    rt.register_function("host.waitForQueued", move |rt, _args| {
+        let rx = s2.lock().unwrap().take().expect("queueCall first");
+        let value = rt.wait_servicing(move |done| {
+            std::thread::spawn(move || {
+                done(rx.recv().unwrap_or(Err(Error::host("worker gone"))));
+            });
+        });
+        value.unwrap_or_else(|| Err(Error::host("worker dropped the completion")))
+    })
+    .await
+    .unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let rt2 = rt.clone();
+    tokio::spawn(async move {
+        let _ = tx.send(rt2.eval("host.queueCall((x) => x * 2); host.waitForQueued()").await);
+    });
+    match rx.recv_timeout(Duration::from_secs(10)) {
+        Ok(result) => assert_eq!(result.unwrap(), json!(42)),
+        Err(_) => {
+            use std::io::Write;
+            let _ = writeln!(std::io::stderr(), "deadlock: queued blocking call was never serviced");
+            std::process::exit(101);
+        }
+    }
+}

@@ -439,22 +439,6 @@ impl JsRuntime {
         result
     }
 
-    /// Run `call` on the JS thread if it is blocked in [`JsRuntime::wait_servicing`]. `None` when
-    /// it is not (or stopped servicing before running the call): use the regular queue then.
-    fn try_service<R: Send + 'static>(&self, call: impl FnOnce() -> Result<R> + Send + 'static) -> Option<Result<R>> {
-        if self.is_js_thread() {
-            return None;
-        }
-        let sender = self.inner.servicing.lock().clone()?;
-        let (tx, rx) = mpsc::sync_channel::<Result<R>>(1);
-        sender
-            .send(Box::new(move || {
-                let _ = tx.send(call());
-            }))
-            .ok()?;
-        rx.recv().ok()
-    }
-
     /// Stop the JS thread. Pending calls fail with [`Error::Terminated`].
     pub fn shutdown(&self) {
         let _ = self.inner.tx.send(Msg::Shutdown);
@@ -954,13 +938,7 @@ impl JsHandle {
         if self.inner.rt.is_js_thread() {
             return self.run_reentrant(target, args, false).map(settled_json);
         }
-        let this = self.clone();
-        let (t, a) = (target.clone(), args.clone());
-        if let Some(result) = self.inner.rt.try_service(move || this.run_reentrant(t, a, false).map(settled_json)) {
-            return result;
-        }
-        let rx = self.invoke(target, args, false);
-        self.inner.rt.wait_blocking(rx).map(settled_json)
+        self.run_blocking_settled(target, args, false).map(settled_json)
     }
 
     async fn run_handle(&self, target: Target, args: Vec<Value>) -> Result<JsHandle> {
@@ -973,16 +951,82 @@ impl JsHandle {
             let id = u64::from(self.run_reentrant(target, args, true)?);
             return Ok(self.inner.rt.settled_handle(id));
         }
-        let this = self.clone();
-        let (t, a) = (target.clone(), args.clone());
-        if let Some(result) =
-            self.inner.rt.try_service(move || this.run_reentrant(t, a, true).map(|s| this.inner.rt.settled_handle(u64::from(s))))
-        {
-            return result;
-        }
-        let rx = self.invoke(target, args, true);
-        let id = self.inner.rt.wait_blocking(rx)?;
+        let id = self.run_blocking_settled(target, args, true)?;
         Ok(self.inner.rt.settled_handle(u64::from(id)))
+    }
+
+    /// A blocking call into JS from another thread. The call is queued for the JS thread; if the
+    /// JS thread meanwhile blocks in [`JsRuntime::wait_servicing`] (a host function waiting on
+    /// another thread) before the queued call ran, the call is handed to that servicing loop
+    /// instead. Checking for servicing only once, before queueing, raced: a JS handler queued a
+    /// UI call that calls back into JS (e.g. `addAutocompleteProvider` reading the provider's
+    /// trigger characters), then blocked on a UI getter (`ctx.ui.theme`) before the UI thread's
+    /// call reached the queue, so each thread waited for the other forever.
+    fn run_blocking_settled(&self, target: Target, args: Vec<Value>, as_handle: bool) -> Result<Settled> {
+        let rt = &self.inner.rt;
+        // Whichever path claims the call first runs it.
+        let claimed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let waiter = std::thread::current();
+        let (serviced_tx, serviced_rx) = mpsc::sync_channel::<Result<Settled>>(1);
+        let id = self.inner.id;
+        let queued = {
+            let claimed = claimed.clone();
+            let (t, a) = (target.clone(), args.clone());
+            rt.request(move |ctx, reply| {
+                if claimed.swap(true, Ordering::SeqCst) {
+                    return;
+                }
+                let value = invoke_on_thread(ctx, id, t, a);
+                match value {
+                    Ok(v) => reply_settled(ctx, Ok(v), reply, as_handle),
+                    Err(e) => {
+                        let _ = reply.send(Err(e));
+                    }
+                }
+            })?
+        };
+        let mut queued = std::pin::pin!(queued);
+        struct Unpark(std::thread::Thread);
+        impl std::task::Wake for Unpark {
+            fn wake(self: Arc<Self>) {
+                self.0.unpark();
+            }
+        }
+        let waker = std::task::Waker::from(Arc::new(Unpark(waiter.clone())));
+        let mut cx = std::task::Context::from_waker(&waker);
+        let mut handed_over = false;
+        loop {
+            if let std::task::Poll::Ready(r) = queued.as_mut().poll(&mut cx) {
+                match r {
+                    Ok(r) => return r,
+                    // The queued request was dropped unrun: it was claimed by the servicing path.
+                    Err(_) if handed_over => {}
+                    Err(_) => return Err(Error::Terminated),
+                }
+            }
+            if let Ok(r) = serviced_rx.try_recv() {
+                return r;
+            }
+            if !handed_over && !claimed.load(Ordering::SeqCst) {
+                let sender = rt.inner.servicing.lock().clone();
+                if let Some(sender) = sender {
+                    let this = self.clone();
+                    let claimed = claimed.clone();
+                    let serviced_tx = serviced_tx.clone();
+                    let waiter = waiter.clone();
+                    let (t, a) = (target.clone(), args.clone());
+                    let job: ServiceJob = Box::new(move || {
+                        if claimed.swap(true, Ordering::SeqCst) {
+                            return;
+                        }
+                        let _ = serviced_tx.send(this.run_reentrant(t, a, as_handle));
+                        waiter.unpark();
+                    });
+                    handed_over = sender.send(job).is_ok();
+                }
+            }
+            std::thread::park_timeout(std::time::Duration::from_millis(2));
+        }
     }
 
     /// Call the function with JSON arguments; awaits a returned promise; returns JSON.

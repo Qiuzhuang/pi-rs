@@ -101,6 +101,34 @@ fn resume_picker_exits_when_stdin_is_at_eof() {
     assert!(!last_frame.contains("Loading"), "{last_frame:?}");
 }
 
+// Package commands report settings load errors like TS `reportSettingsErrors`: the warning, then
+// `chalk.dim(error.stack)`. The stack's first line (`${name}: ${message}`) is reproduced; the V8
+// frames that follow in TS (`    at JSON.parse (<anonymous>)`, `    at SettingsManager.loadFromStorage
+// (file:///.../settings-manager.js:L:C)`, ...) name the installation's files and are not.
+#[test]
+fn package_commands_report_settings_errors_with_the_error_stack_header() {
+    let (_dir, agent_dir, project_dir) = temp_root();
+    std::fs::write(agent_dir.join("settings.json"), "{ invalid json\n").unwrap();
+    let result = run_pi(&["list"], &project_dir, &agent_dir, true);
+    assert_eq!(result.code, Some(0), "{}", result.stderr);
+    assert_eq!(result.stdout, "No packages installed.\n");
+    let message = "Expected property name or '}' in JSON at position 2 (line 1 column 3)";
+    assert_eq!(
+        result.stderr,
+        format!("Warning (package command, global settings): {message}\nSyntaxError: {message}\n")
+    );
+
+    // Node fs error wording (`readFileSync` on a directory).
+    let (_dir, agent_dir, project_dir) = temp_root();
+    std::fs::create_dir_all(agent_dir.join("settings.json")).unwrap();
+    let result = run_pi(&["list"], &project_dir, &agent_dir, true);
+    let message = "EISDIR: illegal operation on a directory, read";
+    assert_eq!(
+        result.stderr,
+        format!("Warning (package command, global settings): {message}\nError: {message}\n")
+    );
+}
+
 fn stdout_project() -> (tempfile::TempDir, PathBuf, PathBuf) {
     let (dir, agent_dir, project_dir) = temp_root();
     let config_dir = project_dir.join(".pi");

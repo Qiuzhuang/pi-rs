@@ -414,10 +414,10 @@ fn report_settings_errors(settings_manager: &SettingsManager, context: &str) {
             "Warning ({context}, {scope} settings): {}",
             settings_error.error
         )));
-        let chain: Vec<String> = settings_error.error.chain().skip(1).map(|e| e.to_string()).collect();
-        if !chain.is_empty() {
-            error(chalk::dim(&chain.join("\n")));
-        }
+        // TS prints `chalk.dim(error.stack)`: the `${name}: ${message}` line followed by the V8 stack
+        // frames, which name the installation's JavaScript files and line numbers. The port prints
+        // the first line only.
+        error(chalk::dim(&crate::core::settings_manager::js_error_stack_header(&settings_error.error)));
     }
 }
 

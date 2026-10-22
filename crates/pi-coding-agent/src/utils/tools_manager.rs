@@ -193,12 +193,17 @@ async fn fetch_with_retry(
 /// endpoint answers with a redirect to the tagged release at no quota cost
 /// and lives on the same origin as the binary download itself.
 pub async fn get_latest_version(repo: &str) -> anyhow::Result<String> {
+    get_latest_version_from("https://github.com", repo).await
+}
+
+/// `getLatestVersion` against an arbitrary GitHub origin (tests point it at a local server).
+async fn get_latest_version_from(origin: &str, repo: &str) -> anyhow::Result<String> {
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .build()?;
     let response = fetch_with_retry(
         &client,
-        &format!("https://github.com/{repo}/releases/latest"),
+        &format!("{origin}/{repo}/releases/latest"),
         &[("User-Agent", pi_user_agent())],
         NETWORK_TIMEOUT_MS,
     )
@@ -218,7 +223,7 @@ pub async fn get_latest_version(repo: &str) -> anyhow::Result<String> {
     let Some(location) = location.filter(|l| !l.is_empty()) else {
         anyhow::bail!("Failed to resolve latest {repo} release: HTTP {status} without redirect");
     };
-    let base = url::Url::parse("https://github.com")?;
+    let base = url::Url::parse(origin)?;
     let resolved = base.join(&location)?;
     let tag = resolved.path().rsplit('/').next().unwrap_or_default().to_string();
     if tag.is_empty() || !location.contains("/releases/tag/") {
@@ -553,5 +558,87 @@ pub async fn ensure_tool(
             );
             Ok(None)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! `tools-manager.test.ts` "getLatestVersion" (the `ensureTool` cases are in
+    //! `tests/agent_dir_env.rs`, since they change the agent dir, PATH and proxy variables).
+    use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    /// Answer every request with `status`, an optional `location` and `body`; returns the origin
+    /// and the recorded request heads.
+    async fn serve(
+        status: u16,
+        location: Option<&str>,
+        body: &str,
+    ) -> (String, Arc<parking_lot::Mutex<Vec<String>>>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let requests: Arc<parking_lot::Mutex<Vec<String>>> = Arc::default();
+        let location = location.map(|l| format!("location: {l}\r\n")).unwrap_or_default();
+        let response = format!(
+            "HTTP/1.1 {status} X\r\n{location}content-length: {}\r\nconnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        let recorded = requests.clone();
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let mut buf = vec![0u8; 8192];
+                let n = socket.read(&mut buf).await.unwrap_or(0);
+                recorded.lock().push(String::from_utf8_lossy(&buf[..n]).into_owned());
+                let _ = socket.write_all(response.as_bytes()).await;
+                let _ = socket.shutdown().await;
+            }
+        });
+        (origin, requests)
+    }
+
+    #[tokio::test]
+    async fn resolves_the_version_from_the_release_page_redirect() {
+        let (origin, requests) = serve(302, Some("https://github.com/sharkdp/fd/releases/tag/v10.4.2"), "").await;
+        assert_eq!(get_latest_version_from(&origin, "sharkdp/fd").await.unwrap(), "10.4.2");
+        // The redirect is read, not followed (`redirect: "manual"`).
+        let requests = requests.lock();
+        assert_eq!(requests.len(), 1);
+        assert!(requests[0].starts_with("GET /sharkdp/fd/releases/latest HTTP/1.1\r\n"), "{}", requests[0]);
+    }
+
+    #[tokio::test]
+    async fn keeps_tags_without_a_v_prefix_intact() {
+        let (origin, _) = serve(302, Some("https://github.com/BurntSushi/ripgrep/releases/tag/15.2.0"), "").await;
+        assert_eq!(get_latest_version_from(&origin, "BurntSushi/ripgrep").await.unwrap(), "15.2.0");
+    }
+
+    #[tokio::test]
+    async fn resolves_relative_redirect_targets() {
+        let (origin, _) = serve(302, Some("/sharkdp/fd/releases/tag/v10.4.2"), "").await;
+        assert_eq!(get_latest_version_from(&origin, "sharkdp/fd").await.unwrap(), "10.4.2");
+    }
+
+    #[tokio::test]
+    async fn discards_the_redirect_response_body() {
+        let (origin, _) =
+            serve(302, Some("https://github.com/sharkdp/fd/releases/tag/v10.4.2"), "<html></html>").await;
+        assert_eq!(get_latest_version_from(&origin, "sharkdp/fd").await.unwrap(), "10.4.2");
+    }
+
+    #[tokio::test]
+    async fn fails_clearly_when_the_endpoint_does_not_redirect() {
+        let (origin, _) = serve(404, None, "not found").await;
+        let err = get_latest_version_from(&origin, "sharkdp/fd").await.unwrap_err();
+        assert_eq!(err.to_string(), "Failed to resolve latest sharkdp/fd release: HTTP 404 without redirect");
+    }
+
+    #[tokio::test]
+    async fn fails_clearly_when_the_redirect_does_not_point_at_a_release_tag() {
+        let (origin, _) = serve(302, Some("https://github.com/login"), "").await;
+        let err = get_latest_version_from(&origin, "sharkdp/fd").await.unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "Failed to resolve latest sharkdp/fd release: unexpected redirect to https://github.com/login"
+        );
     }
 }

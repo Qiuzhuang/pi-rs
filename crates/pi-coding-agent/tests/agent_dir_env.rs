@@ -518,3 +518,88 @@ async fn linux_converts_command_bmp_clipboard_images_to_png() {
     assert_eq!(image.mime_type, "image/png");
     assert_eq!(&image.bytes[..4], &[0x89, 0x50, 0x4e, 0x47]);
 }
+
+// ---------------------------------------------------------------------------
+// tools-manager.test.ts "ensureTool": an empty agent dir and an empty PATH stand in for the
+// mocked `existsSync`/`spawnSync`, so fd is never found.
+// ---------------------------------------------------------------------------
+
+mod ensure_tool {
+    use super::ENV_LOCK;
+    use pi_coding_agent::config::ENV_AGENT_DIR;
+    use pi_coding_agent::utils::tools_manager::{GetToolPathTool, ToolStatus, ensure_tool};
+    use std::sync::Arc;
+
+    const PROXY_VARS: &[&str] = &[
+        "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy",
+    ];
+
+    async fn run_with_env(vars: &[(&str, Option<&str>)]) -> (Option<String>, Vec<(String, String)>) {
+        let saved: Vec<(String, Option<String>)> =
+            vars.iter().map(|(k, _)| (k.to_string(), std::env::var(k).ok())).collect();
+        for (key, value) in vars {
+            match value {
+                // SAFETY: the caller holds ENV_LOCK.
+                Some(value) => unsafe { std::env::set_var(key, value) },
+                None => unsafe { std::env::remove_var(key) },
+            }
+        }
+        let statuses: Arc<parking_lot::Mutex<Vec<(String, String)>>> = Arc::default();
+        let sink = statuses.clone();
+        let result = ensure_tool(
+            GetToolPathTool::Fd,
+            Some(Arc::new(move |status: ToolStatus| {
+                sink.lock().push((status.r#type.as_str().to_string(), status.message));
+            })),
+        )
+        .await;
+        for (key, value) in saved {
+            match value {
+                Some(value) => unsafe { std::env::set_var(&key, value) },
+                None => unsafe { std::env::remove_var(&key) },
+            }
+        }
+        let statuses = statuses.lock().clone();
+        (result.unwrap(), statuses)
+    }
+
+    #[tokio::test]
+    async fn reports_status_through_a_callback_without_writing_to_the_console() {
+        let agent_dir = tempfile::tempdir().unwrap();
+        let empty_path = tempfile::tempdir().unwrap();
+        let _guard = ENV_LOCK.lock();
+        let (result, statuses) = run_with_env(&[
+            (ENV_AGENT_DIR, Some(&agent_dir.path().to_string_lossy())),
+            ("PATH", Some(&empty_path.path().to_string_lossy())),
+            ("PI_OFFLINE", Some("1")),
+        ])
+        .await;
+        assert_eq!(result, None);
+        assert_eq!(
+            statuses,
+            vec![("warning".to_string(), "fd not found. Offline mode enabled, skipping download.".to_string())]
+        );
+    }
+
+    #[tokio::test]
+    async fn surfaces_the_error_cause_chain_when_a_download_fails() {
+        let agent_dir = tempfile::tempdir().unwrap();
+        let empty_path = tempfile::tempdir().unwrap();
+        // A proxy that refuses connections makes the release lookup fail at the transport level.
+        let mut vars: Vec<(&str, Option<&str>)> = PROXY_VARS.iter().map(|k| (*k, None)).collect();
+        vars.extend([("HTTPS_PROXY", Some("http://127.0.0.1:1")), ("https_proxy", Some("http://127.0.0.1:1"))]);
+        let agent_dir_str = agent_dir.path().to_string_lossy().into_owned();
+        let path_str = empty_path.path().to_string_lossy().into_owned();
+        vars.extend([(ENV_AGENT_DIR, Some(agent_dir_str.as_str())), ("PATH", Some(path_str.as_str())), ("PI_OFFLINE", None)]);
+        let _guard = ENV_LOCK.lock();
+        let (result, statuses) = run_with_env(&vars).await;
+        assert_eq!(result, None);
+        assert_eq!(statuses.len(), 2, "{statuses:?}");
+        assert_eq!(statuses[0], ("info".to_string(), "fd not found. Downloading...".to_string()));
+        assert_eq!(statuses[1].0, "warning");
+        // "fetch failed" followed by its causes, like the TS `fetch failed: connect ETIMEDOUT ...`.
+        let message = &statuses[1].1;
+        assert!(message.starts_with("Failed to download fd: fetch failed: "), "{message}");
+        assert!(message.matches(": ").count() >= 3, "{message}");
+    }
+}

@@ -1,11 +1,11 @@
 //! Port of `packages/coding-agent/src/utils/clipboard.ts`.
 //!
 //! The TS version uses pi-tui's native platform helpers (`getNativeClipboard`, prebuilt Node
-//! addons on macOS/Windows/X11). pi-tui's Rust port has no native addon
-//! (`pi_tui::native_platform::get_native_clipboard` returns `None`); [`get_native_clipboard`]
-//! adds a command-backed reader on macOS (`pbpaste`) and Windows (PowerShell `Get-Clipboard`),
-//! so writes always go through the platform commands (`pbcopy`, `clip`, `wl-copy`, `xclip`,
-//! `xsel`, `termux-clipboard-set`) and OSC 52.
+//! addons on macOS/Windows/X11). pi-tui's Rust port implements that helper with `arboard` in the
+//! same places (`pi_tui::native_platform::get_native_clipboard`); when it is unavailable,
+//! [`get_native_clipboard`] falls back to a command-backed reader on macOS (`pbpaste`) and Windows
+//! (PowerShell `Get-Clipboard`). Reads and writes try the platform commands (`termux-clipboard-*`,
+//! `wl-paste`/`wl-copy`, `xclip`, `xsel`, `pbcopy`, `clip`) and OSC 52 in the TS order.
 
 use std::sync::Arc;
 

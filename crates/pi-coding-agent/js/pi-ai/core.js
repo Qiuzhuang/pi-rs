@@ -1260,11 +1260,29 @@ export const AI_TELEMETRY_SCHEMA = {
 	},
 };
 
-// Telemetry contexts come from `@earendil-works/pi-telemetry`, which is not available to
-// extensions, so every request of a JavaScript `Models` collection is observed by the no-op
-// telemetry context (TS `NOOP_TELEMETRY_CONTEXT`).
-function observeModelRequest() {
-	return undefined;
+// Telemetry parents reach JavaScript as opaque `{ __piTelemetry }` handles in the stream options pi
+// passes to extension providers (TS `options.telemetry`). Requests of a JavaScript `Models`
+// collection that forward them are observed by pi-ai's Rust telemetry module (`pi.ai.request` /
+// `pi.ai.poll` spans, block events and metrics); without one the no-op context observes nothing.
+function observeModelRequest(model, options, poll) {
+	const telemetry = options?.telemetry;
+	if (!telemetry || typeof telemetry !== "object" || telemetry.__piTelemetry === undefined) return undefined;
+	const reasoning = options.reasoning;
+	const id = ai("telemetry.observe", {
+		model,
+		poll: !!poll,
+		telemetry: { __piTelemetry: telemetry.__piTelemetry },
+		reasoning: typeof reasoning === "string" ? reasoning : null,
+	});
+	if (id === null || id === undefined) return undefined;
+	return {
+		onEvent(event) {
+			ai("telemetry.event", { id, event });
+		},
+		onResult(message) {
+			ai("telemetry.result", { id, message: message ?? null });
+		},
+	};
 }
 
 // ---------------------------------------------------------------------------

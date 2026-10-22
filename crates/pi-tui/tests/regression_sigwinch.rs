@@ -46,14 +46,20 @@ fn refresh_is_best_effort_and_signals_this_process() {
     }
 }
 
-/// native-platform.test.ts: without the N-API prebuilds there is no native helper on any platform
-/// (the Linux Wayland case of "Linux loads X11 lazily" expects `undefined` too); hosts supply their
-/// own clipboard. The prebuild ELF layout, Windows clipboard and X11 module-cache cases test the
-/// TS binaries and are not portable.
+/// native-platform.test.ts: the native clipboard helper (arboard in pi-rs) exists where TS loads its
+/// addon: macOS and Windows, and Linux only with an X11 `DISPLAY` (the Wayland-only case of "Linux
+/// loads X11 lazily" expects `undefined`). Modifier state is never available. The prebuild ELF
+/// layout and module-cache cases test the TS binaries and are not portable.
 #[test]
-fn no_native_helper_without_prebuilds() {
+fn native_helper_only_where_ts_loads_its_addon() {
     use pi_tui::native_platform::{ModifierKey, get_native_clipboard, is_native_modifier_pressed};
-    assert!(get_native_clipboard().is_none());
+    let display = std::env::var_os("DISPLAY").is_some_and(|d| !d.is_empty());
+    let expected = match std::env::consts::OS {
+        "macos" | "windows" => true,
+        "linux" => display,
+        _ => false,
+    };
+    assert_eq!(get_native_clipboard().is_some(), expected);
     for key in [ModifierKey::Shift, ModifierKey::Command, ModifierKey::Control, ModifierKey::Option] {
         assert!(!is_native_modifier_pressed(key));
     }

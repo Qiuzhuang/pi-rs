@@ -55,6 +55,7 @@ fn js_error_message(err: &anyhow::Error) -> String {
 pub(crate) struct OptionGuards {
     signals: Vec<SignalGuard>,
     callbacks: Vec<u64>,
+    telemetry: Vec<u64>,
     bridge: Option<Arc<Bridge>>,
 }
 
@@ -64,6 +65,9 @@ impl Drop for OptionGuards {
             for id in self.callbacks.drain(..) {
                 bridge.async_callbacks.remove(id);
             }
+        }
+        for id in self.telemetry.drain(..) {
+            super::provider::release_telemetry_parent(id);
         }
     }
 }
@@ -89,6 +93,11 @@ pub(crate) fn options_to_js(bridge: &Arc<Bridge>, options: &StreamOptions) -> (V
         let (signal, guard) = bridge.signal_for(token);
         map.insert("$signal".into(), signal);
         guards.signals.push(guard);
+    }
+    if let Some(span) = options.telemetry.clone() {
+        let id = super::provider::register_telemetry_parent(span);
+        map.insert("telemetry".into(), json!({ "__piTelemetry": id }));
+        guards.telemetry.push(id);
     }
     if let Some(on_payload) = options.on_payload.clone() {
         let id = bridge.async_callbacks.insert(Arc::new(move |args: Vec<Value>| {

@@ -33,6 +33,77 @@ pub(crate) fn bytes_of(value: &Value) -> Vec<u8> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Telemetry (pi-ai `telemetry.ts`)
+// ---------------------------------------------------------------------------
+
+/// Telemetry parents (`StreamOptions.telemetry`) passed to JavaScript as `{ __piTelemetry: id }`,
+/// alive while the JavaScript call that received them runs.
+static TELEMETRY_PARENTS: std::sync::LazyLock<parking_lot::Mutex<std::collections::HashMap<u64, pi_telemetry::SpanRef>>> =
+    std::sync::LazyLock::new(Default::default);
+/// Request observers started by JavaScript `Models` collections, until their result is observed.
+static TELEMETRY_OBSERVERS: std::sync::LazyLock<
+    parking_lot::Mutex<std::collections::HashMap<u64, pi_ai::api::lazy::LazyStreamObserver>>,
+> = std::sync::LazyLock::new(Default::default);
+
+/// Register a telemetry parent for JavaScript; release it with [`release_telemetry_parent`].
+pub(crate) fn register_telemetry_parent(span: pi_telemetry::SpanRef) -> u64 {
+    let id = super::next_id();
+    TELEMETRY_PARENTS.lock().insert(id, span);
+    id
+}
+
+pub(crate) fn release_telemetry_parent(id: u64) {
+    TELEMETRY_PARENTS.lock().remove(&id);
+}
+
+/// The telemetry parent a JavaScript options object carries (`{ __piTelemetry: id }`).
+fn telemetry_parent_of(value: &Value) -> Option<pi_telemetry::SpanRef> {
+    let id = value.get("__piTelemetry")?.as_u64()?;
+    TELEMETRY_PARENTS.lock().get(&id).cloned()
+}
+
+/// `observeModelRequest(model, options, poll)` for JavaScript `Models` collections: pi-ai's
+/// request observer under the caller's telemetry parent. `null` (the no-op observer) without one.
+fn telemetry_observe(payload: &Value) -> anyhow::Result<Value> {
+    let Some(parent) = telemetry_parent_of(&payload["telemetry"]) else { return Ok(Value::Null) };
+    let model: Model = serde_json::from_value(payload["model"].clone())?;
+    let mut options = StreamOptions { telemetry: Some(parent), ..Default::default() };
+    if let Some(reasoning) = payload.get("reasoning").filter(|v| !v.is_null()) {
+        match serde_json::from_value(reasoning.clone()) {
+            Ok(level) => options.reasoning = Some(level),
+            Err(_) => {
+                options.extra.insert("reasoning".to_string(), reasoning.clone());
+            }
+        }
+    }
+    let observer = pi_ai::telemetry::observe_model_request(&model, Some(&options), payload["poll"].as_bool() == Some(true));
+    let id = super::next_id();
+    TELEMETRY_OBSERVERS.lock().insert(id, observer);
+    Ok(json!(id))
+}
+
+fn telemetry_event(payload: &Value) -> anyhow::Result<Value> {
+    let id = payload["id"].as_u64().unwrap_or_default();
+    let on_event = TELEMETRY_OBSERVERS.lock().get(&id).and_then(|o| o.on_event.clone());
+    if let Some(on_event) = on_event
+        && let Ok(event) = serde_json::from_value::<pi_ai::types::AssistantMessageEvent>(payload["event"].clone())
+    {
+        on_event(&event);
+    }
+    Ok(Value::Null)
+}
+
+fn telemetry_result(payload: &Value) -> anyhow::Result<Value> {
+    let id = payload["id"].as_u64().unwrap_or_default();
+    let observer = TELEMETRY_OBSERVERS.lock().remove(&id);
+    if let Some(on_result) = observer.and_then(|o| o.on_result) {
+        let message = serde_json::from_value::<pi_ai::types::AssistantMessage>(payload["message"].clone()).ok();
+        on_result(message.as_ref());
+    }
+    Ok(Value::Null)
+}
+
 /// `StreamOptions` as the TS options object (functions and the signal are passed separately).
 pub(crate) fn stream_options_to_json(options: &StreamOptions) -> Value {
     let mut out = Map::new();
@@ -89,6 +160,7 @@ pub(crate) fn stream_options_from_json(bridge: &Bridge, value: &Value) -> Stream
             "reasoning" => options.reasoning = serde_json::from_value(v.clone()).ok(),
             "thinkingBudgets" => options.thinking_budgets = serde_json::from_value(v.clone()).ok(),
             "env" => options.env = serde_json::from_value(v.clone()).ok(),
+            "telemetry" if v.get("__piTelemetry").is_some() => options.telemetry = telemetry_parent_of(v),
             _ => {
                 options.extra.insert(key.clone(), v.clone());
             }
@@ -343,6 +415,12 @@ fn messages_arg(value: &Value) -> Vec<pi_ai::types::Message> {
 
 pub(crate) fn dispatch(_bridge: &Arc<Bridge>, _op: &str, payload: Value) -> anyhow::Result<Value> {
     let f = str_arg(&payload, "fn");
+    match f.as_str() {
+        "telemetry.observe" => return telemetry_observe(&payload["args"][0]),
+        "telemetry.event" => return telemetry_event(&payload["args"][0]),
+        "telemetry.result" => return telemetry_result(&payload["args"][0]),
+        _ => {}
+    }
     let args = payload.get("args").and_then(Value::as_array).cloned().unwrap_or_default();
     let a = |i: usize| args.get(i).cloned().unwrap_or(Value::Null);
     let s = |i: usize| a(i).as_str().unwrap_or_default().to_string();

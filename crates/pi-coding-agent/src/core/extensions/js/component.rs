@@ -1299,7 +1299,51 @@ fn tui_call(bridge: &Arc<Bridge>, payload: &Value) -> anyhow::Result<Value> {
     })
 }
 
+/// JS keyspec (`string | string[]`) to [`pi_tui::keybindings::KeySpec`].
+fn js_key_spec(value: &Value) -> Option<pi_tui::keybindings::KeySpec> {
+    use pi_tui::keybindings::KeySpec;
+    match value {
+        Value::String(k) => Some(KeySpec::One(k.clone())),
+        Value::Array(keys) => Some(KeySpec::Many(keys.iter().filter_map(|k| k.as_str().map(str::to_string)).collect())),
+        _ => None,
+    }
+}
+
+/// `setKeybindings(manager)` from JS replaces pi-tui's global keybindings for the whole app, like
+/// TS where extensions share pi-tui's module state: a proxy installs the Rust manager it stands
+/// for, a JS `KeybindingsManager` is mirrored by a Rust manager with the same definitions and
+/// user bindings (re-sent by the JS manager whenever it rebuilds).
+fn keybindings_set_global(bridge: &Arc<Bridge>, payload: &Value) -> anyhow::Result<Value> {
+    use pi_tui::keybindings::{KeybindingDefinition, KeybindingsManager as TuiKeybindingsManager};
+    if let Some(id) = payload["proxy"].as_u64() {
+        let manager = bridge.components.keybindings.get(id).ok_or_else(|| anyhow::anyhow!("unknown keybindings"))?;
+        pi_tui::keybindings::set_keybindings(manager.tui_manager());
+        return Ok(Value::Null);
+    }
+    let Some(definitions) = payload["definitions"].as_object() else {
+        // The global proxy (`getKeybindings()` default) already is the global manager.
+        return Ok(Value::Null);
+    };
+    let definitions = definitions
+        .iter()
+        .filter_map(|(id, definition)| {
+            let default_keys = js_key_spec(&definition["defaultKeys"])?;
+            let description = definition["description"].as_str().map(str::to_string);
+            Some((id.clone(), KeybindingDefinition { default_keys, description }))
+        })
+        .collect();
+    let user_bindings = payload["userBindings"]
+        .as_object()
+        .map(|bindings| bindings.iter().map(|(id, keys)| (id.clone(), js_key_spec(keys))).collect())
+        .unwrap_or_default();
+    pi_tui::keybindings::set_keybindings(Arc::new(TuiKeybindingsManager::new(definitions, user_bindings)));
+    Ok(Value::Null)
+}
+
 fn keybindings_call(bridge: &Arc<Bridge>, payload: &Value) -> anyhow::Result<Value> {
+    if payload["m"].as_str() == Some("setGlobal") {
+        return keybindings_set_global(bridge, payload);
+    }
     let manager = match payload["id"].as_u64() {
         Some(id) => bridge.components.keybindings.get(id).ok_or_else(|| anyhow::anyhow!("unknown keybindings"))?.tui_manager(),
         None => pi_tui::keybindings::get_keybindings(),
@@ -1316,7 +1360,19 @@ fn keybindings_call(bridge: &Arc<Bridge>, payload: &Value) -> anyhow::Result<Val
             }
             Value::Object(out)
         }
-        "getDefinition" => Value::Null,
+        "getDefinition" => match manager.get_definition(&s(0)) {
+            Some(definition) => {
+                let mut out = json!({ "defaultKeys": match &definition.default_keys {
+                    pi_tui::keybindings::KeySpec::One(k) => json!(k),
+                    pi_tui::keybindings::KeySpec::Many(k) => json!(k),
+                } });
+                if let Some(description) = definition.description {
+                    out["description"] = json!(description);
+                }
+                out
+            }
+            None => Value::Null,
+        },
         _ => return Err(anyhow::anyhow!("keybindings.{method} is not available")),
     })
 }
@@ -1561,10 +1617,46 @@ fn tui_util(bridge: &Arc<Bridge>, payload: &Value) -> anyhow::Result<Value> {
             json!({ "matches": m.matches, "score": m.score })
         }
         "imageFallback" => json!(pi_tui::terminal_image::image_fallback(&s(0), None, a(2).as_str())),
+        "nativeClipboard" => match pi_tui::native_platform::get_native_clipboard() {
+            Some(clipboard) => json!({ "setText": clipboard.can_set_text() }),
+            None => Value::Null,
+        },
         "utf16ToByte" => json!(utf16_to_byte(&s(0), n(1))),
         _ => match super::tui_helpers::dispatch(&f, &args) {
             Some(result) => result?,
             None => return Err(anyhow::anyhow!("pi-tui {f} is not available")),
         },
     })
+}
+
+/// `getNativeClipboard()` operations (`tui.clipboard`), over pi-tui's native clipboard.
+pub(crate) async fn native_clipboard_call(payload: &Value) -> anyhow::Result<Value> {
+    use base64::Engine;
+    use pi_tui::native_platform::ClipboardRead;
+    fn read<T>(result: Result<ClipboardRead<T>, String>, data: impl FnOnce(T) -> Value) -> anyhow::Result<Value> {
+        Ok(match result.map_err(anyhow::Error::msg)? {
+            ClipboardRead::Unavailable => json!({ "kind": "unavailable" }),
+            ClipboardRead::Empty => json!({ "kind": "empty" }),
+            ClipboardRead::Data(value) => json!({ "kind": "data", "data": data(value) }),
+        })
+    }
+    let Some(clipboard) = pi_tui::native_platform::get_native_clipboard() else {
+        return Ok(json!({ "kind": "unavailable" }));
+    };
+    match payload["m"].as_str().unwrap_or_default() {
+        "getText" => read(clipboard.get_text().await, |text| json!(text)),
+        "getImage" => read(clipboard.get_image().await, |bytes| json!(base64::engine::general_purpose::STANDARD.encode(bytes))),
+        "getFilePaths" => match clipboard.get_file_paths() {
+            Some(paths) => read(paths.await, |paths| json!(paths)),
+            None => Ok(json!({ "kind": "unavailable" })),
+        },
+        "setText" => match clipboard.set_text(payload["text"].as_str().unwrap_or_default()) {
+            Some(write) => {
+                write.await.map_err(anyhow::Error::msg)?;
+                Ok(Value::Null)
+            }
+            None => Err(anyhow::anyhow!("setText is not supported by the native clipboard on this platform")),
+        },
+        other => Err(anyhow::anyhow!("clipboard.{other} is not available")),
+    }
 }

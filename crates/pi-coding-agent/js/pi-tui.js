@@ -12,6 +12,7 @@ import { homedir } from "os";
 import { basename, dirname, join } from "path";
 import {
 	call,
+	callAsync,
 	componentRef,
 	markRustBase,
 	KeybindingsProxy,
@@ -270,6 +271,7 @@ export class KeybindingsManager {
 	}
 
 	rebuild() {
+		if (this === globalKeybindings) syncGlobalKeybindings(this);
 		this.keysById.clear();
 		this.conflicts = [];
 		const userClaims = new Map();
@@ -331,12 +333,25 @@ export class KeybindingsManager {
 }
 
 // The global manager defaults to pi's live keybindings (the host's, with user configuration), as
-// extensions in TS share pi-tui's module state with pi. `setKeybindings()` replaces it for
-// JavaScript components; Rust-backed components keep using the host's bindings.
+// extensions in TS share pi-tui's module state with pi. `setKeybindings()` replaces it for the
+// whole app: JavaScript components read `globalKeybindings`, and the host's pi-tui global (used by
+// pi's editor, selectors and Rust-backed components) is replaced by the same bindings.
 let globalKeybindings = null;
+
+function syncGlobalKeybindings(keybindings) {
+	if (keybindings === null || keybindings === undefined) return;
+	if (typeof keybindings.__kbId !== "undefined") {
+		if (keybindings.__kbId !== null) call("kb", { m: "setGlobal", proxy: keybindings.__kbId });
+		return;
+	}
+	if (keybindings.definitions && typeof keybindings.definitions === "object") {
+		call("kb", { m: "setGlobal", definitions: keybindings.definitions, userBindings: keybindings.userBindings ?? {} });
+	}
+}
 
 export function setKeybindings(keybindings) {
 	globalKeybindings = keybindings;
+	syncGlobalKeybindings(keybindings);
 }
 
 export function getKeybindings() {
@@ -2712,8 +2727,37 @@ export const TuiMainScreen = unavailable("TuiMainScreen");
 export const ProcessTerminal = unavailable("ProcessTerminal");
 
 export const isAppleTerminalSession = () => util("isAppleTerminalSession");
-/** pi-rs has no native platform helper (`pi_tui::native_platform::get_native_clipboard()` is `None`). */
-export const getNativeClipboard = () => undefined;
+// TS loads a native clipboard addon (macOS, Windows, Linux with X11 `DISPLAY`); pi-rs uses pi-tui's
+// arboard-backed helper in the same places. Undefined means unavailable, null means no data of that
+// kind; transfer failures reject.
+function clipboardResult(result) {
+	if (!result || result.kind === "unavailable") return undefined;
+	if (result.kind === "empty") return null;
+	return result.data;
+}
+let nativeClipboard;
+export function getNativeClipboard() {
+	const support = util("nativeClipboard");
+	if (!support) return undefined;
+	nativeClipboard ??= {
+		async getText() {
+			return clipboardResult(await callAsync("tui.clipboard", { m: "getText" }));
+		},
+		async getImage() {
+			const data = clipboardResult(await callAsync("tui.clipboard", { m: "getImage" }));
+			return typeof data === "string" ? new Uint8Array(Buffer.from(data, "base64")) : data;
+		},
+		async getFilePaths() {
+			return clipboardResult(await callAsync("tui.clipboard", { m: "getFilePaths" }));
+		},
+	};
+	if (support.setText && !nativeClipboard.setText) {
+		nativeClipboard.setText = async (text) => {
+			await callAsync("tui.clipboard", { m: "setText", text: String(text) });
+		};
+	}
+	return nativeClipboard;
+}
 export const renderLatex = (source, options = {}) => util("renderLatex", String(source), options) ?? undefined;
 export const formatProgramStatus = (status) => util("formatProgramStatus", status);
 export const styleText = (text, options, mode) => util("styleText", String(text), options ?? {}, mode);

@@ -39,6 +39,7 @@ libc.workspace = true
 image.workspace = true
 unicode-normalization.workspace = true
 yaml-rust2.workspace = true
+notify.workspace = true
 ignore.workspace = true
 semver.workspace = true
 globset.workspace = true

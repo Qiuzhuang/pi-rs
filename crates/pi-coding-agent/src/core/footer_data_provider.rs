@@ -1,9 +1,15 @@
 //! Port of `packages/coding-agent/src/core/footer-data-provider.ts`.
 //!
-//! Git HEAD (and reftable) changes are detected by a background polling thread instead of
-//! `fs.watch`: it samples the metadata of the watched files every [`POLL_INTERVAL`] and refreshes
-//! the branch after the same 500 ms debounce the TS watcher uses.
+//! Git HEAD (and reftable) changes are watched like TS: event-driven watchers
+//! ([`crate::utils::fs_watch`], `fs.watch`) on the directory holding HEAD, the reftable directory
+//! and `tables.list`, plus `fs.watchFile` polling where TS polls (HEAD on WSL-mounted Windows
+//! repos, `tables.list`). Changes refresh the branch after the TS 500 ms debounce; watcher errors
+//! retry after [`FS_WATCH_RETRY_DELAY_MS`].
 
+use crate::utils::fs_watch::{
+    FS_WATCH_RETRY_DELAY_MS, FileWatcher, FsWatcher, WatchFileStats, close_watcher, watch_file,
+    watch_with_error_handler,
+};
 use crate::utils::paths::{node_dirname, node_join, node_resolve};
 use indexmap::IndexMap;
 use parking_lot::Mutex;
@@ -11,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -107,12 +113,69 @@ fn resolve_git_branch(git_paths: Option<&GitPaths>) -> Option<String> {
     Some("detached".to_string())
 }
 
-/// Debounce between a detected git change and the branch refresh.
+fn is_wsl_environment() -> bool {
+    cfg!(target_os = "linux")
+        && (std::env::var("WSL_DISTRO_NAME").is_ok_and(|v| !v.is_empty())
+            || std::env::var("WSL_INTEROP").is_ok_and(|v| !v.is_empty()))
+}
+
+/// `/^\/mnt\/[a-z](?:\/|$)/i`
+fn is_windows_mounted_repo_path(repo_dir: &str) -> bool {
+    let Some(rest) = repo_dir.strip_prefix("/mnt/") else {
+        return false;
+    };
+    let mut chars = rest.chars();
+    matches!(chars.next(), Some(c) if c.is_ascii_alphabetic()) && matches!(chars.next(), None | Some('/'))
+}
+
+fn should_poll_git_head(repo_dir: &str) -> bool {
+    is_wsl_environment() && is_windows_mounted_repo_path(repo_dir)
+}
+
+/// Debounce between a detected git change and the branch refresh (`WATCH_DEBOUNCE_MS`).
 const WATCH_DEBOUNCE: Duration = Duration::from_millis(500);
-/// How often the watcher samples the git metadata files.
-const POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 type Callback = Arc<dyn Fn() + Send + Sync>;
+
+/// A pending `setTimeout`; it fires only while it is still the one stored in its slot.
+struct Timer {
+    id: u64,
+}
+
+static NEXT_TIMER_ID: AtomicU64 = AtomicU64::new(1);
+
+/// Start a timer thread that runs `fire(id)` after `delay`; `fire` checks the slot holds `id`.
+fn spawn_timer(delay: Duration, fire: impl FnOnce(u64) + Send + 'static) -> Timer {
+    let id = NEXT_TIMER_ID.fetch_add(1, Ordering::SeqCst);
+    let _ = std::thread::Builder::new().name("pi-footer-timer".into()).spawn(move || {
+        std::thread::sleep(delay);
+        fire(id);
+    });
+    Timer { id }
+}
+
+#[derive(Default)]
+struct GitWatchers {
+    head_watcher: Option<FsWatcher>,
+    head_watch_file: Option<FileWatcher>,
+    reftable_watcher: Option<FsWatcher>,
+    reftable_tables_list_watcher: Option<FsWatcher>,
+    reftable_tables_list_poller: Option<FileWatcher>,
+}
+
+impl GitWatchers {
+    fn close(&mut self) {
+        close_watcher(self.head_watcher.take().as_ref());
+        if let Some(poller) = self.head_watch_file.take() {
+            poller.close();
+        }
+        close_watcher(self.reftable_watcher.take().as_ref());
+        close_watcher(self.reftable_tables_list_watcher.take().as_ref());
+        if let Some(poller) = self.reftable_tables_list_poller.take() {
+            poller.close();
+        }
+    }
+}
 
 struct Inner {
     cwd: String,
@@ -122,9 +185,14 @@ struct Inner {
     git_paths: Option<GitPaths>,
     branch_change_callbacks: Vec<(u64, Callback)>,
     available_provider_count: i64,
+    watchers: GitWatchers,
+    refresh_timer: Option<Timer>,
+    git_watcher_retry_timer: Option<Timer>,
+    refresh_in_flight: bool,
+    refresh_pending: bool,
     disposed: bool,
-    /// Incremented whenever the watcher must stop (cwd change, dispose).
-    watcher_generation: u64,
+    /// Number of debounced branch refreshes started (observability for tests).
+    refresh_count: u64,
 }
 
 /// Provides git branch and extension statuses - data not otherwise accessible to extensions.
@@ -144,12 +212,17 @@ impl FooterDataProvider {
                 git_paths: find_git_paths(cwd),
                 branch_change_callbacks: Vec::new(),
                 available_provider_count: 0,
+                watchers: GitWatchers::default(),
+                refresh_timer: None,
+                git_watcher_retry_timer: None,
+                refresh_in_flight: false,
+                refresh_pending: false,
                 disposed: false,
-                watcher_generation: 0,
+                refresh_count: 0,
             })),
             next_callback_id: Arc::new(AtomicU64::new(1)),
         };
-        provider.setup_git_watcher();
+        setup_git_watcher(&provider.inner);
         provider
     }
 
@@ -230,11 +303,12 @@ impl FooterDataProvider {
                 return;
             }
             inner.cwd = cwd.to_string();
-            inner.watcher_generation += 1;
+            inner.refresh_timer = None;
+            clear_git_watchers(&mut inner);
             inner.cached_branch = None;
             inner.git_paths = find_git_paths(cwd);
         }
-        self.setup_git_watcher();
+        setup_git_watcher(&self.inner);
         notify_branch_change(&self.inner);
     }
 
@@ -242,32 +316,18 @@ impl FooterDataProvider {
     pub fn dispose(&self) {
         let mut inner = self.inner.lock();
         inner.disposed = true;
-        inner.watcher_generation += 1;
+        inner.refresh_timer = None;
+        clear_git_watchers(&mut inner);
         inner.branch_change_callbacks.clear();
-    }
-
-    fn setup_git_watcher(&self) {
-        let (generation, git_paths) = {
-            let inner = self.inner.lock();
-            if inner.disposed {
-                return;
-            }
-            (inner.watcher_generation, inner.git_paths.clone())
-        };
-        let Some(git_paths) = git_paths else {
-            return;
-        };
-        let weak = Arc::downgrade(&self.inner);
-        let _ = std::thread::Builder::new()
-            .name("pi-git-head-watch".to_string())
-            .spawn(move || watch_git(weak, generation, git_paths));
     }
 }
 
 impl Drop for FooterDataProvider {
     fn drop(&mut self) {
+        // The watchers hold only weak references; stop their threads with the provider.
         let mut inner = self.inner.lock();
-        inner.watcher_generation += 1;
+        inner.refresh_timer = None;
+        clear_git_watchers(&mut inner);
     }
 }
 
@@ -283,96 +343,231 @@ fn notify_branch_change(inner: &Arc<Mutex<Inner>>) {
     }
 }
 
-type FileSignature = Option<(Option<SystemTime>, u64, u64)>;
-
-fn file_signature(path: &str) -> FileSignature {
-    let meta = std::fs::metadata(path).ok()?;
-    #[cfg(unix)]
-    let ino = {
-        use std::os::unix::fs::MetadataExt;
-        meta.ino() ^ (meta.ctime_nsec() as u64) ^ ((meta.ctime() as u64) << 20)
-    };
-    #[cfg(not(unix))]
-    let ino = 0;
-    Some((meta.modified().ok(), meta.len(), ino))
-}
-
-fn dir_signature(path: &str) -> Vec<(String, FileSignature)> {
-    let mut entries: Vec<(String, FileSignature)> = std::fs::read_dir(path)
-        .map(|rd| {
-            rd.filter_map(Result::ok)
-                .map(|e| {
-                    let name = e.file_name().to_string_lossy().into_owned();
-                    let sig = file_signature(&node_join(&[path, &name]));
-                    (name, sig)
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    entries.sort_by(|a, b| a.0.cmp(&b.0));
-    entries
-}
-
-/// Snapshot of everything the TS watchers observe: the directory holding HEAD (only HEAD changes
-/// matter), and the reftable directory when present.
-fn git_snapshot(git_paths: &GitPaths, reftable_dir: Option<&str>) -> Vec<(String, FileSignature)> {
-    let mut snapshot = vec![("HEAD".to_string(), file_signature(&git_paths.head_path))];
-    if let Some(reftable_dir) = reftable_dir {
-        snapshot.extend(
-            dir_signature(reftable_dir)
-                .into_iter()
-                .map(|(name, sig)| (format!("reftable/{name}"), sig)),
-        );
+fn schedule_refresh(inner: &Arc<Mutex<Inner>>) {
+    let mut state = inner.lock();
+    if state.disposed || state.refresh_timer.is_some() {
+        return;
     }
-    snapshot
-}
-
-fn watch_git(inner: Weak<Mutex<Inner>>, generation: u64, git_paths: GitPaths) {
-    let reftable_dir = node_join(&[&git_paths.common_git_dir, "reftable"]);
-    let reftable_dir = Path::new(&reftable_dir)
-        .exists()
-        .then_some(reftable_dir);
-    let mut last = git_snapshot(&git_paths, reftable_dir.as_deref());
-    let mut pending_since: Option<Instant> = None;
-
-    loop {
-        std::thread::sleep(POLL_INTERVAL);
-        let Some(strong) = inner.upgrade() else {
-            return;
-        };
+    if state.refresh_in_flight {
+        state.refresh_pending = true;
+        return;
+    }
+    let weak = Arc::downgrade(inner);
+    state.refresh_timer = Some(spawn_timer(WATCH_DEBOUNCE, move |id| {
+        let Some(inner) = weak.upgrade() else { return };
         {
-            let state = strong.lock();
-            if state.disposed || state.watcher_generation != generation {
+            let mut state = inner.lock();
+            if state.refresh_timer.as_ref().map(|t| t.id) != Some(id) {
                 return;
             }
+            state.refresh_timer = None;
         }
+        refresh_git_branch_async(&inner);
+    }));
+}
 
-        let current = git_snapshot(&git_paths, reftable_dir.as_deref());
-        if current != last {
-            last = current;
-            if pending_since.is_none() {
-                pending_since = Some(Instant::now());
-            }
+/// `refreshGitBranchAsync`: runs on the timer thread, so the git subprocess does not block the UI.
+fn refresh_git_branch_async(inner: &Arc<Mutex<Inner>>) {
+    let git_paths = {
+        let mut state = inner.lock();
+        if state.disposed {
+            return;
         }
+        if state.refresh_in_flight {
+            state.refresh_pending = true;
+            return;
+        }
+        state.refresh_in_flight = true;
+        state.refresh_count += 1;
+        state.git_paths.clone()
+    };
+    let next_branch = resolve_git_branch(git_paths.as_ref());
+    let (changed, reschedule) = {
+        let mut state = inner.lock();
+        let mut changed = false;
+        if !state.disposed {
+            changed = matches!(&state.cached_branch, Some(previous) if *previous != next_branch);
+            state.cached_branch = Some(next_branch);
+        }
+        state.refresh_in_flight = false;
+        let reschedule = state.refresh_pending && !state.disposed;
+        if reschedule {
+            state.refresh_pending = false;
+        }
+        (changed, reschedule)
+    };
+    if changed {
+        notify_branch_change(inner);
+    }
+    if reschedule {
+        schedule_refresh(inner);
+    }
+}
 
-        if let Some(since) = pending_since
-            && since.elapsed() >= WATCH_DEBOUNCE
-        {
-            pending_since = None;
-            let next_branch = resolve_git_branch(Some(&git_paths));
-            let changed = {
-                let mut state = strong.lock();
-                if state.disposed || state.watcher_generation != generation {
+fn clear_git_watchers(state: &mut Inner) {
+    state.watchers.close();
+    state.git_watcher_retry_timer = None;
+}
+
+fn schedule_git_watcher_retry(inner: &Arc<Mutex<Inner>>) {
+    let mut state = inner.lock();
+    if state.disposed || state.git_watcher_retry_timer.is_some() {
+        return;
+    }
+    let weak = Arc::downgrade(inner);
+    state.git_watcher_retry_timer = Some(spawn_timer(
+        Duration::from_millis(FS_WATCH_RETRY_DELAY_MS as u64),
+        move |id| {
+            let Some(inner) = weak.upgrade() else { return };
+            {
+                let mut state = inner.lock();
+                if state.git_watcher_retry_timer.as_ref().map(|t| t.id) != Some(id) {
                     return;
                 }
-                let changed = matches!(&state.cached_branch, Some(prev) if *prev != next_branch);
-                state.cached_branch = Some(next_branch);
-                changed
-            };
-            if changed {
-                notify_branch_change(&strong);
+                state.git_watcher_retry_timer = None;
             }
+            setup_git_watcher(&inner);
+        },
+    ));
+}
+
+fn handle_git_watcher_error(inner: &Arc<Mutex<Inner>>) {
+    clear_git_watchers(&mut inner.lock());
+    schedule_git_watcher_retry(inner);
+}
+
+/// `fs.watchFile` listener body: refresh when mtime, ctime or size changed.
+fn stats_changed(current: &WatchFileStats, previous: &WatchFileStats) -> bool {
+    current.mtime_ms != previous.mtime_ms || current.ctime_ms != previous.ctime_ms || current.size != previous.size
+}
+
+fn setup_git_watcher(inner: &Arc<Mutex<Inner>>) {
+    let git_paths = {
+        let mut state = inner.lock();
+        clear_git_watchers(&mut state);
+        if state.disposed {
+            return;
         }
+        match state.git_paths.clone() {
+            Some(paths) => paths,
+            None => return,
+        }
+    };
+    let weak = Arc::downgrade(inner);
+    let refresh: Arc<dyn Fn() + Send + Sync> = {
+        let weak = weak.clone();
+        Arc::new(move || {
+            if let Some(inner) = weak.upgrade() {
+                schedule_refresh(&inner);
+            }
+        })
+    };
+    let on_error: Arc<dyn Fn() + Send + Sync> = {
+        let weak = weak.clone();
+        Arc::new(move || {
+            if let Some(inner) = weak.upgrade() {
+                handle_git_watcher_error(&inner);
+            }
+        })
+    };
+    let poll_git_head = should_poll_git_head(&git_paths.repo_dir);
+
+    // Watch the directory containing HEAD, not HEAD itself.
+    // Git uses atomic writes (write temp, rename over HEAD), which changes the inode.
+    // fs.watch on a file stops working after the inode changes.
+    let head_refresh = refresh.clone();
+    let head_watcher = watch_with_error_handler(
+        &node_dirname(&git_paths.head_path),
+        Arc::new(move |_event, filename| {
+            if filename.as_deref().is_none_or(|name| name == "HEAD") {
+                head_refresh();
+            }
+        }),
+        on_error.clone(),
+    );
+    let has_head_watcher = head_watcher.is_some();
+    let store = |set: &mut dyn FnMut(&mut GitWatchers)| -> bool {
+        let mut state = inner.lock();
+        if state.disposed {
+            drop(state);
+            return false;
+        }
+        set(&mut state.watchers);
+        true
+    };
+    if !store(&mut |w| w.head_watcher = head_watcher.clone()) {
+        close_watcher(head_watcher.as_ref());
+        return;
+    }
+    if poll_git_head {
+        let poll_refresh = refresh.clone();
+        let poller = watch_file(
+            &git_paths.head_path,
+            1000,
+            Arc::new(move |current, previous| {
+                if stats_changed(current, previous) {
+                    poll_refresh();
+                }
+            }),
+        );
+        if !store(&mut |w| w.head_watch_file = Some(poller.clone())) {
+            poller.close();
+            return;
+        }
+    }
+    if !has_head_watcher && !poll_git_head {
+        return;
+    }
+
+    // In reftable repos, branch switches update files in the reftable directory
+    // instead of HEAD. Watch it separately so the footer picks up those changes.
+    let reftable_dir = node_join(&[&git_paths.common_git_dir, "reftable"]);
+    if !Path::new(&reftable_dir).exists() {
+        return;
+    }
+    let reftable_refresh = refresh.clone();
+    let reftable_watcher = watch_with_error_handler(
+        &reftable_dir,
+        Arc::new(move |_event, _filename| reftable_refresh()),
+        on_error.clone(),
+    );
+    if !store(&mut |w| w.reftable_watcher = reftable_watcher.clone()) {
+        close_watcher(reftable_watcher.as_ref());
+        return;
+    }
+    if reftable_watcher.is_none() {
+        return;
+    }
+
+    let tables_list_path = node_join(&[&reftable_dir, "tables.list"]);
+    if !Path::new(&tables_list_path).exists() {
+        return;
+    }
+    let tables_refresh = refresh.clone();
+    let tables_list_watcher = watch_with_error_handler(
+        &tables_list_path,
+        Arc::new(move |_event, _filename| tables_refresh()),
+        on_error,
+    );
+    if !store(&mut |w| w.reftable_tables_list_watcher = tables_list_watcher.clone()) {
+        close_watcher(tables_list_watcher.as_ref());
+        return;
+    }
+    if tables_list_watcher.is_none() {
+        return;
+    }
+    let poll_refresh = refresh;
+    let poller = watch_file(
+        &tables_list_path,
+        250,
+        Arc::new(move |current, previous| {
+            if stats_changed(current, previous) {
+                poll_refresh();
+            }
+        }),
+    );
+    if !store(&mut |w| w.reftable_tables_list_poller = Some(poller.clone())) {
+        poller.close();
     }
 }
 
@@ -384,6 +579,7 @@ pub type ReadonlyFooterDataProvider = Arc<FooterDataProvider>;
 mod tests {
     use super::*;
     use std::sync::atomic::AtomicUsize;
+    use std::time::Instant;
 
     fn create_plain_repo(temp: &Path) -> std::path::PathBuf {
         let repo = temp.join("repo");
@@ -518,5 +714,122 @@ mod tests {
         provider.set_cwd(other.to_str().unwrap());
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         assert_eq!(provider.get_git_branch().as_deref(), Some("dev"));
+    }
+
+    /// A worktree whose common git dir has a reftable directory with `tables.list`
+    /// (HEAD names the branch directly so no git binary is needed).
+    fn create_reftable_worktree(temp: &Path) -> (std::path::PathBuf, std::path::PathBuf, std::path::PathBuf) {
+        let common = temp.join("repo").join(".git");
+        let git_dir = common.join("worktrees").join("src");
+        let worktree = temp.join("worktree");
+        let reftable = common.join("reftable");
+        std::fs::create_dir_all(&git_dir).unwrap();
+        std::fs::create_dir_all(&reftable).unwrap();
+        std::fs::create_dir_all(&worktree).unwrap();
+        std::fs::write(worktree.join(".git"), format!("gitdir: {}\n", git_dir.display())).unwrap();
+        std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+        std::fs::write(git_dir.join("commondir"), "../..\n").unwrap();
+        std::fs::write(reftable.join("tables.list"), "0\n").unwrap();
+        (worktree, reftable, git_dir)
+    }
+
+    fn watchers(provider: &FooterDataProvider) -> (Option<FsWatcher>, Option<FsWatcher>, Option<FsWatcher>) {
+        let inner = provider.inner.lock();
+        (
+            inner.watchers.head_watcher.clone(),
+            inner.watchers.reftable_watcher.clone(),
+            inner.watchers.reftable_tables_list_watcher.clone(),
+        )
+    }
+
+    #[test]
+    fn watches_head_dir_reftable_dir_and_tables_list() {
+        let temp = tempfile::tempdir().unwrap();
+        let (worktree, _, _) = create_reftable_worktree(temp.path());
+        let provider = FooterDataProvider::new(worktree.to_str().unwrap());
+        let (head, reftable, tables) = watchers(&provider);
+        assert!(head.is_some() && reftable.is_some() && tables.is_some());
+        assert!(provider.inner.lock().watchers.reftable_tables_list_poller.is_some());
+        provider.dispose();
+        assert!(head.unwrap().is_closed() && reftable.unwrap().is_closed() && tables.unwrap().is_closed());
+    }
+
+    #[test]
+    fn debounces_rapid_reftable_updates_into_a_single_refresh() {
+        let temp = tempfile::tempdir().unwrap();
+        let (worktree, _, _) = create_reftable_worktree(temp.path());
+        let provider = FooterDataProvider::new(worktree.to_str().unwrap());
+        assert_eq!(provider.get_git_branch().as_deref(), Some("main"));
+        let calls = Arc::new(AtomicUsize::new(0));
+        let calls_clone = calls.clone();
+        provider.on_branch_change(Arc::new(move || {
+            calls_clone.fetch_add(1, Ordering::SeqCst);
+        }));
+        let (_, reftable, _) = watchers(&provider);
+        let reftable = reftable.unwrap();
+        let started = Instant::now();
+        for _ in 0..3 {
+            reftable.emit_event(crate::utils::fs_watch::WatchEventType::Change, Some("tables.list"));
+        }
+        std::thread::sleep(Duration::from_millis(300));
+        assert_eq!(provider.inner.lock().refresh_count, 0, "refresh waits for the 500 ms debounce");
+        wait_for(|| provider.inner.lock().refresh_count == 1);
+        assert!(started.elapsed() >= WATCH_DEBOUNCE);
+        std::thread::sleep(Duration::from_millis(650));
+        assert_eq!(provider.inner.lock().refresh_count, 1);
+        // Same branch: no notification.
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        provider.dispose();
+    }
+
+    #[test]
+    fn updates_the_cached_branch_when_reftable_files_change() {
+        let temp = tempfile::tempdir().unwrap();
+        let (worktree, reftable, git_dir) = create_reftable_worktree(temp.path());
+        let provider = FooterDataProvider::new(worktree.to_str().unwrap());
+        assert_eq!(provider.get_git_branch().as_deref(), Some("main"));
+        let calls = Arc::new(AtomicUsize::new(0));
+        let calls_clone = calls.clone();
+        provider.on_branch_change(Arc::new(move || {
+            calls_clone.fetch_add(1, Ordering::SeqCst);
+        }));
+        // Change what HEAD says without an event in the HEAD directory: close that watcher so
+        // only the reftable watchers can trigger the refresh.
+        close_watcher(provider.inner.lock().watchers.head_watcher.as_ref());
+        std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/foo\n").unwrap();
+        std::fs::write(reftable.join("tables.list"), "1\n").unwrap();
+        wait_for(|| provider.get_git_branch().as_deref() == Some("foo"));
+        wait_for(|| calls.load(Ordering::SeqCst) == 1);
+        provider.dispose();
+    }
+
+    #[test]
+    fn retries_git_watchers_after_an_async_watch_error() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo = create_plain_repo(temp.path());
+        let provider = FooterDataProvider::new(repo.to_str().unwrap());
+        let (original, _, _) = watchers(&provider);
+        let original = original.expect("head watcher");
+        original.emit_error();
+        assert!(original.is_closed());
+        assert!(watchers(&provider).0.is_none());
+        std::thread::sleep(Duration::from_millis(FS_WATCH_RETRY_DELAY_MS as u64 - 500));
+        assert!(watchers(&provider).0.is_none(), "no retry before 5 s");
+        let start = Instant::now();
+        while watchers(&provider).0.is_none() {
+            assert!(start.elapsed() < Duration::from_secs(5), "watcher was not recreated");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let recreated = watchers(&provider).0.unwrap();
+        assert!(!recreated.ptr_eq(&original));
+        provider.dispose();
+    }
+
+    #[test]
+    fn wsl_windows_mount_detection() {
+        assert!(is_windows_mounted_repo_path("/mnt/c"));
+        assert!(is_windows_mounted_repo_path("/mnt/D/projects"));
+        assert!(!is_windows_mounted_repo_path("/mnt/cd/projects"));
+        assert!(!is_windows_mounted_repo_path("/home/user"));
     }
 }

@@ -113,6 +113,43 @@ fn preserves_the_request_id_on_unknown_command_errors() {
 }
 
 #[test]
+fn answers_commands_that_complete_without_waiting_in_command_order() {
+    // TS starts each line's handler as the line arrives; handlers that finish without waiting
+    // write their responses in the order the commands were sent.
+    local(async {
+        let harness = create_harness(HarnessOptions::default()).await.unwrap();
+        let mut rpc = RpcTest::start(runtime_for(&harness));
+        let mut batch = String::new();
+        for round in 0..20 {
+            batch.push_str(&format!("{}\n", json!({ "id": format!("s{round}"), "type": "get_state" })));
+            batch.push_str(&format!("{}\n", json!({ "id": format!("u{round}"), "type": "nope" })));
+            batch.push_str("{not json\n");
+            batch.push_str(&format!("{}\n", json!({ "id": format!("m{round}"), "type": "get_messages" })));
+        }
+        rpc.input.write_all(batch.as_bytes()).await.unwrap();
+        rpc.wait_for(|l| l["id"] == "m19").await;
+        let order: Vec<String> = rpc
+            .lines
+            .lock()
+            .iter()
+            .filter(|l| l["type"] == "response")
+            .map(|l| l["id"].as_str().map_or_else(|| l["command"].as_str().unwrap().to_string(), str::to_string))
+            .collect();
+        let expected: Vec<String> = (0..20)
+            .flat_map(|round| [format!("s{round}"), format!("u{round}"), "parse".to_string(), format!("m{round}")])
+            .collect();
+        assert_eq!(order, expected);
+        let parse = rpc.wait_for(|l| l["command"] == "parse").await;
+        assert_eq!(
+            parse["error"],
+            "Failed to parse command: Expected property name or '}' in JSON at position 1 (line 1 column 2)"
+        );
+        rpc.finish().await;
+        harness.cleanup();
+    });
+}
+
+#[test]
 fn emits_one_started_response_when_prompt_preflight_succeeds_and_streams_events() {
     local(async {
         let harness = create_harness(HarnessOptions::default()).await.unwrap();

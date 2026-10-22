@@ -30,7 +30,11 @@ pub fn format_version_check_error(error: &anyhow::Error) -> String {
     let causes: Vec<&(dyn std::error::Error + 'static)> = error.chain().skip(1).collect();
     let mut codes: Vec<&'static str> = Vec::new();
     for cause in &causes {
-        if let Some(io) = cause.downcast_ref::<std::io::Error>()
+        if let Some(code) = cause.downcast_ref::<pi_ai::utils::http::NetworkError>().and_then(|e| e.code) {
+            if !codes.contains(&code) {
+                codes.push(code);
+            }
+        } else if let Some(io) = cause.downcast_ref::<std::io::Error>()
             && let Some(code) = io_error_code(io)
             && !codes.contains(&code)
         {
@@ -371,5 +375,17 @@ mod tests {
         let error = anyhow::anyhow!("inner").context("fetch failed");
         assert_eq!(format_version_check_error(&error), "fetch failed (cause: inner)");
         assert_eq!(format_version_check_error(&anyhow::anyhow!("plain")), "plain");
+    }
+
+    #[tokio::test]
+    async fn reports_a_refused_connection_like_node_fetch() {
+        let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let init = FetchInit { client: Some(client), ..Default::default() };
+        let options = FetchRetryOptions { max_retries: Some(0), ..Default::default() };
+        let error = fetch_with_retry(&format!("http://127.0.0.1:{port}/"), Some(&init), Some(&options)).await.unwrap_err();
+        assert_eq!(error.to_string(), "fetch failed");
+        assert_eq!(format!("{error:#}"), format!("fetch failed: connect ECONNREFUSED 127.0.0.1:{port}"));
+        assert_eq!(format_version_check_error(&error), "fetch failed (ECONNREFUSED)");
     }
 }

@@ -3092,6 +3092,7 @@ impl AgentSession {
             tools_added: None,
             tools_removed: None,
             timestamp: now_ms(),
+            timestamp_last: false,
         }))
     }
 
@@ -3137,6 +3138,8 @@ impl AgentSession {
                                     .collect();
                                 system.tools_added = (!added.is_empty()).then_some(added);
                                 system.tools_removed = (!removed.is_empty()).then_some(removed);
+                                // `{ ...rest, toolsAdded?, toolsRemoved? }`
+                                system.timestamp_last = false;
                                 AgentMessage::System(system)
                             }
                             other => other,
@@ -3178,6 +3181,8 @@ impl AgentSession {
                         tools_added: current.as_ref().and_then(|c| c.tools_added.clone()),
                         tools_removed: None,
                         timestamp: current.as_ref().map(|c| c.timestamp).unwrap_or_else(now_ms),
+                        // `{ role, content, toolsAdded?, timestamp }`
+                        timestamp_last: true,
                     };
                     let mut result = vec![AgentMessage::System(head)];
                     result.extend(

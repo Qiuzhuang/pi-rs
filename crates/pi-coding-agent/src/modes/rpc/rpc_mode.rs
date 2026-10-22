@@ -928,6 +928,10 @@ pub async fn run_rpc_session<R: AsyncRead + Unpin>(
                 Ok(Some(line)) => {
                     let state = state.clone();
                     in_flight.push(Box::pin(async move { state.handle_input_line(line).await }));
+                    // TS starts a line's handler synchronously when the line arrives, before it
+                    // reads the next one: run the handlers until they wait, so commands that
+                    // complete without waiting answer in command order.
+                    while let Some(Some(())) = futures::FutureExt::now_or_never(in_flight.next()) {}
                 }
                 // Input ended (or failed): shut down.
                 _ => {

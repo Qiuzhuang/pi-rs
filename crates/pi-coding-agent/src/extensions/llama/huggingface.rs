@@ -154,7 +154,7 @@ impl HuggingFaceClient {
         let never = CancellationToken::new();
         let signal = signal.unwrap_or(&never);
         let exchange = async {
-            let response = request.send().await.map_err(|error| anyhow::anyhow!("fetch failed: {error}"))?;
+            let response = request.send().await.map_err(|error| anyhow::Error::new(pi_ai::utils::http::FetchFailed::new(&error)))?;
             let status = response.status();
             let header = |name: &str| response.headers().get(name).and_then(|v| v.to_str().ok()).map(str::to_string);
             let (retry_after, rate_limit) = (header("retry-after"), header("ratelimit"));

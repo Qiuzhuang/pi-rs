@@ -371,7 +371,7 @@ impl LlamaClient {
         let never = CancellationToken::new();
         let signal = signal.unwrap_or(&never);
         let exchange = async {
-            let response = request.send().await.map_err(|error| anyhow::anyhow!("fetch failed: {error}"))?;
+            let response = request.send().await.map_err(|error| anyhow::Error::new(pi_ai::utils::http::FetchFailed::new(&error)))?;
             let status = response.status();
             let payload = response.bytes().await.ok().and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok());
             anyhow::Ok((status, payload))
@@ -468,7 +468,7 @@ impl LlamaClient {
             request = request.header("Authorization", format!("Bearer {key}"));
         }
         let response = tokio::select! {
-            response = request.send() => response.map_err(|error| anyhow::anyhow!("fetch failed: {error}"))?,
+            response = request.send() => response.map_err(|error| anyhow::Error::new(pi_ai::utils::http::FetchFailed::new(&error)))?,
             _ = signal.cancelled() => anyhow::bail!("This operation was aborted"),
         };
         if !response.status().is_success() {

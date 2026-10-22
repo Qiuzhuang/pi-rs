@@ -597,10 +597,8 @@ mod ensure_tool {
         assert_eq!(statuses.len(), 2, "{statuses:?}");
         assert_eq!(statuses[0], ("info".to_string(), "fd not found. Downloading...".to_string()));
         assert_eq!(statuses[1].0, "warning");
-        // "fetch failed" followed by its causes, like the TS `fetch failed: connect ETIMEDOUT ...`.
-        let message = &statuses[1].1;
-        assert!(message.starts_with("Failed to download fd: fetch failed: "), "{message}");
-        assert!(message.matches(": ").count() >= 3, "{message}");
+        // "fetch failed" followed by its Node-worded cause, as in TS.
+        assert_eq!(statuses[1].1, "Failed to download fd: fetch failed: connect ECONNREFUSED 127.0.0.1:1");
     }
 }
 

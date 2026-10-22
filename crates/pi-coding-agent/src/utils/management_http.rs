@@ -78,7 +78,8 @@ async fn send_once(input: &str, init: Option<&FetchInit>) -> anyhow::Result<reqw
             request = request.body(body.clone());
         }
     }
-    Ok(request.send().await?)
+    // A transport failure is undici's `TypeError: fetch failed` with the network error as cause.
+    request.send().await.map_err(|error| anyhow::Error::new(pi_ai::utils::http::FetchFailed::new(&error)))
 }
 
 /// Fetch a management HTTP resource with a bounded immediate retry.

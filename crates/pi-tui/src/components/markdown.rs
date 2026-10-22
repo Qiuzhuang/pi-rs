@@ -110,6 +110,23 @@ struct State {
     default_style_prefix: Option<String>,
     cache: Option<(String, usize, Vec<String>)>,
     cached_tokens: Option<(String, Arc<Vec<Token>>)>,
+    /// Bumped by every change that invalidates rendered output, so a render that ran without the
+    /// lock only stores its results when nothing changed meanwhile.
+    generation: u64,
+}
+
+/// What a render reads from [`State`], copied out so that the transform, highlight and style
+/// callbacks (which may be extension code calling back into this component) run without the lock.
+struct RenderInput {
+    text: String,
+    padding_x: usize,
+    padding_y: usize,
+    default_text_style: Option<DefaultTextStyle>,
+    theme: MarkdownTheme,
+    options: MarkdownOptions,
+    default_style_prefix: Option<String>,
+    cached_tokens: Option<(String, Arc<Vec<Token>>)>,
+    generation: u64,
 }
 
 /// Renders Markdown text.
@@ -774,6 +791,7 @@ impl Markdown {
                 default_style_prefix: None,
                 cache: None,
                 cached_tokens: None,
+                generation: 0,
             }),
         }
     }
@@ -802,6 +820,7 @@ impl Markdown {
         let mut s = self.lock();
         s.text = text.into();
         s.cache = None;
+        s.generation += 1;
     }
 
     pub fn set_theme(&self, theme: MarkdownTheme) {
@@ -809,6 +828,7 @@ impl Markdown {
         s.theme = theme;
         s.default_style_prefix = None;
         s.cache = None;
+        s.generation += 1;
     }
 
     pub fn set_default_text_style(&self, style: Option<DefaultTextStyle>) {
@@ -816,47 +836,53 @@ impl Markdown {
         s.default_text_style = style;
         s.default_style_prefix = None;
         s.cache = None;
+        s.generation += 1;
     }
 }
 
-impl Component for Markdown {
-    fn render(&self, width: usize) -> Vec<String> {
-        let mut guard = self.lock();
-        let s = &mut *guard;
-        if let Some((text, w, lines)) = &s.cache
-            && *text == s.text
-            && *w == width
-        {
-            return lines.clone();
-        }
-
-        let content_width = width.saturating_sub(s.padding_x * 2).max(1);
-        let text = match &s.options.transform {
-            Some(t) => t(&s.text, content_width),
-            None => s.text.clone(),
+impl Markdown {
+    /// Render `input` at `width`. Runs without the state lock; returns the lines to cache (empty
+    /// for blank text, which renders nothing) plus the tokens and default style prefix to cache.
+    fn render_unlocked(
+        input: RenderInput,
+        width: usize,
+    ) -> (Vec<String>, Option<(String, Arc<Vec<Token>>)>, Option<String>, bool) {
+        let RenderInput {
+            text: source,
+            padding_x,
+            padding_y,
+            default_text_style,
+            theme,
+            options,
+            mut default_style_prefix,
+            cached_tokens,
+            ..
+        } = input;
+        let content_width = width.saturating_sub(padding_x * 2).max(1);
+        let text = match &options.transform {
+            Some(t) => t(&source, content_width),
+            None => source,
         };
         if text.is_empty() || js_trim(&text).is_empty() {
-            s.cache = Some((s.text.clone(), width, Vec::new()));
-            return Vec::new();
+            return (Vec::new(), cached_tokens, default_style_prefix, true);
         }
 
         let normalized = text.replace('\t', "   ");
-        let tokens = match &s.cached_tokens {
-            Some((src, tokens)) if *src == normalized => tokens.clone(),
+        let (tokens, cached_tokens) = match cached_tokens {
+            Some((src, tokens)) if src == normalized => (tokens.clone(), Some((src, tokens))),
             _ => {
                 let mut tokens = marked::lexer(&normalized, MarkedOptions::pi());
                 trim_partial_closing_fences(&mut tokens);
                 let tokens = Arc::new(tokens);
-                s.cached_tokens = Some((normalized.clone(), tokens.clone()));
-                tokens
+                (tokens.clone(), Some((normalized, tokens)))
             }
         };
 
         let mut renderer = Renderer {
-            theme: &s.theme,
-            options: &s.options,
-            default_text_style: s.default_text_style.as_ref(),
-            default_style_prefix: &mut s.default_style_prefix,
+            theme: &theme,
+            options: &options,
+            default_text_style: default_text_style.as_ref(),
+            default_style_prefix: &mut default_style_prefix,
         };
         let mut rendered_lines: Vec<String> = Vec::new();
         for (i, token) in tokens.iter().enumerate() {
@@ -873,8 +899,8 @@ impl Component for Markdown {
             }
         }
 
-        let margin = " ".repeat(s.padding_x);
-        let bg_fn = s.default_text_style.as_ref().and_then(|d| d.bg_color.clone());
+        let margin = " ".repeat(padding_x);
+        let bg_fn = default_text_style.as_ref().and_then(|d| d.bg_color.clone());
         let mut content_lines: Vec<String> = Vec::new();
         for line in &wrapped_lines {
             if is_image_line(line) {
@@ -891,7 +917,7 @@ impl Component for Markdown {
         }
 
         let empty_line = " ".repeat(width);
-        let empty_lines: Vec<String> = (0..s.padding_y)
+        let empty_lines: Vec<String> = (0..padding_y)
             .map(|_| match &bg_fn {
                 Some(bg) => apply_background_to_line(&empty_line, width, &**bg),
                 None => empty_line.clone(),
@@ -900,12 +926,134 @@ impl Component for Markdown {
         let mut result = empty_lines.clone();
         result.extend(content_lines);
         result.extend(empty_lines);
+        (result, cached_tokens, default_style_prefix, false)
+    }
+}
 
-        s.cache = Some((s.text.clone(), width, result.clone()));
-        if result.is_empty() { vec![String::new()] } else { result }
+impl Component for Markdown {
+    fn render(&self, width: usize) -> Vec<String> {
+        let input = {
+            let s = self.lock();
+            if let Some((text, w, lines)) = &s.cache
+                && *text == s.text
+                && *w == width
+            {
+                return lines.clone();
+            }
+            RenderInput {
+                text: s.text.clone(),
+                padding_x: s.padding_x,
+                padding_y: s.padding_y,
+                default_text_style: s.default_text_style.clone(),
+                theme: s.theme.clone(),
+                options: s.options.clone(),
+                default_style_prefix: s.default_style_prefix.clone(),
+                cached_tokens: s.cached_tokens.clone(),
+                generation: s.generation,
+            }
+        };
+        let (text, generation) = (input.text.clone(), input.generation);
+        let (result, cached_tokens, default_style_prefix, blank) = Self::render_unlocked(input, width);
+
+        let mut s = self.lock();
+        if s.generation == generation {
+            s.cache = Some((text, width, result.clone()));
+            s.cached_tokens = cached_tokens;
+            s.default_style_prefix = default_style_prefix;
+        }
+        drop(s);
+        if result.is_empty() && !blank { vec![String::new()] } else { result }
     }
 
     fn invalidate(&self) {
-        self.lock().cache = None;
+        let mut s = self.lock();
+        s.cache = None;
+        s.generation += 1;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{OnceLock, Weak};
+
+    use super::*;
+
+    /// Callbacks (extension code) may call back into the component they render for.
+    #[test]
+    fn transform_highlight_and_style_callbacks_run_without_the_component_lock() {
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let this: Arc<OnceLock<Weak<Markdown>>> = Arc::default();
+            let component = |this: &Arc<OnceLock<Weak<Markdown>>>| this.get().and_then(Weak::upgrade).unwrap();
+            let mut theme = MarkdownTheme::plain();
+            let in_highlight = this.clone();
+            theme.highlight_code = Some(Arc::new(move |code: &str, _lang: Option<&str>| {
+                vec![format!("{}|{code}", component(&in_highlight).text().len())]
+            }));
+            let in_style = this.clone();
+            theme.bold = Arc::new(move |text: &str| {
+                component(&in_style).invalidate();
+                format!("*{text}*")
+            });
+            let in_transform = this.clone();
+            let options = MarkdownOptions {
+                transform: Some(Arc::new(move |text: &str, _width: usize| {
+                    // Reading and even replacing the text from inside a render must not deadlock.
+                    let markdown = component(&in_transform);
+                    assert_eq!(markdown.text(), text);
+                    text.to_string()
+                })),
+                ..Default::default()
+            };
+            let markdown = Markdown::new_ref("**hi**\n\n```\nx\n```", 0, 0, theme, None, Some(options));
+            this.set(Arc::downgrade(&markdown)).unwrap();
+            let lines: Vec<String> = markdown.render(20).iter().map(|l| l.trim_end().to_string()).collect();
+            assert_eq!(lines, ["*hi*", "", "```", "  17|x", "```"]);
+            // The bold callback invalidated the component during the render, so the result was not
+            // cached: the next render runs the callbacks again.
+            let in_set = Arc::downgrade(&markdown);
+            let markdown2 = Markdown::new_ref(
+                "a",
+                0,
+                0,
+                MarkdownTheme::plain(),
+                None,
+                Some(MarkdownOptions {
+                    transform: Some(Arc::new(move |text: &str, _| {
+                        if let Some(markdown) = in_set.upgrade() {
+                            markdown.set_text("changed");
+                        }
+                        text.to_string()
+                    })),
+                    ..Default::default()
+                }),
+            );
+            assert_eq!(markdown2.render(5)[0].trim_end(), "a");
+            assert_eq!(markdown.text(), "changed");
+            done_tx.send(()).unwrap();
+        });
+        done_rx.recv_timeout(std::time::Duration::from_secs(10)).expect("render deadlocked");
+    }
+
+    #[test]
+    fn a_render_that_raced_a_change_is_not_cached() {
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let this: Arc<OnceLock<Weak<Markdown>>> = Arc::default();
+        let (counter, weak) = (calls.clone(), this.clone());
+        let options = MarkdownOptions {
+            transform: Some(Arc::new(move |text: &str, _| {
+                if counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                    weak.get().and_then(Weak::upgrade).unwrap().set_text("second");
+                }
+                text.to_string()
+            })),
+            ..Default::default()
+        };
+        let markdown = Markdown::new_ref("first", 0, 0, MarkdownTheme::plain(), None, Some(options));
+        this.set(Arc::downgrade(&markdown)).unwrap();
+        assert_eq!(markdown.render(10)[0].trim_end(), "first");
+        assert_eq!(markdown.render(10)[0].trim_end(), "second");
+        assert_eq!(markdown.render(10)[0].trim_end(), "second");
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
     }
 }

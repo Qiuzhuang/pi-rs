@@ -178,7 +178,7 @@ async fn fetch_with_retry(
             }
             Ok(Err(err)) => {
                 if attempt >= MAX_RETRIES {
-                    return Err(anyhow::Error::new(err).context("fetch failed"));
+                    return Err(anyhow::Error::new(pi_ai::utils::http::FetchFailed::new(&err)));
                 }
             }
         }

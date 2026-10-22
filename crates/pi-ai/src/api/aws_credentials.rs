@@ -183,9 +183,54 @@ pub(crate) fn aws_sdk_user_agent(
     (user_agent, x_amz)
 }
 
-/// `maxAttempts` of the SDK clients' standard retry strategy (`AWS_MAX_ATTEMPTS`, default 3).
-pub(crate) fn aws_max_attempts() -> u32 {
-    std::env::var("AWS_MAX_ATTEMPTS").ok().and_then(|v| v.parse::<u32>().ok()).filter(|v| *v > 0).unwrap_or(3)
+/// `maxAttempts` of the SDK clients' standard retry strategy for the default profile.
+pub(crate) fn aws_max_attempts() -> anyhow::Result<u32> {
+    aws_max_attempts_for(None)
+}
+
+/// `maxAttempts` of a client's standard retry strategy (`NODE_MAX_ATTEMPT_CONFIG_OPTIONS`):
+/// `AWS_MAX_ATTEMPTS`, else the profile's `max_attempts` in the shared config files, else 3.
+/// Values are read with `parseInt`; one that is not a number fails the request like the SDK.
+pub(crate) fn aws_max_attempts_for(profile: Option<&str>) -> anyhow::Result<u32> {
+    let attempts = |value: i64| value.clamp(1, u32::MAX as i64) as u32;
+    if let Ok(value) = std::env::var("AWS_MAX_ATTEMPTS")
+        && !value.is_empty()
+    {
+        return match js_parse_int(&value) {
+            Some(n) => Ok(attempts(n)),
+            None => anyhow::bail!("Environment variable AWS_MAX_ATTEMPTS mast be a number, got \"{value}\""),
+        };
+    }
+    let name = profile.map(str::to_string).or_else(|| env("AWS_PROFILE")).unwrap_or_else(|| "default".into());
+    if let Some(value) = SharedConfig::load().profile(&name).and_then(|p| p.get("max_attempts").cloned())
+        && !value.is_empty()
+    {
+        return match js_parse_int(&value) {
+            Some(n) => Ok(attempts(n)),
+            None => anyhow::bail!("Shared config file entry max_attempts mast be a number, got \"{value}\""),
+        };
+    }
+    Ok(3)
+}
+
+/// JavaScript `parseInt(value)` (radix 10, or 16 after a `0x` prefix); `None` for `NaN`.
+fn js_parse_int(value: &str) -> Option<i64> {
+    let s = value.trim_start_matches(|c: char| c.is_whitespace() || c == '\u{feff}');
+    let (negative, s) = match s.as_bytes().first() {
+        Some(b'-') => (true, &s[1..]),
+        Some(b'+') => (false, &s[1..]),
+        _ => (false, s),
+    };
+    let (radix, s) = match s.get(..2) {
+        Some("0x") | Some("0X") => (16, &s[2..]),
+        _ => (10, s),
+    };
+    let digits: String = s.chars().take_while(|c| c.is_digit(radix)).collect();
+    if digits.is_empty() {
+        return None;
+    }
+    let n = i64::from_str_radix(&digits, radix).unwrap_or(i64::MAX);
+    Some(if negative { -n } else { n })
 }
 
 /// `parseRetryAfterHeader` of the SDK's retry middleware: the first `retry-after` (seconds, or an
@@ -542,7 +587,7 @@ async fn sts_request(
     let (user_agent, x_amz_user_agent) =
         aws_sdk_user_agent(AWS_NESTED_CLIENTS_VERSION, "STS", &[], context.app_id.as_deref(), signing);
     let invocation_id = uuid::Uuid::new_v4().to_string();
-    let max = aws_max_attempts();
+    let max = aws_max_attempts()?;
     let mut attempt = 1u32;
     loop {
         let mut headers = vec![
@@ -888,7 +933,7 @@ async fn send_aws_sdk_request(
     let (user_agent, x_amz_user_agent) =
         aws_sdk_user_agent(AWS_NESTED_CLIENTS_VERSION, service_id, &[], context.app_id.as_deref(), None);
     let invocation_id = uuid::Uuid::new_v4().to_string();
-    let max = aws_max_attempts();
+    let max = aws_max_attempts()?;
     let mut attempt = 1u32;
     loop {
         let result = build()
@@ -1185,7 +1230,7 @@ async fn from_login(profile: &Profile, context: &CredentialContext) -> anyhow::R
     let (user_agent, x_amz_user_agent) =
         aws_sdk_user_agent(AWS_NESTED_CLIENTS_VERSION, "Signin", &[], context.app_id.as_deref(), None);
     let invocation_id = uuid::Uuid::new_v4().to_string();
-    let max = aws_max_attempts();
+    let max = aws_max_attempts()?;
     let mut attempt = 1u32;
     let response = loop {
         let dpop = dpop_proof(fresh["dpopKey"].as_str().unwrap_or_default(), "POST", &endpoint)?;

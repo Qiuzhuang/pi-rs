@@ -803,9 +803,7 @@ enum Attempt {
     Failed { error: anyhow::Error, retryable: bool, throttling: bool, retry_after: Option<i64> },
 }
 
-fn max_attempts() -> u32 {
-    super::aws_credentials::aws_max_attempts()
-}
+
 
 fn parse_service_error(status: u16, headers: &reqwest::header::HeaderMap, body: &str) -> BedrockError {
     let parsed: Option<Value> = serde_json::from_str(body).ok();
@@ -919,9 +917,10 @@ async fn send_with_retries(
     prepared: &PreparedRequest,
     auth: &RequestAuth,
     region: &str,
+    profile: Option<&str>,
     signal: Option<&CancellationToken>,
 ) -> anyhow::Result<reqwest::Response> {
-    let max = max_attempts();
+    let max = super::aws_credentials::aws_max_attempts_for(profile)?;
     let mut attempt = 1;
     loop {
         match attempt_request(client, prepared, attempt, max, auth, region, signal).await {
@@ -1309,7 +1308,7 @@ async fn run_stream(model: Model, context: TranscriptContext, options: StreamOpt
             }
         }
         let prepared = PreparedRequest { url, headers, body: serde_json::to_vec(&command_body(&input))? };
-        let response = send_with_retries(&client, &prepared, &auth, &region, options.signal.as_ref()).await?;
+        let response = send_with_retries(&client, &prepared, &auth, &region, config.profile.as_deref(), options.signal.as_ref()).await?;
         response_request_id = normalize_diagnostic_value(response.headers().get("x-amzn-requestid").and_then(|v| v.to_str().ok()));
         if let Some(on_response) = &options.on_response {
             on_response(ProviderResponse { status: response.status().as_u16(), headers: headers_to_record(response.headers()) }, model.clone()).await;

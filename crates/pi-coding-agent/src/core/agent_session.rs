@@ -843,11 +843,22 @@ fn err(message: impl Into<String>) -> anyhow::Error {
     anyhow::anyhow!(message.into())
 }
 
-/// Spawn a detached task when a tokio runtime is available (TS `void promise`).
+/// Run `future` detached, like TS `void promise`: an async function runs synchronously until its
+/// first real suspension, so its effects up to that point (queueing a message, setting abort
+/// flags) are visible to the caller right away. The rest continues on a tokio task. Requires a
+/// tokio runtime; without one the future is dropped.
 fn spawn_detached(future: impl std::future::Future<Output = ()> + Send + 'static) {
-    if let Ok(handle) = tokio::runtime::Handle::try_current() {
-        handle.spawn(future);
+    let Ok(handle) = tokio::runtime::Handle::try_current() else {
+        return;
+    };
+    let mut future = Box::pin(future);
+    let waker = futures::task::noop_waker();
+    let mut cx = std::task::Context::from_waker(&waker);
+    if future.as_mut().poll(&mut cx).is_ready() {
+        return;
     }
+    // The task polls again with a real waker before anything can be missed.
+    handle.spawn(future);
 }
 
 /// Request auth for one provider request.
@@ -2570,7 +2581,8 @@ impl AgentSession {
 
     /// Disconnect from agent events during disposal.
     fn disconnect_from_agent(&self) {
-        if let Some(subscription) = self.agent_subscription.lock().take() {
+        let subscription_taken = self.agent_subscription.lock().take();
+        if let Some(subscription) = subscription_taken {
             subscription.unsubscribe();
         }
     }

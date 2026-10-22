@@ -9,3 +9,4 @@ mod queue;
 mod retry_events;
 mod compaction;
 mod compaction_model_overrides;
+mod boundaries;

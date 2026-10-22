@@ -224,3 +224,214 @@ pub fn detect_cache_miss(
     let result = scan(entries, models.as_ref());
     detect_miss(result.prev.as_ref(), message, models.as_ref())
 }
+
+#[cfg(test)]
+mod tests {
+    //! Ported from `test/cache-stats.test.ts`.
+    use super::*;
+    use serde_json::{Value, json};
+
+    struct Models;
+    impl ModelPriceSource for Models {
+        // $/million tokens; used as cache-read price fallback on full-miss turns
+        fn get_model(&self, _provider: &str, _model_id: &str) -> Option<ModelPriceSourceGetModelResult> {
+            Some(ModelPriceSourceGetModelResult {
+                cost: ModelPriceSourceGetModelResultCost { cache_read: 0.3 },
+            })
+        }
+    }
+
+    fn models() -> Arc<dyn ModelPriceSource> {
+        Arc::new(Models)
+    }
+
+    #[derive(Default)]
+    struct Opts {
+        input: u64,
+        cache_read: u64,
+        cache_write: u64,
+        cost_cache_read: f64,
+        cost_cache_write: f64,
+        model: Option<&'static str>,
+        timestamp: i64,
+    }
+
+    fn assistant(o: Opts) -> AssistantMessage {
+        serde_json::from_value(json!({
+            "role": "assistant",
+            "content": [],
+            "api": "anthropic-messages",
+            "provider": "test",
+            "model": o.model.unwrap_or("test-model"),
+            "usage": {
+                "input": o.input,
+                "output": 10,
+                "cacheRead": o.cache_read,
+                "cacheWrite": o.cache_write,
+                "totalTokens": 0,
+                "cost": {
+                    "input": 0, "output": 0,
+                    "cacheRead": o.cost_cache_read, "cacheWrite": o.cost_cache_write,
+                    "total": 0
+                }
+            },
+            "stopReason": "stop",
+            "timestamp": o.timestamp,
+        }))
+        .unwrap()
+    }
+
+    fn entry_value(value: Value) -> SessionEntry {
+        serde_json::from_value(value).unwrap()
+    }
+
+    fn entry(id: &str, message: &AssistantMessage) -> SessionEntry {
+        entry_value(json!({
+            "type": "message", "id": id, "parentId": null, "timestamp": "",
+            "message": serde_json::to_value(AgentMessage::Assistant(message.clone())).unwrap(),
+        }))
+    }
+
+    fn usage_entry(kind: &str, timestamp: i64) -> SessionEntry {
+        let ts = chrono::DateTime::from_timestamp_millis(timestamp)
+            .unwrap()
+            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        entry_value(json!({
+            "type": "usage", "id": format!("usage-{kind}"), "parentId": null, "timestamp": ts,
+            "kind": kind, "provider": "test", "model": "test-model",
+            "usage": {
+                "input": 0, "output": 0, "cacheRead": 100_000, "cacheWrite": 0, "totalTokens": 100_000,
+                "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0}
+            }
+        }))
+    }
+
+    // Turn 1: fresh 100k cache write at $3.75/M
+    fn turn1() -> AssistantMessage {
+        assistant(Opts { cache_write: 100_000, cost_cache_write: 0.375, ..Default::default() })
+    }
+    // Turn 2: healthy, everything read back at $0.30/M
+    fn turn2() -> AssistantMessage {
+        assistant(Opts {
+            cache_read: 100_000,
+            cache_write: 5_000,
+            cost_cache_read: 0.03,
+            cost_cache_write: 0.019,
+            timestamp: 60_000,
+            ..Default::default()
+        })
+    }
+
+    fn close(a: f64, b: f64) {
+        assert!((a - b).abs() < 5e-6, "{a} != {b}");
+    }
+
+    #[test]
+    fn accumulates_missed_tokens_and_cost_across_turns() {
+        // Turn 3: full miss, previous 105k prompt re-billed at $3.75/M write
+        let turn3 = assistant(Opts { cache_write: 110_000, cost_cache_write: 0.4125, timestamp: 120_000, ..Default::default() });
+        let totals = compute_cache_waste(&[entry("1", &turn1()), entry("2", &turn2()), entry("3", &turn3)], models());
+        assert_eq!(totals.missed_tokens, 105_000);
+        // 105k at ($3.75 - $0.30)/M
+        close(totals.missed_cost, 0.36225);
+    }
+
+    #[test]
+    fn counts_nothing_for_healthy_sessions() {
+        let totals = compute_cache_waste(&[entry("1", &turn1()), entry("2", &turn2())], models());
+        assert_eq!(totals.missed_tokens, 0);
+        assert_eq!(totals.missed_cost, 0.0);
+    }
+
+    #[test]
+    fn skips_the_turn_after_a_compaction_reset() {
+        let reset = entry_value(json!({
+            "type": "compaction", "id": "c", "parentId": null, "timestamp": "",
+            "summary": "", "firstKeptEntryId": "", "tokensBefore": 0
+        }));
+        let after_reset = assistant(Opts { cache_write: 20_000, cost_cache_write: 0.075, ..Default::default() });
+        let totals = compute_cache_waste(&[entry("1", &turn1()), reset, entry("2", &after_reset)], models());
+        assert_eq!(totals.missed_tokens, 0);
+    }
+
+    #[test]
+    fn counts_misses_caused_by_model_switches() {
+        let other = assistant(Opts { cache_write: 100_000, cost_cache_write: 0.375, model: Some("other-model"), ..Default::default() });
+        let totals = compute_cache_waste(&[entry("1", &turn1()), entry("2", &other)], models());
+        assert_eq!(totals.missed_tokens, 100_000);
+        assert_eq!(totals.miss_count, 1);
+    }
+
+    #[test]
+    fn skips_providers_that_report_no_cache_activity() {
+        let a = assistant(Opts { input: 100_000, ..Default::default() });
+        let b = assistant(Opts { input: 110_000, ..Default::default() });
+        let totals = compute_cache_waste(&[entry("1", &a), entry("2", &b)], models());
+        assert_eq!(totals.missed_tokens, 0);
+    }
+
+    #[test]
+    fn collect_cache_misses_maps_counted_misses_to_their_entries() {
+        let miss_turn = assistant(Opts { cache_write: 110_000, cost_cache_write: 0.4125, timestamp: 120_000, ..Default::default() });
+        let misses = collect_cache_misses(
+            &[entry("1", &turn1()), entry("2", &turn2()), entry("miss", &miss_turn)],
+            models(),
+        );
+        assert_eq!(misses.len(), 1);
+        assert_eq!(misses.get("miss").unwrap().missed_tokens, 105_000);
+    }
+
+    #[test]
+    fn detects_a_miss_on_a_just_completed_message_with_idle_time() {
+        let miss_message = assistant(Opts { cache_write: 110_000, cost_cache_write: 0.4125, timestamp: 600_000, ..Default::default() });
+        let miss = detect_cache_miss(&[entry("1", &turn1()), entry("2", &turn2())], &miss_message, models()).unwrap();
+        assert_eq!(miss.missed_tokens, 105_000);
+        close(miss.missed_cost, 0.36225);
+        // 600s - 60s since the previous request
+        assert_eq!(miss.idle_ms, 540_000.0);
+        assert!(!miss.model_changed);
+    }
+
+    #[test]
+    fn flags_model_switches_on_detected_misses() {
+        let other = assistant(Opts {
+            cache_write: 110_000,
+            cost_cache_write: 0.4125,
+            model: Some("other-model"),
+            timestamp: 120_000,
+            ..Default::default()
+        });
+        let miss = detect_cache_miss(&[entry("1", &turn1()), entry("2", &turn2())], &other, models()).unwrap();
+        assert_eq!(miss.missed_tokens, 105_000);
+        assert!(miss.model_changed);
+    }
+
+    #[test]
+    fn uses_only_cache_warm_usage_entries_as_cache_refreshes() {
+        let miss_message = assistant(Opts { cache_write: 110_000, cost_cache_write: 0.4125, timestamp: 600_000, ..Default::default() });
+        let after_warm =
+            detect_cache_miss(&[entry("1", &turn1()), usage_entry("cache_warm", 500_000)], &miss_message, models());
+        let after_other =
+            detect_cache_miss(&[entry("1", &turn1()), usage_entry("custom_operation", 500_000)], &miss_message, models());
+        assert_eq!(after_warm.unwrap().idle_ms, 100_000.0);
+        assert_eq!(after_other.unwrap().idle_ms, 600_000.0);
+    }
+
+    #[test]
+    fn returns_none_for_healthy_turns() {
+        let healthy = assistant(Opts {
+            cache_read: 105_000,
+            cache_write: 2_000,
+            cost_cache_read: 0.0315,
+            cost_cache_write: 0.0075,
+            timestamp: 120_000,
+            ..Default::default()
+        });
+        assert!(detect_cache_miss(&[entry("1", &turn1()), entry("2", &turn2())], &healthy, models()).is_none());
+    }
+
+    #[test]
+    fn returns_none_for_the_first_turn_of_a_session() {
+        assert!(detect_cache_miss(&[], &turn1(), models()).is_none());
+    }
+}

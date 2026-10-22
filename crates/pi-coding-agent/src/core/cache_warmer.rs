@@ -119,11 +119,14 @@ fn now_ms() -> i64 {
     });
     let (epoch, instant) = *ANCHOR;
     let now = tokio::time::Instant::now();
-    if now >= instant {
-        epoch + now.duration_since(instant).as_millis() as i64
+    // Floor in both directions so elapsed times stay exact when `now` precedes the anchor
+    // (tokio's paused test clocks differ per runtime).
+    let offset_ns = if now >= instant {
+        now.duration_since(instant).as_nanos() as i128
     } else {
-        epoch - instant.duration_since(now).as_millis() as i64
-    }
+        -(instant.duration_since(now).as_nanos() as i128)
+    };
+    epoch + offset_ns.div_euclid(1_000_000) as i64
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -896,4 +899,526 @@ pub fn format_cache_warming_usage(entry: &UsageEntry) -> String {
         None => fixed,
     };
     format!("Cache warmed{note}: ${cost}")
+}
+
+#[cfg(test)]
+mod tests {
+    //! Ported from `test/cache-warmer.test.ts`. Fake timers map to tokio's paused clock.
+    //! The `ExtensionRunner.emitCacheWarmingDecision` case lives with the runner tests.
+    use super::*;
+    use crate::core::session_manager::SessionManager;
+    use pi_ai::providers::all::get_builtin_model;
+    use pi_ai::providers::model_schema::ModelPromptCache;
+    use pi_ai::types::{AssistantMessage, StreamOptions, ThinkingLevel};
+    use serde_json::json;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
+
+    fn with_cache(mut model: Model, short: Option<f64>, long: Option<f64>) -> Model {
+        model.prompt_cache = Some(ModelPromptCache { short, long });
+        model
+    }
+
+    fn adaptive_model() -> Model {
+        with_cache(get_builtin_model("anthropic", "claude-opus-4-6").unwrap(), Some(300.0), Some(3600.0))
+    }
+    fn budget_model() -> Model {
+        with_cache(get_builtin_model("anthropic", "claude-sonnet-4-5").unwrap(), Some(300.0), Some(3600.0))
+    }
+    fn openai_model() -> Model {
+        with_cache(get_builtin_model("openai", "gpt-5").unwrap(), Some(300.0), Some(86_400.0))
+    }
+    fn unknown_model() -> Model {
+        let mut model = adaptive_model();
+        model.prompt_cache = None;
+        model
+    }
+
+    fn warm_usage() -> Usage {
+        serde_json::from_value(json!({
+            "input": 0, "output": 1, "cacheRead": 100, "cacheWrite": 0, "totalTokens": 101,
+            "cost": {"input": 0, "output": 0, "cacheRead": 0.01, "cacheWrite": 0, "total": 0.01}
+        }))
+        .unwrap()
+    }
+
+    fn response(model: &Model, stop_reason: StopReason) -> AssistantMessage {
+        AssistantMessage {
+            content: Vec::new(),
+            api: model.api.clone(),
+            provider: model.provider.clone(),
+            model: model.id.clone(),
+            usage: warm_usage(),
+            stop_reason,
+            timestamp: 0,
+            ..Default::default()
+        }
+    }
+
+    fn branch_with_prompt(prompt_tokens: u64) -> Vec<SessionEntry> {
+        let mut message = response(&adaptive_model(), StopReason::Length);
+        message.usage.output = 10;
+        message.usage.cache_read = prompt_tokens;
+        message.usage.total_tokens = prompt_tokens + 10;
+        vec![
+            serde_json::from_value(json!({
+                "type": "message", "id": "a", "parentId": null,
+                "timestamp": "1970-01-01T00:00:00.000Z",
+                "message": serde_json::to_value(AgentMessage::Assistant(message)).unwrap(),
+            }))
+            .unwrap(),
+        ]
+    }
+
+    type ResultFn = Arc<dyn Fn(Model) -> BoxFuture<'static, AssistantMessage> + Send + Sync>;
+    type DecideFn = Arc<dyn Fn(CacheWarmingDecisionEvent) -> BoxFuture<'static, CacheWarmingAction> + Send + Sync>;
+
+    #[derive(Default)]
+    struct FakeOptions {
+        result: Option<ResultFn>,
+        decide: Option<DecideFn>,
+        mode: Option<CacheWarmingMode>,
+        branch: Option<Vec<SessionEntry>>,
+    }
+
+    struct FakeState {
+        mode: CacheWarmingMode,
+        branch: Vec<SessionEntry>,
+    }
+
+    type AppendCall = (String, String, String, Usage, Option<String>);
+
+    struct Fake {
+        warmer: Arc<CacheWarmer>,
+        calls: Arc<Mutex<Vec<(Model, Option<ModelsRequestOptions>)>>>,
+        events: Arc<Mutex<Vec<CacheWarmingDecisionEvent>>>,
+        warmed: Arc<Mutex<Vec<UsageEntry>>>,
+        append_calls: Arc<Mutex<Vec<(AppendCall, UsageEntry)>>>,
+        state: Arc<Mutex<FakeState>>,
+    }
+
+    fn fake_runtime(options: FakeOptions) -> Fake {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let warmed = Arc::new(Mutex::new(Vec::new()));
+        let append_calls = Arc::new(Mutex::new(Vec::new()));
+        let usage_manager = SessionManager::in_memory(None, None, None).unwrap();
+        let state = Arc::new(Mutex::new(FakeState {
+            mode: options.mode.unwrap_or(CacheWarmingMode::Idle),
+            branch: options.branch.unwrap_or_else(|| branch_with_prompt(100_000)),
+        }));
+        let result: ResultFn = options.result.unwrap_or_else(|| {
+            Arc::new(|model: Model| Box::pin(async move { response(&model, StopReason::Length) }) as BoxFuture<'static, _>)
+        });
+        let models = CacheWarmerModels {
+            stream_simple: {
+                let calls = calls.clone();
+                Arc::new(move |model: Model, _context, stream_options| {
+                    calls.lock().push((model.clone(), stream_options));
+                    let (sender, stream) = AssistantMessageEventStream::new();
+                    let result = result.clone();
+                    tokio::spawn(async move {
+                        let message = result(model).await;
+                        sender.end(Some(message));
+                    });
+                    stream
+                })
+            },
+        };
+        let session_manager = CacheWarmerSessionManager {
+            append_usage: {
+                let append_calls = append_calls.clone();
+                Arc::new(move |kind: String, provider: String, model: String, usage: Usage, note: Option<String>| {
+                    let entry = usage_manager
+                        .append_usage(&kind, &provider, &model, usage.clone(), note.as_deref())
+                        .unwrap();
+                    append_calls.lock().push(((kind, provider, model, usage, note), entry.clone()));
+                    entry
+                })
+            },
+            get_branch: {
+                let state = state.clone();
+                Arc::new(move |_| state.lock().branch.clone())
+            },
+        };
+        let get_mode = {
+            let state = state.clone();
+            Arc::new(move || state.lock().mode)
+        };
+        let decide: CacheWarmingDecideFn = {
+            let events = events.clone();
+            let decide = options.decide;
+            Arc::new(move |event: CacheWarmingDecisionEvent| {
+                events.lock().push(event.clone());
+                let decide = decide.clone();
+                Box::pin(async move {
+                    Ok(match decide {
+                        Some(decide) => decide(event).await,
+                        None => event.action,
+                    })
+                }) as BoxFuture<'static, _>
+            })
+        };
+        let warmer = CacheWarmer::new(&models, &session_manager, get_mode, Some(decide));
+        {
+            let warmed = warmed.clone();
+            warmer.set_on_warmed(Some(Arc::new(move |entry| warmed.lock().push(entry))));
+        }
+        Fake { warmer, calls, events, warmed, append_calls, state }
+    }
+
+    fn request(model: Model, options: StreamOptions) -> CacheWarmRequest {
+        CacheWarmRequest {
+            model,
+            context: Context::default(),
+            options: options.into(),
+        }
+    }
+
+    fn current() -> Arc<dyn Fn() -> bool + Send + Sync> {
+        Arc::new(|| true)
+    }
+
+    /// `vi.advanceTimersByTimeAsync`: move the paused clock and let woken tasks run.
+    async fn advance(ms: u64) {
+        tokio::time::sleep(Duration::from_millis(ms)).await;
+        for _ in 0..50 {
+            tokio::task::yield_now().await;
+        }
+    }
+
+    fn active_run_id(warmer: &CacheWarmer) -> u64 {
+        let mut state = warmer.state.lock();
+        let run = state.run.as_mut().expect("expected an active cache-warming run");
+        // vi.clearAllTimers()
+        if let Some(timer) = run.timer.take() {
+            timer.abort();
+        }
+        run.id
+    }
+
+    fn close(a: f64, b: f64) {
+        assert!((a - b).abs() < 5e-3, "{a} != {b}");
+    }
+
+    #[test]
+    fn derives_eligibility_and_timing_from_retention_and_provider_behavior() {
+        let opts = |retention: Option<CacheRetention>| StreamOptions {
+            cache_retention: retention,
+            ..Default::default()
+        };
+        let env = StreamOptions {
+            env: Some([("PI_CACHE_RETENTION".to_string(), "long".to_string())].into_iter().collect()),
+            ..Default::default()
+        };
+        assert_eq!(
+            [
+                get_prompt_cache_ttl_ms(&adaptive_model(), None),
+                get_prompt_cache_ttl_ms(&adaptive_model(), Some(&opts(Some(CacheRetention::Long)))),
+                get_prompt_cache_ttl_ms(&adaptive_model(), Some(&opts(Some(CacheRetention::None)))),
+                get_prompt_cache_ttl_ms(&adaptive_model(), Some(&env)),
+                get_prompt_cache_ttl_ms(&openai_model(), Some(&opts(Some(CacheRetention::Long)))),
+                get_prompt_cache_ttl_ms(&unknown_model(), None),
+            ],
+            [Some(300_000), Some(3_600_000), None, Some(3_600_000), Some(86_400_000), None]
+        );
+        assert_eq!(
+            [
+                get_cache_warming_delay_ms(300_000),
+                get_cache_warming_delay_ms(60_000),
+                get_cache_warming_delay_ms(10_000),
+            ],
+            [Some(270_000), Some(50_000), None]
+        );
+        let medium = StreamOptions {
+            reasoning: Some(ThinkingLevel::Medium),
+            ..Default::default()
+        };
+        assert_eq!(
+            [
+                is_replayable(&budget_model(), Some(&medium)),
+                is_replayable(&budget_model(), None),
+                is_replayable(&adaptive_model(), Some(&medium)),
+                is_replayable(&openai_model(), Some(&medium)),
+            ],
+            [false, true, true, true]
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn replays_profitable_requests_and_preserves_options_across_repeated_refreshes() {
+        let fake = fake_runtime(FakeOptions::default());
+        let signal = CancellationToken::new();
+        let transform_headers: pi_ai::models::TransformHeadersFn =
+            Arc::new(|headers| Box::pin(async move { headers }));
+        let mut req = request(
+            adaptive_model(),
+            StreamOptions {
+                reasoning: Some(ThinkingLevel::High),
+                signal: Some(signal.clone()),
+                session_id: Some("s".into()),
+                ..Default::default()
+            },
+        );
+        req.options.transform_headers = Some(transform_headers);
+        fake.warmer.start(&req, current());
+        advance(270_000).await;
+
+        {
+            let calls = fake.calls.lock();
+            assert_eq!(calls.len(), 1);
+            let (model, options) = &calls[0];
+            assert_eq!(model.id, adaptive_model().id);
+            let options = options.as_ref().unwrap();
+            assert_eq!(options.options.reasoning, Some(ThinkingLevel::High));
+            assert_eq!(options.options.session_id.as_deref(), Some("s"));
+            assert!(options.transform_headers.is_some());
+            assert_eq!(options.options.max_tokens, Some(1));
+            assert_eq!(options.options.max_retries, Some(0));
+            // A fresh signal, not the request's own.
+            signal.cancel();
+            assert!(!options.options.signal.as_ref().unwrap().is_cancelled());
+        }
+        {
+            let events = fake.events.lock();
+            assert_eq!(events[0].continuation_probability, 1.0);
+            assert_eq!(events[0].action, CacheWarmingAction::Warm);
+            close(events[0].miss_cost, 0.575);
+            close(events[0].warm_cost, 0.050025);
+        }
+        {
+            let appended = fake.append_calls.lock();
+            assert_eq!(appended.len(), 1);
+            let ((kind, provider, model, usage, note), entry) = &appended[0];
+            assert_eq!(kind, "cache_warm");
+            assert_eq!(provider, &adaptive_model().provider);
+            assert_eq!(model, &adaptive_model().id);
+            assert_eq!(usage, &warm_usage());
+            assert_eq!(note, &None);
+            let warmed = fake.warmed.lock();
+            assert_eq!(warmed.len(), 1);
+            assert_eq!(&warmed[0], entry);
+        }
+
+        advance(270_000).await;
+        assert_eq!(fake.calls.lock().len(), 2);
+        fake.warmer.cancel();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn does_not_issue_refreshes_after_their_safe_deadline() {
+        let fake = fake_runtime(FakeOptions::default());
+        fake.warmer.start(&request(adaptive_model(), StreamOptions::default()), current());
+
+        // A five-minute cache is scheduled for 4m30s and retains 15 seconds of
+        // the 30-second expiry margin. Simulate a timer delayed by sleep.
+        let id = active_run_id(&fake.warmer);
+        tokio::time::advance(Duration::from_millis(285_001)).await;
+        fake.warmer.refresh(id).await;
+
+        assert_eq!(fake.calls.lock().len(), 0);
+        let status = fake.warmer.status();
+        assert_eq!(status.state, CacheWarmingStatusState::Inactive);
+        assert_eq!(status.reason.as_deref(), Some("cache refresh deadline missed"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn rechecks_the_deadline_after_an_extension_decision() {
+        let fake = fake_runtime(FakeOptions {
+            decide: Some(Arc::new(|_| {
+                Box::pin(async {
+                    tokio::task::yield_now().await;
+                    tokio::time::advance(Duration::from_millis(285_001)).await;
+                    CacheWarmingAction::Warm
+                })
+            })),
+            ..Default::default()
+        });
+        fake.warmer.start(&request(adaptive_model(), StreamOptions::default()), current());
+        let id = active_run_id(&fake.warmer);
+        fake.warmer.refresh(id).await;
+
+        assert_eq!(fake.calls.lock().len(), 0);
+        let status = fake.warmer.status();
+        assert_eq!(status.state, CacheWarmingStatusState::Inactive);
+        assert_eq!(status.reason.as_deref(), Some("cache refresh deadline missed"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn applies_economic_decisions_and_extension_overrides() {
+        let unprofitable = fake_runtime(FakeOptions {
+            branch: Some(branch_with_prompt(5_000)),
+            ..Default::default()
+        });
+        unprofitable.warmer.start(&request(adaptive_model(), StreamOptions::default()), current());
+        advance(270_000).await;
+        assert_eq!(unprofitable.calls.lock().len(), 0);
+        let status = unprofitable.warmer.status();
+        assert_eq!(status.state, CacheWarmingStatusState::Inactive);
+        let decision = status.decision.unwrap();
+        assert_eq!(decision.action, CacheWarmingAction::Stop);
+        assert!(decision.economics_available);
+        assert_eq!(status.extension_override, Some(false));
+
+        let forced = fake_runtime(FakeOptions {
+            branch: Some(branch_with_prompt(5_000)),
+            decide: Some(Arc::new(|_| Box::pin(async { CacheWarmingAction::Warm }))),
+            ..Default::default()
+        });
+        forced.warmer.start(&request(adaptive_model(), StreamOptions::default()), current());
+        advance(270_000).await;
+        assert_eq!(forced.calls.lock().len(), 1);
+        assert_eq!(forced.warmed.lock()[0].note.as_deref(), Some("extension override"));
+        forced.warmer.cancel();
+
+        let vetoed = fake_runtime(FakeOptions {
+            decide: Some(Arc::new(|_| Box::pin(async { CacheWarmingAction::Stop }))),
+            ..Default::default()
+        });
+        vetoed.warmer.start(&request(adaptive_model(), StreamOptions::default()), current());
+        advance(270_000).await;
+        assert_eq!(vetoed.calls.lock().len(), 0);
+        let status = vetoed.warmer.status();
+        assert_eq!(status.state, CacheWarmingStatusState::Inactive);
+        assert_eq!(status.extension_override, Some(true));
+
+        let unavailable = fake_runtime(FakeOptions {
+            branch: Some(branch_with_prompt(0)),
+            ..Default::default()
+        });
+        unavailable.warmer.start(&request(adaptive_model(), StreamOptions::default()), current());
+        let status = unavailable.warmer.status();
+        assert_eq!(status.state, CacheWarmingStatusState::Inactive);
+        assert_eq!(status.reason.as_deref(), Some("cache economics unavailable"));
+        advance(270_000).await;
+        assert_eq!(unavailable.calls.lock().len(), 0);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn stops_for_unsupported_requests_context_changes_and_mode_changes() {
+        let unsupported = fake_runtime(FakeOptions::default());
+        let reason = |fake: &Fake| fake.warmer.status().reason;
+        unsupported.state.lock().mode = CacheWarmingMode::Off;
+        unsupported.warmer.start(&request(adaptive_model(), StreamOptions::default()), current());
+        assert_eq!(reason(&unsupported).as_deref(), Some("cache warming disabled"));
+        unsupported.state.lock().mode = CacheWarmingMode::Idle;
+        unsupported.warmer.start(&request(unknown_model(), StreamOptions::default()), current());
+        assert_eq!(reason(&unsupported).as_deref(), Some("cache lifetime unavailable"));
+        unsupported.warmer.start(
+            &request(
+                budget_model(),
+                StreamOptions {
+                    reasoning: Some(ThinkingLevel::High),
+                    ..Default::default()
+                },
+            ),
+            current(),
+        );
+        assert_eq!(reason(&unsupported).as_deref(), Some("request cannot be replayed safely"));
+
+        let still_current = Arc::new(AtomicBool::new(true));
+        {
+            let still_current = still_current.clone();
+            unsupported.warmer.start(
+                &request(adaptive_model(), StreamOptions::default()),
+                Arc::new(move || still_current.load(Ordering::SeqCst)),
+            );
+        }
+        still_current.store(false, Ordering::SeqCst);
+        assert_eq!(reason(&unsupported).as_deref(), Some("conversation context changed"));
+        advance(270_000).await;
+        assert_eq!(unsupported.calls.lock().len(), 0);
+
+        unsupported.warmer.start(&request(adaptive_model(), StreamOptions::default()), current());
+        unsupported.state.lock().mode = CacheWarmingMode::Off;
+        advance(270_000).await;
+        assert_eq!(unsupported.calls.lock().len(), 0);
+
+        let streaming = fake_runtime(FakeOptions {
+            mode: Some(CacheWarmingMode::Streaming),
+            branch: Some(branch_with_prompt(400_000)),
+            ..Default::default()
+        });
+        streaming.warmer.start(&request(adaptive_model(), StreamOptions::default()), current());
+        streaming.warmer.on_agent_settled();
+        assert_eq!(reason(&streaming).as_deref(), Some("agent run settled"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn aborts_replaced_requests_and_does_not_record_failed_refreshes() {
+        let release = Arc::new(tokio::sync::Notify::new());
+        let pending = fake_runtime(FakeOptions {
+            result: Some({
+                let release = release.clone();
+                Arc::new(move |model: Model| {
+                    let release = release.clone();
+                    Box::pin(async move {
+                        release.notified().await;
+                        response(&model, StopReason::Length)
+                    })
+                })
+            }),
+            ..Default::default()
+        });
+        pending.warmer.start(&request(adaptive_model(), StreamOptions::default()), current());
+        advance(270_000).await;
+        pending.warmer.start(&request(adaptive_model(), StreamOptions::default()), current());
+        {
+            let calls = pending.calls.lock();
+            let signal = calls[0].1.as_ref().unwrap().options.signal.as_ref().unwrap();
+            assert!(signal.is_cancelled());
+        }
+        release.notify_waiters();
+        pending.warmer.cancel();
+        advance(600_000).await;
+        assert_eq!(pending.calls.lock().len(), 1);
+
+        let failed = fake_runtime(FakeOptions {
+            result: Some(Arc::new(|model: Model| {
+                Box::pin(async move { response(&model, StopReason::Error) })
+            })),
+            ..Default::default()
+        });
+        failed.warmer.start(&request(adaptive_model(), StreamOptions::default()), current());
+        advance(270_000).await;
+        assert_eq!(failed.calls.lock().len(), 1);
+        assert!(failed.append_calls.lock().is_empty());
+        failed.warmer.cancel();
+    }
+
+    #[test]
+    fn formats_status_and_usage_entries() {
+        let decision = CacheWarmingDecision {
+            phase: CacheWarmingDecisionPhase::Idle,
+            warm_cost: 0.013,
+            miss_cost: 0.621,
+            continuation_probability: 0.6,
+            expected_savings: 0.36,
+            economics_available: true,
+            action: CacheWarmingAction::Warm,
+        };
+        let status = CacheWarmingStatus {
+            state: CacheWarmingStatusState::Scheduled,
+            reason: None,
+            next_warm_at: Some(222_000.0),
+            decision: Some(decision),
+            extension_override: None,
+        };
+        assert_eq!(
+            format_cache_warming_status(&status, Some(0.0)),
+            "Decision in 3m 42s (60% continuation probability, expected savings $0.360 >= $0.050 -> warm)"
+        );
+        let mut usage = warm_usage();
+        usage.cost.input = 0.00004;
+        usage.cost.output = 0.00005;
+        usage.cost.cache_read = 0.02940725;
+        usage.cost.cache_write = 0.0;
+        usage.cost.total = 0.02949725;
+        let model = adaptive_model();
+        let entry = SessionManager::in_memory(None, None, None)
+            .unwrap()
+            .append_usage("cache_warm", &model.provider, &model.id, usage, Some("extension override"))
+            .unwrap();
+        assert_eq!(format_cache_warming_usage(&entry), "Cache warmed (extension override): $0.029497");
+    }
 }

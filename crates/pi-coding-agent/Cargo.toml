@@ -46,6 +46,7 @@ sha1.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
 
 [lib]
 name = "pi_coding_agent"

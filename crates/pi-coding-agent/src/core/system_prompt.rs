@@ -444,3 +444,222 @@ pub fn diff_system_prompt_sections(
     }
     if patch.is_empty() { None } else { Some(patch) }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Ported from `test/system-prompt.test.ts`.
+    use super::*;
+    use crate::core::source_info::{CreateSyntheticSourceInfoOptions, create_synthetic_source_info};
+
+    fn test_skill() -> Skill {
+        Skill {
+            name: "test-skill".into(),
+            description: "A test skill.".into(),
+            file_path: "/skills/test-skill/SKILL.md".into(),
+            base_dir: "/skills/test-skill".into(),
+            source_info: create_synthetic_source_info(
+                "/skills/test-skill/SKILL.md",
+                &CreateSyntheticSourceInfoOptions {
+                    source: "test".into(),
+                    scope: None,
+                    origin: None,
+                    base_dir: None,
+                },
+            ),
+            disable_model_invocation: false,
+        }
+    }
+
+    fn cwd() -> String {
+        std::env::current_dir().unwrap().to_string_lossy().into_owned()
+    }
+
+    fn strs(values: &[&str]) -> Vec<String> {
+        values.iter().map(|s| s.to_string()).collect()
+    }
+
+    fn opts(selected: Option<&[&str]>) -> BuildSystemPromptOptions {
+        let mut o = BuildSystemPromptOptions::new(cwd());
+        o.selected_tools = selected.map(strs);
+        o.context_files = Some(Vec::new());
+        o.skills = Some(Vec::new());
+        o
+    }
+
+    fn build(o: &BuildSystemPromptOptions) -> String {
+        build_system_prompt(o).unwrap()
+    }
+
+    #[test]
+    fn shows_none_for_empty_tools_list() {
+        assert!(build(&opts(Some(&[]))).contains("<tools>\n(none)\n"));
+    }
+
+    #[test]
+    fn shows_file_paths_guideline_even_with_no_tools() {
+        assert!(build(&opts(Some(&[]))).contains("Show file paths clearly"));
+    }
+
+    #[test]
+    fn keeps_the_default_and_custom_prompt_prefixes_exact() {
+        let mut d = opts(Some(&[]));
+        d.cwd = "/tmp".into();
+        let mut c = d.clone();
+        c.custom_prompt = Some("You are Exact.".into());
+        assert!(build(&d).starts_with("You are an expert coding assistant operating inside pi"));
+        assert!(build(&c).starts_with("You are Exact.\n\n<cwd>"));
+    }
+
+    #[test]
+    fn preserves_an_exact_forced_prompt_without_sections() {
+        let mut o = BuildSystemPromptOptions::new("/tmp");
+        o.force_system_prompt = Some("exact".into());
+        assert_eq!(build(&o), "exact");
+    }
+
+    #[test]
+    fn maps_appended_instructions_and_project_context_to_stable_sections() {
+        let mut o = opts(Some(&[]));
+        o.cwd = "/tmp".into();
+        o.custom_prompt = Some("You are Exact.".into());
+        o.append_system_prompt = Some("Additional instructions.".into());
+        o.context_files = Some(vec![BuildSystemPromptOptionsContextFiles {
+            path: "/tmp/AGENTS.md".into(),
+            content: "Project instructions.".into(),
+        }]);
+        let prompt = build(&o);
+        assert!(prompt.contains("<addendum>\nAdditional instructions.\n</addendum>"));
+        assert!(prompt.contains(
+            "<project_context>\nProject-specific instructions and guidelines:\n\n<project_instructions path=\"/tmp/AGENTS.md\">"
+        ));
+        assert!(prompt.contains("<cwd>\n/tmp\n</cwd>"));
+    }
+
+    #[test]
+    fn includes_all_default_tools_when_snippets_are_provided() {
+        let mut o = opts(None);
+        o.tool_snippets = Some(
+            [
+                ("read", "Read file contents"),
+                ("bash", "Execute bash commands"),
+                ("edit", "Make surgical edits"),
+                ("write", "Create or overwrite files"),
+            ]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect(),
+        );
+        let prompt = build(&o);
+        for tool in ["read", "bash", "edit", "write"] {
+            assert!(prompt.contains(&format!("- {tool}:")), "missing {tool}");
+        }
+    }
+
+    #[test]
+    fn uses_shell_specific_guidance() {
+        let cases: [(&[&str], &str); 2] = [
+            (&["powershell"], "Use PowerShell for file operations"),
+            (&["bash", "powershell"], "Use bash or PowerShell for file operations"),
+        ];
+        for (tools, expected) in cases {
+            assert!(build(&opts(Some(tools))).contains(expected), "{tools:?}");
+        }
+    }
+
+    #[test]
+    fn instructs_models_to_resolve_pi_docs_and_examples_under_absolute_base_paths() {
+        let prompt = build(&opts(None));
+        assert!(prompt.contains(
+            "- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory"
+        ));
+        assert!(prompt.contains("environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md)"));
+    }
+
+    #[test]
+    fn includes_custom_tools_when_prompt_snippet_is_provided() {
+        let mut o = opts(Some(&["read", "dynamic_tool"]));
+        o.tool_snippets = Some(IndexMap::from([(
+            "dynamic_tool".to_string(),
+            "Run dynamic test behavior".to_string(),
+        )]));
+        assert!(build(&o).contains("- dynamic_tool: Run dynamic test behavior"));
+    }
+
+    #[test]
+    fn omits_custom_tools_when_prompt_snippet_is_not_provided() {
+        assert!(!build(&opts(Some(&["read", "dynamic_tool"]))).contains("dynamic_tool"));
+    }
+
+    #[test]
+    fn appends_prompt_guidelines_to_default_guidelines() {
+        let mut o = opts(Some(&["read", "dynamic_tool"]));
+        o.prompt_guidelines = Some(strs(&["Use dynamic_tool for project summaries."]));
+        assert!(build(&o).contains("- Use dynamic_tool for project summaries."));
+    }
+
+    #[test]
+    fn deduplicates_and_trims_prompt_guidelines() {
+        let mut o = opts(Some(&["read", "dynamic_tool"]));
+        o.prompt_guidelines = Some(strs(&[
+            "Use dynamic_tool for summaries.",
+            "  Use dynamic_tool for summaries.  ",
+            "   ",
+        ]));
+        assert_eq!(build(&o).matches("- Use dynamic_tool for summaries.").count(), 1);
+    }
+
+    #[test]
+    fn includes_skills_with_only_bash() {
+        for custom in [None, Some("Custom system prompt")] {
+            let mut o = opts(Some(&["bash"]));
+            o.custom_prompt = custom.map(String::from);
+            o.skills = Some(vec![test_skill()]);
+            let prompt = build(&o);
+            assert!(prompt.contains("<skills>"), "{custom:?}");
+            assert!(prompt.contains("<available_skills>"));
+            assert!(prompt.contains("<name>test-skill</name>"));
+            assert!(prompt.contains("Use bash to load a skill's file"));
+        }
+    }
+
+    #[test]
+    fn omits_skills_without_read_or_bash() {
+        let mut o = opts(Some(&["write"]));
+        o.skills = Some(vec![test_skill()]);
+        assert!(!build(&o).contains("<available_skills>"));
+    }
+
+    fn build_hidden(hidden: &[&str]) -> String {
+        let mut o = opts(Some(&["read", "bash", "run"]));
+        o.hidden_tools = Some(strs(hidden));
+        o.tool_snippets = Some(
+            [("read", "Read files"), ("bash", "Run commands"), ("run", "Run a task")]
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        );
+        o.tool_guidelines = Some(IndexMap::from([
+            ("read".to_string(), strs(&["Use read for files."])),
+            ("run".to_string(), strs(&["Prefer run."])),
+        ]));
+        o.skills = Some(vec![test_skill()]);
+        build(&o)
+    }
+
+    #[test]
+    fn leaves_hidden_tools_out_of_the_tool_list_and_rules() {
+        let prompt = build_hidden(&["read", "bash"]);
+        assert!(prompt.contains("<tools>\n- run: Run a task\n"));
+        assert!(!prompt.contains("- read: "));
+        assert!(!prompt.contains("Use read for files."));
+        assert!(!prompt.contains("Use bash for file operations"));
+        assert!(prompt.contains("- Prefer run."));
+    }
+
+    #[test]
+    fn keeps_skills_without_naming_a_hidden_reader() {
+        assert!(build_hidden(&["read", "bash"]).contains("\nLoad a skill's file when the task matches its description."));
+        assert!(build_hidden(&["read"]).contains("Use bash to load a skill's file"));
+        assert!(build_hidden(&[]).contains("Use the read tool to load a skill's file"));
+    }
+}

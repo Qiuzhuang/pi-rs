@@ -1029,7 +1029,7 @@ async fn run_stream(
                 saw_message_end = true;
             }
             if let Some(observer) = &options.on_provider_stream_event {
-                observer(&event, &model);
+                observer(event.clone(), model.clone()).await;
             }
             match event_type.as_str() {
                 "message_start" => {

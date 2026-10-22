@@ -605,7 +605,7 @@ async fn run_stream(
             };
             for pi_event in events {
                 if let Some(observer) = &options.on_provider_stream_event {
-                    observer(&pi_event, &model);
+                    observer(pi_event.clone(), model.clone()).await;
                 }
                 let Some(event) = converter.convert(&pi_event) else {
                     continue;

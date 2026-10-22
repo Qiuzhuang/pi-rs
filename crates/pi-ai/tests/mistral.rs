@@ -261,7 +261,7 @@ async fn forwards_parsed_events_and_handles_bytewise_utf8() {
     let sink = received.clone();
     let options = StreamOptions {
         api_key: Some("test".into()),
-        on_provider_stream_event: Some(Arc::new(move |event: &Value, _: &Model| sink.lock().push(event.clone()))),
+        on_provider_stream_event: Some(Arc::new(move |event: Value, _: Model| { sink.lock().push(event); Box::pin(async {}) })),
         ..Default::default()
     };
     let result = mistral_conversations::stream(&model, &hello(), options).result().await;

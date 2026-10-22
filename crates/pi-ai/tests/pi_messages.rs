@@ -122,8 +122,9 @@ async fn forwards_wire_events_in_order() {
     let received: Arc<Mutex<Vec<Value>>> = Arc::default();
     let sink = received.clone();
     let mut options = key("test-key");
-    options.on_provider_stream_event = Some(Arc::new(move |event: &Value, _m: &Model| {
-        sink.lock().push(event.clone())
+    options.on_provider_stream_event = Some(Arc::new(move |event: Value, _m: Model| {
+        sink.lock().push(event);
+        Box::pin(async {})
     }));
     let message = pi_messages::stream_simple(&model, &normalize_context(&context()), options)
         .result()

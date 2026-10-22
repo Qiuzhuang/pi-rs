@@ -296,7 +296,7 @@ async fn run_loop(
                     model: config.model.clone(),
                     thinking_level: thinking_level_of(&config),
                 };
-                if let Some(update) = prepare_request(request, signal.clone()).await {
+                if let Some(update) = prepare_request(request, signal.clone()).await? {
                     if let Some(context) = update.context {
                         current_context = context;
                     }

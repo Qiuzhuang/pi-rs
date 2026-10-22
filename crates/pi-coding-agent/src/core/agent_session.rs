@@ -1541,7 +1541,9 @@ impl AgentSession {
             let weak = weak.clone();
             let previous = previous.clone();
             Box::pin(async move {
-                let session = weak.upgrade()?;
+                let Some(session) = weak.upgrade() else {
+                    return Ok(None);
+                };
                 session.prepare_request(request, signal, previous).await
             })
         })));
@@ -1552,7 +1554,7 @@ impl AgentSession {
         request: &PrepareRequestContext,
         signal: &CancellationToken,
         previous: &Option<PrepareRequestFn>,
-    ) -> (Option<AgentRequestUpdate>, AgentContext, SessionProjection) {
+    ) -> anyhow::Result<(Option<AgentRequestUpdate>, AgentContext, SessionProjection)> {
         let projection = self.session_manager.build_session_projection();
         let canonical_context = AgentContext {
             messages: projection.messages.clone(),
@@ -1569,7 +1571,7 @@ impl AgentSession {
                     },
                     signal.clone(),
                 )
-                .await
+                .await?
             }
             None => None,
         };
@@ -1578,7 +1580,7 @@ impl AgentSession {
             .and_then(|p| p.context.clone())
             .unwrap_or(canonical_context);
         let _ = request;
-        (previous_update, context, projection)
+        Ok((previous_update, context, projection))
     }
 
     async fn prepare_request(
@@ -1586,10 +1588,10 @@ impl AgentSession {
         request: PrepareRequestContext,
         signal: CancellationToken,
         previous: Option<PrepareRequestFn>,
-    ) -> Option<AgentRequestUpdate> {
+    ) -> anyhow::Result<Option<AgentRequestUpdate>> {
         let failed = self.state.lock().failed_response.take();
         let (mut previous_update, mut context, projection) =
-            self.prepare_request_inner(&request, &signal, &previous).await;
+            self.prepare_request_inner(&request, &signal, &previous).await?;
         let model = previous_update
             .as_ref()
             .and_then(|p| p.model.clone())
@@ -1599,11 +1601,11 @@ impl AgentSession {
             .and_then(|p| p.thinking_level)
             .unwrap_or_else(|| self.agent.thinking_level());
         if !is_virtual_model(&model) {
-            return Some(AgentRequestUpdate {
+            return Ok(Some(AgentRequestUpdate {
                 context: Some(context),
                 model: Some(model),
                 thinking_level: Some(thinking_level),
-            });
+            }));
         }
 
         // The selection stays in agent state; only this request uses the routed model. Only
@@ -1642,18 +1644,8 @@ impl AgentSession {
                 },
             )
             .await;
-        let route = match route {
-            Ok(route) => route,
-            Err(error) => {
-                // A routing failure ends the run with an error response.
-                self.report_route_failure(&model, &error);
-                return Some(AgentRequestUpdate {
-                    context: Some(context),
-                    model: Some(model),
-                    thinking_level: Some(thinking_level),
-                });
-            }
-        };
+        // A routing failure rejects, which ends the run with an error response.
+        let route = route?;
         if let Some(route_state) = &route.state
             && Some(route_state) != state.as_ref()
         {
@@ -1674,24 +1666,16 @@ impl AgentSession {
         if self.exceeds_compaction_threshold(&route.model, &projection) {
             self.run_auto_compaction(CompactionReason::Threshold, false)
                 .await;
-            let (p, c, _) = self.prepare_request_inner(&request, &signal, &previous).await;
+            let (p, c, _) = self.prepare_request_inner(&request, &signal, &previous).await?;
             previous_update = p;
             context = c;
         }
         let _ = previous_update;
-        Some(AgentRequestUpdate {
+        Ok(Some(AgentRequestUpdate {
             context: Some(context),
             model: Some(route.model),
             thinking_level: Some(route.thinking_level),
-        })
-    }
-
-    fn report_route_failure(&self, model: &Model, error: &anyhow::Error) {
-        tracing::warn!(
-            "virtual model {}/{} failed to route: {error}",
-            model.provider,
-            model.id
-        );
+        }))
     }
 
     async fn dispatch_turn_end_boundary(

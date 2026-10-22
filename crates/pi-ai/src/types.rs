@@ -186,8 +186,11 @@ pub type OnPayload =
     Arc<dyn Fn(Value, Model) -> BoxFuture<'static, Option<Value>> + Send + Sync>;
 /// Callback invoked after an HTTP response is received and before its body is consumed.
 pub type OnResponse = Arc<dyn Fn(ProviderResponse, Model) -> BoxFuture<'static, ()> + Send + Sync>;
-/// Observer for each parsed provider stream event before normalization.
-pub type OnProviderStreamEvent = Arc<dyn Fn(&Value, &Model) + Send + Sync>;
+/// Observer for each parsed provider stream event before normalization. Providers await the
+/// returned future before processing the event, so slow observers delay stream consumption
+/// (TypeScript `onProviderStreamEvent` returning a promise).
+pub type OnProviderStreamEvent =
+    Arc<dyn Fn(Value, Model) -> BoxFuture<'static, ()> + Send + Sync>;
 
 /// Deferred-response request window.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -975,16 +975,21 @@ impl<'a> ResponsesStreamProcessor<'a> {
         Ok(())
     }
 
-    /// Process one parsed stream event.
+    /// Await the provider stream-event observer for one raw event. Call before
+    /// [`Self::handle_event`].
+    pub async fn observe(&self, event: &Value) {
+        if let Some(observer) = &self.options.on_provider_stream_event {
+            observer(event.clone(), self.model.clone()).await;
+        }
+    }
+
+    /// Process one parsed stream event (after [`Self::observe`]).
     pub fn handle_event(
         &mut self,
         event: &Value,
         output: &mut AssistantMessage,
         sender: &AssistantMessageEventSender,
     ) -> anyhow::Result<()> {
-        if let Some(observer) = &self.options.on_provider_stream_event {
-            observer(event, self.model);
-        }
         let event_type = str_of(event, "type").unwrap_or_default();
         let key = output_index_key(event);
         match event_type {
@@ -1367,6 +1372,7 @@ where
     let mut processor = ResponsesStreamProcessor::new(model, options);
     while let Some(event) = events.next().await {
         let event = event?;
+        processor.observe(&event).await;
         processor.handle_event(&event, output, sender)?;
     }
     processor.finish(output)

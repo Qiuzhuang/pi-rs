@@ -1132,11 +1132,11 @@ async fn prepares_the_initial_request_after_pending_messages_and_can_replace_req
         context.messages = vec![can.clone()];
         let model = model.clone();
         async move {
-            Some(AgentRequestUpdate {
+            Ok(Some(AgentRequestUpdate {
                 context: Some(context),
                 model: Some(model),
                 thinking_level: Some(ThinkingLevel::High),
-            })
+            }))
         }
     }));
 
@@ -1185,7 +1185,7 @@ async fn does_not_poll_steering_after_prepare_request() {
         if p.fetch_add(1, Ordering::SeqCst) + 1 == 1 {
             q.lock().push(l.clone());
         }
-        async { None }
+        async { Ok(None) }
     }));
     let (inc, late_message) = (included.clone(), late.to_message().unwrap());
     let stream_fn = mock_stream_fn(move |_, context, _| {
@@ -1204,6 +1204,31 @@ async fn does_not_poll_steering_after_prepare_request() {
     assert_eq!(preparations.load(Ordering::SeqCst), 2);
     // Startup, post-turn delivery, then the final natural-stop check.
     assert_eq!(steering_polls.load(Ordering::SeqCst), 3);
+}
+
+#[tokio::test]
+async fn rejects_the_run_when_prepare_request_fails() {
+    let mut config = identity_config();
+    config.prepare_request = Some(hooks::prepare_request(|_, _| async {
+        Err(anyhow::anyhow!("router unavailable"))
+    }));
+    let calls = Arc::new(AtomicUsize::new(0));
+    let c = calls.clone();
+    let stream_fn = mock_stream_fn(move |_, _, _| {
+        c.fetch_add(1, Ordering::SeqCst);
+        respond(assistant_text("done"))
+    });
+    let result = run_agent_loop(
+        vec![user("prompt")],
+        AgentContext::new(vec![], vec![]),
+        config,
+        event_sink(|_| {}),
+        None,
+        Some(stream_fn),
+    )
+    .await;
+    assert_eq!(result.unwrap_err().to_string(), "router unavailable");
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
 }
 
 #[tokio::test]

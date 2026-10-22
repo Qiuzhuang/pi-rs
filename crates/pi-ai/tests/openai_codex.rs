@@ -90,9 +90,10 @@ async fn streams_sse_and_forwards_provider_events() {
     let events: Arc<Mutex<Vec<String>>> = Arc::default();
     let sink = events.clone();
     let mut opts = options(&token, Transport::Sse);
-    opts.on_provider_stream_event = Some(Arc::new(move |event: &Value, _m: &Model| {
+    opts.on_provider_stream_event = Some(Arc::new(move |event: Value, _m: Model| {
         sink.lock()
             .push(event["type"].as_str().unwrap_or_default().to_string());
+        Box::pin(async {})
     }));
     let (all, message) = codex::stream(&model(&server.base_url), &context("Say hello"), opts)
         .collect_all()
@@ -424,9 +425,10 @@ async fn websocket_auto_transport_from_stream_simple() {
     let sink = events.clone();
     let mut opts = options(&mock_token("a"), Transport::Auto);
     opts.session_id = Some("session-auto-ws".into());
-    opts.on_provider_stream_event = Some(Arc::new(move |event: &Value, _m: &Model| {
+    opts.on_provider_stream_event = Some(Arc::new(move |event: Value, _m: Model| {
         sink.lock()
             .push(event["type"].as_str().unwrap_or_default().to_string());
+        Box::pin(async {})
     }));
     let message = codex::stream_simple(&model(&server.base_url), &context("Say hello"), opts)
         .result()

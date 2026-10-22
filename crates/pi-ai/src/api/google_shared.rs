@@ -1549,7 +1549,7 @@ pub async fn run_google_stream(model: Model, context: TranscriptContext, options
         let mut in_block = false;
         while let Some(chunk) = reader.next_chunk().await? {
             if let Some(observer) = &options.on_provider_stream_event {
-                observer(&chunk, &model);
+                observer(chunk.clone(), model.clone()).await;
             }
             process_chunk(&chunk, &model, &mut output, &sender, &mut in_block)?;
         }

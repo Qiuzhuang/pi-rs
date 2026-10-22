@@ -1316,7 +1316,7 @@ async fn run_stream(model: Model, context: TranscriptContext, options: StreamOpt
         };
         while let Some(item) = reader.next_item().await? {
             if let Some(observer) = &options.on_provider_stream_event {
-                observer(&item, &model);
+                observer(item.clone(), model.clone()).await;
             }
             handle_item(&item, &model, &mut output, &sender, &mut state)?;
         }

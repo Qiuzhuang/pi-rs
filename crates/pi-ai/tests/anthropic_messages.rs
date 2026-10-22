@@ -42,8 +42,9 @@ async fn streams_text_and_sends_sdk_shaped_request() {
     let sink = observed.clone();
     let options = StreamOptions {
         api_key: Some("sk-ant-test".into()),
-        on_provider_stream_event: Some(std::sync::Arc::new(move |event: &serde_json::Value, _m: &Model| {
+        on_provider_stream_event: Some(std::sync::Arc::new(move |event: serde_json::Value, _m: Model| {
             sink.lock().push(event["type"].as_str().unwrap_or_default().to_string());
+            Box::pin(async {})
         })),
         ..Default::default()
     };

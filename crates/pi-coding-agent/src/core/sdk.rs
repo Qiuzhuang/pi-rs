@@ -524,24 +524,25 @@ pub async fn create_agent_session(
         })
     });
     let stream_event_runner_ref = extension_runner_ref.clone();
-    let handle_provider_stream_event: OnProviderStreamEvent = Arc::new(move |data: &Value, model: &Model| {
-        let Some(runner) = stream_event_runner_ref.current() else {
-            return;
-        };
-        if !runner.has_handlers("provider_stream_event") {
-            return;
-        }
-        let event = ProviderStreamEvent {
-            data: data.clone(),
-            provider: model.provider.clone(),
-            api: model.api.clone(),
-            model: model.id.clone(),
-        };
-        if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            handle.spawn(async move {
-                let _ = runner.emit(ExtensionEvent::ProviderStream(event)).await;
-            });
-        }
+    let handle_provider_stream_event: OnProviderStreamEvent = Arc::new(move |data: Value, model: Model| {
+        let runner = stream_event_runner_ref.current();
+        // Handlers are awaited in stream order, so slow handlers delay stream consumption.
+        Box::pin(async move {
+            let Some(runner) = runner else {
+                return;
+            };
+            if !runner.has_handlers("provider_stream_event") {
+                return;
+            }
+            let _ = runner
+                .emit(ExtensionEvent::ProviderStream(ProviderStreamEvent {
+                    data,
+                    provider: model.provider.clone(),
+                    api: model.api.clone(),
+                    model: model.id.clone(),
+                }))
+                .await;
+        })
     });
 
     // Warm only requests for the selected model. Requests a virtual selection routed, or that an

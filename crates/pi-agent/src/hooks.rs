@@ -51,7 +51,7 @@ where
 pub fn prepare_request<F, Fut>(f: F) -> PrepareRequestFn
 where
     F: Fn(PrepareRequestContext, CancellationToken) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = Option<AgentRequestUpdate>> + Send + 'static,
+    Fut: Future<Output = anyhow::Result<Option<AgentRequestUpdate>>> + Send + 'static,
 {
     Arc::new(move |request, signal| Box::pin(f(request, signal)))
 }

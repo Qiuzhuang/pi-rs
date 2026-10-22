@@ -826,7 +826,7 @@ async fn run_stream(model: Model, context: TranscriptContext, options: StreamOpt
         while reader.next(&mut queue).await? {
             while let Some(chunk) = queue.pop_front() {
                 if let Some(observer) = &options.on_provider_stream_event {
-                    observer(&chunk, &model);
+                    observer(chunk.clone(), model.clone()).await;
                 }
                 consume_chunk(&chunk, &model, &mut output, &sender, &mut state);
             }

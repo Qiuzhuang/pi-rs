@@ -924,9 +924,10 @@ async fn early_eof_streams_error_and_forward_provider_events() {
     let events: Arc<Mutex<Vec<String>>> = Arc::default();
     let sink = events.clone();
     let mut options = api_key("test");
-    options.on_provider_stream_event = Some(Arc::new(move |event: &Value, _model: &Model| {
+    options.on_provider_stream_event = Some(Arc::new(move |event: Value, _model: Model| {
         sink.lock()
             .push(event["type"].as_str().unwrap_or_default().to_string());
+        Box::pin(async {})
     }));
     let server = serve_sequence(vec![Reply::sse(data_sse(&early_eof_events()))]).await;
     let mut model = model;
@@ -1245,8 +1246,9 @@ async fn azure_requests_use_api_key_and_api_version() {
     let sink = events.clone();
     let mut options = api_key("azure-key");
     options.session_id = Some("x".repeat(70));
-    options.on_provider_stream_event = Some(Arc::new(move |event: &Value, _m: &Model| {
-        sink.lock().push(event.clone())
+    options.on_provider_stream_event = Some(Arc::new(move |event: Value, _m: Model| {
+        sink.lock().push(event);
+        Box::pin(async {})
     }));
     let result = azure_openai_responses::stream(&model, &hi(), options)
         .result()

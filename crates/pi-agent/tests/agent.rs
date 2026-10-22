@@ -1138,10 +1138,13 @@ async fn forwards_provider_stream_event_observers() {
     let provider_events = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
     let p = provider_events.clone();
     let agent = agent_with(AgentOptions {
-        on_provider_stream_event: Some(Arc::new(move |data, _| p.lock().push(data.clone()))),
+        on_provider_stream_event: Some(Arc::new(move |data, _| {
+            p.lock().push(data);
+            Box::pin(async {})
+        })),
         ..options_with(mock_stream_fn(|model, _, options| {
             if let Some(observer) = &options.on_provider_stream_event {
-                observer(&json!({ "request_cost": 0.01 }), &model);
+                futures::executor::block_on(observer(json!({ "request_cost": 0.01 }), model.clone()));
             }
             respond(assistant_text("ok"))
         }))

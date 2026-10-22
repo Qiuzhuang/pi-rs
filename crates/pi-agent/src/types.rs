@@ -889,12 +889,13 @@ pub type FinishTurnFn = Arc<
         + Send
         + Sync,
 >;
-/// Called immediately before every conversational provider request.
+/// Called immediately before every conversational provider request. `Err` rejects the request:
+/// the run ends with an error response (TypeScript `prepareRequest` throwing).
 pub type PrepareRequestFn = Arc<
     dyn Fn(
             PrepareRequestContext,
             CancellationToken,
-        ) -> BoxFuture<'static, Option<AgentRequestUpdate>>
+        ) -> BoxFuture<'static, anyhow::Result<Option<AgentRequestUpdate>>>
         + Send
         + Sync,
 >;

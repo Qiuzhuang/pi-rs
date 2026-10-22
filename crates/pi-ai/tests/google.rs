@@ -64,7 +64,7 @@ async fn streams_gemini_text_with_sdk_shaped_request() {
     let sink = received.clone();
     let options = StreamOptions {
         api_key: Some("test-api-key".into()),
-        on_provider_stream_event: Some(Arc::new(move |chunk: &Value, _: &Model| sink.lock().push(chunk.clone()))),
+        on_provider_stream_event: Some(Arc::new(move |chunk: Value, _: Model| { sink.lock().push(chunk); Box::pin(async {}) })),
         ..Default::default()
     };
     let (events, result) = google_generative_ai::stream(&model, &context("hello"), options).collect_all().await;

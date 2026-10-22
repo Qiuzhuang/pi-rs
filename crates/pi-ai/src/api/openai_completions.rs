@@ -1173,7 +1173,7 @@ async fn run_stream(model: Model, context: TranscriptContext, options: StreamOpt
                 continue;
             }
             if let Some(observer) = &options.on_provider_stream_event {
-                observer(&chunk, &model);
+                observer(chunk.clone(), model.clone()).await;
             }
             if !chunk.is_object() {
                 continue;

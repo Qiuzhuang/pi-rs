@@ -83,7 +83,7 @@ async fn streams_events_and_sends_a_signed_converse_request() {
         cache_retention: Some(CacheRetention::None),
         env: Some(env(&[("AWS_ACCESS_KEY_ID", "AKIDEXAMPLE"), ("AWS_SECRET_ACCESS_KEY", "secret"), ("AWS_SESSION_TOKEN", "session")])),
         headers: Some(headers),
-        on_provider_stream_event: Some(Arc::new(move |item: &Value, _: &Model| sink.lock().push(item.clone()))),
+        on_provider_stream_event: Some(Arc::new(move |item: Value, _: Model| { sink.lock().push(item); Box::pin(async {}) })),
         ..Default::default()
     };
     let (events, message) = bedrock_converse_stream::stream(&model, &hello(), options).collect_all().await;

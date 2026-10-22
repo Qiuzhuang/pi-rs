@@ -799,9 +799,9 @@ impl<'a> CodexEventPipeline<'a> {
     }
 
     /// Observe and map one raw event (`mapCodexEvents`).
-    fn map(&self, event: Value, output: &mut AssistantMessage) -> anyhow::Result<MappedEvent> {
+    async fn map(&self, event: Value, output: &mut AssistantMessage) -> anyhow::Result<MappedEvent> {
         if let Some(observer) = &self.on_provider_stream_event {
-            observer(&event, self.model);
+            observer(event.clone(), self.model.clone()).await;
         }
         map_codex_event(event, output)
     }
@@ -828,13 +828,13 @@ impl<'a> CodexEventPipeline<'a> {
     }
 
     /// Returns true once the terminal event was processed.
-    fn handle(
+    async fn handle(
         &mut self,
         event: Value,
         output: &mut AssistantMessage,
         sender: &AssistantMessageEventSender,
     ) -> anyhow::Result<bool> {
-        let mapped = self.map(event, output)?;
+        let mapped = self.map(event, output).await?;
         self.process(mapped, output, sender)
     }
 
@@ -934,7 +934,7 @@ async fn process_sse_stream(
             None => (decoder.push(&[], true)?, true),
         };
         for event in events {
-            if pipeline.handle(event, output, sender)? {
+            if pipeline.handle(event, output, sender).await? {
                 break 'outer;
             }
         }
@@ -1667,7 +1667,7 @@ async fn process_websocket_stream(
             }
             match read_websocket_event(&mut acquired.socket, signal, idle_timeout_ms).await? {
                 SocketRead::Event(event) => {
-                    let mapped = pipeline.map(event, output)?;
+                    let mapped = pipeline.map(event, output).await?;
                     if matches!(mapped, MappedEvent::Skip) {
                         continue;
                     }

@@ -29,3 +29,10 @@ mod chrome;
 fn golden_chrome() {
     harness::run("chrome.json", chrome::build);
 }
+#[path = "golden/selectors.rs"]
+mod selectors;
+
+#[test]
+fn golden_selectors() {
+    harness::run("selectors.json", selectors::build);
+}

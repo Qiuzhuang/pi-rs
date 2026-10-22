@@ -541,6 +541,8 @@ pub(crate) fn js_tool_definition(bridge: &Arc<Bridge>, tool: &Value) -> anyhow::
     let description = tool["description"].as_str().unwrap_or_default().to_string();
     let parameters = tool["parameters"].clone();
 
+    // Built-in tools (Rust markers) have TypeBox schemas in TS.
+    let parameters_typebox = tool["parametersTypebox"].as_bool() == Some(true) || rust_marker(&tool["execute"]).is_some();
     let execute: ToolExecuteFn = match rust_marker(&tool["execute"]) {
         Some(marker) => builtin::rust_execute(bridge, marker)?,
         None => {
@@ -555,6 +557,7 @@ pub(crate) fn js_tool_definition(bridge: &Arc<Bridge>, tool: &Value) -> anyhow::
         prompt_snippet: tool["promptSnippet"].as_str().map(str::to_string),
         prompt_guidelines: opt(&tool["promptGuidelines"]).unwrap_or(None),
         parameters,
+        parameters_typebox,
         constrained_sampling: if tool["constrainedSampling"].is_object() {
             serde_json::from_value(tool["constrainedSampling"].clone()).ok()
         } else {

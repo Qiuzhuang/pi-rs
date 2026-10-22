@@ -6427,6 +6427,9 @@ impl pi_agent::types::AgentTool for DescribedTool {
     fn parameters(&self) -> &Value {
         self.inner.parameters()
     }
+    fn parameters_typebox(&self) -> bool {
+        self.inner.parameters_typebox()
+    }
     fn constrained_sampling(&self) -> Option<&pi_ai::types::ConstrainedSampling> {
         self.inner.constrained_sampling()
     }

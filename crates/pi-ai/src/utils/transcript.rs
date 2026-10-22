@@ -159,6 +159,7 @@ pub fn to_tool_declaration(tool: &Tool) -> Tool {
         description: tool.description.clone(),
         parameters: tool.parameters.clone(),
         constrained_sampling: tool.constrained_sampling.clone(),
+        typebox: tool.typebox,
     }
 }
 

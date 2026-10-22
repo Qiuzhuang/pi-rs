@@ -604,6 +604,340 @@ pub fn check_schema(schema: &Value, value: &Value) -> bool {
 }
 
 // ---------------------------------------------------------------------------
+// TypeBox `Value.Convert` (typebox 1.3.27, `build/value/convert`)
+// ---------------------------------------------------------------------------
+
+/// The TypeBox kind of a schema, inferred from the JSON TypeBox emits for it (the `~kind`
+/// marker itself is non-enumerable and does not survive JSON).
+enum TypeBoxKind<'a> {
+    Array(&'a Value),
+    Tuple(&'a [Value]),
+    Boolean,
+    Integer,
+    Number,
+    String,
+    Null,
+    Literal(&'a Value),
+    Enum(&'a [Value]),
+    Object,
+    Record(&'a Map<String, Value>),
+    Union(&'a [Value]),
+    Intersect(&'a [Value]),
+    Ref(&'a str),
+    Cyclic(&'a Map<String, Value>, &'a str),
+    Other,
+}
+
+fn typebox_kind(schema: &Value) -> TypeBoxKind<'_> {
+    let Some(map) = schema.as_object() else { return TypeBoxKind::Other };
+    if let (Some(Value::Object(defs)), Some(Value::String(reference))) = (map.get("$defs"), map.get("$ref")) {
+        return TypeBoxKind::Cyclic(defs, reference);
+    }
+    if let Some(Value::String(reference)) = map.get("$ref") {
+        return TypeBoxKind::Ref(reference);
+    }
+    if let Some(Value::Array(members)) = map.get("anyOf") {
+        return TypeBoxKind::Union(members);
+    }
+    if let Some(Value::Array(members)) = map.get("allOf") {
+        return TypeBoxKind::Intersect(members);
+    }
+    if let Some(constant) = map.get("const") {
+        return TypeBoxKind::Literal(constant);
+    }
+    if let (None, Some(Value::Array(values))) = (map.get("type"), map.get("enum")) {
+        return TypeBoxKind::Enum(values);
+    }
+    match map.get("type").and_then(Value::as_str) {
+        Some("array") => match map.get("items") {
+            Some(Value::Array(items)) => TypeBoxKind::Tuple(items),
+            Some(items @ Value::Object(_)) => TypeBoxKind::Array(items),
+            _ => TypeBoxKind::Other,
+        },
+        Some("boolean") => TypeBoxKind::Boolean,
+        Some("integer") => TypeBoxKind::Integer,
+        Some("number") => TypeBoxKind::Number,
+        Some("string") => TypeBoxKind::String,
+        Some("null") => TypeBoxKind::Null,
+        Some("object") => match map.get("patternProperties") {
+            Some(Value::Object(patterns)) if !map.contains_key("properties") => TypeBoxKind::Record(patterns),
+            _ => TypeBoxKind::Object,
+        },
+        _ => TypeBoxKind::Other,
+    }
+}
+
+/// `Guard.IsNumber`: a finite number.
+fn finite_number(value: &Value) -> Option<f64> {
+    value.as_f64().filter(|n| n.is_finite())
+}
+
+/// `TryNumber(value)`.
+fn try_number(value: &Value) -> Option<f64> {
+    match value {
+        Value::Bool(b) => Some(if *b { 1.0 } else { 0.0 }),
+        Value::Number(_) => finite_number(value),
+        Value::Null => Some(0.0),
+        Value::String(text) => {
+            // `+value`
+            if let Some(n) = js_number_from_string(text).filter(|n| n.is_finite()) {
+                return Some(n);
+            }
+            match text.to_lowercase().as_str() {
+                "false" => return Some(0.0),
+                "true" => return Some(1.0),
+                _ => {}
+            }
+            // TryBigInt: `-?(0|[1-9]\d*)n`, `-?(0|[1-9]\d*)\.\d+`, `-?(0|[1-9]\d*)`.
+            let digits = text.strip_suffix('n').unwrap_or(text);
+            let (negative, unsigned) = match digits.strip_prefix('-') {
+                Some(rest) => (true, rest),
+                None => (false, digits),
+            };
+            let integer_part = if text.ends_with('n') {
+                unsigned
+            } else {
+                unsigned.split_once('.').map(|(i, f)| if !f.is_empty() && f.bytes().all(|b| b.is_ascii_digit()) { i } else { "" }).unwrap_or(unsigned)
+            };
+            let canonical = integer_part == "0"
+                || (!integer_part.is_empty() && !integer_part.starts_with('0') && integer_part.bytes().all(|b| b.is_ascii_digit()));
+            if !canonical {
+                return None;
+            }
+            let magnitude: f64 = integer_part.parse().ok()?;
+            // Number(bigint) only within the safe integer range.
+            (magnitude <= 9_007_199_254_740_991.0).then_some(if negative { -magnitude } else { magnitude })
+        }
+        _ => None,
+    }
+}
+
+/// `TryBoolean(value)`.
+fn try_boolean(value: &Value) -> Option<bool> {
+    match value {
+        Value::Bool(b) => Some(*b),
+        Value::Number(n) => match n.as_f64() {
+            Some(x) if x == 0.0 => Some(false),
+            Some(x) if x == 1.0 => Some(true),
+            _ => None,
+        },
+        Value::Null => Some(false),
+        Value::String(text) => match text.to_lowercase().as_str() {
+            "false" => Some(false),
+            "true" => Some(true),
+            _ if text == "0" => Some(false),
+            _ if text == "1" => Some(true),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// `TryString(value)`.
+fn try_string(value: &Value) -> Option<String> {
+    match value {
+        Value::Bool(_) | Value::Number(_) => Some(js_to_string(value)),
+        Value::Null => Some("null".to_string()),
+        Value::String(s) => Some(s.clone()),
+        _ => None,
+    }
+}
+
+/// `TryNull(value)`.
+fn try_null(value: &Value) -> bool {
+    match value {
+        Value::Bool(b) => !b,
+        Value::Number(n) => n.as_f64() == Some(0.0),
+        Value::Null => true,
+        Value::String(text) => {
+            let lower = text.to_lowercase();
+            lower == "undefined" || lower == "null" || text.is_empty() || text == "0"
+        }
+        _ => false,
+    }
+}
+
+/// `new RegExp(`^${key}$`).test(candidate)` as TypeBox's `EntriesRegExp` matches property keys.
+fn key_pattern_matches(pattern: &str, candidate: &str) -> bool {
+    // Property names are almost always plain; those with regex syntax go through `regex`.
+    if !pattern.contains(|c: char| "\\^$.|?*+()[]{}".contains(c)) {
+        return pattern == candidate;
+    }
+    match regex::Regex::new(&format!("^(?:{pattern})$")) {
+        Ok(re) => re.is_match(candidate),
+        Err(_) => pattern == candidate,
+    }
+}
+
+/// `Value.Convert(schema, value)` of TypeBox 1.3.27 for a schema built with TypeBox.
+pub fn typebox_convert(schema: &Value, value: Value) -> Value {
+    typebox_convert_in(&Map::new(), schema, value)
+}
+
+fn typebox_convert_in(context: &Map<String, Value>, schema: &Value, value: Value) -> Value {
+    match typebox_kind(schema) {
+        TypeBoxKind::Array(items) => {
+            let elements = match value {
+                Value::Array(elements) => elements,
+                other => vec![other],
+            };
+            Value::Array(elements.into_iter().map(|e| typebox_convert_in(context, items, e)).collect())
+        }
+        TypeBoxKind::Tuple(items) => match value {
+            Value::Array(mut elements) => {
+                for (index, item) in items.iter().enumerate().take(elements.len()) {
+                    let current = std::mem::take(&mut elements[index]);
+                    elements[index] = typebox_convert_in(context, item, current);
+                }
+                Value::Array(elements)
+            }
+            other => other,
+        },
+        TypeBoxKind::Boolean => try_boolean(&value).map(Value::Bool).unwrap_or(value),
+        TypeBoxKind::Integer => try_number(&value).map(|n| number_value(n.trunc())).unwrap_or(value),
+        TypeBoxKind::Number => try_number(&value).map(number_value).unwrap_or(value),
+        TypeBoxKind::String => try_string(&value).map(Value::String).unwrap_or(value),
+        TypeBoxKind::Null => {
+            if try_null(&value) {
+                Value::Null
+            } else {
+                value
+            }
+        }
+        TypeBoxKind::Literal(constant) => convert_literal(constant, value),
+        TypeBoxKind::Enum(values) => {
+            // Evaluate(Enum) is a union of literals.
+            let members: Vec<Value> = values.iter().map(|v| serde_json::json!({ "const": v })).collect();
+            convert_union(context, &members, &serde_json::json!({ "anyOf": members }), value)
+        }
+        TypeBoxKind::Object => match value {
+            Value::Object(mut object) => {
+                let map = schema.as_object().expect("object kind");
+                let properties = map.get("properties").and_then(Value::as_object);
+                let keys: Vec<String> = object.keys().cloned().collect();
+                if let Some(properties) = properties {
+                    for (pattern, property) in properties {
+                        for key in &keys {
+                            if key_pattern_matches(pattern, key)
+                                && let Some(current) = object.get(key).cloned()
+                            {
+                                object.insert(key.clone(), typebox_convert_in(context, property, current));
+                            }
+                        }
+                    }
+                }
+                if let Some(additional @ Value::Object(_)) = map.get("additionalProperties") {
+                    let patterns: Vec<&String> = properties.map(|p| p.keys().collect()).unwrap_or_default();
+                    convert_additional(context, &patterns, additional, &mut object, &keys);
+                }
+                Value::Object(object)
+            }
+            other => other,
+        },
+        TypeBoxKind::Record(patterns) => match value {
+            Value::Object(mut object) => {
+                let keys: Vec<String> = object.keys().cloned().collect();
+                for (pattern, property) in patterns {
+                    for key in &keys {
+                        if key_pattern_matches(pattern, key)
+                            && let Some(current) = object.get(key).cloned()
+                        {
+                            object.insert(key.clone(), typebox_convert_in(context, property, current));
+                        }
+                    }
+                }
+                if let Some(additional @ Value::Object(_)) = schema.get("additionalProperties") {
+                    let pattern_keys: Vec<&String> = patterns.keys().collect();
+                    convert_additional(context, &pattern_keys, additional, &mut object, &keys);
+                }
+                Value::Object(object)
+            }
+            other => other,
+        },
+        TypeBoxKind::Union(members) => convert_union(context, members, schema, value),
+        TypeBoxKind::Intersect(members) => {
+            // Evaluate(Intersect) of objects: one object with the members' properties.
+            let mut properties = Map::new();
+            for member in members {
+                match member.get("properties").and_then(Value::as_object) {
+                    Some(member_properties) if member.get("type").and_then(Value::as_str) == Some("object") => {
+                        for (key, property) in member_properties {
+                            properties.insert(key.clone(), property.clone());
+                        }
+                    }
+                    _ => return value,
+                }
+            }
+            typebox_convert_in(context, &serde_json::json!({ "type": "object", "properties": properties }), value)
+        }
+        TypeBoxKind::Ref(reference) => match context.get(reference) {
+            Some(target) => typebox_convert_in(context, target, value),
+            None => value,
+        },
+        TypeBoxKind::Cyclic(defs, reference) => {
+            let mut merged = context.clone();
+            for (key, def) in defs {
+                merged.insert(key.clone(), def.clone());
+            }
+            match merged.get(reference).cloned() {
+                Some(target) => typebox_convert_in(&merged, &target, value),
+                None => value,
+            }
+        }
+        TypeBoxKind::Other => value,
+    }
+}
+
+fn convert_additional(
+    context: &Map<String, Value>,
+    patterns: &[&String],
+    additional: &Value,
+    object: &mut Map<String, Value>,
+    keys: &[String],
+) {
+    for pattern in patterns {
+        for key in keys {
+            if !key_pattern_matches(pattern, key)
+                && let Some(current) = object.get(key).cloned()
+            {
+                object.insert(key.clone(), typebox_convert_in(context, additional, current));
+            }
+        }
+    }
+}
+
+/// `FromLiteral`: convert to the literal's type when the result equals the constant.
+fn convert_literal(constant: &Value, value: Value) -> Value {
+    if js_equal(constant, &value) {
+        return value;
+    }
+    let converted = match constant {
+        Value::Bool(_) => try_boolean(&value).map(Value::Bool),
+        Value::Number(_) => try_number(&value).map(number_value),
+        Value::String(_) => try_string(&value).map(Value::String),
+        _ => None,
+    };
+    match converted {
+        Some(converted) if js_equal(constant, &converted) => converted,
+        _ => value,
+    }
+}
+
+/// `FromUnion`: keep a value a member accepts, else the first member conversion the union accepts.
+fn convert_union(context: &Map<String, Value>, members: &[Value], union: &Value, value: Value) -> Value {
+    if members.iter().any(|member| check_schema(member, &value)) {
+        return value;
+    }
+    for member in members {
+        let candidate = typebox_convert_in(context, member, value.clone());
+        if check_schema(union, &candidate) {
+            return candidate;
+        }
+    }
+    value
+}
+
+// ---------------------------------------------------------------------------
 // Coercion (plain JSON schemas)
 // ---------------------------------------------------------------------------
 
@@ -869,6 +1203,12 @@ pub fn validate_tool_arguments(tool: &Tool, tool_call: &ToolCall) -> Result<Valu
     }
     let mut args = Value::Object(tool_call.arguments.clone());
     normalize_optional_nulls(&mut args, &tool.parameters);
+    // TS: `Value.Convert(tool.parameters, args)` converts schemas built with TypeBox (it does nothing
+    // for plain JSON schemas, which carry no `~kind`); the JSON Schema coercion follows for every
+    // schema without the legacy TypeBox 0.x `Kind` symbol.
+    if tool.typebox {
+        args = typebox_convert(&tool.parameters, args);
+    }
     let args = coerce_with_json_schema(args, &tool.parameters);
 
     let validator = SchemaValidator::new(&tool.parameters);

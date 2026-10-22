@@ -1156,11 +1156,21 @@ pub struct Tool {
     pub parameters: Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub constrained_sampling: Option<ConstrainedSampling>,
+    /// The parameters were built with TypeBox 1.x (TS: the schema carries the non-enumerable
+    /// `~kind`), so argument validation applies `Value.Convert` before the JSON Schema coercion.
+    #[serde(skip)]
+    pub typebox: bool,
 }
 
 impl Tool {
     pub fn new(name: impl Into<String>, description: impl Into<String>, parameters: Value) -> Self {
-        Self { name: name.into(), description: description.into(), parameters, constrained_sampling: None }
+        Self { name: name.into(), description: description.into(), parameters, constrained_sampling: None, typebox: false }
+    }
+
+    /// Mark the parameters as built with TypeBox (see [`Tool::typebox`]).
+    pub fn with_typebox(mut self, typebox: bool) -> Self {
+        self.typebox = typebox;
+        self
     }
 }
 

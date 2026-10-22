@@ -1149,6 +1149,11 @@ pub struct ToolDefinition {
     pub prompt_guidelines: Option<Vec<String>>,
     /// Parameter JSON schema (TypeBox in TS).
     pub parameters: Value,
+    /// `parameters` was built with TypeBox (TS: the schema carries the non-enumerable `~kind`), so
+    /// argument validation runs TypeBox's `Value.Convert` before the JSON Schema coercion. Set for
+    /// the built-in tools and for JS extension tools whose schema comes from TypeBox; plain JSON
+    /// schemas (MCP tools) leave it unset.
+    pub parameters_typebox: bool,
     /// Provider-side constrained sampling request. TS `false` is `None`.
     pub constrained_sampling: Option<ConstrainedSamplingConfig>,
     /// Whether the tool execution component renders the standard shell or the tool its own framing.
@@ -1218,6 +1223,7 @@ impl ToolDefinition {
             prompt_snippet: None,
             prompt_guidelines: None,
             parameters,
+            parameters_typebox: false,
             constrained_sampling: None,
             render_shell: None,
             prepare_arguments: None,

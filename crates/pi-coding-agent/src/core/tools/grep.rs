@@ -470,6 +470,8 @@ pub fn create_grep_tool_definition(cwd: &str, options: Option<&GrepToolOptions>)
             }
         },
     );
+    // TS builds the schema with TypeBox.
+    definition.parameters_typebox = true;
     definition.prompt_snippet = Some(GREP_SNIPPET.to_string());
     let renderers = crate::core::tools::renderers::grep::grep_renderers();
     definition.render_call = renderers.render_call;

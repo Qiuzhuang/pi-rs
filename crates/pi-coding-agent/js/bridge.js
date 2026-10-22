@@ -457,6 +457,12 @@ export function describeTool(tool) {
 		promptSnippet: tool.promptSnippet,
 		promptGuidelines: tool.promptGuidelines,
 		parameters: tool.parameters,
+		// TypeBox marks its schemas with a non-enumerable `~kind` (lost in JSON); validation then
+		// runs `Value.Convert` on the arguments.
+		parametersTypebox:
+			tool.parameters !== null &&
+			typeof tool.parameters === "object" &&
+			Object.prototype.hasOwnProperty.call(tool.parameters, "~kind"),
 		constrainedSampling: tool.constrainedSampling,
 		renderShell: tool.renderShell,
 		prepareArguments: rustOr(tool.prepareArguments),

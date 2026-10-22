@@ -1318,6 +1318,11 @@ impl Inner {
                 if !updates.is_empty() {
                     this.show_package_update_notification(&updates);
                 }
+                // On Windows, npm can overwrite the shared console title while checking extension
+                // package versions. Restore Pi's title after the startup check.
+                if cfg!(windows) && this.state.lock().is_initialized {
+                    this.update_terminal_title();
+                }
             });
         }
 

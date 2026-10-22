@@ -1370,17 +1370,31 @@ pub(crate) struct DialogFinisher<T: Send + 'static> {
     tx: Arc<Mutex<Option<oneshot::Sender<Option<T>>>>>,
     id: Arc<Mutex<Option<u64>>>,
     pending: Arc<Mutex<Option<Option<T>>>>,
+    /// Cancelled once the dialog resolved, so the signal watcher stops (TS removes its abort listener).
+    resolved: tokio_util::sync::CancellationToken,
 }
 
 impl<T: Send + 'static> Clone for DialogFinisher<T> {
     fn clone(&self) -> Self {
-        Self { mode: self.mode.clone(), tx: self.tx.clone(), id: self.id.clone(), pending: self.pending.clone() }
+        Self {
+            mode: self.mode.clone(),
+            tx: self.tx.clone(),
+            id: self.id.clone(),
+            pending: self.pending.clone(),
+            resolved: self.resolved.clone(),
+        }
     }
 }
 
 impl<T: Send + 'static> DialogFinisher<T> {
     pub(crate) fn new(mode: Weak<Inner>, tx: oneshot::Sender<Option<T>>) -> Self {
-        Self { mode, tx: Arc::new(Mutex::new(Some(tx))), id: Arc::new(Mutex::new(None)), pending: Arc::new(Mutex::new(None)) }
+        Self {
+            mode,
+            tx: Arc::new(Mutex::new(Some(tx))),
+            id: Arc::new(Mutex::new(None)),
+            pending: Arc::new(Mutex::new(None)),
+            resolved: tokio_util::sync::CancellationToken::new(),
+        }
     }
 
     /// Record the dialog id once it is shown. A value delivered before that is applied now.
@@ -1398,6 +1412,7 @@ impl<T: Send + 'static> DialogFinisher<T> {
             return;
         };
         let Some(tx) = self.tx.lock().take() else { return };
+        self.resolved.cancel();
         if let Some(mode) = self.mode.upgrade() {
             let dispose = mode.state.lock().extension_dialogs.iter().find(|d| d.id == id).and_then(|d| d.dispose.clone());
             if let Some(dispose) = dispose {
@@ -1414,8 +1429,10 @@ impl<T: Send + 'static> DialogFinisher<T> {
         let this = self.clone();
         if let Some(mode) = self.mode.upgrade() {
             mode.spawn(async move {
-                signal.cancelled().await;
-                this.finish(None);
+                tokio::select! {
+                    _ = signal.cancelled() => this.finish(None),
+                    _ = this.resolved.cancelled() => {}
+                }
             });
         }
     }

@@ -47,7 +47,6 @@ use crate::core::agent_session_services::{
     CreateAgentSessionFromServicesOptionsNoTools, CreateAgentSessionFromServicesOptionsScopedModels,
     CreateAgentSessionServicesOptions, create_agent_session_from_services, create_agent_session_services,
 };
-use crate::core::auth_guidance::format_no_models_available_message;
 use crate::core::auth_storage::{AuthStorage, ReadOnlyAuthStorage};
 use crate::core::export_html::{ExportFromFileOptions, export_from_file};
 use crate::core::extensions::types::{FlagValue, InlineExtension};
@@ -1234,10 +1233,9 @@ pub async fn main(args: &[String], options: Option<&MainOptions>) -> anyhow::Res
     }
     time("createAgentSession", None);
 
-    if app_mode != AppMode::Interactive && session.model().is_none() {
-        eprintln!("{}", chalk::red(&format_no_models_available_message()));
-        exit(1);
-    }
+    // TS checks `!session.model` here, but the TS agent always reports a model (a placeholder when
+    // none was selected), so the check never fires: print and JSON modes fail on the first prompt
+    // and RPC mode starts (an extension or client can still select a model).
 
     let startup_benchmark = is_truthy_env_flag(std::env::var("PI_STARTUP_BENCHMARK").ok().as_deref());
     if startup_benchmark && app_mode != AppMode::Interactive {

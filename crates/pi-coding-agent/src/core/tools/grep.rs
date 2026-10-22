@@ -31,6 +31,7 @@ const DEFAULT_LIMIT: f64 = 100.0;
 fn grep_schema() -> Value {
     json!({
         "type": "object",
+        "required": ["pattern"],
         "properties": {
             "pattern": { "type": "string", "description": "Search pattern (regex or literal string)" },
             "path": { "type": "string", "description": "Directory or file to search (default: current directory)" },
@@ -39,8 +40,7 @@ fn grep_schema() -> Value {
             "literal": { "type": "boolean", "description": "Treat pattern as literal string instead of regex (default: false)" },
             "context": { "type": "number", "description": "Number of lines to show before and after each match (default: 0)" },
             "limit": { "type": "number", "description": "Maximum number of matches to return (default: 100)" }
-        },
-        "required": ["pattern"]
+        }
     })
 }
 

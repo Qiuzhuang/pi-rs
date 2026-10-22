@@ -1,0 +1,2104 @@
+{
+ "cases": [
+  {
+   "name": "tool/read",
+   "kind": "tool_definition",
+   "input": {
+    "toolName": "read",
+    "cwd": "/home/golden/project"
+   },
+   "out": {
+    "name": "read",
+    "label": "read",
+    "description": "Read the contents of a file. Supports text files and images (jpg, png, gif, webp, bmp). Images are sent as attachments. For text files, output is truncated to 2000 lines or 50KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.",
+    "promptSnippet": "Read file contents",
+    "promptGuidelines": [
+     "Use read to examine files instead of cat or sed."
+    ],
+    "parameters": {
+     "type": "object",
+     "required": [
+      "path"
+     ],
+     "properties": {
+      "path": {
+       "type": "string",
+       "description": "Path to the file to read (relative or absolute)"
+      },
+      "offset": {
+       "type": "number",
+       "description": "Line number to start reading from (1-indexed)"
+      },
+      "limit": {
+       "type": "number",
+       "description": "Maximum number of lines to read"
+      }
+     }
+    },
+    "outputSchema": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "object",
+       "required": [
+        "type",
+        "data",
+        "mimeType",
+        "note"
+       ],
+       "properties": {
+        "type": {
+         "type": "string",
+         "const": "image"
+        },
+        "data": {
+         "type": "string"
+        },
+        "mimeType": {
+         "type": "string"
+        },
+        "note": {
+         "type": "string"
+        }
+       }
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "tool/bash",
+   "kind": "tool_definition",
+   "input": {
+    "toolName": "bash",
+    "cwd": "/home/golden/project"
+   },
+   "out": {
+    "name": "bash",
+    "label": "bash",
+    "description": "Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last 2000 lines or 50KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.",
+    "promptSnippet": "Execute bash commands (ls, grep, find, etc.)",
+    "promptGuidelines": [
+     "You can inspect PI_* environment variables for current model and session details."
+    ],
+    "parameters": {
+     "type": "object",
+     "required": [
+      "command"
+     ],
+     "properties": {
+      "command": {
+       "type": "string",
+       "description": "Shell command to execute"
+      },
+      "timeout": {
+       "type": "number",
+       "description": "Timeout in seconds (optional, no default timeout)"
+      }
+     }
+    },
+    "outputSchema": {
+     "type": "object",
+     "required": [
+      "output",
+      "truncated",
+      "exit_code",
+      "wall_time_seconds"
+     ],
+     "properties": {
+      "output": {
+       "type": "string",
+       "description": "Combined stdout and stderr, possibly truncated"
+      },
+      "truncated": {
+       "type": "boolean"
+      },
+      "full_output_path": {
+       "type": "string",
+       "description": "Full output, when truncated"
+      },
+      "exit_code": {
+       "type": "number"
+      },
+      "wall_time_seconds": {
+       "type": "number"
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "tool/powershell",
+   "kind": "tool_definition",
+   "input": {
+    "toolName": "powershell",
+    "cwd": "/home/golden/project"
+   },
+   "out": {
+    "name": "powershell",
+    "label": "powershell",
+    "description": "Execute a PowerShell command in the current working directory. Returns stdout and stderr. Output is truncated to last 2000 lines or 50KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.",
+    "promptSnippet": "Execute PowerShell commands",
+    "promptGuidelines": [
+     "You can inspect PI_* environment variables for current model and session details."
+    ],
+    "parameters": {
+     "type": "object",
+     "required": [
+      "command"
+     ],
+     "properties": {
+      "command": {
+       "type": "string",
+       "description": "Shell command to execute"
+      },
+      "timeout": {
+       "type": "number",
+       "description": "Timeout in seconds (optional, no default timeout)"
+      }
+     }
+    },
+    "outputSchema": {
+     "type": "object",
+     "required": [
+      "output",
+      "truncated",
+      "exit_code",
+      "wall_time_seconds"
+     ],
+     "properties": {
+      "output": {
+       "type": "string",
+       "description": "Combined stdout and stderr, possibly truncated"
+      },
+      "truncated": {
+       "type": "boolean"
+      },
+      "full_output_path": {
+       "type": "string",
+       "description": "Full output, when truncated"
+      },
+      "exit_code": {
+       "type": "number"
+      },
+      "wall_time_seconds": {
+       "type": "number"
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "tool/edit",
+   "kind": "tool_definition",
+   "input": {
+    "toolName": "edit",
+    "cwd": "/home/golden/project"
+   },
+   "out": {
+    "name": "edit",
+    "label": "edit",
+    "description": "Edit a single file using exact text replacement. Every edits[].oldText must match a unique, non-overlapping region of the original file. If two changes affect the same block or nearby lines, merge them into one edit instead of emitting overlapping edits. Do not include large unchanged regions just to connect distant changes.",
+    "promptSnippet": "Make precise file edits with exact text replacement, including multiple disjoint edits in one call",
+    "promptGuidelines": [
+     "Use edit for precise changes (edits[].oldText must match exactly)",
+     "When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls",
+     "Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.",
+     "Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions."
+    ],
+    "parameters": {
+     "type": "object",
+     "required": [
+      "path",
+      "edits"
+     ],
+     "properties": {
+      "path": {
+       "type": "string",
+       "description": "Path to the file to edit (relative or absolute)"
+      },
+      "edits": {
+       "type": "array",
+       "items": {
+        "type": "object",
+        "required": [
+         "oldText",
+         "newText"
+        ],
+        "properties": {
+         "oldText": {
+          "type": "string",
+          "description": "Exact text for one targeted replacement. It must be unique in the original file and must not overlap with any other edits[].oldText in the same call."
+         },
+         "newText": {
+          "type": "string",
+          "description": "Replacement text for this targeted edit."
+         }
+        }
+       },
+       "description": "One or more targeted replacements. Each edit is matched against the original file, not incrementally. Do not include overlapping or nested edits. If two changes touch the same block or nearby lines, merge them into one edit instead."
+      }
+     }
+    },
+    "renderShell": "self"
+   }
+  },
+  {
+   "name": "tool/write",
+   "kind": "tool_definition",
+   "input": {
+    "toolName": "write",
+    "cwd": "/home/golden/project"
+   },
+   "out": {
+    "name": "write",
+    "label": "write",
+    "description": "Write content to a file. Creates the file if it doesn't exist, overwrites if it does. Automatically creates parent directories.",
+    "promptSnippet": "Create or overwrite files",
+    "promptGuidelines": [
+     "Use write only for new files or complete rewrites."
+    ],
+    "parameters": {
+     "type": "object",
+     "required": [
+      "path",
+      "content"
+     ],
+     "properties": {
+      "path": {
+       "type": "string",
+       "description": "Path to the file to write (relative or absolute)"
+      },
+      "content": {
+       "type": "string",
+       "description": "Content to write to the file"
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "tool/grep",
+   "kind": "tool_definition",
+   "input": {
+    "toolName": "grep",
+    "cwd": "/home/golden/project"
+   },
+   "out": {
+    "name": "grep",
+    "label": "grep",
+    "description": "Search file contents for a pattern. Returns matching lines with file paths and line numbers. Respects .gitignore. Output is truncated to 100 matches or 50KB (whichever is hit first). Long lines are truncated to 500 chars.",
+    "promptSnippet": "Search file contents for patterns (respects .gitignore)",
+    "parameters": {
+     "type": "object",
+     "required": [
+      "pattern"
+     ],
+     "properties": {
+      "pattern": {
+       "type": "string",
+       "description": "Search pattern (regex or literal string)"
+      },
+      "path": {
+       "type": "string",
+       "description": "Directory or file to search (default: current directory)"
+      },
+      "glob": {
+       "type": "string",
+       "description": "Filter files by glob pattern, e.g. '*.ts' or '**/*.spec.ts'"
+      },
+      "ignoreCase": {
+       "type": "boolean",
+       "description": "Case-insensitive search (default: false)"
+      },
+      "literal": {
+       "type": "boolean",
+       "description": "Treat pattern as literal string instead of regex (default: false)"
+      },
+      "context": {
+       "type": "number",
+       "description": "Number of lines to show before and after each match (default: 0)"
+      },
+      "limit": {
+       "type": "number",
+       "description": "Maximum number of matches to return (default: 100)"
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "tool/find",
+   "kind": "tool_definition",
+   "input": {
+    "toolName": "find",
+    "cwd": "/home/golden/project"
+   },
+   "out": {
+    "name": "find",
+    "label": "find",
+    "description": "Search for files by glob pattern. Returns matching file paths relative to the search directory. Respects .gitignore. Output is truncated to 1000 results or 50KB (whichever is hit first).",
+    "promptSnippet": "Find files by glob pattern (respects .gitignore)",
+    "parameters": {
+     "type": "object",
+     "required": [
+      "pattern"
+     ],
+     "properties": {
+      "pattern": {
+       "type": "string",
+       "description": "Glob pattern to match files, e.g. '*.ts', '**/*.json', or 'src/**/*.spec.ts'"
+      },
+      "path": {
+       "type": "string",
+       "description": "Directory to search in (default: current directory)"
+      },
+      "limit": {
+       "type": "number",
+       "description": "Maximum number of results (default: 1000)"
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "tool/ls",
+   "kind": "tool_definition",
+   "input": {
+    "toolName": "ls",
+    "cwd": "/home/golden/project"
+   },
+   "out": {
+    "name": "ls",
+    "label": "ls",
+    "description": "List directory contents. Returns entries sorted alphabetically, with '/' suffix for directories. Includes dotfiles. Output is truncated to 500 entries or 50KB (whichever is hit first).",
+    "promptSnippet": "List directory contents",
+    "parameters": {
+     "type": "object",
+     "properties": {
+      "path": {
+       "type": "string",
+       "description": "Directory to list (default: current directory)"
+      },
+      "limit": {
+       "type": "number",
+       "description": "Maximum number of entries to return (default: 500)"
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "system_prompt/defaults",
+   "kind": "system_prompt",
+   "input": {
+    "cwd": "/home/golden/project"
+   },
+   "out": {
+    "text": "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.\n\n<tools>\n(none)\n\nIn addition to the tools above, you may have access to other custom tools depending on the project.\n</tools>\n\n<rules>\n- Use bash for file operations like ls, rg, find\n- Be concise in your responses\n- Show file paths clearly when working with files\n</rules>\n\n<docs>\nPi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):\n- Main documentation: /home/golden/pi-package/README.md\n- Additional docs: /home/golden/pi-package/docs\n- Examples: /home/golden/pi-package/examples (extensions, custom tools, SDK)\n- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory\n- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md), codemode scripts and non-LLM models such as classifiers and image models (docs/codemode.md)\n- When working on pi topics, read the docs and examples, and follow .md cross-references before implementing\n- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)\n</docs>\n\n<cwd>\n/home/golden/project\n</cwd>",
+    "sections": {
+     "preamble": "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.",
+     "tools": "<tools>\n(none)\n\nIn addition to the tools above, you may have access to other custom tools depending on the project.\n</tools>",
+     "rules": "<rules>\n- Use bash for file operations like ls, rg, find\n- Be concise in your responses\n- Show file paths clearly when working with files\n</rules>",
+     "docs": "<docs>\nPi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):\n- Main documentation: /home/golden/pi-package/README.md\n- Additional docs: /home/golden/pi-package/docs\n- Examples: /home/golden/pi-package/examples (extensions, custom tools, SDK)\n- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory\n- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md), codemode scripts and non-LLM models such as classifiers and image models (docs/codemode.md)\n- When working on pi topics, read the docs and examples, and follow .md cross-references before implementing\n- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)\n</docs>",
+     "cwd": "<cwd>\n/home/golden/project\n</cwd>"
+    }
+   }
+  },
+  {
+   "name": "system_prompt/default_tools",
+   "kind": "system_prompt",
+   "input": {
+    "cwd": "/home/golden/project",
+    "toolSnippets": {
+     "read": "Read file contents",
+     "bash": "Execute bash commands (ls, grep, find, etc.)",
+     "powershell": "Execute PowerShell commands",
+     "edit": "Make precise file edits with exact text replacement, including multiple disjoint edits in one call",
+     "write": "Create or overwrite files",
+     "grep": "Search file contents for patterns (respects .gitignore)",
+     "find": "Find files by glob pattern (respects .gitignore)",
+     "ls": "List directory contents"
+    },
+    "toolGuidelines": {
+     "read": [
+      "Use read to examine files instead of cat or sed."
+     ],
+     "bash": [
+      "You can inspect PI_* environment variables for current model and session details."
+     ],
+     "powershell": [
+      "You can inspect PI_* environment variables for current model and session details."
+     ],
+     "edit": [
+      "Use edit for precise changes (edits[].oldText must match exactly)",
+      "When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls",
+      "Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.",
+      "Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions."
+     ],
+     "write": [
+      "Use write only for new files or complete rewrites."
+     ]
+    }
+   },
+   "out": {
+    "text": "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.\n\n<tools>\n- read: Read file contents\n- bash: Execute bash commands (ls, grep, find, etc.)\n- edit: Make precise file edits with exact text replacement, including multiple disjoint edits in one call\n- write: Create or overwrite files\n\nIn addition to the tools above, you may have access to other custom tools depending on the project.\n</tools>\n\n<rules>\n- Use bash for file operations like ls, rg, find\n- Use read to examine files instead of cat or sed.\n- You can inspect PI_* environment variables for current model and session details.\n- Use edit for precise changes (edits[].oldText must match exactly)\n- When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls\n- Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.\n- Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions.\n- Use write only for new files or complete rewrites.\n- Be concise in your responses\n- Show file paths clearly when working with files\n</rules>\n\n<docs>\nPi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):\n- Main documentation: /home/golden/pi-package/README.md\n- Additional docs: /home/golden/pi-package/docs\n- Examples: /home/golden/pi-package/examples (extensions, custom tools, SDK)\n- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory\n- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md), codemode scripts and non-LLM models such as classifiers and image models (docs/codemode.md)\n- When working on pi topics, read the docs and examples, and follow .md cross-references before implementing\n- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)\n</docs>\n\n<cwd>\n/home/golden/project\n</cwd>",
+    "sections": {
+     "preamble": "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.",
+     "tools": "<tools>\n- read: Read file contents\n- bash: Execute bash commands (ls, grep, find, etc.)\n- edit: Make precise file edits with exact text replacement, including multiple disjoint edits in one call\n- write: Create or overwrite files\n\nIn addition to the tools above, you may have access to other custom tools depending on the project.\n</tools>",
+     "rules": "<rules>\n- Use bash for file operations like ls, rg, find\n- Use read to examine files instead of cat or sed.\n- You can inspect PI_* environment variables for current model and session details.\n- Use edit for precise changes (edits[].oldText must match exactly)\n- When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls\n- Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.\n- Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions.\n- Use write only for new files or complete rewrites.\n- Be concise in your responses\n- Show file paths clearly when working with files\n</rules>",
+     "docs": "<docs>\nPi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):\n- Main documentation: /home/golden/pi-package/README.md\n- Additional docs: /home/golden/pi-package/docs\n- Examples: /home/golden/pi-package/examples (extensions, custom tools, SDK)\n- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory\n- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md), codemode scripts and non-LLM models such as classifiers and image models (docs/codemode.md)\n- When working on pi topics, read the docs and examples, and follow .md cross-references before implementing\n- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)\n</docs>",
+     "cwd": "<cwd>\n/home/golden/project\n</cwd>"
+    }
+   }
+  },
+  {
+   "name": "system_prompt/all_tools",
+   "kind": "system_prompt",
+   "input": {
+    "cwd": "/home/golden/project",
+    "selectedTools": [
+     "read",
+     "bash",
+     "edit",
+     "write",
+     "grep",
+     "find",
+     "ls"
+    ],
+    "toolSnippets": {
+     "read": "Read file contents",
+     "bash": "Execute bash commands (ls, grep, find, etc.)",
+     "powershell": "Execute PowerShell commands",
+     "edit": "Make precise file edits with exact text replacement, including multiple disjoint edits in one call",
+     "write": "Create or overwrite files",
+     "grep": "Search file contents for patterns (respects .gitignore)",
+     "find": "Find files by glob pattern (respects .gitignore)",
+     "ls": "List directory contents"
+    },
+    "toolGuidelines": {
+     "read": [
+      "Use read to examine files instead of cat or sed."
+     ],
+     "bash": [
+      "You can inspect PI_* environment variables for current model and session details."
+     ],
+     "powershell": [
+      "You can inspect PI_* environment variables for current model and session details."
+     ],
+     "edit": [
+      "Use edit for precise changes (edits[].oldText must match exactly)",
+      "When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls",
+      "Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.",
+      "Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions."
+     ],
+     "write": [
+      "Use write only for new files or complete rewrites."
+     ]
+    },
+    "contextFiles": [
+     {
+      "path": "/home/golden/.pi/agent/AGENTS.md",
+      "content": "Global instructions."
+     },
+     {
+      "path": "/home/golden/project/AGENTS.md",
+      "content": "# Project\n\nUse tabs.\n"
+     }
+    ],
+    "skills": [
+     {
+      "name": "pdf-tools",
+      "description": "Extract text & tables from <PDF> files, \"quoted\" and 'single'.",
+      "filePath": "/home/golden/.pi/agent/skills/pdf-tools/SKILL.md",
+      "baseDir": "/home/golden/.pi/agent/skills/pdf-tools",
+      "sourceInfo": {
+       "path": "/home/golden/.pi/agent/skills/pdf-tools/SKILL.md",
+       "source": "local",
+       "scope": "user",
+       "origin": "top-level"
+      },
+      "disableModelInvocation": false
+     },
+     {
+      "name": "hidden-skill",
+      "description": "Only via /skill:hidden-skill",
+      "filePath": "/home/golden/.pi/agent/skills/hidden-skill/SKILL.md",
+      "baseDir": "/home/golden/.pi/agent/skills/hidden-skill",
+      "sourceInfo": {
+       "path": "/home/golden/.pi/agent/skills/hidden-skill/SKILL.md",
+       "source": "local",
+       "scope": "user",
+       "origin": "top-level"
+      },
+      "disableModelInvocation": true
+     },
+     {
+      "name": "git-helper",
+      "description": "Helps with git.",
+      "filePath": "/home/golden/.pi/agent/skills/git-helper/SKILL.md",
+      "baseDir": "/home/golden/.pi/agent/skills/git-helper",
+      "sourceInfo": {
+       "path": "/home/golden/.pi/agent/skills/git-helper/SKILL.md",
+       "source": "local",
+       "scope": "user",
+       "origin": "top-level"
+      },
+      "disableModelInvocation": false
+     }
+    ]
+   },
+   "out": {
+    "text": "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.\n\n<tools>\n- read: Read file contents\n- bash: Execute bash commands (ls, grep, find, etc.)\n- edit: Make precise file edits with exact text replacement, including multiple disjoint edits in one call\n- write: Create or overwrite files\n- grep: Search file contents for patterns (respects .gitignore)\n- find: Find files by glob pattern (respects .gitignore)\n- ls: List directory contents\n\nIn addition to the tools above, you may have access to other custom tools depending on the project.\n</tools>\n\n<rules>\n- Use read to examine files instead of cat or sed.\n- You can inspect PI_* environment variables for current model and session details.\n- Use edit for precise changes (edits[].oldText must match exactly)\n- When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls\n- Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.\n- Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions.\n- Use write only for new files or complete rewrites.\n- Be concise in your responses\n- Show file paths clearly when working with files\n</rules>\n\n<docs>\nPi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):\n- Main documentation: /home/golden/pi-package/README.md\n- Additional docs: /home/golden/pi-package/docs\n- Examples: /home/golden/pi-package/examples (extensions, custom tools, SDK)\n- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory\n- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md), codemode scripts and non-LLM models such as classifiers and image models (docs/codemode.md)\n- When working on pi topics, read the docs and examples, and follow .md cross-references before implementing\n- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)\n</docs>\n\n<project_context>\nProject-specific instructions and guidelines:\n\n<project_instructions path=\"/home/golden/.pi/agent/AGENTS.md\">\nGlobal instructions.\n</project_instructions>\n\n<project_instructions path=\"/home/golden/project/AGENTS.md\">\n# Project\n\nUse tabs.\n\n</project_instructions>\n</project_context>\n\n<skills>\nThe following skills provide specialized instructions for specific tasks.\nUse the read tool to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>pdf-tools</name>\n    <description>Extract text &amp; tables from &lt;PDF&gt; files, &quot;quoted&quot; and &apos;single&apos;.</description>\n    <location>/home/golden/.pi/agent/skills/pdf-tools/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>git-helper</name>\n    <description>Helps with git.</description>\n    <location>/home/golden/.pi/agent/skills/git-helper/SKILL.md</location>\n  </skill>\n</available_skills>\n</skills>\n\n<cwd>\n/home/golden/project\n</cwd>",
+    "sections": {
+     "preamble": "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.",
+     "tools": "<tools>\n- read: Read file contents\n- bash: Execute bash commands (ls, grep, find, etc.)\n- edit: Make precise file edits with exact text replacement, including multiple disjoint edits in one call\n- write: Create or overwrite files\n- grep: Search file contents for patterns (respects .gitignore)\n- find: Find files by glob pattern (respects .gitignore)\n- ls: List directory contents\n\nIn addition to the tools above, you may have access to other custom tools depending on the project.\n</tools>",
+     "rules": "<rules>\n- Use read to examine files instead of cat or sed.\n- You can inspect PI_* environment variables for current model and session details.\n- Use edit for precise changes (edits[].oldText must match exactly)\n- When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls\n- Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.\n- Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions.\n- Use write only for new files or complete rewrites.\n- Be concise in your responses\n- Show file paths clearly when working with files\n</rules>",
+     "docs": "<docs>\nPi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):\n- Main documentation: /home/golden/pi-package/README.md\n- Additional docs: /home/golden/pi-package/docs\n- Examples: /home/golden/pi-package/examples (extensions, custom tools, SDK)\n- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory\n- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md), codemode scripts and non-LLM models such as classifiers and image models (docs/codemode.md)\n- When working on pi topics, read the docs and examples, and follow .md cross-references before implementing\n- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)\n</docs>",
+     "project_context": "<project_context>\nProject-specific instructions and guidelines:\n\n<project_instructions path=\"/home/golden/.pi/agent/AGENTS.md\">\nGlobal instructions.\n</project_instructions>\n\n<project_instructions path=\"/home/golden/project/AGENTS.md\">\n# Project\n\nUse tabs.\n\n</project_instructions>\n</project_context>",
+     "skills": "<skills>\nThe following skills provide specialized instructions for specific tasks.\nUse the read tool to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>pdf-tools</name>\n    <description>Extract text &amp; tables from &lt;PDF&gt; files, &quot;quoted&quot; and &apos;single&apos;.</description>\n    <location>/home/golden/.pi/agent/skills/pdf-tools/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>git-helper</name>\n    <description>Helps with git.</description>\n    <location>/home/golden/.pi/agent/skills/git-helper/SKILL.md</location>\n  </skill>\n</available_skills>\n</skills>",
+     "cwd": "<cwd>\n/home/golden/project\n</cwd>"
+    }
+   }
+  },
+  {
+   "name": "system_prompt/read_only",
+   "kind": "system_prompt",
+   "input": {
+    "cwd": "/home/golden/project",
+    "selectedTools": [
+     "read",
+     "grep",
+     "find",
+     "ls"
+    ],
+    "toolSnippets": {
+     "read": "Read file contents",
+     "bash": "Execute bash commands (ls, grep, find, etc.)",
+     "powershell": "Execute PowerShell commands",
+     "edit": "Make precise file edits with exact text replacement, including multiple disjoint edits in one call",
+     "write": "Create or overwrite files",
+     "grep": "Search file contents for patterns (respects .gitignore)",
+     "find": "Find files by glob pattern (respects .gitignore)",
+     "ls": "List directory contents"
+    },
+    "toolGuidelines": {
+     "read": [
+      "Use read to examine files instead of cat or sed."
+     ],
+     "bash": [
+      "You can inspect PI_* environment variables for current model and session details."
+     ],
+     "powershell": [
+      "You can inspect PI_* environment variables for current model and session details."
+     ],
+     "edit": [
+      "Use edit for precise changes (edits[].oldText must match exactly)",
+      "When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls",
+      "Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.",
+      "Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions."
+     ],
+     "write": [
+      "Use write only for new files or complete rewrites."
+     ]
+    },
+    "skills": [
+     {
+      "name": "pdf-tools",
+      "description": "Extract text & tables from <PDF> files, \"quoted\" and 'single'.",
+      "filePath": "/home/golden/.pi/agent/skills/pdf-tools/SKILL.md",
+      "baseDir": "/home/golden/.pi/agent/skills/pdf-tools",
+      "sourceInfo": {
+       "path": "/home/golden/.pi/agent/skills/pdf-tools/SKILL.md",
+       "source": "local",
+       "scope": "user",
+       "origin": "top-level"
+      },
+      "disableModelInvocation": false
+     },
+     {
+      "name": "hidden-skill",
+      "description": "Only via /skill:hidden-skill",
+      "filePath": "/home/golden/.pi/agent/skills/hidden-skill/SKILL.md",
+      "baseDir": "/home/golden/.pi/agent/skills/hidden-skill",
+      "sourceInfo": {
+       "path": "/home/golden/.pi/agent/skills/hidden-skill/SKILL.md",
+       "source": "local",
+       "scope": "user",
+       "origin": "top-level"
+      },
+      "disableModelInvocation": true
+     },
+     {
+      "name": "git-helper",
+      "description": "Helps with git.",
+      "filePath": "/home/golden/.pi/agent/skills/git-helper/SKILL.md",
+      "baseDir": "/home/golden/.pi/agent/skills/git-helper",
+      "sourceInfo": {
+       "path": "/home/golden/.pi/agent/skills/git-helper/SKILL.md",
+       "source": "local",
+       "scope": "user",
+       "origin": "top-level"
+      },
+      "disableModelInvocation": false
+     }
+    ]
+   },
+   "out": {
+    "text": "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.\n\n<tools>\n- read: Read file contents\n- grep: Search file contents for patterns (respects .gitignore)\n- find: Find files by glob pattern (respects .gitignore)\n- ls: List directory contents\n\nIn addition to the tools above, you may have access to other custom tools depending on the project.\n</tools>\n\n<rules>\n- Use read to examine files instead of cat or sed.\n- Be concise in your responses\n- Show file paths clearly when working with files\n</rules>\n\n<docs>\nPi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):\n- Main documentation: /home/golden/pi-package/README.md\n- Additional docs: /home/golden/pi-package/docs\n- Examples: /home/golden/pi-package/examples (extensions, custom tools, SDK)\n- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory\n- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md), codemode scripts and non-LLM models such as classifiers and image models (docs/codemode.md)\n- When working on pi topics, read the docs and examples, and follow .md cross-references before implementing\n- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)\n</docs>\n\n<skills>\nThe following skills provide specialized instructions for specific tasks.\nUse the read tool to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>pdf-tools</name>\n    <description>Extract text &amp; tables from &lt;PDF&gt; files, &quot;quoted&quot; and &apos;single&apos;.</description>\n    <location>/home/golden/.pi/agent/skills/pdf-tools/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>git-helper</name>\n    <description>Helps with git.</description>\n    <location>/home/golden/.pi/agent/skills/git-helper/SKILL.md</location>\n  </skill>\n</available_skills>\n</skills>\n\n<cwd>\n/home/golden/project\n</cwd>",
+    "sections": {
+     "preamble": "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.",
+     "tools": "<tools>\n- read: Read file contents\n- grep: Search file contents for patterns (respects .gitignore)\n- find: Find files by glob pattern (respects .gitignore)\n- ls: List directory contents\n\nIn addition to the tools above, you may have access to other custom tools depending on the project.\n</tools>",
+     "rules": "<rules>\n- Use read to examine files instead of cat or sed.\n- Be concise in your responses\n- Show file paths clearly when working with files\n</rules>",
+     "docs": "<docs>\nPi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):\n- Main documentation: /home/golden/pi-package/README.md\n- Additional docs: /home/golden/pi-package/docs\n- Examples: /home/golden/pi-package/examples (extensions, custom tools, SDK)\n- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory\n- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md), codemode scripts and non-LLM models such as classifiers and image models (docs/codemode.md)\n- When working on pi topics, read the docs and examples, and follow .md cross-references before implementing\n- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)\n</docs>",
+     "skills": "<skills>\nThe following skills provide specialized instructions for specific tasks.\nUse the read tool to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>pdf-tools</name>\n    <description>Extract text &amp; tables from &lt;PDF&gt; files, &quot;quoted&quot; and &apos;single&apos;.</description>\n    <location>/home/golden/.pi/agent/skills/pdf-tools/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>git-helper</name>\n    <description>Helps with git.</description>\n    <location>/home/golden/.pi/agent/skills/git-helper/SKILL.md</location>\n  </skill>\n</available_skills>\n</skills>",
+     "cwd": "<cwd>\n/home/golden/project\n</cwd>"
+    }
+   }
+  },
+  {
+   "name": "system_prompt/bash_only_skills",
+   "kind": "system_prompt",
+   "input": {
+    "cwd": "/home/golden/project",
+    "selectedTools": [
+     "bash"
+    ],
+    "toolSnippets": {
+     "read": "Read file contents",
+     "bash": "Execute bash commands (ls, grep, find, etc.)",
+     "powershell": "Execute PowerShell commands",
+     "edit": "Make precise file edits with exact text replacement, including multiple disjoint edits in one call",
+     "write": "Create or overwrite files",
+     "grep": "Search file contents for patterns (respects .gitignore)",
+     "find": "Find files by glob pattern (respects .gitignore)",
+     "ls": "List directory contents"
+    },
+    "toolGuidelines": {
+     "read": [
+      "Use read to examine files instead of cat or sed."
+     ],
+     "bash": [
+      "You can inspect PI_* environment variables for current model and session details."
+     ],
+     "powershell": [
+      "You can inspect PI_* environment variables for current model and session details."
+     ],
+     "edit": [
+      "Use edit for precise changes (edits[].oldText must match exactly)",
+      "When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls",
+      "Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.",
+      "Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions."
+     ],
+     "write": [
+      "Use write only for new files or complete rewrites."
+     ]
+    },
+    "skills": [
+     {
+      "name": "pdf-tools",
+      "description": "Extract text & tables from <PDF> files, \"quoted\" and 'single'.",
+      "filePath": "/home/golden/.pi/agent/skills/pdf-tools/SKILL.md",
+      "baseDir": "/home/golden/.pi/agent/skills/pdf-tools",
+      "sourceInfo": {
+       "path": "/home/golden/.pi/agent/skills/pdf-tools/SKILL.md",
+       "source": "local",
+       "scope": "user",
+       "origin": "top-level"
+      },
+      "disableModelInvocation": false
+     },
+     {
+      "name": "hidden-skill",
+      "description": "Only via /skill:hidden-skill",
+      "filePath": "/home/golden/.pi/agent/skills/hidden-skill/SKILL.md",
+      "baseDir": "/home/golden/.pi/agent/skills/hidden-skill",
+      "sourceInfo": {
+       "path": "/home/golden/.pi/agent/skills/hidden-skill/SKILL.md",
+       "source": "local",
+       "scope": "user",
+       "origin": "top-level"
+      },
+      "disableModelInvocation": true
+     },
+     {
+      "name": "git-helper",
+      "description": "Helps with git.",
+      "filePath": "/home/golden/.pi/agent/skills/git-helper/SKILL.md",
+      "baseDir": "/home/golden/.pi/agent/skills/git-helper",
+      "sourceInfo": {
+       "path": "/home/golden/.pi/agent/skills/git-helper/SKILL.md",
+       "source": "local",
+       "scope": "user",
+       "origin": "top-level"
+      },
+      "disableModelInvocation": false
+     }
+    ]
+   },
+   "out": {
+    "text": "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.\n\n<tools>\n- bash: Execute bash commands (ls, grep, find, etc.)\n\nIn addition to the tools above, you may have access to other custom tools depending on the project.\n</tools>\n\n<rules>\n- Use bash for file operations like ls, rg, find\n- You can inspect PI_* environment variables for current model and session details.\n- Be concise in your responses\n- Show file paths clearly when working with files\n</rules>\n\n<docs>\nPi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):\n- Main documentation: /home/golden/pi-package/README.md\n- Additional docs: /home/golden/pi-package/docs\n- Examples: /home/golden/pi-package/examples (extensions, custom tools, SDK)\n- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory\n- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md), codemode scripts and non-LLM models such as classifiers and image models (docs/codemode.md)\n- When working on pi topics, read the docs and examples, and follow .md cross-references before implementing\n- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)\n</docs>\n\n<skills>\nThe following skills provide specialized instructions for specific tasks.\nUse bash to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>pdf-tools</name>\n    <description>Extract text &amp; tables from &lt;PDF&gt; files, &quot;quoted&quot; and &apos;single&apos;.</description>\n    <location>/home/golden/.pi/agent/skills/pdf-tools/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>git-helper</name>\n    <description>Helps with git.</description>\n    <location>/home/golden/.pi/agent/skills/git-helper/SKILL.md</location>\n  </skill>\n</available_skills>\n</skills>\n\n<cwd>\n/home/golden/project\n</cwd>",
+    "sections": {
+     "preamble": "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.",
+     "tools": "<tools>\n- bash: Execute bash commands (ls, grep, find, etc.)\n\nIn addition to the tools above, you may have access to other custom tools depending on the project.\n</tools>",
+     "rules": "<rules>\n- Use bash for file operations like ls, rg, find\n- You can inspect PI_* environment variables for current model and session details.\n- Be concise in your responses\n- Show file paths clearly when working with files\n</rules>",
+     "docs": "<docs>\nPi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):\n- Main documentation: /home/golden/pi-package/README.md\n- Additional docs: /home/golden/pi-package/docs\n- Examples: /home/golden/pi-package/examples (extensions, custom tools, SDK)\n- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory\n- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md), codemode scripts and non-LLM models such as classifiers and image models (docs/codemode.md)\n- When working on pi topics, read the docs and examples, and follow .md cross-references before implementing\n- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)\n</docs>",
+     "skills": "<skills>\nThe following skills provide specialized instructions for specific tasks.\nUse bash to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>pdf-tools</name>\n    <description>Extract text &amp; tables from &lt;PDF&gt; files, &quot;quoted&quot; and &apos;single&apos;.</description>\n    <location>/home/golden/.pi/agent/skills/pdf-tools/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>git-helper</name>\n    <description>Helps with git.</description>\n    <location>/home/golden/.pi/agent/skills/git-helper/SKILL.md</location>\n  </skill>\n</available_skills>\n</skills>",
+     "cwd": "<cwd>\n/home/golden/project\n</cwd>"
+    }
+   }
+  },
+  {
+   "name": "system_prompt/powershell",
+   "kind": "system_prompt",
+   "input": {
+    "cwd": "C:\\Users\\golden\\project",
+    "selectedTools": [
+     "read",
+     "powershell",
+     "edit",
+     "write"
+    ],
+    "toolSnippets": {
+     "read": "Read file contents",
+     "bash": "Execute bash commands (ls, grep, find, etc.)",
+     "powershell": "Execute PowerShell commands",
+     "edit": "Make precise file edits with exact text replacement, including multiple disjoint edits in one call",
+     "write": "Create or overwrite files",
+     "grep": "Search file contents for patterns (respects .gitignore)",
+     "find": "Find files by glob pattern (respects .gitignore)",
+     "ls": "List directory contents"
+    },
+    "toolGuidelines": {
+     "read": [
+      "Use read to examine files instead of cat or sed."
+     ],
+     "bash": [
+      "You can inspect PI_* environment variables for current model and session details."
+     ],
+     "powershell": [
+      "You can inspect PI_* environment variables for current model and session details."
+     ],
+     "edit": [
+      "Use edit for precise changes (edits[].oldText must match exactly)",
+      "When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls",
+      "Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.",
+      "Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions."
+     ],
+     "write": [
+      "Use write only for new files or complete rewrites."
+     ]
+    }
+   },
+   "out": {
+    "text": "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.\n\n<tools>\n- read: Read file contents\n- powershell: Execute PowerShell commands\n- edit: Make precise file edits with exact text replacement, including multiple disjoint edits in one call\n- write: Create or overwrite files\n\nIn addition to the tools above, you may have access to other custom tools depending on the project.\n</tools>\n\n<rules>\n- Use PowerShell for file operations like listing, searching, and finding files\n- Use read to examine files instead of cat or sed.\n- You can inspect PI_* environment variables for current model and session details.\n- Use edit for precise changes (edits[].oldText must match exactly)\n- When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls\n- Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.\n- Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions.\n- Use write only for new files or complete rewrites.\n- Be concise in your responses\n- Show file paths clearly when working with files\n</rules>\n\n<docs>\nPi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):\n- Main documentation: /home/golden/pi-package/README.md\n- Additional docs: /home/golden/pi-package/docs\n- Examples: /home/golden/pi-package/examples (extensions, custom tools, SDK)\n- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory\n- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md), codemode scripts and non-LLM models such as classifiers and image models (docs/codemode.md)\n- When working on pi topics, read the docs and examples, and follow .md cross-references before implementing\n- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)\n</docs>\n\n<cwd>\nC:/Users/golden/project\n</cwd>",
+    "sections": {
+     "preamble": "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.",
+     "tools": "<tools>\n- read: Read file contents\n- powershell: Execute PowerShell commands\n- edit: Make precise file edits with exact text replacement, including multiple disjoint edits in one call\n- write: Create or overwrite files\n\nIn addition to the tools above, you may have access to other custom tools depending on the project.\n</tools>",
+     "rules": "<rules>\n- Use PowerShell for file operations like listing, searching, and finding files\n- Use read to examine files instead of cat or sed.\n- You can inspect PI_* environment variables for current model and session details.\n- Use edit for precise changes (edits[].oldText must match exactly)\n- When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls\n- Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.\n- Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions.\n- Use write only for new files or complete rewrites.\n- Be concise in your responses\n- Show file paths clearly when working with files\n</rules>",
+     "docs": "<docs>\nPi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):\n- Main documentation: /home/golden/pi-package/README.md\n- Additional docs: /home/golden/pi-package/docs\n- Examples: /home/golden/pi-package/examples (extensions, custom tools, SDK)\n- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory\n- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md), codemode scripts and non-LLM models such as classifiers and image models (docs/codemode.md)\n- When working on pi topics, read the docs and examples, and follow .md cross-references before implementing\n- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)\n</docs>",
+     "cwd": "<cwd>\nC:/Users/golden/project\n</cwd>"
+    }
+   }
+  },
+  {
+   "name": "system_prompt/bash_and_powershell",
+   "kind": "system_prompt",
+   "input": {
+    "cwd": "/home/golden/project",
+    "selectedTools": [
+     "bash",
+     "powershell"
+    ],
+    "toolSnippets": {
+     "read": "Read file contents",
+     "bash": "Execute bash commands (ls, grep, find, etc.)",
+     "powershell": "Execute PowerShell commands",
+     "edit": "Make precise file edits with exact text replacement, including multiple disjoint edits in one call",
+     "write": "Create or overwrite files",
+     "grep": "Search file contents for patterns (respects .gitignore)",
+     "find": "Find files by glob pattern (respects .gitignore)",
+     "ls": "List directory contents"
+    },
+    "toolGuidelines": {
+     "read": [
+      "Use read to examine files instead of cat or sed."
+     ],
+     "bash": [
+      "You can inspect PI_* environment variables for current model and session details."
+     ],
+     "powershell": [
+      "You can inspect PI_* environment variables for current model and session details."
+     ],
+     "edit": [
+      "Use edit for precise changes (edits[].oldText must match exactly)",
+      "When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls",
+      "Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.",
+      "Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions."
+     ],
+     "write": [
+      "Use write only for new files or complete rewrites."
+     ]
+    }
+   },
+   "out": {
+    "text": "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.\n\n<tools>\n- bash: Execute bash commands (ls, grep, find, etc.)\n- powershell: Execute PowerShell commands\n\nIn addition to the tools above, you may have access to other custom tools depending on the project.\n</tools>\n\n<rules>\n- Use bash or PowerShell for file operations like listing, searching, and finding files\n- You can inspect PI_* environment variables for current model and session details.\n- Be concise in your responses\n- Show file paths clearly when working with files\n</rules>\n\n<docs>\nPi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):\n- Main documentation: /home/golden/pi-package/README.md\n- Additional docs: /home/golden/pi-package/docs\n- Examples: /home/golden/pi-package/examples (extensions, custom tools, SDK)\n- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory\n- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md), codemode scripts and non-LLM models such as classifiers and image models (docs/codemode.md)\n- When working on pi topics, read the docs and examples, and follow .md cross-references before implementing\n- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)\n</docs>\n\n<cwd>\n/home/golden/project\n</cwd>",
+    "sections": {
+     "preamble": "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.",
+     "tools": "<tools>\n- bash: Execute bash commands (ls, grep, find, etc.)\n- powershell: Execute PowerShell commands\n\nIn addition to the tools above, you may have access to other custom tools depending on the project.\n</tools>",
+     "rules": "<rules>\n- Use bash or PowerShell for file operations like listing, searching, and finding files\n- You can inspect PI_* environment variables for current model and session details.\n- Be concise in your responses\n- Show file paths clearly when working with files\n</rules>",
+     "docs": "<docs>\nPi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):\n- Main documentation: /home/golden/pi-package/README.md\n- Additional docs: /home/golden/pi-package/docs\n- Examples: /home/golden/pi-package/examples (extensions, custom tools, SDK)\n- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory\n- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md), codemode scripts and non-LLM models such as classifiers and image models (docs/codemode.md)\n- When working on pi topics, read the docs and examples, and follow .md cross-references before implementing\n- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)\n</docs>",
+     "cwd": "<cwd>\n/home/golden/project\n</cwd>"
+    }
+   }
+  },
+  {
+   "name": "system_prompt/no_tools",
+   "kind": "system_prompt",
+   "input": {
+    "cwd": "/home/golden/project",
+    "selectedTools": [],
+    "skills": [
+     {
+      "name": "pdf-tools",
+      "description": "Extract text & tables from <PDF> files, \"quoted\" and 'single'.",
+      "filePath": "/home/golden/.pi/agent/skills/pdf-tools/SKILL.md",
+      "baseDir": "/home/golden/.pi/agent/skills/pdf-tools",
+      "sourceInfo": {
+       "path": "/home/golden/.pi/agent/skills/pdf-tools/SKILL.md",
+       "source": "local",
+       "scope": "user",
+       "origin": "top-level"
+      },
+      "disableModelInvocation": false
+     },
+     {
+      "name": "hidden-skill",
+      "description": "Only via /skill:hidden-skill",
+      "filePath": "/home/golden/.pi/agent/skills/hidden-skill/SKILL.md",
+      "baseDir": "/home/golden/.pi/agent/skills/hidden-skill",
+      "sourceInfo": {
+       "path": "/home/golden/.pi/agent/skills/hidden-skill/SKILL.md",
+       "source": "local",
+       "scope": "user",
+       "origin": "top-level"
+      },
+      "disableModelInvocation": true
+     },
+     {
+      "name": "git-helper",
+      "description": "Helps with git.",
+      "filePath": "/home/golden/.pi/agent/skills/git-helper/SKILL.md",
+      "baseDir": "/home/golden/.pi/agent/skills/git-helper",
+      "sourceInfo": {
+       "path": "/home/golden/.pi/agent/skills/git-helper/SKILL.md",
+       "source": "local",
+       "scope": "user",
+       "origin": "top-level"
+      },
+      "disableModelInvocation": false
+     }
+    ],
+    "contextFiles": [
+     {
+      "path": "/home/golden/.pi/agent/AGENTS.md",
+      "content": "Global instructions."
+     },
+     {
+      "path": "/home/golden/project/AGENTS.md",
+      "content": "# Project\n\nUse tabs.\n"
+     }
+    ]
+   },
+   "out": {
+    "text": "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.\n\n<tools>\n(none)\n\nIn addition to the tools above, you may have access to other custom tools depending on the project.\n</tools>\n\n<rules>\n- Be concise in your responses\n- Show file paths clearly when working with files\n</rules>\n\n<docs>\nPi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):\n- Main documentation: /home/golden/pi-package/README.md\n- Additional docs: /home/golden/pi-package/docs\n- Examples: /home/golden/pi-package/examples (extensions, custom tools, SDK)\n- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory\n- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md), codemode scripts and non-LLM models such as classifiers and image models (docs/codemode.md)\n- When working on pi topics, read the docs and examples, and follow .md cross-references before implementing\n- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)\n</docs>\n\n<project_context>\nProject-specific instructions and guidelines:\n\n<project_instructions path=\"/home/golden/.pi/agent/AGENTS.md\">\nGlobal instructions.\n</project_instructions>\n\n<project_instructions path=\"/home/golden/project/AGENTS.md\">\n# Project\n\nUse tabs.\n\n</project_instructions>\n</project_context>\n\n<cwd>\n/home/golden/project\n</cwd>",
+    "sections": {
+     "preamble": "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.",
+     "tools": "<tools>\n(none)\n\nIn addition to the tools above, you may have access to other custom tools depending on the project.\n</tools>",
+     "rules": "<rules>\n- Be concise in your responses\n- Show file paths clearly when working with files\n</rules>",
+     "docs": "<docs>\nPi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):\n- Main documentation: /home/golden/pi-package/README.md\n- Additional docs: /home/golden/pi-package/docs\n- Examples: /home/golden/pi-package/examples (extensions, custom tools, SDK)\n- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory\n- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md), codemode scripts and non-LLM models such as classifiers and image models (docs/codemode.md)\n- When working on pi topics, read the docs and examples, and follow .md cross-references before implementing\n- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)\n</docs>",
+     "project_context": "<project_context>\nProject-specific instructions and guidelines:\n\n<project_instructions path=\"/home/golden/.pi/agent/AGENTS.md\">\nGlobal instructions.\n</project_instructions>\n\n<project_instructions path=\"/home/golden/project/AGENTS.md\">\n# Project\n\nUse tabs.\n\n</project_instructions>\n</project_context>",
+     "cwd": "<cwd>\n/home/golden/project\n</cwd>"
+    }
+   }
+  },
+  {
+   "name": "system_prompt/custom_prompt",
+   "kind": "system_prompt",
+   "input": {
+    "cwd": "/home/golden/project",
+    "customPrompt": "You are a careful reviewer.",
+    "appendSystemPrompt": "Always answer in English.",
+    "toolSnippets": {
+     "read": "Read file contents",
+     "bash": "Execute bash commands (ls, grep, find, etc.)",
+     "powershell": "Execute PowerShell commands",
+     "edit": "Make precise file edits with exact text replacement, including multiple disjoint edits in one call",
+     "write": "Create or overwrite files",
+     "grep": "Search file contents for patterns (respects .gitignore)",
+     "find": "Find files by glob pattern (respects .gitignore)",
+     "ls": "List directory contents"
+    },
+    "toolGuidelines": {
+     "read": [
+      "Use read to examine files instead of cat or sed."
+     ],
+     "bash": [
+      "You can inspect PI_* environment variables for current model and session details."
+     ],
+     "powershell": [
+      "You can inspect PI_* environment variables for current model and session details."
+     ],
+     "edit": [
+      "Use edit for precise changes (edits[].oldText must match exactly)",
+      "When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls",
+      "Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.",
+      "Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions."
+     ],
+     "write": [
+      "Use write only for new files or complete rewrites."
+     ]
+    },
+    "contextFiles": [
+     {
+      "path": "/home/golden/.pi/agent/AGENTS.md",
+      "content": "Global instructions."
+     },
+     {
+      "path": "/home/golden/project/AGENTS.md",
+      "content": "# Project\n\nUse tabs.\n"
+     }
+    ],
+    "skills": [
+     {
+      "name": "pdf-tools",
+      "description": "Extract text & tables from <PDF> files, \"quoted\" and 'single'.",
+      "filePath": "/home/golden/.pi/agent/skills/pdf-tools/SKILL.md",
+      "baseDir": "/home/golden/.pi/agent/skills/pdf-tools",
+      "sourceInfo": {
+       "path": "/home/golden/.pi/agent/skills/pdf-tools/SKILL.md",
+       "source": "local",
+       "scope": "user",
+       "origin": "top-level"
+      },
+      "disableModelInvocation": false
+     },
+     {
+      "name": "hidden-skill",
+      "description": "Only via /skill:hidden-skill",
+      "filePath": "/home/golden/.pi/agent/skills/hidden-skill/SKILL.md",
+      "baseDir": "/home/golden/.pi/agent/skills/hidden-skill",
+      "sourceInfo": {
+       "path": "/home/golden/.pi/agent/skills/hidden-skill/SKILL.md",
+       "source": "local",
+       "scope": "user",
+       "origin": "top-level"
+      },
+      "disableModelInvocation": true
+     },
+     {
+      "name": "git-helper",
+      "description": "Helps with git.",
+      "filePath": "/home/golden/.pi/agent/skills/git-helper/SKILL.md",
+      "baseDir": "/home/golden/.pi/agent/skills/git-helper",
+      "sourceInfo": {
+       "path": "/home/golden/.pi/agent/skills/git-helper/SKILL.md",
+       "source": "local",
+       "scope": "user",
+       "origin": "top-level"
+      },
+      "disableModelInvocation": false
+     }
+    ]
+   },
+   "out": {
+    "text": "You are a careful reviewer.\n\n<addendum>\nAlways answer in English.\n</addendum>\n\n<project_context>\nProject-specific instructions and guidelines:\n\n<project_instructions path=\"/home/golden/.pi/agent/AGENTS.md\">\nGlobal instructions.\n</project_instructions>\n\n<project_instructions path=\"/home/golden/project/AGENTS.md\">\n# Project\n\nUse tabs.\n\n</project_instructions>\n</project_context>\n\n<skills>\nThe following skills provide specialized instructions for specific tasks.\nUse the read tool to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>pdf-tools</name>\n    <description>Extract text &amp; tables from &lt;PDF&gt; files, &quot;quoted&quot; and &apos;single&apos;.</description>\n    <location>/home/golden/.pi/agent/skills/pdf-tools/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>git-helper</name>\n    <description>Helps with git.</description>\n    <location>/home/golden/.pi/agent/skills/git-helper/SKILL.md</location>\n  </skill>\n</available_skills>\n</skills>\n\n<cwd>\n/home/golden/project\n</cwd>",
+    "sections": {
+     "preamble": "You are a careful reviewer.",
+     "addendum": "<addendum>\nAlways answer in English.\n</addendum>",
+     "project_context": "<project_context>\nProject-specific instructions and guidelines:\n\n<project_instructions path=\"/home/golden/.pi/agent/AGENTS.md\">\nGlobal instructions.\n</project_instructions>\n\n<project_instructions path=\"/home/golden/project/AGENTS.md\">\n# Project\n\nUse tabs.\n\n</project_instructions>\n</project_context>",
+     "skills": "<skills>\nThe following skills provide specialized instructions for specific tasks.\nUse the read tool to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>pdf-tools</name>\n    <description>Extract text &amp; tables from &lt;PDF&gt; files, &quot;quoted&quot; and &apos;single&apos;.</description>\n    <location>/home/golden/.pi/agent/skills/pdf-tools/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>git-helper</name>\n    <description>Helps with git.</description>\n    <location>/home/golden/.pi/agent/skills/git-helper/SKILL.md</location>\n  </skill>\n</available_skills>\n</skills>",
+     "cwd": "<cwd>\n/home/golden/project\n</cwd>"
+    }
+   }
+  },
+  {
+   "name": "system_prompt/guidelines_and_sections",
+   "kind": "system_prompt",
+   "input": {
+    "cwd": "/home/golden/project",
+    "selectedTools": [
+     "read",
+     "bash",
+     "custom_tool"
+    ],
+    "toolSnippets": {
+     "read": "Read file contents",
+     "bash": "Execute bash commands (ls, grep, find, etc.)",
+     "powershell": "Execute PowerShell commands",
+     "edit": "Make precise file edits with exact text replacement, including multiple disjoint edits in one call",
+     "write": "Create or overwrite files",
+     "grep": "Search file contents for patterns (respects .gitignore)",
+     "find": "Find files by glob pattern (respects .gitignore)",
+     "ls": "List directory contents",
+     "custom_tool": "Run the custom thing"
+    },
+    "toolGuidelines": {
+     "read": [
+      "Use read to examine files instead of cat or sed."
+     ],
+     "bash": [
+      "You can inspect PI_* environment variables for current model and session details."
+     ],
+     "powershell": [
+      "You can inspect PI_* environment variables for current model and session details."
+     ],
+     "edit": [
+      "Use edit for precise changes (edits[].oldText must match exactly)",
+      "When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls",
+      "Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.",
+      "Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions."
+     ],
+     "write": [
+      "Use write only for new files or complete rewrites."
+     ],
+     "custom_tool": [
+      "Prefer custom_tool for custom things.",
+      "  Be concise in your responses  "
+     ]
+    },
+    "promptGuidelines": [
+     "Extra guideline.",
+     "Extra guideline.",
+     "   ",
+     "Show file paths clearly when working with files"
+    ],
+    "appendSystemPrompt": "Appended.",
+    "sections": {
+     "memory": "Remember the user prefers tabs.",
+     "empty": "",
+     "cwd": "overridden cwd"
+    }
+   },
+   "out": {
+    "text": "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.\n\n<tools>\n- read: Read file contents\n- bash: Execute bash commands (ls, grep, find, etc.)\n- custom_tool: Run the custom thing\n\nIn addition to the tools above, you may have access to other custom tools depending on the project.\n</tools>\n\n<rules>\n- Use bash for file operations like ls, rg, find\n- Use read to examine files instead of cat or sed.\n- You can inspect PI_* environment variables for current model and session details.\n- Prefer custom_tool for custom things.\n- Be concise in your responses\n- Extra guideline.\n- Show file paths clearly when working with files\n</rules>\n\n<docs>\nPi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):\n- Main documentation: /home/golden/pi-package/README.md\n- Additional docs: /home/golden/pi-package/docs\n- Examples: /home/golden/pi-package/examples (extensions, custom tools, SDK)\n- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory\n- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md), codemode scripts and non-LLM models such as classifiers and image models (docs/codemode.md)\n- When working on pi topics, read the docs and examples, and follow .md cross-references before implementing\n- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)\n</docs>\n\n<addendum>\nAppended.\n</addendum>\n\n<cwd>\noverridden cwd\n</cwd>\n\n<memory>\nRemember the user prefers tabs.\n</memory>",
+    "sections": {
+     "preamble": "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.",
+     "tools": "<tools>\n- read: Read file contents\n- bash: Execute bash commands (ls, grep, find, etc.)\n- custom_tool: Run the custom thing\n\nIn addition to the tools above, you may have access to other custom tools depending on the project.\n</tools>",
+     "rules": "<rules>\n- Use bash for file operations like ls, rg, find\n- Use read to examine files instead of cat or sed.\n- You can inspect PI_* environment variables for current model and session details.\n- Prefer custom_tool for custom things.\n- Be concise in your responses\n- Extra guideline.\n- Show file paths clearly when working with files\n</rules>",
+     "docs": "<docs>\nPi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):\n- Main documentation: /home/golden/pi-package/README.md\n- Additional docs: /home/golden/pi-package/docs\n- Examples: /home/golden/pi-package/examples (extensions, custom tools, SDK)\n- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory\n- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md), codemode scripts and non-LLM models such as classifiers and image models (docs/codemode.md)\n- When working on pi topics, read the docs and examples, and follow .md cross-references before implementing\n- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)\n</docs>",
+     "addendum": "<addendum>\nAppended.\n</addendum>",
+     "cwd": "<cwd>\noverridden cwd\n</cwd>",
+     "memory": "<memory>\nRemember the user prefers tabs.\n</memory>"
+    }
+   }
+  },
+  {
+   "name": "system_prompt/hidden_tools",
+   "kind": "system_prompt",
+   "input": {
+    "cwd": "/home/golden/project",
+    "selectedTools": [
+     "read",
+     "bash",
+     "codemode"
+    ],
+    "hiddenTools": [
+     "read",
+     "bash"
+    ],
+    "toolSnippets": {
+     "read": "Read file contents",
+     "bash": "Execute bash commands (ls, grep, find, etc.)",
+     "powershell": "Execute PowerShell commands",
+     "edit": "Make precise file edits with exact text replacement, including multiple disjoint edits in one call",
+     "write": "Create or overwrite files",
+     "grep": "Search file contents for patterns (respects .gitignore)",
+     "find": "Find files by glob pattern (respects .gitignore)",
+     "ls": "List directory contents",
+     "codemode": "Run a script that calls tools"
+    },
+    "toolGuidelines": {
+     "read": [
+      "Use read to examine files instead of cat or sed."
+     ],
+     "bash": [
+      "You can inspect PI_* environment variables for current model and session details."
+     ],
+     "powershell": [
+      "You can inspect PI_* environment variables for current model and session details."
+     ],
+     "edit": [
+      "Use edit for precise changes (edits[].oldText must match exactly)",
+      "When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls",
+      "Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.",
+      "Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions."
+     ],
+     "write": [
+      "Use write only for new files or complete rewrites."
+     ]
+    },
+    "skills": [
+     {
+      "name": "pdf-tools",
+      "description": "Extract text & tables from <PDF> files, \"quoted\" and 'single'.",
+      "filePath": "/home/golden/.pi/agent/skills/pdf-tools/SKILL.md",
+      "baseDir": "/home/golden/.pi/agent/skills/pdf-tools",
+      "sourceInfo": {
+       "path": "/home/golden/.pi/agent/skills/pdf-tools/SKILL.md",
+       "source": "local",
+       "scope": "user",
+       "origin": "top-level"
+      },
+      "disableModelInvocation": false
+     },
+     {
+      "name": "hidden-skill",
+      "description": "Only via /skill:hidden-skill",
+      "filePath": "/home/golden/.pi/agent/skills/hidden-skill/SKILL.md",
+      "baseDir": "/home/golden/.pi/agent/skills/hidden-skill",
+      "sourceInfo": {
+       "path": "/home/golden/.pi/agent/skills/hidden-skill/SKILL.md",
+       "source": "local",
+       "scope": "user",
+       "origin": "top-level"
+      },
+      "disableModelInvocation": true
+     },
+     {
+      "name": "git-helper",
+      "description": "Helps with git.",
+      "filePath": "/home/golden/.pi/agent/skills/git-helper/SKILL.md",
+      "baseDir": "/home/golden/.pi/agent/skills/git-helper",
+      "sourceInfo": {
+       "path": "/home/golden/.pi/agent/skills/git-helper/SKILL.md",
+       "source": "local",
+       "scope": "user",
+       "origin": "top-level"
+      },
+      "disableModelInvocation": false
+     }
+    ]
+   },
+   "out": {
+    "text": "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.\n\n<tools>\n- codemode: Run a script that calls tools\n\nIn addition to the tools above, you may have access to other custom tools depending on the project.\n</tools>\n\n<rules>\n- Be concise in your responses\n- Show file paths clearly when working with files\n</rules>\n\n<docs>\nPi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):\n- Main documentation: /home/golden/pi-package/README.md\n- Additional docs: /home/golden/pi-package/docs\n- Examples: /home/golden/pi-package/examples (extensions, custom tools, SDK)\n- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory\n- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md), codemode scripts and non-LLM models such as classifiers and image models (docs/codemode.md)\n- When working on pi topics, read the docs and examples, and follow .md cross-references before implementing\n- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)\n</docs>\n\n<skills>\nThe following skills provide specialized instructions for specific tasks.\nLoad a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>pdf-tools</name>\n    <description>Extract text &amp; tables from &lt;PDF&gt; files, &quot;quoted&quot; and &apos;single&apos;.</description>\n    <location>/home/golden/.pi/agent/skills/pdf-tools/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>git-helper</name>\n    <description>Helps with git.</description>\n    <location>/home/golden/.pi/agent/skills/git-helper/SKILL.md</location>\n  </skill>\n</available_skills>\n</skills>\n\n<cwd>\n/home/golden/project\n</cwd>",
+    "sections": {
+     "preamble": "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.",
+     "tools": "<tools>\n- codemode: Run a script that calls tools\n\nIn addition to the tools above, you may have access to other custom tools depending on the project.\n</tools>",
+     "rules": "<rules>\n- Be concise in your responses\n- Show file paths clearly when working with files\n</rules>",
+     "docs": "<docs>\nPi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):\n- Main documentation: /home/golden/pi-package/README.md\n- Additional docs: /home/golden/pi-package/docs\n- Examples: /home/golden/pi-package/examples (extensions, custom tools, SDK)\n- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory\n- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md), codemode scripts and non-LLM models such as classifiers and image models (docs/codemode.md)\n- When working on pi topics, read the docs and examples, and follow .md cross-references before implementing\n- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)\n</docs>",
+     "skills": "<skills>\nThe following skills provide specialized instructions for specific tasks.\nLoad a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>pdf-tools</name>\n    <description>Extract text &amp; tables from &lt;PDF&gt; files, &quot;quoted&quot; and &apos;single&apos;.</description>\n    <location>/home/golden/.pi/agent/skills/pdf-tools/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>git-helper</name>\n    <description>Helps with git.</description>\n    <location>/home/golden/.pi/agent/skills/git-helper/SKILL.md</location>\n  </skill>\n</available_skills>\n</skills>",
+     "cwd": "<cwd>\n/home/golden/project\n</cwd>"
+    }
+   }
+  },
+  {
+   "name": "system_prompt/forced",
+   "kind": "system_prompt",
+   "input": {
+    "cwd": "/home/golden/project",
+    "forceSystemPrompt": "Exactly this prompt.",
+    "toolSnippets": {
+     "read": "Read file contents",
+     "bash": "Execute bash commands (ls, grep, find, etc.)",
+     "powershell": "Execute PowerShell commands",
+     "edit": "Make precise file edits with exact text replacement, including multiple disjoint edits in one call",
+     "write": "Create or overwrite files",
+     "grep": "Search file contents for patterns (respects .gitignore)",
+     "find": "Find files by glob pattern (respects .gitignore)",
+     "ls": "List directory contents"
+    },
+    "skills": [
+     {
+      "name": "pdf-tools",
+      "description": "Extract text & tables from <PDF> files, \"quoted\" and 'single'.",
+      "filePath": "/home/golden/.pi/agent/skills/pdf-tools/SKILL.md",
+      "baseDir": "/home/golden/.pi/agent/skills/pdf-tools",
+      "sourceInfo": {
+       "path": "/home/golden/.pi/agent/skills/pdf-tools/SKILL.md",
+       "source": "local",
+       "scope": "user",
+       "origin": "top-level"
+      },
+      "disableModelInvocation": false
+     },
+     {
+      "name": "hidden-skill",
+      "description": "Only via /skill:hidden-skill",
+      "filePath": "/home/golden/.pi/agent/skills/hidden-skill/SKILL.md",
+      "baseDir": "/home/golden/.pi/agent/skills/hidden-skill",
+      "sourceInfo": {
+       "path": "/home/golden/.pi/agent/skills/hidden-skill/SKILL.md",
+       "source": "local",
+       "scope": "user",
+       "origin": "top-level"
+      },
+      "disableModelInvocation": true
+     },
+     {
+      "name": "git-helper",
+      "description": "Helps with git.",
+      "filePath": "/home/golden/.pi/agent/skills/git-helper/SKILL.md",
+      "baseDir": "/home/golden/.pi/agent/skills/git-helper",
+      "sourceInfo": {
+       "path": "/home/golden/.pi/agent/skills/git-helper/SKILL.md",
+       "source": "local",
+       "scope": "user",
+       "origin": "top-level"
+      },
+      "disableModelInvocation": false
+     }
+    ]
+   },
+   "out": {
+    "text": "Exactly this prompt.",
+    "sections": null
+   }
+  },
+  {
+   "name": "skills/read",
+   "kind": "format_skills",
+   "input": {
+    "skills": [
+     {
+      "name": "pdf-tools",
+      "description": "Extract text & tables from <PDF> files, \"quoted\" and 'single'.",
+      "filePath": "/home/golden/.pi/agent/skills/pdf-tools/SKILL.md",
+      "baseDir": "/home/golden/.pi/agent/skills/pdf-tools",
+      "sourceInfo": {
+       "path": "/home/golden/.pi/agent/skills/pdf-tools/SKILL.md",
+       "source": "local",
+       "scope": "user",
+       "origin": "top-level"
+      },
+      "disableModelInvocation": false
+     },
+     {
+      "name": "hidden-skill",
+      "description": "Only via /skill:hidden-skill",
+      "filePath": "/home/golden/.pi/agent/skills/hidden-skill/SKILL.md",
+      "baseDir": "/home/golden/.pi/agent/skills/hidden-skill",
+      "sourceInfo": {
+       "path": "/home/golden/.pi/agent/skills/hidden-skill/SKILL.md",
+       "source": "local",
+       "scope": "user",
+       "origin": "top-level"
+      },
+      "disableModelInvocation": true
+     },
+     {
+      "name": "git-helper",
+      "description": "Helps with git.",
+      "filePath": "/home/golden/.pi/agent/skills/git-helper/SKILL.md",
+      "baseDir": "/home/golden/.pi/agent/skills/git-helper",
+      "sourceInfo": {
+       "path": "/home/golden/.pi/agent/skills/git-helper/SKILL.md",
+       "source": "local",
+       "scope": "user",
+       "origin": "top-level"
+      },
+      "disableModelInvocation": false
+     }
+    ],
+    "fileReadTool": "read"
+   },
+   "out": {
+    "text": "\n\nThe following skills provide specialized instructions for specific tasks.\nUse the read tool to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>pdf-tools</name>\n    <description>Extract text &amp; tables from &lt;PDF&gt; files, &quot;quoted&quot; and &apos;single&apos;.</description>\n    <location>/home/golden/.pi/agent/skills/pdf-tools/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>git-helper</name>\n    <description>Helps with git.</description>\n    <location>/home/golden/.pi/agent/skills/git-helper/SKILL.md</location>\n  </skill>\n</available_skills>"
+   }
+  },
+  {
+   "name": "skills/bash",
+   "kind": "format_skills",
+   "input": {
+    "skills": [
+     {
+      "name": "pdf-tools",
+      "description": "Extract text & tables from <PDF> files, \"quoted\" and 'single'.",
+      "filePath": "/home/golden/.pi/agent/skills/pdf-tools/SKILL.md",
+      "baseDir": "/home/golden/.pi/agent/skills/pdf-tools",
+      "sourceInfo": {
+       "path": "/home/golden/.pi/agent/skills/pdf-tools/SKILL.md",
+       "source": "local",
+       "scope": "user",
+       "origin": "top-level"
+      },
+      "disableModelInvocation": false
+     },
+     {
+      "name": "hidden-skill",
+      "description": "Only via /skill:hidden-skill",
+      "filePath": "/home/golden/.pi/agent/skills/hidden-skill/SKILL.md",
+      "baseDir": "/home/golden/.pi/agent/skills/hidden-skill",
+      "sourceInfo": {
+       "path": "/home/golden/.pi/agent/skills/hidden-skill/SKILL.md",
+       "source": "local",
+       "scope": "user",
+       "origin": "top-level"
+      },
+      "disableModelInvocation": true
+     },
+     {
+      "name": "git-helper",
+      "description": "Helps with git.",
+      "filePath": "/home/golden/.pi/agent/skills/git-helper/SKILL.md",
+      "baseDir": "/home/golden/.pi/agent/skills/git-helper",
+      "sourceInfo": {
+       "path": "/home/golden/.pi/agent/skills/git-helper/SKILL.md",
+       "source": "local",
+       "scope": "user",
+       "origin": "top-level"
+      },
+      "disableModelInvocation": false
+     }
+    ],
+    "fileReadTool": "bash"
+   },
+   "out": {
+    "text": "\n\nThe following skills provide specialized instructions for specific tasks.\nUse bash to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>pdf-tools</name>\n    <description>Extract text &amp; tables from &lt;PDF&gt; files, &quot;quoted&quot; and &apos;single&apos;.</description>\n    <location>/home/golden/.pi/agent/skills/pdf-tools/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>git-helper</name>\n    <description>Helps with git.</description>\n    <location>/home/golden/.pi/agent/skills/git-helper/SKILL.md</location>\n  </skill>\n</available_skills>"
+   }
+  },
+  {
+   "name": "skills/indirect",
+   "kind": "format_skills",
+   "input": {
+    "skills": [
+     {
+      "name": "pdf-tools",
+      "description": "Extract text & tables from <PDF> files, \"quoted\" and 'single'.",
+      "filePath": "/home/golden/.pi/agent/skills/pdf-tools/SKILL.md",
+      "baseDir": "/home/golden/.pi/agent/skills/pdf-tools",
+      "sourceInfo": {
+       "path": "/home/golden/.pi/agent/skills/pdf-tools/SKILL.md",
+       "source": "local",
+       "scope": "user",
+       "origin": "top-level"
+      },
+      "disableModelInvocation": false
+     },
+     {
+      "name": "hidden-skill",
+      "description": "Only via /skill:hidden-skill",
+      "filePath": "/home/golden/.pi/agent/skills/hidden-skill/SKILL.md",
+      "baseDir": "/home/golden/.pi/agent/skills/hidden-skill",
+      "sourceInfo": {
+       "path": "/home/golden/.pi/agent/skills/hidden-skill/SKILL.md",
+       "source": "local",
+       "scope": "user",
+       "origin": "top-level"
+      },
+      "disableModelInvocation": true
+     },
+     {
+      "name": "git-helper",
+      "description": "Helps with git.",
+      "filePath": "/home/golden/.pi/agent/skills/git-helper/SKILL.md",
+      "baseDir": "/home/golden/.pi/agent/skills/git-helper",
+      "sourceInfo": {
+       "path": "/home/golden/.pi/agent/skills/git-helper/SKILL.md",
+       "source": "local",
+       "scope": "user",
+       "origin": "top-level"
+      },
+      "disableModelInvocation": false
+     }
+    ],
+    "fileReadTool": "indirect"
+   },
+   "out": {
+    "text": "\n\nThe following skills provide specialized instructions for specific tasks.\nLoad a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>pdf-tools</name>\n    <description>Extract text &amp; tables from &lt;PDF&gt; files, &quot;quoted&quot; and &apos;single&apos;.</description>\n    <location>/home/golden/.pi/agent/skills/pdf-tools/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>git-helper</name>\n    <description>Helps with git.</description>\n    <location>/home/golden/.pi/agent/skills/git-helper/SKILL.md</location>\n  </skill>\n</available_skills>"
+   }
+  },
+  {
+   "name": "skills/none_visible",
+   "kind": "format_skills",
+   "input": {
+    "skills": [
+     {
+      "name": "hidden-skill",
+      "description": "Only via /skill:hidden-skill",
+      "filePath": "/home/golden/.pi/agent/skills/hidden-skill/SKILL.md",
+      "baseDir": "/home/golden/.pi/agent/skills/hidden-skill",
+      "sourceInfo": {
+       "path": "/home/golden/.pi/agent/skills/hidden-skill/SKILL.md",
+       "source": "local",
+       "scope": "user",
+       "origin": "top-level"
+      },
+      "disableModelInvocation": true
+     }
+    ],
+    "fileReadTool": "read"
+   },
+   "out": {
+    "text": ""
+   }
+  },
+  {
+   "name": "compaction/serialize_conversation",
+   "kind": "serialize_conversation",
+   "input": {
+    "messages": [
+     {
+      "role": "user",
+      "content": "Fix the bug in src/app.ts",
+      "timestamp": 1
+     },
+     {
+      "role": "user",
+      "content": [
+       {
+        "type": "text",
+        "text": "Here is a screenshot:"
+       },
+       {
+        "type": "image",
+        "data": "aGVsbG8=",
+        "mimeType": "image/png"
+       },
+       {
+        "type": "text",
+        "text": " and more text"
+       }
+      ],
+      "timestamp": 2
+     },
+     {
+      "role": "assistant",
+      "content": [
+       {
+        "type": "thinking",
+        "thinking": "Let me look at the file."
+       },
+       {
+        "type": "text",
+        "text": "I'll read the file."
+       },
+       {
+        "type": "toolCall",
+        "id": "call-1",
+        "name": "read",
+        "arguments": {
+         "path": "src/app.ts",
+         "offset": 10,
+         "limit": 20
+        }
+       },
+       {
+        "type": "toolCall",
+        "id": "call-2",
+        "name": "bash",
+        "arguments": {
+         "command": "rg \"needle\" -n",
+         "timeout": 30
+        }
+       }
+      ],
+      "api": "anthropic-messages",
+      "provider": "anthropic",
+      "model": "claude",
+      "usage": {
+       "input": 10,
+       "output": 5,
+       "cacheRead": 0,
+       "cacheWrite": 0,
+       "totalTokens": 15,
+       "cost": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "total": 0
+       }
+      },
+      "stopReason": "toolUse",
+      "timestamp": 3
+     },
+     {
+      "role": "toolResult",
+      "toolCallId": "call-1",
+      "toolName": "read",
+      "content": [
+       {
+        "type": "text",
+        "text": "0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789tail"
+       }
+      ],
+      "isError": false,
+      "timestamp": 4
+     },
+     {
+      "role": "toolResult",
+      "toolCallId": "call-2",
+      "toolName": "bash",
+      "content": [
+       {
+        "type": "text",
+        "text": "src/app.ts:12: needle"
+       }
+      ],
+      "isError": true,
+      "timestamp": 5
+     },
+     {
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "Found it."
+       },
+       {
+        "type": "text",
+        "text": "Editing now."
+       },
+       {
+        "type": "toolCall",
+        "id": "call-3",
+        "name": "edit",
+        "arguments": {
+         "path": "src/app.ts",
+         "edits": [
+          {
+           "oldText": "a",
+           "newText": "b"
+          }
+         ]
+        }
+       }
+      ],
+      "api": "anthropic-messages",
+      "provider": "anthropic",
+      "model": "claude",
+      "usage": {
+       "input": 10,
+       "output": 5,
+       "cacheRead": 0,
+       "cacheWrite": 0,
+       "totalTokens": 15,
+       "cost": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "total": 0
+       }
+      },
+      "stopReason": "toolUse",
+      "timestamp": 6
+     },
+     {
+      "role": "toolResult",
+      "toolCallId": "call-3",
+      "toolName": "edit",
+      "content": [
+       {
+        "type": "text",
+        "text": "Edited."
+       }
+      ],
+      "isError": false,
+      "timestamp": 7
+     },
+     {
+      "role": "bashExecution",
+      "command": "npm test",
+      "output": "1 failing",
+      "exitCode": 1,
+      "cancelled": false,
+      "truncated": true,
+      "fullOutputPath": "/tmp/out.log",
+      "timestamp": 8
+     },
+     {
+      "role": "bashExecution",
+      "command": "ls",
+      "output": "",
+      "exitCode": 0,
+      "cancelled": false,
+      "truncated": false,
+      "timestamp": 9
+     },
+     {
+      "role": "bashExecution",
+      "command": "secret",
+      "output": "x",
+      "exitCode": 0,
+      "cancelled": false,
+      "truncated": false,
+      "timestamp": 10,
+      "excludeFromContext": true
+     },
+     {
+      "role": "bashExecution",
+      "command": "sleep 100",
+      "output": "",
+      "cancelled": true,
+      "truncated": false,
+      "timestamp": 11
+     },
+     {
+      "role": "custom",
+      "customType": "note",
+      "content": "A custom note.",
+      "display": true,
+      "timestamp": 12
+     },
+     {
+      "role": "branchSummary",
+      "summary": "Explored another approach.",
+      "fromId": "abc",
+      "timestamp": 13
+     },
+     {
+      "role": "compactionSummary",
+      "summary": "Earlier work summarized.",
+      "tokensBefore": 1234,
+      "timestamp": 14
+     },
+     {
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "Done. All tests pass."
+       }
+      ],
+      "api": "anthropic-messages",
+      "provider": "anthropic",
+      "model": "claude",
+      "usage": {
+       "input": 10,
+       "output": 5,
+       "cacheRead": 0,
+       "cacheWrite": 0,
+       "totalTokens": 15,
+       "cost": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "total": 0
+       }
+      },
+      "stopReason": "stop",
+      "timestamp": 15
+     }
+    ]
+   },
+   "out": {
+    "text": "[User]: Fix the bug in src/app.ts\n\n[User]: Here is a screenshot: and more text\n\n[Assistant]: I'll read the file.\n\n[Assistant tool calls]: read(path=\"src/app.ts\", offset=10, limit=20); bash(command=\"rg \\\"needle\\\" -n\", timeout=30)\n\n[Tool result]: 01234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789\n\n[... 504 more characters truncated]\n\n[Tool result]: src/app.ts:12: needle\n\n[Assistant]: Found it.\nEditing now.\n\n[Assistant tool calls]: edit(path=\"src/app.ts\", edits=[{\"oldText\":\"a\",\"newText\":\"b\"}])\n\n[Tool result]: Edited.\n\n[User]: Ran `npm test`\n```\n1 failing\n```\n\nCommand exited with code 1\n\n[Output truncated. Full output: /tmp/out.log]\n\n[User]: Ran `ls`\n(no output)\n\n[User]: Ran `sleep 100`\n(no output)\n\n(command cancelled)\n\n[User]: A custom note.\n\n[User]: The following is a summary of a branch that this conversation came back from:\n\n<summary>\nExplored another approach.</summary>\n\n[User]: The conversation history before this point was compacted into the following summary:\n\n<summary>\nEarlier work summarized.\n</summary>\n\n[Assistant]: Done. All tests pass."
+   }
+  },
+  {
+   "name": "compaction/format_file_operations",
+   "kind": "format_file_operations",
+   "input": {
+    "readFiles": [
+     "a.ts",
+     "b.ts"
+    ],
+    "modifiedFiles": [
+     "c.ts"
+    ]
+   },
+   "out": {
+    "text": "\n\n<read-files>\na.ts\nb.ts\n</read-files>\n\n<modified-files>\nc.ts\n</modified-files>"
+   }
+  },
+  {
+   "name": "compaction/summary",
+   "kind": "generate_summary",
+   "input": {},
+   "out": {
+    "calls": [
+     {
+      "context": {
+       "messages": [
+        {
+         "role": "system",
+         "content": "You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary."
+        },
+        {
+         "role": "user",
+         "content": [
+          {
+           "type": "text",
+           "text": "<conversation>\n[User]: Fix the bug in src/app.ts\n\n[User]: Here is a screenshot: and more text\n\n[Assistant]: I'll read the file.\n\n[Assistant tool calls]: read(path=\"src/app.ts\", offset=10, limit=20); bash(command=\"rg \\\"needle\\\" -n\", timeout=30)\n\n[Tool result]: 01234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789\n\n[... 504 more characters truncated]\n\n[Tool result]: src/app.ts:12: needle\n\n[Assistant]: Found it.\nEditing now.\n\n[Assistant tool calls]: edit(path=\"src/app.ts\", edits=[{\"oldText\":\"a\",\"newText\":\"b\"}])\n\n[Tool result]: Edited.\n\n[User]: Ran `npm test`\n```\n1 failing\n```\n\nCommand exited with code 1\n\n[Output truncated. Full output: /tmp/out.log]\n\n[User]: Ran `ls`\n(no output)\n\n[User]: Ran `sleep 100`\n(no output)\n\n(command cancelled)\n\n[User]: A custom note.\n\n[User]: The following is a summary of a branch that this conversation came back from:\n\n<summary>\nExplored another approach.</summary>\n\n[User]: The conversation history before this point was compacted into the following summary:\n\n<summary>\nEarlier work summarized.\n</summary>\n\n[Assistant]: Done. All tests pass.\n</conversation>\n\nThe messages above are a conversation to summarize. Create a structured context checkpoint summary that another LLM will use to continue the work.\n\nUse this EXACT format:\n\n## Goal\n[What is the user trying to accomplish? Can be multiple items if the session covers different tasks.]\n\n## Constraints & Preferences\n- [Any constraints, preferences, or requirements mentioned by user]\n- [Or \"(none)\" if none were mentioned]\n\n## Progress\n### Done\n- [x] [Completed tasks/changes]\n\n### In Progress\n- [ ] [Current work]\n\n### Blocked\n- [Issues preventing progress, if any]\n\n## Key Decisions\n- **[Decision]**: [Brief rationale]\n\n## Next Steps\n1. [Ordered list of what should happen next]\n\n## Critical Context\n- [Any data, examples, or references needed to continue]\n- [Or \"(none)\" if not applicable]\n\nKeep each section concise. Preserve exact file paths, function names, and error messages."
+          }
+         ]
+        }
+       ]
+      },
+      "reasoning": null,
+      "cacheRetention": "none"
+     }
+    ],
+    "text": "SUMMARY 1"
+   }
+  },
+  {
+   "name": "compaction/summary_update_custom",
+   "kind": "generate_summary",
+   "input": {
+    "previousSummary": "## Goal\nOld goal.",
+    "customInstructions": "Focus on tests.",
+    "thinkingLevel": "high"
+   },
+   "out": {
+    "calls": [
+     {
+      "context": {
+       "messages": [
+        {
+         "role": "system",
+         "content": "You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary."
+        },
+        {
+         "role": "user",
+         "content": [
+          {
+           "type": "text",
+           "text": "<conversation>\n[User]: Fix the bug in src/app.ts\n\n[User]: Here is a screenshot: and more text\n\n[Assistant]: I'll read the file.\n\n[Assistant tool calls]: read(path=\"src/app.ts\", offset=10, limit=20); bash(command=\"rg \\\"needle\\\" -n\", timeout=30)\n\n[Tool result]: 01234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789\n\n[... 504 more characters truncated]\n\n[Tool result]: src/app.ts:12: needle\n\n[Assistant]: Found it.\nEditing now.\n\n[Assistant tool calls]: edit(path=\"src/app.ts\", edits=[{\"oldText\":\"a\",\"newText\":\"b\"}])\n\n[Tool result]: Edited.\n\n[User]: Ran `npm test`\n```\n1 failing\n```\n\nCommand exited with code 1\n\n[Output truncated. Full output: /tmp/out.log]\n\n[User]: Ran `ls`\n(no output)\n\n[User]: Ran `sleep 100`\n(no output)\n\n(command cancelled)\n\n[User]: A custom note.\n\n[User]: The following is a summary of a branch that this conversation came back from:\n\n<summary>\nExplored another approach.</summary>\n\n[User]: The conversation history before this point was compacted into the following summary:\n\n<summary>\nEarlier work summarized.\n</summary>\n\n[Assistant]: Done. All tests pass.\n</conversation>\n\n<previous-summary>\n## Goal\nOld goal.\n</previous-summary>\n\nThe messages above are NEW conversation messages to incorporate into the existing summary provided in <previous-summary> tags.\n\nUpdate the existing structured summary with new information. RULES:\n- PRESERVE all existing information from the previous summary\n- ADD new progress, decisions, and context from the new messages\n- UPDATE the Progress section: move items from \"In Progress\" to \"Done\" when completed\n- UPDATE \"Next Steps\" based on what was accomplished\n- PRESERVE exact file paths, function names, and error messages\n- If something is no longer relevant, you may remove it\n\nUse this EXACT format:\n\n## Goal\n[Preserve existing goals, add new ones if the task expanded]\n\n## Constraints & Preferences\n- [Preserve existing, add new ones discovered]\n\n## Progress\n### Done\n- [x] [Include previously done items AND newly completed items]\n\n### In Progress\n- [ ] [Current work - update based on progress]\n\n### Blocked\n- [Current blockers - remove if resolved]\n\n## Key Decisions\n- **[Decision]**: [Brief rationale] (preserve all previous, add new)\n\n## Next Steps\n1. [Update based on current state]\n\n## Critical Context\n- [Preserve important context, add new if needed]\n\nKeep each section concise. Preserve exact file paths, function names, and error messages.\n\nAdditional focus: Focus on tests."
+          }
+         ]
+        }
+       ]
+      },
+      "reasoning": "high",
+      "cacheRetention": "none"
+     }
+    ],
+    "text": "SUMMARY 1"
+   }
+  },
+  {
+   "name": "compaction/compact",
+   "kind": "compact",
+   "input": {
+    "history": true,
+    "read": [
+     "src/app.ts",
+     "README.md"
+    ],
+    "edited": [
+     "src/app.ts"
+    ],
+    "written": [
+     "new.ts"
+    ]
+   },
+   "out": {
+    "calls": [
+     {
+      "context": {
+       "messages": [
+        {
+         "role": "system",
+         "content": "You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary."
+        },
+        {
+         "role": "user",
+         "content": [
+          {
+           "type": "text",
+           "text": "<conversation>\n[User]: Fix the bug in src/app.ts\n\n[User]: Here is a screenshot: and more text\n\n[Assistant]: I'll read the file.\n\n[Assistant tool calls]: read(path=\"src/app.ts\", offset=10, limit=20); bash(command=\"rg \\\"needle\\\" -n\", timeout=30)\n\n[Tool result]: 01234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789\n\n[... 504 more characters truncated]\n\n[Tool result]: src/app.ts:12: needle\n\n[Assistant]: Found it.\nEditing now.\n\n[Assistant tool calls]: edit(path=\"src/app.ts\", edits=[{\"oldText\":\"a\",\"newText\":\"b\"}])\n\n[Tool result]: Edited.\n</conversation>\n\nThe messages above are a conversation to summarize. Create a structured context checkpoint summary that another LLM will use to continue the work.\n\nUse this EXACT format:\n\n## Goal\n[What is the user trying to accomplish? Can be multiple items if the session covers different tasks.]\n\n## Constraints & Preferences\n- [Any constraints, preferences, or requirements mentioned by user]\n- [Or \"(none)\" if none were mentioned]\n\n## Progress\n### Done\n- [x] [Completed tasks/changes]\n\n### In Progress\n- [ ] [Current work]\n\n### Blocked\n- [Issues preventing progress, if any]\n\n## Key Decisions\n- **[Decision]**: [Brief rationale]\n\n## Next Steps\n1. [Ordered list of what should happen next]\n\n## Critical Context\n- [Any data, examples, or references needed to continue]\n- [Or \"(none)\" if not applicable]\n\nKeep each section concise. Preserve exact file paths, function names, and error messages."
+          }
+         ]
+        }
+       ]
+      },
+      "reasoning": null,
+      "cacheRetention": "none"
+     }
+    ],
+    "result": {
+     "summary": "SUMMARY 1\n\n<read-files>\nREADME.md\n</read-files>\n\n<modified-files>\nnew.ts\nsrc/app.ts\n</modified-files>",
+     "firstKeptEntryId": "keep-1",
+     "tokensBefore": 5000,
+     "details": {
+      "readFiles": [
+       "README.md"
+      ],
+      "modifiedFiles": [
+       "new.ts",
+       "src/app.ts"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "compaction/compact_split",
+   "kind": "compact",
+   "input": {
+    "history": true,
+    "split": true,
+    "customInstructions": "Keep error text.",
+    "read": [
+     "x.ts"
+    ]
+   },
+   "out": {
+    "calls": [
+     {
+      "context": {
+       "messages": [
+        {
+         "role": "system",
+         "content": "You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary."
+        },
+        {
+         "role": "user",
+         "content": [
+          {
+           "type": "text",
+           "text": "<conversation>\n[User]: Fix the bug in src/app.ts\n\n[User]: Here is a screenshot: and more text\n\n[Assistant]: I'll read the file.\n\n[Assistant tool calls]: read(path=\"src/app.ts\", offset=10, limit=20); bash(command=\"rg \\\"needle\\\" -n\", timeout=30)\n\n[Tool result]: 01234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789\n\n[... 504 more characters truncated]\n\n[Tool result]: src/app.ts:12: needle\n\n[Assistant]: Found it.\nEditing now.\n\n[Assistant tool calls]: edit(path=\"src/app.ts\", edits=[{\"oldText\":\"a\",\"newText\":\"b\"}])\n\n[Tool result]: Edited.\n</conversation>\n\nThe messages above are a conversation to summarize. Create a structured context checkpoint summary that another LLM will use to continue the work.\n\nUse this EXACT format:\n\n## Goal\n[What is the user trying to accomplish? Can be multiple items if the session covers different tasks.]\n\n## Constraints & Preferences\n- [Any constraints, preferences, or requirements mentioned by user]\n- [Or \"(none)\" if none were mentioned]\n\n## Progress\n### Done\n- [x] [Completed tasks/changes]\n\n### In Progress\n- [ ] [Current work]\n\n### Blocked\n- [Issues preventing progress, if any]\n\n## Key Decisions\n- **[Decision]**: [Brief rationale]\n\n## Next Steps\n1. [Ordered list of what should happen next]\n\n## Critical Context\n- [Any data, examples, or references needed to continue]\n- [Or \"(none)\" if not applicable]\n\nKeep each section concise. Preserve exact file paths, function names, and error messages.\n\nAdditional focus: Keep error text."
+          }
+         ]
+        }
+       ]
+      },
+      "reasoning": null,
+      "cacheRetention": "none"
+     },
+     {
+      "context": {
+       "messages": [
+        {
+         "role": "system",
+         "content": "You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary."
+        },
+        {
+         "role": "user",
+         "content": [
+          {
+           "type": "text",
+           "text": "# Conversation\n[User]: Ran `npm test`\n```\n1 failing\n```\n\nCommand exited with code 1\n\n[Output truncated. Full output: /tmp/out.log]\n\n[User]: Ran `ls`\n(no output)\n\n[User]: Ran `sleep 100`\n(no output)\n\n(command cancelled)\n\n[User]: A custom note.\n\n[User]: The following is a summary of a branch that this conversation came back from:\n\n<summary>\nExplored another approach.</summary>\n\n[User]: The conversation history before this point was compacted into the following summary:\n\n<summary>\nEarlier work summarized.\n</summary>\n\n[Assistant]: Done. All tests pass.\n\n# Instructions\nThe messages above are earlier context from an ongoing conversation. Later messages are stored separately and do not need to be reconstructed.\n\nCreate a concise checkpoint of the user's request and the progress shown above. This checkpoint will be placed before the later messages so the conversation can continue with the necessary context.\n\n## Original Request\n[What did the user ask for?]\n\n## Progress So Far\n- [Key decisions and work completed in these messages]\n\n## Context Needed to Continue\n- [Information from these messages needed to understand the later work]\n\nOnly summarize information explicitly present above. Do not infer or recreate later messages.\n\nAdditional focus: Keep error text."
+          }
+         ]
+        }
+       ]
+      },
+      "reasoning": null,
+      "cacheRetention": "none"
+     }
+    ],
+    "result": {
+     "summary": "SUMMARY 1\n\n---\n\n**Turn Context (split turn):**\n\nSUMMARY 2\n\n<read-files>\nx.ts\n</read-files>",
+     "firstKeptEntryId": "keep-1",
+     "tokensBefore": 5000,
+     "details": {
+      "readFiles": [
+       "x.ts"
+      ],
+      "modifiedFiles": []
+     }
+    }
+   }
+  },
+  {
+   "name": "compaction/compact_split_prefix_only",
+   "kind": "compact",
+   "input": {
+    "split": true,
+    "previousSummary": "Prior summary."
+   },
+   "out": {
+    "calls": [
+     {
+      "context": {
+       "messages": [
+        {
+         "role": "system",
+         "content": "You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary."
+        },
+        {
+         "role": "user",
+         "content": [
+          {
+           "type": "text",
+           "text": "# Conversation\n[User]: Ran `npm test`\n```\n1 failing\n```\n\nCommand exited with code 1\n\n[Output truncated. Full output: /tmp/out.log]\n\n[User]: Ran `ls`\n(no output)\n\n[User]: Ran `sleep 100`\n(no output)\n\n(command cancelled)\n\n[User]: A custom note.\n\n[User]: The following is a summary of a branch that this conversation came back from:\n\n<summary>\nExplored another approach.</summary>\n\n[User]: The conversation history before this point was compacted into the following summary:\n\n<summary>\nEarlier work summarized.\n</summary>\n\n[Assistant]: Done. All tests pass.\n\n# Instructions\nThe messages above are earlier context from an ongoing conversation. Later messages are stored separately and do not need to be reconstructed.\n\nCreate a concise checkpoint of the user's request and the progress shown above. This checkpoint will be placed before the later messages so the conversation can continue with the necessary context.\n\n## Original Request\n[What did the user ask for?]\n\n## Progress So Far\n- [Key decisions and work completed in these messages]\n\n## Context Needed to Continue\n- [Information from these messages needed to understand the later work]\n\nOnly summarize information explicitly present above. Do not infer or recreate later messages."
+          }
+         ]
+        }
+       ]
+      },
+      "reasoning": null,
+      "cacheRetention": "none"
+     }
+    ],
+    "result": {
+     "summary": "Prior summary.\n\n---\n\n**Turn Context (split turn):**\n\nSUMMARY 1",
+     "firstKeptEntryId": "keep-1",
+     "tokensBefore": 5000,
+     "details": {
+      "readFiles": [],
+      "modifiedFiles": []
+     }
+    }
+   }
+  },
+  {
+   "name": "branch_summary/default",
+   "kind": "branch_summary",
+   "input": {},
+   "out": {
+    "calls": [
+     {
+      "context": {
+       "messages": [
+        {
+         "role": "system",
+         "content": "You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary."
+        },
+        {
+         "role": "user",
+         "content": [
+          {
+           "type": "text",
+           "text": "<conversation>\n[User]: Fix the bug in src/app.ts\n\n[User]: Here is a screenshot: and more text\n\n[Assistant]: I'll read the file.\n\n[Assistant tool calls]: read(path=\"src/app.ts\", offset=10, limit=20); bash(command=\"rg \\\"needle\\\" -n\", timeout=30)\n\n[Assistant]: Found it.\nEditing now.\n\n[Assistant tool calls]: edit(path=\"src/app.ts\", edits=[{\"oldText\":\"a\",\"newText\":\"b\"}])\n\n[User]: Ran `npm test`\n```\n1 failing\n```\n\nCommand exited with code 1\n\n[Output truncated. Full output: /tmp/out.log]\n\n[User]: Ran `ls`\n(no output)\n\n[User]: Ran `sleep 100`\n(no output)\n\n(command cancelled)\n\n[User]: A custom note.\n\n[User]: The following is a summary of a branch that this conversation came back from:\n\n<summary>\nExplored another approach.</summary>\n\n[User]: The conversation history before this point was compacted into the following summary:\n\n<summary>\nEarlier work summarized.\n</summary>\n\n[Assistant]: Done. All tests pass.\n\n[User]: The following is a summary of a branch that this conversation came back from:\n\n<summary>\nNested branch summary.</summary>\n</conversation>\n\nCreate a structured summary of this conversation branch for context when returning later.\n\nUse this EXACT format:\n\n## Goal\n[What was the user trying to accomplish in this branch?]\n\n## Constraints & Preferences\n- [Any constraints, preferences, or requirements mentioned]\n- [Or \"(none)\" if none were mentioned]\n\n## Progress\n### Done\n- [x] [Completed tasks/changes]\n\n### In Progress\n- [ ] [Work that was started but not finished]\n\n### Blocked\n- [Issues preventing progress, if any]\n\n## Key Decisions\n- **[Decision]**: [Brief rationale]\n\n## Next Steps\n1. [What should happen next to continue this work]\n\nKeep each section concise. Preserve exact file paths, function names, and error messages."
+          }
+         ]
+        }
+       ]
+      },
+      "reasoning": null,
+      "cacheRetention": "none"
+     }
+    ],
+    "result": {
+     "summary": "The user explored a different conversation branch before returning here.\nSummary of that exploration:\n\nBRANCH 1\n\n<modified-files>\nsrc/app.ts\n</modified-files>",
+     "readFiles": [],
+     "modifiedFiles": [
+      "src/app.ts"
+     ]
+    }
+   }
+  },
+  {
+   "name": "branch_summary/custom",
+   "kind": "branch_summary",
+   "input": {
+    "customInstructions": "Mention the tests."
+   },
+   "out": {
+    "calls": [
+     {
+      "context": {
+       "messages": [
+        {
+         "role": "system",
+         "content": "You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary."
+        },
+        {
+         "role": "user",
+         "content": [
+          {
+           "type": "text",
+           "text": "<conversation>\n[User]: Fix the bug in src/app.ts\n\n[User]: Here is a screenshot: and more text\n\n[Assistant]: I'll read the file.\n\n[Assistant tool calls]: read(path=\"src/app.ts\", offset=10, limit=20); bash(command=\"rg \\\"needle\\\" -n\", timeout=30)\n\n[Assistant]: Found it.\nEditing now.\n\n[Assistant tool calls]: edit(path=\"src/app.ts\", edits=[{\"oldText\":\"a\",\"newText\":\"b\"}])\n\n[User]: Ran `npm test`\n```\n1 failing\n```\n\nCommand exited with code 1\n\n[Output truncated. Full output: /tmp/out.log]\n\n[User]: Ran `ls`\n(no output)\n\n[User]: Ran `sleep 100`\n(no output)\n\n(command cancelled)\n\n[User]: A custom note.\n\n[User]: The following is a summary of a branch that this conversation came back from:\n\n<summary>\nExplored another approach.</summary>\n\n[User]: The conversation history before this point was compacted into the following summary:\n\n<summary>\nEarlier work summarized.\n</summary>\n\n[Assistant]: Done. All tests pass.\n\n[User]: The following is a summary of a branch that this conversation came back from:\n\n<summary>\nNested branch summary.</summary>\n</conversation>\n\nCreate a structured summary of this conversation branch for context when returning later.\n\nUse this EXACT format:\n\n## Goal\n[What was the user trying to accomplish in this branch?]\n\n## Constraints & Preferences\n- [Any constraints, preferences, or requirements mentioned]\n- [Or \"(none)\" if none were mentioned]\n\n## Progress\n### Done\n- [x] [Completed tasks/changes]\n\n### In Progress\n- [ ] [Work that was started but not finished]\n\n### Blocked\n- [Issues preventing progress, if any]\n\n## Key Decisions\n- **[Decision]**: [Brief rationale]\n\n## Next Steps\n1. [What should happen next to continue this work]\n\nKeep each section concise. Preserve exact file paths, function names, and error messages.\n\nAdditional focus: Mention the tests."
+          }
+         ]
+        }
+       ]
+      },
+      "reasoning": null,
+      "cacheRetention": "none"
+     }
+    ],
+    "result": {
+     "summary": "The user explored a different conversation branch before returning here.\nSummary of that exploration:\n\nBRANCH 1\n\n<modified-files>\nsrc/app.ts\n</modified-files>",
+     "readFiles": [],
+     "modifiedFiles": [
+      "src/app.ts"
+     ]
+    }
+   }
+  },
+  {
+   "name": "branch_summary/replace",
+   "kind": "branch_summary",
+   "input": {
+    "customInstructions": "Only list files.",
+    "replaceInstructions": true
+   },
+   "out": {
+    "calls": [
+     {
+      "context": {
+       "messages": [
+        {
+         "role": "system",
+         "content": "You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary."
+        },
+        {
+         "role": "user",
+         "content": [
+          {
+           "type": "text",
+           "text": "<conversation>\n[User]: Fix the bug in src/app.ts\n\n[User]: Here is a screenshot: and more text\n\n[Assistant]: I'll read the file.\n\n[Assistant tool calls]: read(path=\"src/app.ts\", offset=10, limit=20); bash(command=\"rg \\\"needle\\\" -n\", timeout=30)\n\n[Assistant]: Found it.\nEditing now.\n\n[Assistant tool calls]: edit(path=\"src/app.ts\", edits=[{\"oldText\":\"a\",\"newText\":\"b\"}])\n\n[User]: Ran `npm test`\n```\n1 failing\n```\n\nCommand exited with code 1\n\n[Output truncated. Full output: /tmp/out.log]\n\n[User]: Ran `ls`\n(no output)\n\n[User]: Ran `sleep 100`\n(no output)\n\n(command cancelled)\n\n[User]: A custom note.\n\n[User]: The following is a summary of a branch that this conversation came back from:\n\n<summary>\nExplored another approach.</summary>\n\n[User]: The conversation history before this point was compacted into the following summary:\n\n<summary>\nEarlier work summarized.\n</summary>\n\n[Assistant]: Done. All tests pass.\n\n[User]: The following is a summary of a branch that this conversation came back from:\n\n<summary>\nNested branch summary.</summary>\n</conversation>\n\nOnly list files."
+          }
+         ]
+        }
+       ]
+      },
+      "reasoning": null,
+      "cacheRetention": "none"
+     }
+    ],
+    "result": {
+     "summary": "The user explored a different conversation branch before returning here.\nSummary of that exploration:\n\nBRANCH 1\n\n<modified-files>\nsrc/app.ts\n</modified-files>",
+     "readFiles": [],
+     "modifiedFiles": [
+      "src/app.ts"
+     ]
+    }
+   }
+  },
+  {
+   "name": "branch_summary/empty",
+   "kind": "branch_summary",
+   "input": {
+    "empty": true
+   },
+   "out": {
+    "calls": [],
+    "result": {
+     "summary": "No content to summarize"
+    }
+   }
+  },
+  {
+   "name": "help/default",
+   "kind": "help",
+   "input": {
+    "flags": null
+   },
+   "out": {
+    "text": "\u001b[1mpi\u001b[22m - AI coding assistant with read, bash, edit, write tools\n\n\u001b[1mUsage:\u001b[22m\n  pi [options] [--] [@files...] [messages...]\n\n\u001b[1mCommands:\u001b[22m\n  pi install <source> [-l]     Install extension source and add to settings\n  pi remove <source> [-l]      Remove extension source from settings\n  pi uninstall <source> [-l]   Alias for remove\n  pi update [source|self|pi]   Update pi, extensions, or model catalogs\n  pi list                      List installed extensions from settings\n  pi config [-l]               Open TUI to enable/disable package resources (Tab switches scope)\n  pi auth <command>            Print credentials or check provider readiness\n  pi mcp <command>             Check MCP servers, sign in to or out of OAuth servers\n  pi <command> --help          Show help for install/remove/uninstall/update/list/config/auth/mcp\n\n\u001b[1mOptions:\u001b[22m\n  --provider <name>              Provider to search for --model (requires --model)\n  --model <pattern>              Model pattern or ID (supports \"provider/id\" and optional \":<thinking>\")\n  --api-key <key>                API key (defaults to env vars)\n  --system-prompt <text>         System prompt (default: coding assistant prompt)\n  --append-system-prompt <text>  Append text or file contents to the system prompt (can be used multiple times)\n  --mode <mode>                  Output mode: text (default), json, or rpc\n  --print, -p                    Non-interactive mode: process prompt and exit\n  --continue, -c                 Continue previous session\n  --resume, -r                   Select a session to resume\n  --session <path|id>            Use specific session file or partial UUID\n  --session-id <id>              Use exact project session ID, creating it if missing\n  --fork <path|id>               Fork specific session file or partial UUID into a new session\n  --session-dir <dir>            Directory for session storage and lookup\n  --no-session                   Don't save session (ephemeral)\n  --name, -n <name>              Set session display name\n  --models <patterns>            Comma-separated model patterns for Ctrl+P cycling\n                                 Supports globs (anthropic/*, *sonnet*) and fuzzy matching\n  --no-tools, -nt                Disable all tools by default (built-in and extension)\n  --no-builtin-tools, -nbt       Disable built-in tools by default but keep extension/custom tools enabled\n  --tools, -t <tools>            Comma-separated allowlist of tool names or patterns (*) to enable\n                                 Keeps MCP tools unless an entry starts with mcp__\n                                 Only +name/-name entries add to or remove from the defaults\n  --exclude-tools, -xt <tools>   Comma-separated denylist of tool names or patterns (*) to disable\n                                 Applies to all tools, MCP tools included\n  --thinking <level>             Set thinking level: off, minimal, low, medium, high, xhigh, max\n  --extension, -e <path>         Load an extension file or builtin:<name> (can be used multiple times)\n  --no-extensions, -ne           Disable extension discovery and built-in extensions (explicit -e paths still work)\n  --no-mcp                       Disable built-in MCP support: no servers connect and no MCP tools\n  --skill <path>                 Load a skill file or directory (can be used multiple times)\n  --no-skills, -ns               Disable skills discovery and loading\n  --prompt-template <path>       Load a prompt template file or directory (can be used multiple times)\n  --no-prompt-templates, -np     Disable prompt template discovery and loading\n  --theme <path>                 Load a theme file or directory (can be used multiple times)\n  --use-theme <name[/name]>      Set the initial interactive theme for this run\n  --no-themes                    Disable theme discovery and loading\n  --no-context-files, -nc        Disable AGENTS.md and CLAUDE.md discovery and loading\n  --export <file>                Export session file to HTML and exit\n  --list-models [search]         List available models (with optional fuzzy search)\n  --verbose                      Force verbose startup (overrides quietStartup setting)\n  --tui-mode <mode>              TUI mode: fullscreen (default) or regular\n  --approve, -a                  Trust project-local files for this run\n  --no-approve, -na              Ignore project-local files for this run\n  --offline                      Disable startup network operations (same as PI_OFFLINE=1)\n  --                             End option parsing; treat remaining arguments as messages/files\n  --help, -h                     Show this help\n  --version, -v                  Show version number\n\nExtensions can register additional flags (e.g., --plan from plan-mode extension).\n\n\u001b[1mExamples:\u001b[22m\n  # Print a provider API key for an external client\n  pi auth print-api-key --provider openai\n\n  # Print an OAuth bearer token for an external client (refreshes if expired)\n  pi auth print-bearer-token --provider openai-codex\n\n  # Interactive mode\n  pi\n\n  # Interactive mode with initial prompt\n  pi \"List all .ts files in src/\"\n\n  # Include files in initial message\n  pi @prompt.md @image.png \"What color is the sky?\"\n\n  # Non-interactive mode (process and exit)\n  pi -p \"List all .ts files in src/\"\n\n  # Prompt beginning with a dash\n  pi -p -- \"- Summarize these points\"\n\n  # Multiple messages (interactive)\n  pi \"Read package.json\" \"What dependencies do we have?\"\n\n  # Continue previous session\n  pi --continue \"What did we discuss?\"\n\n  # Start a named session\n  pi --name \"Refactor auth module\"\n\n  # Use different model\n  pi --provider openai --model gpt-4o-mini \"Help me refactor this code\"\n\n  # Use model with provider prefix (no --provider needed)\n  pi --model openai/gpt-4o \"Help me refactor this code\"\n\n  # Use model with thinking level shorthand\n  pi --model sonnet:high \"Solve this complex problem\"\n\n  # Limit model cycling to specific models\n  pi --models claude-sonnet,claude-haiku,gpt-4o\n\n  # Limit to a specific provider with glob pattern\n  pi --models \"github-copilot/*\"\n\n  # Cycle models with fixed thinking levels\n  pi --models sonnet:high,haiku:low\n\n  # Start with a specific thinking level\n  pi --thinking high \"Solve this complex problem\"\n\n  # Read-only mode (no file modifications possible)\n  pi --tools read,grep,find,ls -p \"Review the code in src/\"\n\n  # Add codemode to the default tools\n  pi --tools +codemode\n\n  # Codemode with only the tools of one MCP server\n  pi --tools read,bash,codemode,'mcp__radius__*'\n\n  # Disable one tool while keeping the rest available\n  pi --exclude-tools ask_question\n\n  # Export a session file to HTML\n  pi --export ~/.pi/agent/sessions/--path--/session.jsonl\n  pi --export session.jsonl output.html\n\n\u001b[1mEnvironment Variables:\u001b[22m\n  ANTHROPIC_AUTH_TOKEN             - Anthropic bearer auth token\n  ANTHROPIC_API_KEY                - Anthropic Claude API key\n  ANTHROPIC_OAUTH_TOKEN            - Anthropic OAuth token (alternative to API key)\n  ANT_LING_API_KEY                 - Ant Ling API key\n  OPENAI_API_KEY                   - OpenAI GPT API key\n  AZURE_OPENAI_API_KEY             - Azure OpenAI API key\n  AZURE_OPENAI_BASE_URL            - Azure OpenAI/Cognitive Services base URL (e.g. https://{resource}.openai.azure.com)\n  AZURE_OPENAI_RESOURCE_NAME       - Azure OpenAI resource name (alternative to base URL)\n  AZURE_OPENAI_API_VERSION         - Azure OpenAI API version (default: v1)\n  AZURE_OPENAI_DEPLOYMENT_NAME_MAP - Azure OpenAI model=deployment map (comma-separated)\n  DEEPSEEK_API_KEY                 - DeepSeek API key\n  NVIDIA_API_KEY                   - NVIDIA NIM API key\n  GEMINI_API_KEY                   - Google Gemini API key\n  GROQ_API_KEY                     - Groq API key\n  CEREBRAS_API_KEY                 - Cerebras API key\n  XAI_API_KEY                      - xAI Grok API key\n  FIREWORKS_API_KEY                - Fireworks API key\n  TOGETHER_API_KEY                 - Together AI API key\n  BASETEN_API_KEY                  - Baseten API key\n  OPENROUTER_API_KEY               - OpenRouter API key\n  AI_GATEWAY_API_KEY               - Vercel AI Gateway API key\n  ZAI_API_KEY                      - ZAI Coding Plan API key (Global)\n  ZAI_CODING_CN_API_KEY            - ZAI Coding Plan API key (China)\n  MISTRAL_API_KEY                  - Mistral API key\n  MINIMAX_API_KEY                  - MiniMax API key\n  MOONSHOT_API_KEY                 - Moonshot AI API key\n  OPENCODE_API_KEY                 - OpenCode Zen/OpenCode Go API key\n  KIMI_API_KEY                     - Kimi For Coding API key\n  META_API_KEY                     - Meta Model API key\n  CLOUDFLARE_API_KEY               - Cloudflare API token (Workers AI and AI Gateway)\n  CLOUDFLARE_ACCOUNT_ID            - Cloudflare account id (required for both)\n  CLOUDFLARE_GATEWAY_ID            - Cloudflare AI Gateway slug (required for AI Gateway)\n  QWEN_TOKEN_PLAN_API_KEY          - Qwen Token Plan API key (international region)\n  QWEN_TOKEN_PLAN_CN_API_KEY       - Qwen Token Plan API key (China region)\n  XIAOMI_API_KEY                   - Xiaomi MiMo API key (api.xiaomimimo.com billing)\n  XIAOMI_TOKEN_PLAN_CN_API_KEY     - Xiaomi MiMo Token Plan API key (China region)\n  XIAOMI_TOKEN_PLAN_AMS_API_KEY    - Xiaomi MiMo Token Plan API key (Amsterdam region)\n  XIAOMI_TOKEN_PLAN_SGP_API_KEY    - Xiaomi MiMo Token Plan API key (Singapore region)\n  AWS_PROFILE                      - AWS profile for Amazon Bedrock\n  AWS_ACCESS_KEY_ID                - AWS access key for Amazon Bedrock\n  AWS_SECRET_ACCESS_KEY            - AWS secret key for Amazon Bedrock\n  AWS_BEARER_TOKEN_BEDROCK         - Bedrock API key (bearer token)\n  AWS_REGION                       - AWS region for Amazon Bedrock (e.g., us-east-1)\n  PI_CODING_AGENT_DIR              - Config directory (default: ~/.pi/agent)\n  PI_CODING_AGENT_SESSION_DIR      - Session storage directory (overridden by --session-dir)\n  PI_PACKAGE_DIR                   - Override package directory (for Nix/Guix store paths)\n  PI_OFFLINE                       - Disable startup network operations when set to 1/true/yes\n  PI_TELEMETRY                     - Override install telemetry when set to 1/true/yes or 0/false/no\n  PI_SHARE_VIEWER_URL              - Base URL for /share command (default: https://pi.dev/session/)\n\n\u001b[1mBuilt-in Tool Names:\u001b[22m\n  read       - Read file contents\n  bash       - Execute bash commands\n  powershell - Execute PowerShell commands on Windows\n  edit       - Edit files with find/replace\n  write      - Write files (creates/overwrites)\n  grep       - Search file contents (read-only, off by default)\n  find       - Find files by glob pattern (read-only, off by default)\n  ls         - List directory contents (read-only, off by default)\n"
+   }
+  },
+  {
+   "name": "help/extension_flags",
+   "kind": "help",
+   "input": {
+    "flags": [
+     {
+      "name": "plan",
+      "type": "boolean",
+      "description": "Start in plan mode",
+      "extensionPath": "/ext/plan.ts"
+     },
+     {
+      "name": "profile",
+      "type": "string",
+      "extensionPath": "/ext/profile.ts"
+     }
+    ]
+   },
+   "out": {
+    "text": "\u001b[1mpi\u001b[22m - AI coding assistant with read, bash, edit, write tools\n\n\u001b[1mUsage:\u001b[22m\n  pi [options] [--] [@files...] [messages...]\n\n\u001b[1mCommands:\u001b[22m\n  pi install <source> [-l]     Install extension source and add to settings\n  pi remove <source> [-l]      Remove extension source from settings\n  pi uninstall <source> [-l]   Alias for remove\n  pi update [source|self|pi]   Update pi, extensions, or model catalogs\n  pi list                      List installed extensions from settings\n  pi config [-l]               Open TUI to enable/disable package resources (Tab switches scope)\n  pi auth <command>            Print credentials or check provider readiness\n  pi mcp <command>             Check MCP servers, sign in to or out of OAuth servers\n  pi <command> --help          Show help for install/remove/uninstall/update/list/config/auth/mcp\n\n\u001b[1mOptions:\u001b[22m\n  --provider <name>              Provider to search for --model (requires --model)\n  --model <pattern>              Model pattern or ID (supports \"provider/id\" and optional \":<thinking>\")\n  --api-key <key>                API key (defaults to env vars)\n  --system-prompt <text>         System prompt (default: coding assistant prompt)\n  --append-system-prompt <text>  Append text or file contents to the system prompt (can be used multiple times)\n  --mode <mode>                  Output mode: text (default), json, or rpc\n  --print, -p                    Non-interactive mode: process prompt and exit\n  --continue, -c                 Continue previous session\n  --resume, -r                   Select a session to resume\n  --session <path|id>            Use specific session file or partial UUID\n  --session-id <id>              Use exact project session ID, creating it if missing\n  --fork <path|id>               Fork specific session file or partial UUID into a new session\n  --session-dir <dir>            Directory for session storage and lookup\n  --no-session                   Don't save session (ephemeral)\n  --name, -n <name>              Set session display name\n  --models <patterns>            Comma-separated model patterns for Ctrl+P cycling\n                                 Supports globs (anthropic/*, *sonnet*) and fuzzy matching\n  --no-tools, -nt                Disable all tools by default (built-in and extension)\n  --no-builtin-tools, -nbt       Disable built-in tools by default but keep extension/custom tools enabled\n  --tools, -t <tools>            Comma-separated allowlist of tool names or patterns (*) to enable\n                                 Keeps MCP tools unless an entry starts with mcp__\n                                 Only +name/-name entries add to or remove from the defaults\n  --exclude-tools, -xt <tools>   Comma-separated denylist of tool names or patterns (*) to disable\n                                 Applies to all tools, MCP tools included\n  --thinking <level>             Set thinking level: off, minimal, low, medium, high, xhigh, max\n  --extension, -e <path>         Load an extension file or builtin:<name> (can be used multiple times)\n  --no-extensions, -ne           Disable extension discovery and built-in extensions (explicit -e paths still work)\n  --no-mcp                       Disable built-in MCP support: no servers connect and no MCP tools\n  --skill <path>                 Load a skill file or directory (can be used multiple times)\n  --no-skills, -ns               Disable skills discovery and loading\n  --prompt-template <path>       Load a prompt template file or directory (can be used multiple times)\n  --no-prompt-templates, -np     Disable prompt template discovery and loading\n  --theme <path>                 Load a theme file or directory (can be used multiple times)\n  --use-theme <name[/name]>      Set the initial interactive theme for this run\n  --no-themes                    Disable theme discovery and loading\n  --no-context-files, -nc        Disable AGENTS.md and CLAUDE.md discovery and loading\n  --export <file>                Export session file to HTML and exit\n  --list-models [search]         List available models (with optional fuzzy search)\n  --verbose                      Force verbose startup (overrides quietStartup setting)\n  --tui-mode <mode>              TUI mode: fullscreen (default) or regular\n  --approve, -a                  Trust project-local files for this run\n  --no-approve, -na              Ignore project-local files for this run\n  --offline                      Disable startup network operations (same as PI_OFFLINE=1)\n  --                             End option parsing; treat remaining arguments as messages/files\n  --help, -h                     Show this help\n  --version, -v                  Show version number\n\nExtensions can register additional flags (e.g., --plan from plan-mode extension).\n\u001b[1mExtension CLI Flags:\u001b[22m\n  --plan                      Start in plan mode\n  --profile <value>           Registered by /ext/profile.ts\n\n\n\u001b[1mExamples:\u001b[22m\n  # Print a provider API key for an external client\n  pi auth print-api-key --provider openai\n\n  # Print an OAuth bearer token for an external client (refreshes if expired)\n  pi auth print-bearer-token --provider openai-codex\n\n  # Interactive mode\n  pi\n\n  # Interactive mode with initial prompt\n  pi \"List all .ts files in src/\"\n\n  # Include files in initial message\n  pi @prompt.md @image.png \"What color is the sky?\"\n\n  # Non-interactive mode (process and exit)\n  pi -p \"List all .ts files in src/\"\n\n  # Prompt beginning with a dash\n  pi -p -- \"- Summarize these points\"\n\n  # Multiple messages (interactive)\n  pi \"Read package.json\" \"What dependencies do we have?\"\n\n  # Continue previous session\n  pi --continue \"What did we discuss?\"\n\n  # Start a named session\n  pi --name \"Refactor auth module\"\n\n  # Use different model\n  pi --provider openai --model gpt-4o-mini \"Help me refactor this code\"\n\n  # Use model with provider prefix (no --provider needed)\n  pi --model openai/gpt-4o \"Help me refactor this code\"\n\n  # Use model with thinking level shorthand\n  pi --model sonnet:high \"Solve this complex problem\"\n\n  # Limit model cycling to specific models\n  pi --models claude-sonnet,claude-haiku,gpt-4o\n\n  # Limit to a specific provider with glob pattern\n  pi --models \"github-copilot/*\"\n\n  # Cycle models with fixed thinking levels\n  pi --models sonnet:high,haiku:low\n\n  # Start with a specific thinking level\n  pi --thinking high \"Solve this complex problem\"\n\n  # Read-only mode (no file modifications possible)\n  pi --tools read,grep,find,ls -p \"Review the code in src/\"\n\n  # Add codemode to the default tools\n  pi --tools +codemode\n\n  # Codemode with only the tools of one MCP server\n  pi --tools read,bash,codemode,'mcp__radius__*'\n\n  # Disable one tool while keeping the rest available\n  pi --exclude-tools ask_question\n\n  # Export a session file to HTML\n  pi --export ~/.pi/agent/sessions/--path--/session.jsonl\n  pi --export session.jsonl output.html\n\n\u001b[1mEnvironment Variables:\u001b[22m\n  ANTHROPIC_AUTH_TOKEN             - Anthropic bearer auth token\n  ANTHROPIC_API_KEY                - Anthropic Claude API key\n  ANTHROPIC_OAUTH_TOKEN            - Anthropic OAuth token (alternative to API key)\n  ANT_LING_API_KEY                 - Ant Ling API key\n  OPENAI_API_KEY                   - OpenAI GPT API key\n  AZURE_OPENAI_API_KEY             - Azure OpenAI API key\n  AZURE_OPENAI_BASE_URL            - Azure OpenAI/Cognitive Services base URL (e.g. https://{resource}.openai.azure.com)\n  AZURE_OPENAI_RESOURCE_NAME       - Azure OpenAI resource name (alternative to base URL)\n  AZURE_OPENAI_API_VERSION         - Azure OpenAI API version (default: v1)\n  AZURE_OPENAI_DEPLOYMENT_NAME_MAP - Azure OpenAI model=deployment map (comma-separated)\n  DEEPSEEK_API_KEY                 - DeepSeek API key\n  NVIDIA_API_KEY                   - NVIDIA NIM API key\n  GEMINI_API_KEY                   - Google Gemini API key\n  GROQ_API_KEY                     - Groq API key\n  CEREBRAS_API_KEY                 - Cerebras API key\n  XAI_API_KEY                      - xAI Grok API key\n  FIREWORKS_API_KEY                - Fireworks API key\n  TOGETHER_API_KEY                 - Together AI API key\n  BASETEN_API_KEY                  - Baseten API key\n  OPENROUTER_API_KEY               - OpenRouter API key\n  AI_GATEWAY_API_KEY               - Vercel AI Gateway API key\n  ZAI_API_KEY                      - ZAI Coding Plan API key (Global)\n  ZAI_CODING_CN_API_KEY            - ZAI Coding Plan API key (China)\n  MISTRAL_API_KEY                  - Mistral API key\n  MINIMAX_API_KEY                  - MiniMax API key\n  MOONSHOT_API_KEY                 - Moonshot AI API key\n  OPENCODE_API_KEY                 - OpenCode Zen/OpenCode Go API key\n  KIMI_API_KEY                     - Kimi For Coding API key\n  META_API_KEY                     - Meta Model API key\n  CLOUDFLARE_API_KEY               - Cloudflare API token (Workers AI and AI Gateway)\n  CLOUDFLARE_ACCOUNT_ID            - Cloudflare account id (required for both)\n  CLOUDFLARE_GATEWAY_ID            - Cloudflare AI Gateway slug (required for AI Gateway)\n  QWEN_TOKEN_PLAN_API_KEY          - Qwen Token Plan API key (international region)\n  QWEN_TOKEN_PLAN_CN_API_KEY       - Qwen Token Plan API key (China region)\n  XIAOMI_API_KEY                   - Xiaomi MiMo API key (api.xiaomimimo.com billing)\n  XIAOMI_TOKEN_PLAN_CN_API_KEY     - Xiaomi MiMo Token Plan API key (China region)\n  XIAOMI_TOKEN_PLAN_AMS_API_KEY    - Xiaomi MiMo Token Plan API key (Amsterdam region)\n  XIAOMI_TOKEN_PLAN_SGP_API_KEY    - Xiaomi MiMo Token Plan API key (Singapore region)\n  AWS_PROFILE                      - AWS profile for Amazon Bedrock\n  AWS_ACCESS_KEY_ID                - AWS access key for Amazon Bedrock\n  AWS_SECRET_ACCESS_KEY            - AWS secret key for Amazon Bedrock\n  AWS_BEARER_TOKEN_BEDROCK         - Bedrock API key (bearer token)\n  AWS_REGION                       - AWS region for Amazon Bedrock (e.g., us-east-1)\n  PI_CODING_AGENT_DIR              - Config directory (default: ~/.pi/agent)\n  PI_CODING_AGENT_SESSION_DIR      - Session storage directory (overridden by --session-dir)\n  PI_PACKAGE_DIR                   - Override package directory (for Nix/Guix store paths)\n  PI_OFFLINE                       - Disable startup network operations when set to 1/true/yes\n  PI_TELEMETRY                     - Override install telemetry when set to 1/true/yes or 0/false/no\n  PI_SHARE_VIEWER_URL              - Base URL for /share command (default: https://pi.dev/session/)\n\n\u001b[1mBuilt-in Tool Names:\u001b[22m\n  read       - Read file contents\n  bash       - Execute bash commands\n  powershell - Execute PowerShell commands on Windows\n  edit       - Edit files with find/replace\n  write      - Write files (creates/overwrites)\n  grep       - Search file contents (read-only, off by default)\n  find       - Find files by glob pattern (read-only, off by default)\n  ls         - List directory contents (read-only, off by default)\n"
+   }
+  }
+ ]
+}

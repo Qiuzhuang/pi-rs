@@ -56,11 +56,11 @@ pub static BASH_TOOL_SYSTEM_PROMPT_CONTRIBUTION: LazyLock<Value> =
 pub(crate) fn bash_schema() -> Value {
     json!({
         "type": "object",
+        "required": ["command"],
         "properties": {
             "command": { "type": "string", "description": "Shell command to execute" },
             "timeout": { "type": "number", "description": "Timeout in seconds (optional, no default timeout)" }
-        },
-        "required": ["command"]
+        }
     })
 }
 
@@ -68,14 +68,14 @@ pub(crate) fn bash_schema() -> Value {
 fn bash_output_schema() -> Value {
     json!({
         "type": "object",
+        "required": ["output", "truncated", "exit_code", "wall_time_seconds"],
         "properties": {
             "output": { "type": "string", "description": "Combined stdout and stderr, possibly truncated" },
             "truncated": { "type": "boolean" },
             "full_output_path": { "type": "string", "description": "Full output, when truncated" },
             "exit_code": { "type": "number" },
             "wall_time_seconds": { "type": "number" }
-        },
-        "required": ["output", "truncated", "exit_code", "wall_time_seconds"]
+        }
     })
 }
 

@@ -22,11 +22,11 @@ pub static WRITE_TOOL_SYSTEM_PROMPT_CONTRIBUTION: LazyLock<Value> =
 fn write_schema() -> Value {
     json!({
         "type": "object",
+        "required": ["path", "content"],
         "properties": {
             "path": { "type": "string", "description": "Path to the file to write (relative or absolute)" },
             "content": { "type": "string", "description": "Content to write to the file" }
-        },
-        "required": ["path", "content"]
+        }
     })
 }
 

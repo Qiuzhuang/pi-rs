@@ -28,12 +28,12 @@ pub static READ_TOOL_SYSTEM_PROMPT_CONTRIBUTION: LazyLock<Value> =
 fn read_schema() -> Value {
     json!({
         "type": "object",
+        "required": ["path"],
         "properties": {
             "path": { "type": "string", "description": "Path to the file to read (relative or absolute)" },
             "offset": { "type": "number", "description": "Line number to start reading from (1-indexed)" },
             "limit": { "type": "number", "description": "Maximum number of lines to read" }
-        },
-        "required": ["path"]
+        }
     })
 }
 
@@ -44,13 +44,13 @@ fn read_output_schema() -> Value {
             { "type": "string" },
             {
                 "type": "object",
+                "required": ["type", "data", "mimeType", "note"],
                 "properties": {
-                    "type": { "const": "image", "type": "string" },
+                    "type": { "type": "string", "const": "image" },
                     "data": { "type": "string" },
                     "mimeType": { "type": "string" },
                     "note": { "type": "string" }
-                },
-                "required": ["type", "data", "mimeType", "note"]
+                }
             }
         ]
     })

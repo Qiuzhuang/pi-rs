@@ -131,6 +131,7 @@ const DEFAULT_LIMIT: f64 = 1000.0;
 fn find_schema() -> Value {
     json!({
         "type": "object",
+        "required": ["pattern"],
         "properties": {
             "pattern": {
                 "type": "string",
@@ -138,8 +139,7 @@ fn find_schema() -> Value {
             },
             "path": { "type": "string", "description": "Directory to search in (default: current directory)" },
             "limit": { "type": "number", "description": "Maximum number of results (default: 1000)" }
-        },
-        "required": ["pattern"]
+        }
     })
 }
 

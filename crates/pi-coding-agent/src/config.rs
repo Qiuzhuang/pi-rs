@@ -196,24 +196,113 @@ fn absolute(path: PathBuf) -> String {
     path_string(std::path::absolute(&path).unwrap_or(path))
 }
 
+mod package_assets {
+    include!(concat!(env!("OUT_DIR"), "/package_assets.rs"));
+}
+pub use package_assets::{PACKAGE_ASSETS, PACKAGE_ASSETS_HASH};
+
+/// Directory holding the package's `README.md`, `CHANGELOG.md`, `docs/` and `examples/`.
+///
+/// TS resolves them under the package directory. The Rust executable embeds them: they are used
+/// from `PI_PACKAGE_DIR` when set (as in TS), from next to the executable when a release ships them
+/// there (the Bun binary layout), and otherwise from a copy materialized once per asset set under
+/// the user cache directory (`~/.cache/pi/package/<version>-<hash>`).
+pub fn get_package_assets_dir() -> String {
+    if let Ok(env_dir) = std::env::var("PI_PACKAGE_DIR")
+        && !env_dir.is_empty()
+    {
+        return normalize_path(&env_dir, None);
+    }
+    let package_dir = get_package_dir();
+    let package_path = Path::new(&package_dir);
+    if package_path.join("README.md").is_file() && package_path.join("docs").is_dir() {
+        return package_dir;
+    }
+    materialized_package_assets_dir()
+}
+
+fn materialized_package_assets_dir() -> String {
+    static DIR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    DIR.get_or_init(|| {
+        let name = format!("{VERSION}-{PACKAGE_ASSETS_HASH}");
+        let mut candidates: Vec<PathBuf> = Vec::new();
+        if let Some(cache) = dirs::cache_dir() {
+            candidates.push(cache.join(APP_NAME).join("package").join(&name));
+        }
+        candidates.push(std::env::temp_dir().join(format!("{APP_NAME}-package-{name}")));
+        for target in &candidates {
+            if target.is_dir() || materialize_package_assets(target).is_ok() {
+                return path_string(target);
+            }
+        }
+        path_string(&candidates[0])
+    })
+    .clone()
+}
+
+/// Write the embedded assets to `target` atomically (a temporary sibling renamed into place), so a
+/// concurrent process never sees a partial copy.
+fn materialize_package_assets(target: &Path) -> std::io::Result<()> {
+    let parent = target.parent().unwrap_or(Path::new("."));
+    std::fs::create_dir_all(parent)?;
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let staging = parent.join(format!(
+        ".{}.tmp-{}-{nanos}",
+        target.file_name().unwrap_or_default().to_string_lossy(),
+        std::process::id()
+    ));
+    let write_all = || -> std::io::Result<()> {
+        for (rel, contents, executable) in PACKAGE_ASSETS {
+            let path = staging.join(rel);
+            if let Some(dir) = path.parent() {
+                std::fs::create_dir_all(dir)?;
+            }
+            std::fs::write(&path, contents)?;
+            #[cfg(unix)]
+            if *executable {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))?;
+            }
+            #[cfg(not(unix))]
+            let _ = executable;
+        }
+        Ok(())
+    };
+    if let Err(error) = write_all() {
+        let _ = std::fs::remove_dir_all(&staging);
+        return Err(error);
+    }
+    match std::fs::rename(&staging, target) {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            let _ = std::fs::remove_dir_all(&staging);
+            // Another process finished first.
+            if target.is_dir() { Ok(()) } else { Err(error) }
+        }
+    }
+}
+
 /// Path to README.md.
 pub fn get_readme_path() -> String {
-    absolute(Path::new(&get_package_dir()).join("README.md"))
+    absolute(Path::new(&get_package_assets_dir()).join("README.md"))
 }
 
 /// Path to docs directory.
 pub fn get_docs_path() -> String {
-    absolute(Path::new(&get_package_dir()).join("docs"))
+    absolute(Path::new(&get_package_assets_dir()).join("docs"))
 }
 
 /// Path to examples directory.
 pub fn get_examples_path() -> String {
-    absolute(Path::new(&get_package_dir()).join("examples"))
+    absolute(Path::new(&get_package_assets_dir()).join("examples"))
 }
 
 /// Path to CHANGELOG.md.
 pub fn get_changelog_path() -> String {
-    absolute(Path::new(&get_package_dir()).join("CHANGELOG.md"))
+    absolute(Path::new(&get_package_assets_dir()).join("CHANGELOG.md"))
 }
 
 /// Built-in interactive assets directory (`assets/` next to the executable).

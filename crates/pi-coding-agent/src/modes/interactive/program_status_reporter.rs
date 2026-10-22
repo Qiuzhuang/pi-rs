@@ -212,3 +212,239 @@ impl ProgramStatusReporter {
         current
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Port of `test/program-status-reporter.test.ts` (#10607).
+    use super::*;
+    use pi_ai::types::{AssistantContent, AssistantMessage, TextContent};
+    use pi_tui::terminal::{InputHandler, ResizeHandler};
+
+    #[derive(Default)]
+    struct RecordingTerminal {
+        reports: Mutex<Vec<ProgramStatus>>,
+    }
+
+    impl Terminal for RecordingTerminal {
+        fn start(&self, _on_input: InputHandler, _on_resize: ResizeHandler) {}
+        fn stop(&self) {}
+        fn write(&self, _data: &str) {}
+        fn columns(&self) -> usize {
+            80
+        }
+        fn rows(&self) -> usize {
+            24
+        }
+        fn kitty_protocol_active(&self) -> bool {
+            false
+        }
+        fn set_program_status(&self, status: &ProgramStatus) {
+            self.reports.lock().push(status.clone());
+        }
+    }
+
+    struct Setup {
+        reporter: ProgramStatusReporter,
+        terminal: Arc<RecordingTerminal>,
+        name: Arc<Mutex<Option<String>>>,
+    }
+
+    fn setup(session_name: Option<&str>) -> Setup {
+        let terminal = Arc::new(RecordingTerminal::default());
+        let name = Arc::new(Mutex::new(session_name.map(str::to_string)));
+        let t = terminal.clone();
+        let n = name.clone();
+        let reporter = ProgramStatusReporter::new(
+            Arc::new(move || t.clone() as Arc<dyn Terminal>),
+            Arc::new(move || n.lock().clone()),
+        );
+        Setup { reporter, terminal, name }
+    }
+
+    impl Setup {
+        fn send(&self, events: &[AgentSessionEvent]) {
+            for event in events {
+                self.reporter.handle_event(event);
+            }
+        }
+        /// The last report without `app`.
+        fn last(&self) -> ProgramStatus {
+            let mut status = self.terminal.reports.lock().last().cloned().unwrap();
+            status.app = None;
+            status
+        }
+        fn count(&self) -> usize {
+            self.terminal.reports.lock().len()
+        }
+    }
+
+    fn st(state: ProgramState, message: Option<&str>) -> ProgramStatus {
+        ProgramStatus { state, app: None, kind: None, message: message.map(str::to_string) }
+    }
+
+    fn assistant_end(stop_reason: StopReason, error_message: Option<&str>) -> AgentSessionEvent {
+        AgentSessionEvent::MessageEnd {
+            message: AgentMessage::Assistant(AssistantMessage {
+                content: vec![AssistantContent::Text(TextContent::new("secret assistant output"))],
+                stop_reason,
+                error_message: error_message.map(str::to_string),
+                ..Default::default()
+            }),
+        }
+    }
+
+    fn settled(aborted: bool) -> AgentSessionEvent {
+        AgentSessionEvent::AgentSettled { aborted }
+    }
+
+    fn compaction_start(reason: CompactionReason) -> AgentSessionEvent {
+        AgentSessionEvent::CompactionStart { reason }
+    }
+
+    fn compaction_end(reason: CompactionReason, aborted: bool, error_message: Option<&str>) -> AgentSessionEvent {
+        AgentSessionEvent::CompactionEnd {
+            reason,
+            result: None,
+            aborted,
+            will_retry: false,
+            error_message: error_message.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn reports_idle_working_during_a_run_and_done_once_it_settles() {
+        let s = setup(Some("Fix login"));
+        s.reporter.report();
+        assert_eq!(
+            s.terminal.reports.lock().last().cloned().unwrap(),
+            ProgramStatus { state: ProgramState::Idle, app: Some("pi".into()), kind: None, message: None }
+        );
+
+        s.send(&[AgentSessionEvent::AgentStart]);
+        assert_eq!(s.last(), st(ProgramState::Working, Some("Fix login")));
+
+        s.send(&[assistant_end(StopReason::ToolUse, None), assistant_end(StopReason::Stop, None)]);
+        assert_eq!(s.last(), st(ProgramState::Working, Some("Fix login")));
+
+        s.send(&[settled(false)]);
+        assert_eq!(s.last(), st(ProgramState::Done, Some("Fix login")));
+        let all = format!("{:?}", s.terminal.reports.lock());
+        assert!(!all.contains("secret assistant output"));
+    }
+
+    #[test]
+    fn reports_only_the_outcome_of_the_run() {
+        let s = setup(None);
+        s.send(&[
+            AgentSessionEvent::AgentStart,
+            assistant_end(StopReason::Error, Some("overloaded")),
+            assistant_end(StopReason::Stop, None),
+            settled(false),
+        ]);
+        assert_eq!(s.last(), st(ProgramState::Done, None));
+
+        s.send(&[
+            AgentSessionEvent::AgentStart,
+            assistant_end(StopReason::Error, Some("Invalid API key\n{details}")),
+            settled(false),
+        ]);
+        assert_eq!(s.last(), st(ProgramState::Error, Some("Invalid API key")));
+
+        s.send(&[AgentSessionEvent::AgentStart, assistant_end(StopReason::Aborted, None), settled(true)]);
+        assert_eq!(s.last(), st(ProgramState::Idle, None));
+
+        // Aborted after a successful response, for example in an agent_before_settle hook or a retry delay.
+        s.send(&[AgentSessionEvent::AgentStart, assistant_end(StopReason::Stop, None), settled(true)]);
+        assert_eq!(s.last(), st(ProgramState::Idle, None));
+    }
+
+    #[test]
+    fn reports_a_failed_recovery_compaction_as_the_runs_error_unless_a_later_response_succeeds() {
+        let s = setup(None);
+        s.send(&[
+            AgentSessionEvent::AgentStart,
+            assistant_end(StopReason::Length, None),
+            compaction_start(CompactionReason::Overflow),
+            compaction_end(CompactionReason::Overflow, false, Some("Compaction failed\nstack")),
+            settled(false),
+        ]);
+        assert_eq!(s.last(), st(ProgramState::Error, Some("Compaction failed")));
+
+        s.send(&[
+            AgentSessionEvent::AgentStart,
+            compaction_start(CompactionReason::Threshold),
+            compaction_end(CompactionReason::Threshold, false, Some("Compaction failed")),
+            assistant_end(StopReason::Stop, None),
+            settled(false),
+        ]);
+        assert_eq!(s.last(), st(ProgramState::Done, None));
+    }
+
+    #[test]
+    fn reports_compaction_inside_a_run_and_the_result_of_a_manual_compaction() {
+        let s = setup(Some("Session"));
+        s.send(&[AgentSessionEvent::AgentStart, compaction_start(CompactionReason::Threshold)]);
+        assert_eq!(s.last(), st(ProgramState::Working, Some("Compacting context")));
+        s.send(&[compaction_end(CompactionReason::Threshold, false, None)]);
+        assert_eq!(s.last(), st(ProgramState::Working, Some("Session")));
+        s.send(&[assistant_end(StopReason::Stop, None), settled(false)]);
+
+        s.send(&[compaction_start(CompactionReason::Manual), compaction_end(CompactionReason::Manual, false, None)]);
+        assert_eq!(s.last(), st(ProgramState::Done, Some("Session")));
+        s.send(&[
+            compaction_start(CompactionReason::Manual),
+            compaction_end(CompactionReason::Manual, false, Some("No model")),
+        ]);
+        assert_eq!(s.last(), st(ProgramState::Error, Some("No model")));
+        s.send(&[compaction_start(CompactionReason::Manual), compaction_end(CompactionReason::Manual, true, None)]);
+        assert_eq!(s.last(), st(ProgramState::Idle, None));
+    }
+
+    #[test]
+    fn reports_the_most_recent_open_dialog_and_the_underlying_state_once_all_close() {
+        let s = setup(None);
+        let blocked = |kind, message: &str| BlockedStatus { kind, message: message.to_string() };
+        let blocked_status = |kind, message: &str| ProgramStatus {
+            state: ProgramState::Blocked,
+            app: None,
+            kind: Some(kind),
+            message: Some(message.to_string()),
+        };
+        s.send(&[AgentSessionEvent::AgentStart]);
+        s.reporter
+            .set_blocked("extension-selector", Some(&blocked(BlockedStatusKind::Permission, "Allow bash?")));
+        s.reporter.set_blocked("login", Some(&blocked(BlockedStatusKind::Auth, "Log in to Anthropic")));
+        assert_eq!(s.last(), blocked_status(BlockedKind::Auth, "Log in to Anthropic"));
+
+        // The run settles while the selector is still open.
+        s.reporter.set_blocked("login", None);
+        s.send(&[assistant_end(StopReason::Stop, None), settled(false)]);
+        assert_eq!(s.last(), blocked_status(BlockedKind::Permission, "Allow bash?"));
+
+        // Reopening a source replaces its dialog instead of stacking a second one.
+        s.reporter.set_blocked("extension-selector", Some(&blocked(BlockedStatusKind::Question, "Pick one")));
+        assert_eq!(s.last(), blocked_status(BlockedKind::Question, "Pick one"));
+        s.reporter.set_blocked("extension-selector", None);
+        assert_eq!(s.last(), st(ProgramState::Done, None));
+    }
+
+    #[test]
+    fn sends_each_status_once_and_follows_session_name_changes() {
+        let s = setup(Some("Old"));
+        s.send(&[AgentSessionEvent::AgentStart, AgentSessionEvent::TurnStart, assistant_end(StopReason::ToolUse, None)]);
+        s.reporter.report();
+        assert_eq!(s.count(), 1);
+
+        *s.name.lock() = Some("New".into());
+        s.send(&[AgentSessionEvent::SessionInfoChanged { name: Some("New".into()) }]);
+        assert_eq!(s.last(), st(ProgramState::Working, Some("New")));
+    }
+
+    #[test]
+    fn returns_to_idle_when_the_session_is_replaced() {
+        let s = setup(None);
+        s.send(&[AgentSessionEvent::AgentStart, assistant_end(StopReason::Stop, None), settled(false)]);
+        s.reporter.reset();
+        assert_eq!(s.last(), st(ProgramState::Idle, None));
+    }
+}

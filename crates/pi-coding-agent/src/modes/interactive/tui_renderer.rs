@@ -25,7 +25,7 @@ pub struct InteractiveTuiOptions {
 /// TS returns a `TuiMainScreen` or a `TuiAltScreen`; in Rust both are a [`Tui`] (see [`Tui::mode`]).
 pub type CreateInteractiveTuiResult = Arc<Tui>;
 
-fn wheel_lines(value: &Option<WheelScrollLines>) -> pi_tui::wheel_scroll::WheelScrollLines {
+pub(crate) fn to_tui_wheel_lines(value: &Option<WheelScrollLines>) -> pi_tui::wheel_scroll::WheelScrollLines {
     match value {
         Some(WheelScrollLines::Lines(n)) => pi_tui::wheel_scroll::WheelScrollLines::Lines(*n as f64),
         _ => pi_tui::wheel_scroll::WheelScrollLines::Auto,
@@ -43,7 +43,7 @@ pub fn create_interactive_tui(options: &InteractiveTuiOptions) -> CreateInteract
         let style_search_match =
             |text: &str| theme().bg(&ThemeBg::SearchMatchBg, &theme().fg(&ThemeColor::SearchMatchText, text));
         let alt = TuiAltScreenOptions {
-            wheel_scroll_lines: Some(wheel_lines(&options.fullscreen_wheel_scroll_lines)),
+            wheel_scroll_lines: Some(to_tui_wheel_lines(&options.fullscreen_wheel_scroll_lines)),
             mouse: None,
             search_match_style: Some(Arc::new(move |text: &str| theme().underline(&style_search_match(text)))),
             search_current_match_style: Some(Arc::new(move |text: &str| {

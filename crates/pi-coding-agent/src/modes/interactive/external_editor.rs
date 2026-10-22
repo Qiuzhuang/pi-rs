@@ -91,3 +91,94 @@ async fn run_editor(options: &ExternalEditorOptions, file_path: &Path) -> anyhow
     let content = content.strip_suffix('\n').unwrap_or(&content).to_string();
     Ok(ExternalEditorResult::Complete { content })
 }
+
+#[cfg(all(test, unix))]
+mod tests {
+    //! Port of `test/external-editor.test.ts`. The fake editor is a shell script instead of a Node script.
+    use super::*;
+
+    const FAKE_EDITOR: &str = r#"#!/bin/sh
+capture="$1"
+for last; do :; done
+file="$last"
+dir=$(dirname "$file")
+{
+  echo "$file"
+  cat "$file"; echo
+  ls -A "$dir" | tr '\n' ' '; echo
+  stat -c %a "$dir"
+} > "$capture"
+for arg; do
+  [ "$arg" = "--fail" ] && exit 1
+done
+for arg; do
+  if [ "$arg" = "--empty" ]; then : > "$file"; exit 0; fi
+done
+printf 'edited\n' > "$file"
+"#;
+
+    struct Capture {
+        file_path: PathBuf,
+        content: String,
+        entries: Vec<String>,
+        directory_mode: u32,
+    }
+
+    async fn run_external_editor(flag: Option<&str>) -> (ExternalEditorResult, Capture) {
+        let test_dir = make_temp_dir("pi-external-editor-test-").unwrap();
+        let script = test_dir.join("fake-editor.sh");
+        std::fs::write(&script, FAKE_EDITOR).unwrap();
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let capture_path = test_dir.join("capture.txt");
+        let command = format!(
+            "{} {}{}",
+            script.display(),
+            capture_path.display(),
+            flag.map(|f| format!(" {f}")).unwrap_or_default()
+        );
+        let result = edit_in_external_editor(&ExternalEditorOptions { command, content: "original".into() })
+            .await
+            .unwrap();
+        let raw = std::fs::read_to_string(&capture_path).unwrap();
+        let lines: Vec<&str> = raw.lines().collect();
+        let capture = Capture {
+            file_path: PathBuf::from(lines[0]),
+            content: lines[1].to_string(),
+            entries: lines[2].split_whitespace().map(str::to_string).collect(),
+            directory_mode: u32::from_str_radix(lines[3].trim(), 8).unwrap(),
+        };
+        let _ = std::fs::remove_dir_all(&test_dir);
+        (result, capture)
+    }
+
+    #[tokio::test]
+    async fn edits_a_prompt_inside_a_private_temporary_directory() {
+        let (result, capture) = run_external_editor(None).await;
+        let directory = capture.file_path.parent().unwrap().to_path_buf();
+        assert_eq!(result, ExternalEditorResult::Complete { content: "edited".into() });
+        assert_eq!(directory.parent().unwrap(), std::env::temp_dir());
+        let dir_name = directory.file_name().unwrap().to_string_lossy().to_string();
+        assert!(dir_name.starts_with("pi-editor-") && dir_name.len() > "pi-editor-".len());
+        assert_eq!(capture.file_path.file_name().unwrap(), "prompt.md");
+        assert_eq!(capture.entries, vec!["prompt.md".to_string()]);
+        assert_eq!(capture.content, "original");
+        assert_eq!(capture.directory_mode & 0o077, 0);
+        assert!(!directory.exists());
+    }
+
+    #[tokio::test]
+    async fn keeps_the_original_content_when_the_editor_exits_unsuccessfully() {
+        let (result, capture) = run_external_editor(Some("--fail")).await;
+        assert_eq!(result, ExternalEditorResult::Failed {});
+        assert!(!capture.file_path.parent().unwrap().exists());
+    }
+
+    #[tokio::test]
+    async fn returns_empty_content_when_the_editor_clears_the_prompt() {
+        let (result, _) = run_external_editor(Some("--empty")).await;
+        assert_eq!(result, ExternalEditorResult::Complete { content: String::new() });
+    }
+}

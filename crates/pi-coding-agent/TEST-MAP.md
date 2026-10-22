@@ -533,7 +533,7 @@ Shorter tables for the other packages against their crates. Files that need prov
 
 ### packages/tui/test vs crates/pi-tui
 
-44 files: COVERED: 35, UNVERIFIED: 4, PARTIAL: 3, NOT PORTABLE: 2.
+44 files: COVERED: 41, PARTIAL: 1, NOT PORTABLE: 2.
 
 | TS test file | Cases | Status | Rust tests | Notes |
 |---|---:|---|---|---|
@@ -548,15 +548,15 @@ Shorter tables for the other packages against their crates. Files that need prov
 | `input.test.ts` | 36 | COVERED | `pi-tui/tests/tui_alt_screen.rs`: applies_runtime_wheel_line_count_updates, auto_scrolls_drag_selection_at_viewport_edge, chains_unused_wheel_delta_to_outer_scroll_view, double_click_word_selection +23 more<br>`pi-tui/tests/input.rs`: alt_d_deletes_word_forward, alt_d_handles_unicode_word_boundaries, alt_y_cycles_kill_ring, alt_y_noop_without_yank_or_single_entry +16 more<br>+9 more files |  |
 | `keybindings.test.ts` | 7 | COVERED | `pi-tui/tests/keybindings_fuzzy_words.rs`: binds_ctrl_j_as_newline_alias<br>`pi-tui/src/lib.rs` (whole file)<br>+1 more files |  |
 | `keys.test.ts` | 61 | COVERED | `pi-tui/tests/mouse_components.rs`: keeps_settings_list_focused_when_submenu_click_closes_submenu, positions_and_focuses_multiline_editor_through_alt_screen_dispatch, selects_and_copies_editor_text_on_drag<br>`pi-tui/tests/keys_differential.rs`: keys_match_typescript_reference<br>+2 more files |  |
-| `latex.test.ts` | 20 | UNVERIFIED |  | open: not re-checked case by case in the pi-ai/pi-tui coverage pass (stopped early) |
+| `latex.test.ts` | 20 | COVERED | `pi-tui/tests/latex.rs` (whole file: every case, one table per `describe` of `defineCases`, one test per `it`)<br>`pi-tui/tests/latex_differential.rs`: render_latex_matches_typescript_reference | re-checked case by case (149 assertions) |
 | `layout.test.ts` | 15 | COVERED | `pi-tui/tests/autocomplete_provider.rs`: applies_quoted_completion_without_duplicating_closing_quote, completes_chinese_path_prefixes_after_separators, completes_paths_after_opening_wrappers, completes_quoted_paths_after_opening_wrappers +37 more<br>`pi-tui/tests/layout_differential.rs`: layout_matches_typescript_reference |  |
 | `markdown.test.ts` | 91 | COVERED | `pi-tui/tests/markdown_differential.rs`: markdown_render_matches_typescript_reference<br>`pi-tui/src/components/markdown.rs` (whole file) |  |
 | `mouse-components.test.ts` | 9 | COVERED | `pi-tui/tests/mouse_components.rs`: activates_settings_rows, ignores_hover_and_clicks_visible_rows_after_scrolling, keeps_delegating_overlay_focused_when_nested_input_clicked, keeps_settings_list_focused_when_submenu_click_closes_submenu +3 more |  |
 | `native-clipboard-linux.test.ts` | 10 | NOT PORTABLE |  | exercises the C X11 clipboard prebuild (Xvfb/xclip fixtures); the Rust port has no native clipboard (hosts supply one) |
 | `native-module-path.test.ts` | 2 | NOT PORTABLE |  | getNativeModuleCandidates resolves N-API .node prebuilds; the Rust port loads no native modules |
 | `native-platform.test.ts` | 2 | PARTIAL | `pi-tui/tests/regression_sigwinch.rs`: no_native_helper_without_prebuilds | prebuild ELF layout, Windows clipboard and X11 module-cache cases test the TS N-API binaries (not portable) |
-| `overlay-non-capturing.test.ts` | 44 | UNVERIFIED |  | open: not re-checked case by case in the pi-ai/pi-tui coverage pass (stopped early) |
-| `overlay-options.test.ts` | 26 | UNVERIFIED |  | open: not re-checked case by case in the pi-ai/pi-tui coverage pass (stopped early) |
+| `overlay-non-capturing.test.ts` | 44 | COVERED | `pi-tui/tests/overlay_non_capturing.rs` (whole file: one test per TS case)<br>`pi-tui/tests/focus_differential.rs`: focus_matches_typescript_reference | the microtask-deferred case posts the second overlay through the event loop |
+| `overlay-options.test.ts` | 26 | COVERED | `pi-tui/tests/overlay_options.rs` (whole file: one test per TS case) |  |
 | `overlay-short-content.test.ts` | 1 | COVERED | `pi-tui/tests/regressions.rs` (whole file) |  |
 | `program-status.test.ts` | 5 | COVERED | `pi-tui/tests/misc_ported.rs`: format_program_status_encodes_fields<br>`pi-tui/src/program_status.rs` (whole file) |  |
 | `regression-overlay-cjk-boundary.test.ts` | 4 | COVERED | `pi-tui/tests/regressions.rs`: cjk_composites_overlay_at_wide_grapheme_boundary, cjk_excludes_wide_grapheme_when_overlay_starts_inside_it |  |
@@ -568,12 +568,12 @@ Shorter tables for the other packages against their crates. Files that need prov
 | `stdin-buffer.test.ts` | 66 | COVERED | `pi-tui/tests/stdin_buffer.rs`: bare_string_introducers_time_out_as_alt_keys, bracketed_paste, buffers_incomplete_csi_and_many_chunks, buffers_incomplete_mouse_sgr +19 more<br>`pi-tui/src/stdin_buffer.rs` (whole file) |  |
 | `tab-width.test.ts` | 4 | COVERED | `pi-tui/tests/regressions.rs` (whole file) |  |
 | `terminal-colors.test.ts` | 6 | COVERED | `pi-tui/tests/misc_ported.rs` (parse + queryTerminalColors cases) |  |
-| `terminal-image.test.ts` | 80 | PARTIAL | `pi-tui/tests/image_component.rs`: image_component<br>`pi-tui/tests/terminal_image_differential.rs`: terminal_image_helpers_match_typescript_reference | open: not re-checked case by case in the pi-ai/pi-tui coverage pass (stopped early) |
+| `terminal-image.test.ts` | 80 | COVERED | `pi-tui/tests/terminal_image.rs` (whole file: one test per TS case)<br>`pi-tui/tests/terminal_image_differential.rs`: terminal_image_helpers_match_typescript_reference | global capability/env/transcoder state is serialized by a lock in the test binary |
 | `terminal.test.ts` | 27 | COVERED | `pi-tui/tests/misc_ported.rs`: clears_all_rendered_lines_when_content_shrinks_to_zero, consumes_delayed_ghostty_color_fragments, queries_all_colors_in_one_write_and_consumes_replies, reports_late_replies_after_timeout +3 more<br>`pi-tui/tests/regressions.rs`: is_image_line_detects_sequences_anywhere, no_style_leak_from_trailing_reset_beyond_last_column, no_style_leak_when_overlay_slicing_drops_trailing_resets, renders_overlay_when_content_is_shorter_than_terminal +1 more<br>+8 more files |  |
 | `truncate-to-width.test.ts` | 16 | COVERED | `pi-tui/tests/visible_width.rs`: adds_trailing_reset_when_truncating_without_ellipsis, counts_tabs_inline_and_skips_ansi_inline, handles_malformed_ansi_prefixes_without_hanging, keeps_cjk_and_japanese_width_accounting +4 more |  |
 | `truncated-text.test.ts` | 9 | COVERED | `pi-tui/tests/truncated_text_and_shrink.rs` (whole file) |  |
-| `tui-alt-screen.test.ts` | 66 | PARTIAL | `pi-tui/tests/tui_alt_screen.rs`: applies_runtime_wheel_line_count_updates, chains_unused_wheel_delta_to_outer_scroll_view, gives_viewport_keys_to_focused_overlay, keeps_explicit_dock_fixed_while_transcript_scrolls +5 more | open: not re-checked case by case in the pi-ai/pi-tui coverage pass (stopped early) |
-| `tui-cell-size-input.test.ts` | 2 | UNVERIFIED |  | open: not re-checked case by case in the pi-ai/pi-tui coverage pass (stopped early) |
+| `tui-alt-screen.test.ts` | 66 | COVERED | `pi-tui/tests/tui_alt_screen.rs` (one test per TS case; the three search-index cases share search_matches_across_rows_and_maps_columns)<br>`pi-tui/tests/tui_alt_screen_global.rs`: multiplexer mouse tracking, right-click paste, custom half-page/line bindings, iTerm2 and Kitty image placement cases | right-click paste: the platform is compile-time in Rust (asserted per `cfg!(windows)`); the flash-duration check observes the 5 s expiry instead of patching `flash` |
+| `tui-cell-size-input.test.ts` | 2 | COVERED | `pi-tui/tests/tui_cell_size_input.rs`: consumes_cell_size_responses_and_still_forwards_later_user_input, forwards_bare_escape_even_when_a_cell_size_query_was_sent_at_startup |  |
 | `tui-overlay-style-leak.test.ts` | 2 | COVERED | `pi-tui/tests/regressions.rs` (whole file) |  |
 | `tui-render.test.ts` | 32 | COVERED | `pi-tui/tests/tui_render.rs`: appends_after_shrink_without_another_full_redraw, clears_empty_rows_when_content_shrinks, clears_stale_content_after_transient_component, content_to_empty_and_back +16 more |  |
 | `tui-shrink.test.ts` | 1 | COVERED | `pi-tui/tests/truncated_text_and_shrink.rs`: clears_all_rendered_lines_when_content_shrinks_to_zero |  |

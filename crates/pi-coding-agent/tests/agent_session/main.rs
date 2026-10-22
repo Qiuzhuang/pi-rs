@@ -22,3 +22,4 @@ mod dynamic_tools;
 mod stats;
 mod sdk_stream_options;
 mod sdk;
+mod sdk_client_identity;

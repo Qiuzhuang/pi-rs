@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["crates/*"]
+exclude = ["vendor"]
 
 [workspace.package]
 version = "1.3.0"
@@ -84,3 +85,7 @@ debug = false
 [profile.test]
 debug = "line-tables-only"
 incremental = false
+
+# Vendored crates with local fixes (see vendor/<crate>/PATCH.md).
+[patch.crates-io]
+boa_ast = { path = "vendor/boa_ast" }

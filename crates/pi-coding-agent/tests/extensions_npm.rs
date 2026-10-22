@@ -78,13 +78,9 @@ async fn with_deps_resolves_its_own_node_modules() {
 /// `node_modules`) streams a reply through pi's model runtime. The example's base URL is pointed at
 /// a local mock of the Messages API.
 ///
-/// Ignored: Boa 0.22's scope analyzer does not visit the computed name of a class method
-/// (`boa_ast::scope_analyzer`, `visit_class_element_mut`, `ClassElement::MethodDefinition`), so
-/// functions created in a computed method key (`[(_x = function () { ... }, Symbol.asyncIterator)]()`,
-/// which tsc emits for private methods, e.g. the SDK's `MessageStream`) cannot see module bindings
-/// and throw `ReferenceError: __classPrivateFieldSet is not defined`.
+/// Regression test for the vendored boa_ast scope-analyzer fix (`vendor/boa_ast/PATCH.md`): the SDK's
+/// `MessageStream` creates functions inside computed class method keys.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "Boa 0.22 bug: closures in class computed method keys cannot see module bindings"]
 async fn custom_provider_anthropic_streams_with_the_sdk() {
     let Some(dir) = prepare("custom-provider-anthropic").await else { return };
     assert!(dir.join("node_modules/@anthropic-ai/sdk/package.json").is_file());

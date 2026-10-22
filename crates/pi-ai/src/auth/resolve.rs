@@ -12,7 +12,7 @@ use super::types::{
 };
 use crate::types::ProviderEnv;
 pub use crate::utils::models_error::{ModelsError, ModelsErrorCode};
-use crate::utils::provider_retry::AbortError;
+use crate::utils::abort::SignalAbortError;
 
 #[derive(Debug, Clone, Default)]
 pub struct AuthResolutionOverrides {
@@ -28,7 +28,7 @@ const DEFAULT_OAUTH_REFRESH_TIMEOUT_MS: u64 = 15_000;
 
 fn aborted(signal: &CancellationToken) -> anyhow::Result<()> {
     if signal.is_cancelled() {
-        return Err(AbortError.into());
+        return Err(SignalAbortError.into());
     }
     Ok(())
 }
@@ -43,7 +43,7 @@ pub async fn race_with_signal<T>(
     // listener fires synchronously before the operation's resolution is delivered.
     tokio::select! {
         biased;
-        _ = signal.cancelled() => Err(AbortError.into()),
+        _ = signal.cancelled() => Err(SignalAbortError.into()),
         result = future => result,
     }
 }

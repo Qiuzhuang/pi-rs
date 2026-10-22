@@ -49,7 +49,7 @@ use pi_ai::utils::model_operations::{
     assert_chat_model, assert_classifier_input_supported, assert_classifier_model,
     assert_image_model, classifier_error_result, image_error_result,
 };
-use pi_ai::utils::provider_retry::AbortError;
+use pi_ai::utils::abort::SignalAbortError;
 use pi_ai::utils::transcript::normalize_context;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -223,7 +223,7 @@ pub struct ModelRuntimeResolveModelOptions {
 
 fn throw_if_aborted(signal: &CancellationToken) -> anyhow::Result<()> {
     if signal.is_cancelled() {
-        return Err(AbortError.into());
+        return Err(SignalAbortError.into());
     }
     Ok(())
 }
@@ -933,7 +933,7 @@ impl ModelRuntime {
             .clone();
         let guard = tokio::select! {
             guard = lock.lock_owned() => guard,
-            _ = signal.cancelled() => return Err(AbortError.into()),
+            _ = signal.cancelled() => return Err(SignalAbortError.into()),
         };
         throw_if_aborted(signal)?;
         let result = task.await;

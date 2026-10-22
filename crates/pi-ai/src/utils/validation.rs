@@ -717,8 +717,8 @@ fn try_boolean(value: &Value) -> Option<bool> {
     match value {
         Value::Bool(b) => Some(*b),
         Value::Number(n) => match n.as_f64() {
-            Some(x) if x == 0.0 => Some(false),
-            Some(x) if x == 1.0 => Some(true),
+            Some(0.0) => Some(false),
+            Some(1.0) => Some(true),
             _ => None,
         },
         Value::Null => Some(false),

@@ -20,3 +20,4 @@ mod concurrent;
 mod dynamic_provider;
 mod dynamic_tools;
 mod stats;
+mod sdk_stream_options;

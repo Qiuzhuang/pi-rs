@@ -292,6 +292,11 @@ async fn model_selector_keeps_the_current_model_marked_while_browsing() {
     assert_eq!(row("current-model"), Some(format!("→ ✓ current-model [{}]", current.provider)));
     selector.handle_input(DOWN);
     assert_eq!(row("current-model"), Some(format!("  ✓ current-model [{}]", current.provider)));
+    // The test environment may expose other configured providers (sorted before or after the faux provider),
+    // so the browsed model is reached through the search instead of a fixed number of arrow presses.
+    for c in "browsed".chars() {
+        selector.handle_input(&c.to_string());
+    }
     assert_eq!(row("browsed-model"), Some(format!("→   browsed-model [{}]", current.provider)));
     selector.dispose();
     harness.cleanup();

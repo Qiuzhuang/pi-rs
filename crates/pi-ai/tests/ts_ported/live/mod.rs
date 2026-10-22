@@ -18,15 +18,12 @@ use pi_ai::providers::all::{builtin_providers, get_builtin_model};
 use pi_ai::*;
 use serde_json::{Map, Value, json};
 
-// mod basic;
-// mod cache;
-// mod handoff;
+mod cache;
+mod handoff;
 mod matrix;
-// mod overflow;
-// mod providers;
-// mod replay;
-// mod tool_results;
-// mod unicode;
+mod overflow;
+mod thinking;
+mod tool_results;
 
 /// Credentials that gate a target, mirroring the TS `skipIf` conditions.
 #[derive(Clone, Debug)]
@@ -43,14 +40,17 @@ pub enum Gate {
     CloudflareGateway,
     /// `resolveApiKey(provider)` from `~/.pi/agent/auth.json`; the token becomes the api key.
     OAuth(&'static str),
+    /// `getEnvApiKey(provider)`; the key becomes the api key.
+    EnvApiKey(&'static str),
+    /// The first gate that opens (`a ?? b`).
+    FirstOf(&'static [Gate]),
+
     /// `which ollama` succeeds (and `PI_NO_LOCAL_LLM` is unset); `ollama serve` is started if needed.
     Ollama,
     /// An LM Studio server answers on localhost:1234 (and `PI_NO_LOCAL_LLM` is unset).
     LmStudio,
     /// A llama.cpp server answers on localhost:8081 with a completions endpoint.
     LlamaCpp,
-    /// Never skipped (the TS block has no gate).
-    None,
 }
 
 #[derive(Clone, Debug)]
@@ -184,6 +184,15 @@ pub async fn open_gate(gate: &Gate) -> Option<Option<String>> {
             && env("CLOUDFLARE_ACCOUNT_ID").is_some()
             && env("CLOUDFLARE_GATEWAY_ID").is_some()),
         Gate::OAuth(provider) => resolve_api_key(provider).await.map(Some),
+        Gate::EnvApiKey(provider) => pi_ai::env_api_keys::get_env_api_key(provider, None).map(Some),
+        Gate::FirstOf(gates) => {
+            for gate in gates.iter() {
+                if let Some(key) = Box::pin(open_gate(gate)).await {
+                    return Some(key);
+                }
+            }
+            None
+        }
         Gate::Ollama => ok(local_llm_allowed() && ollama_ready().await),
         Gate::LmStudio => ok(local_llm_allowed() && http_status("http://localhost:1234/v1/models", None).await.is_some()),
         Gate::LlamaCpp => ok(local_llm_allowed()
@@ -191,7 +200,6 @@ pub async fn open_gate(gate: &Gate) -> Option<Option<String>> {
             && http_status("http://localhost:8081/v1/completions", Some(json!({"model": "local-model", "prompt": "ping", "max_tokens": 1})))
                 .await
                 .is_some_and(|status| status != 404 && status != 405)),
-        Gate::None => Some(None),
     }
 }
 
@@ -315,6 +323,77 @@ pub async fn run_matrix(file: &str, targets: Vec<Target>, scenarios: &[(&str, Sc
     assert!(failures.is_empty(), "{file}: {} failure(s):\n{}", failures.len(), failures.join("\n"));
 }
 
+pub type CaseFuture = Pin<Box<dyn Future<Output = ()> + Send>>;
+
+/// Run one TS `it` that is not a provider matrix: skipped unless every gate opens; the gates' keys
+/// are passed in order.
+pub async fn run_case(file: &str, name: &str, gates: &[Gate], retries: usize, case: fn(Vec<Option<String>>) -> CaseFuture) {
+    let mut keys = Vec::new();
+    for gate in gates {
+        match open_gate(gate).await {
+            Some(key) => keys.push(key),
+            None => {
+                println!("[{file}] skip {name} ({gate:?} not configured)");
+                return;
+            }
+        }
+    }
+    if let Err(error) = attempt(retries, || case(keys.clone())).await {
+        panic!("[{file}] {name}: {error}");
+    }
+    println!("[{file}] ok   {name}");
+}
+
+/// Stream and count thinking events: (events, final message).
+pub async fn stream_events(stream: AssistantMessageEventStream) -> (Vec<AssistantMessageEvent>, AssistantMessage) {
+    stream.collect_all().await
+}
+
+pub fn thinking_event_stats(events: &[AssistantMessageEvent]) -> (usize, usize) {
+    let mut count = 0;
+    let mut chars = 0;
+    for event in events {
+        match event {
+            AssistantMessageEvent::ThinkingStart { .. } | AssistantMessageEvent::ThinkingEnd { .. } => count += 1,
+            AssistantMessageEvent::ThinkingDelta { delta, .. } => {
+                count += 1;
+                chars += delta.chars().count();
+            }
+            _ => {}
+        }
+    }
+    (count, chars)
+}
+
+/// An `on_payload` hook that records the payload it is given (without modifying it).
+pub fn payload_recorder() -> (OnPayload, std::sync::Arc<parking_lot::Mutex<Option<Value>>>) {
+    let slot = std::sync::Arc::new(parking_lot::Mutex::new(None));
+    let sink = slot.clone();
+    let hook: OnPayload = std::sync::Arc::new(move |payload: Value, _model: Model| {
+        *sink.lock() = Some(payload);
+        Box::pin(async { None })
+    });
+    (hook, slot)
+}
+
+/// An `on_payload` hook that rewrites the payload.
+pub fn payload_rewriter(rewrite: fn(&mut Value)) -> OnPayload {
+    std::sync::Arc::new(move |mut payload: Value, _model: Model| {
+        rewrite(&mut payload);
+        Box::pin(async move { Some(payload) })
+    })
+}
+
+/// `{ ...model, compat: { ...model.compat, [key]: value } }`.
+pub fn with_compat(model: &Model, key: &str, value: Value) -> Model {
+    let mut json = serde_json::to_value(model).unwrap();
+    if !json["compat"].is_object() {
+        json["compat"] = json!({});
+    }
+    json["compat"][key] = value;
+    serde_json::from_value(json).unwrap()
+}
+
 // ---------------------------------------------------------------------------
 // Shared message helpers
 // ---------------------------------------------------------------------------
@@ -323,9 +402,6 @@ pub fn now() -> i64 {
     chrono_now_ms()
 }
 
-pub fn user(text: &str) -> Message {
-    Message::User(UserMessage::new(vec![UserContentBlock::text(text)], now()))
-}
 
 pub fn user_string(text: &str) -> Message {
     serde_json::from_value(json!({"role": "user", "content": text, "timestamp": now()})).unwrap()
@@ -351,15 +427,46 @@ pub fn has_thinking(message: &AssistantMessage) -> bool {
     message.content.iter().any(|b| matches!(b, AssistantContent::Thinking(_)))
 }
 
-pub fn tool_json(name: &str, description: &str, parameters: Value) -> Tool {
-    serde_json::from_value(json!({"name": name, "description": description, "parameters": parameters})).unwrap()
-}
 
-pub fn context(system_prompt: Option<&str>, messages: Vec<Message>, tools: Vec<Tool>) -> Context {
-    Context { system_prompt: system_prompt.map(str::to_string), messages, tools: (!tools.is_empty()).then_some(tools) }
-}
 
 #[track_caller]
 pub fn expect_not_error(message: &AssistantMessage) {
     assert_ne!(message.stop_reason, StopReason::Error, "{:?}", message.error_message);
+}
+
+/// Every catalog model the live tests name must exist (a typo would only surface with credentials).
+/// The cross-provider handoff pairs are exempt: like the TS file, they skip models the catalog
+/// no longer has.
+#[test]
+fn live_models_exist_in_catalog() {
+    let sources = [
+        include_str!("matrix.rs"),
+        include_str!("overflow.rs"),
+        include_str!("thinking.rs"),
+        include_str!("cache.rs"),
+        include_str!("handoff.rs"),
+        include_str!("tool_results.rs"),
+    ];
+    let patterns = [
+        regex::Regex::new(r#"target\(\s*"[^"]*",\s*Gate::[A-Za-z]+(?:\([^)]*\))?,\s*"([^"]+)",\s*"([^"]+)""#).unwrap(),
+        regex::Regex::new(r#"catalog_model\("([^"]+)",\s*"([^"]+)"\)"#).unwrap(),
+    ];
+    let mut checked = 0;
+    let mut missing = Vec::new();
+    for source in sources {
+        for pattern in &patterns {
+            for capture in pattern.captures_iter(source) {
+                let (provider, id) = (&capture[1], &capture[2]);
+                if id == "local" {
+                    continue;
+                }
+                checked += 1;
+                if get_builtin_model(provider, id).is_none() {
+                    missing.push(format!("{provider}/{id}"));
+                }
+            }
+        }
+    }
+    assert!(checked > 150, "{checked}");
+    assert!(missing.is_empty(), "missing catalog models: {missing:?}");
 }

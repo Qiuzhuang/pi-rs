@@ -16,3 +16,4 @@ mod bash_persistence;
 mod model_extension;
 mod lax_content;
 mod virtual_models;
+mod concurrent;

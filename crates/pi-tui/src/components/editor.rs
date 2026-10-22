@@ -340,6 +340,18 @@ struct AcOptions {
     explicit_tab: bool,
 }
 
+/// Autocomplete work that calls into the provider. Queued while the state lock is held and run by
+/// [`Editor::with`] after the lock is released: providers may call into extension or application
+/// code (session state, a JS provider blocking on the extension thread that reads the editor back),
+/// which must never run under the editor lock.
+#[derive(Clone, Copy)]
+enum PendingAutocomplete {
+    /// `requestAutocomplete` for a forced request: ask `shouldTriggerFileCompletion` first.
+    CheckThenRequest(AcOptions),
+    /// `startAutocompleteRequest`: call `getSuggestions`.
+    Start { token: u64, options: AcOptions },
+}
+
 enum Event {
     Change(String),
     Submit(String),
@@ -403,6 +415,8 @@ struct Inner {
     ac_max_visible: usize,
     ac_abort: Option<AbortController>,
     ac_debounce_timer: Option<TimerId>,
+    /// Provider call to make once the state lock is released (see [`PendingAutocomplete`]).
+    pending_autocomplete: Option<PendingAutocomplete>,
     ac_start_token: u64,
     ac_request_id: u64,
     pastes: Vec<(u32, String)>,
@@ -474,6 +488,7 @@ impl Editor {
                 ac_max_visible: max_visible,
                 ac_abort: None,
                 ac_debounce_timer: None,
+                pending_autocomplete: None,
                 ac_start_token: 0,
                 ac_request_id: 0,
                 pastes: Vec::new(),
@@ -505,7 +520,8 @@ impl Editor {
         self.callbacks.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// Run `f` with the state locked, then deliver queued callbacks without the lock.
+    /// Run `f` with the state locked, then deliver queued callbacks and make queued provider calls
+    /// without the lock.
     fn with<R>(&self, f: impl FnOnce(&mut Inner) -> R) -> R {
         let (r, events) = {
             let mut s = self.lock();
@@ -513,6 +529,7 @@ impl Editor {
             (r, std::mem::take(&mut s.events))
         };
         self.dispatch(events);
+        self.run_pending_autocomplete();
         r
     }
 
@@ -811,12 +828,16 @@ impl Editor {
 
     fn request_autocomplete(&self, s: &mut Inner, options: AcOptions) {
         let Some(provider) = s.provider.clone() else { return };
-        if options.force
-            && provider.has_should_trigger_file_completion()
-            && !provider.should_trigger_file_completion(&s.state.lines, s.state.cursor_line, s.state.cursor_col)
-        {
+        if options.force && provider.has_should_trigger_file_completion() {
+            // Asked without the lock; the request continues in `run_pending_autocomplete`.
+            s.pending_autocomplete = Some(PendingAutocomplete::CheckThenRequest(options));
             return;
         }
+        self.request_autocomplete_checked(s, options);
+    }
+
+    /// `requestAutocomplete` after the `shouldTriggerFileCompletion` gate.
+    fn request_autocomplete_checked(&self, s: &mut Inner, options: AcOptions) {
         self.cancel_autocomplete_request(s);
         let token = s.ac_start_token + 1;
         s.ac_start_token = token;
@@ -846,18 +867,84 @@ impl Editor {
         if token != s.ac_start_token {
             return;
         }
-        let Some(provider) = s.provider.clone() else { return };
-        let controller = AbortController::new();
-        s.ac_abort = Some(controller.clone());
-        s.ac_request_id += 1;
-        let request_id = s.ac_request_id;
-        let snapshot = (s.state.lines.join("\n"), s.state.cursor_line, s.state.cursor_col);
-        let fut = provider.get_suggestions(
-            &s.state.lines,
-            s.state.cursor_line,
-            s.state.cursor_col,
+        s.pending_autocomplete = Some(PendingAutocomplete::Start { token, options });
+    }
+
+    /// Make the provider call queued by [`request_autocomplete`](Self::request_autocomplete) or
+    /// [`start_autocomplete_request`](Self::start_autocomplete_request), without the state lock.
+    fn run_pending_autocomplete(&self) {
+        let Some((pending, provider, lines, cursor_line, cursor_col)) = ({
+            let mut s = self.lock();
+            match (s.pending_autocomplete.take(), s.provider.clone()) {
+                (Some(p), Some(provider)) => Some((p, provider, s.state.lines.clone(), s.state.cursor_line, s.state.cursor_col)),
+                _ => None,
+            }
+        }) else {
+            return;
+        };
+        match pending {
+            PendingAutocomplete::CheckThenRequest(options) => {
+                if provider.should_trigger_file_completion(&lines, cursor_line, cursor_col) {
+                    self.with(|s| {
+                        // The editor may have changed meanwhile; TS checks and requests in one go.
+                        if s.state.lines == lines && s.state.cursor_line == cursor_line && s.state.cursor_col == cursor_col {
+                            self.request_autocomplete_checked(s, options);
+                        }
+                    });
+                }
+            }
+            PendingAutocomplete::Start { token, options } => self.run_autocomplete_request(token, options),
+        }
+    }
+
+    fn run_autocomplete_request(&self, token: u64, options: AcOptions) {
+        let Some((provider, controller, request_id, lines, cursor_line, cursor_col)) = ({
+            let mut s = self.lock();
+            if token != s.ac_start_token {
+                None
+            } else if let Some(provider) = s.provider.clone() {
+                let controller = AbortController::new();
+                s.ac_abort = Some(controller.clone());
+                s.ac_request_id += 1;
+                Some((provider, controller, s.ac_request_id, s.state.lines.clone(), s.state.cursor_line, s.state.cursor_col))
+            } else {
+                None
+            }
+        }) else {
+            return;
+        };
+        let snapshot = (lines.join("\n"), cursor_line, cursor_col);
+        let mut fut = provider.get_suggestions(
+            &lines,
+            cursor_line,
+            cursor_col,
             SuggestOptions { signal: controller.signal(), force: options.force },
         );
+        // TS resolves synchronous suggestions (slash commands) in microtasks, before the next key
+        // is handled. Apply a ready result right away so a following Escape/Enter/Tab sees the
+        // current list, instead of racing a spawned task: with typing faster than the task ran,
+        // every newer result was discarded as stale and an old list (items and prefix) stayed up,
+        // so accepting it spliced the wrong completion ("/thinking" became "/thinkitree"), and
+        // Escape right after "/" interrupted the agent instead of closing the list.
+        let waker = std::task::Waker::noop();
+        let mut cx = std::task::Context::from_waker(waker);
+        if let std::task::Poll::Ready(suggestions) = fut.as_mut().poll(&mut cx) {
+            // A single forced suggestion is applied directly: compute it here, without the lock.
+            let precomputed = match &suggestions {
+                Some(sg) if options.force && options.explicit_tab && sg.items.len() == 1 => {
+                    let item = sg.items[0].clone();
+                    let result = provider.apply_completion(&lines, cursor_line, cursor_col, &item, &sg.prefix);
+                    Some(PrecomputedCompletion { lines, cursor_line, cursor_col, item, prefix: sg.prefix.clone(), result })
+                }
+                _ => None,
+            };
+            self.with(|s| {
+                s.precomputed_completion = precomputed;
+                self.finish_autocomplete(s, request_id, &controller, &snapshot, suggestions, options);
+                s.precomputed_completion = None;
+            });
+            return;
+        }
         let weak = self.weak_self.clone();
         event_loop::spawn(&self.event_loop, async move {
             let suggestions = fut.await;

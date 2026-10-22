@@ -673,7 +673,7 @@ impl AutocompleteProvider for CombinedAutocompleteProvider {
         options: SuggestOptions,
     ) -> BoxFuture<Option<AutocompleteSuggestions>> {
         let current = lines.get(cursor_line).map(String::as_str).unwrap_or("");
-        let text_before = &current[..cursor_col.min(current.len())];
+        let text_before = &current[..current.floor_char_boundary(cursor_col)];
 
         if let Some(at_prefix) = self.extract_at_prefix(text_before) {
             let pp = parse_path_prefix(&at_prefix);
@@ -786,8 +786,10 @@ impl AutocompleteProvider for CombinedAutocompleteProvider {
         prefix: &str,
     ) -> CompletionResult {
         let current = lines.get(cursor_line).map(String::as_str).unwrap_or("");
-        let cursor_col = cursor_col.min(current.len());
-        let before_prefix = &current[..cursor_col.saturating_sub(prefix.len())];
+        // Clamp to char boundaries: a stale prefix (the list was built for older text) must not
+        // slice inside a multi-byte character.
+        let cursor_col = current.floor_char_boundary(cursor_col);
+        let before_prefix = &current[..current.floor_char_boundary(cursor_col.saturating_sub(prefix.len()))];
         let after_cursor = &current[cursor_col..];
         let is_quoted_prefix = prefix.starts_with('"') || prefix.starts_with("@\"");
         let adjusted_after = if is_quoted_prefix && item.value.ends_with('"') && after_cursor.starts_with('"') {
@@ -833,7 +835,7 @@ impl AutocompleteProvider for CombinedAutocompleteProvider {
 
     fn should_trigger_file_completion(&self, lines: &[String], cursor_line: usize, cursor_col: usize) -> bool {
         let current = lines.get(cursor_line).map(String::as_str).unwrap_or("");
-        let before = js_trim(&current[..cursor_col.min(current.len())]);
+        let before = js_trim(&current[..current.floor_char_boundary(cursor_col)]);
         !(before.starts_with('/') && !before.contains(' '))
     }
 

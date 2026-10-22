@@ -17,3 +17,4 @@ mod model_extension;
 mod lax_content;
 mod virtual_models;
 mod concurrent;
+mod dynamic_provider;

@@ -39,9 +39,12 @@ pub async fn race_with_signal<T>(
     signal: &CancellationToken,
 ) -> anyhow::Result<T> {
     aborted(signal)?;
+    // An abort observed in the same poll as the result wins, like the TS race whose abort
+    // listener fires synchronously before the operation's resolution is delivered.
     tokio::select! {
-        result = future => result,
+        biased;
         _ = signal.cancelled() => Err(AbortError.into()),
+        result = future => result,
     }
 }
 
@@ -151,39 +154,47 @@ pub async fn refresh_stored_oauth_credential(
         })
     };
     let started_in_fn = started.clone();
-    let result = credentials
-        .modify(
-            provider_id,
-            Box::new(move |current| {
-                Box::pin(async move {
-                    started_in_fn.store(true, std::sync::atomic::Ordering::SeqCst);
-                    aborted(&outer_signal)?;
-                    let Some(Credential::OAuth(current)) = current else { return Ok(None) };
-                    if !needs_refresh(&current) {
-                        return Ok(None);
-                    }
-                    let timeout = CancellationToken::new();
-                    let timer = timeout.clone();
-                    let handle = tokio::spawn(async move {
-                        tokio::time::sleep(Duration::from_millis(DEFAULT_OAUTH_REFRESH_TIMEOUT_MS)).await;
-                        timer.cancel();
-                    });
-                    let refreshed = oauth.refresh(current, timeout).await;
-                    handle.abort();
-                    match refreshed {
-                        Ok(credential) => Ok(Some(Credential::OAuth(credential))),
-                        Err(error) => Err(ModelsError::with_cause(
-                            ModelsErrorCode::OAuth,
-                            format!("OAuth refresh failed for {provider}"),
-                            &error,
-                        )
-                        .into()),
-                    }
-                })
-            }),
-            Some(&lock_wait),
-        )
-        .await;
+    // The modification runs in its own task: a caller that stops waiting (and drops this future)
+    // must not drop an in-flight refresh, or the rotated refresh token would never be persisted.
+    let store = credentials.clone();
+    let store_id = provider_id.to_string();
+    let lock_signal = lock_wait.clone();
+    let operation = tokio::spawn(async move {
+        store
+            .modify(
+                &store_id,
+                Box::new(move |current| {
+                    Box::pin(async move {
+                        started_in_fn.store(true, std::sync::atomic::Ordering::SeqCst);
+                        aborted(&outer_signal)?;
+                        let Some(Credential::OAuth(current)) = current else { return Ok(None) };
+                        if !needs_refresh(&current) {
+                            return Ok(None);
+                        }
+                        let timeout = CancellationToken::new();
+                        let timer = timeout.clone();
+                        let handle = tokio::spawn(async move {
+                            tokio::time::sleep(Duration::from_millis(DEFAULT_OAUTH_REFRESH_TIMEOUT_MS)).await;
+                            timer.cancel();
+                        });
+                        let refreshed = oauth.refresh(current, timeout).await;
+                        handle.abort();
+                        match refreshed {
+                            Ok(credential) => Ok(Some(Credential::OAuth(credential))),
+                            Err(error) => Err(ModelsError::with_cause(
+                                ModelsErrorCode::OAuth,
+                                format!("OAuth refresh failed for {provider}"),
+                                &error,
+                            )
+                            .into()),
+                        }
+                    })
+                }),
+                Some(&lock_signal),
+            )
+            .await
+    });
+    let result = operation.await.unwrap_or_else(|error| Err(anyhow::anyhow!("credential refresh task failed: {error}")));
     watcher.abort();
     match result {
         Ok(post) => Ok(match post {

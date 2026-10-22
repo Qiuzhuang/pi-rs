@@ -790,7 +790,8 @@ pub async fn execute_codemode(
     if admission != Admission::Reserved {
         let waited = seconds_text(started_at);
         let error = if admission == Admission::Aborted {
-            "Script aborted: Execution aborted".to_string()
+            // `reason.message` of the signal's default `DOMException` reason.
+            "Script aborted: This operation was aborted".to_string()
         } else if deadline <= CODEMODE_WORKER_WAIT_MS {
             format!(
                 "Script timed out: Execution timed out after {} ms while waiting for a free codemode worker",

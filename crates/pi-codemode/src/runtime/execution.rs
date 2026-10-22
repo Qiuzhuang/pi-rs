@@ -202,9 +202,14 @@ fn serialize_store(store: Option<&Map<String, Value>>) -> IndexMap<String, Strin
     serialized
 }
 
+/// `reason instanceof Error ? reason.message : "Execution aborted"`. A signal aborted without a
+/// reason carries Node's default reason, a `DOMException` ("This operation was aborted").
 fn abort_message(signal: &AbortSignal) -> String {
-    signal.reason().unwrap_or_else(|| "Execution aborted".to_string())
+    signal.reason().unwrap_or_else(|| DEFAULT_ABORT_REASON.to_string())
 }
+
+/// The message of the `DOMException` Node uses as the reason of `controller.abort()`.
+pub const DEFAULT_ABORT_REASON: &str = "This operation was aborted";
 
 struct PendingCall {
     record: Option<usize>,

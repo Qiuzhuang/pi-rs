@@ -710,7 +710,15 @@ async fn aborts_via_signal_and_cancels_in_flight_calls(backend: Backend) {
     called.notified().await;
     second.abort();
     let aborted = pending.await.unwrap();
-    assert_matches(&aborted, json!({ "ok": false, "error": { "kind": "aborted" }, "calls": [{ "name": "hang", "status": "cancelled" }] }));
+    // Node's `controller.abort()` reason is a DOMException: "This operation was aborted".
+    assert_matches(
+        &aborted,
+        json!({
+            "ok": false,
+            "error": { "kind": "aborted", "message": "This operation was aborted" },
+            "calls": [{ "name": "hang", "status": "cancelled" }]
+        }),
+    );
     assert!(tool_signal.lock().as_ref().unwrap().is_cancelled());
 
     sandbox.close().await;

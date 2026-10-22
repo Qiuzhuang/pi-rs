@@ -459,3 +459,34 @@ pub fn get_sessions_dir() -> String {
 pub fn get_debug_log_path() -> String {
     agent_path(&format!("{APP_NAME}-debug.log"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // config.test.ts "findNodePackageDir": skips binary metadata copied into dist. The
+    // detectInstallMethod/self-update/detectInstallChange cases test npm, pnpm, yarn and bun
+    // installs of the Node package; the native executable behaves like the Bun binary (no
+    // package-manager self-update, no install change detection).
+    #[test]
+    fn find_node_package_dir_skips_binary_metadata_copied_into_dist() {
+        let temp = tempfile::tempdir().unwrap();
+        let dist = temp.path().join("dist");
+        let bundle = dist.join("bundle");
+        std::fs::create_dir_all(&bundle).unwrap();
+        std::fs::write(temp.path().join("package.json"), "{}").unwrap();
+        std::fs::write(dist.join("package.json"), "{}").unwrap();
+        assert_eq!(find_node_package_dir(&path_string(&bundle)), path_string(temp.path()));
+    }
+
+    #[test]
+    fn native_executable_reports_no_self_update_and_no_install_change() {
+        assert_eq!(detect_install_method(), InstallMethod::BunBinary);
+        assert!(get_self_update_command("@earendil-works/pi-coding-agent", None, None).is_none());
+        assert_eq!(
+            get_update_instruction("@earendil-works/pi-coding-agent"),
+            "Download from: https://github.com/earendil-works/pi/releases/latest"
+        );
+        assert_eq!(detect_install_change(Some("/definitely/missing/package.json")), None);
+    }
+}

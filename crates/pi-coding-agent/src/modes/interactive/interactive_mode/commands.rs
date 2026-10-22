@@ -9,6 +9,7 @@ use crate::modes::interactive::components::dynamic_border::DynamicBorder;
 use crate::modes::interactive::components::easter_egg_3d::{EasterEgg3d, play_easter_egg3d};
 use crate::modes::interactive::components::footer::format_tokens;
 use crate::modes::interactive::components::keybinding_hints::{KeyTextFormatOptions, format_key_text, key_display_text};
+use crate::core::tools::js_util::js_to_fixed;
 use pi_tui::components::markdown::Markdown;
 
 /// `Number.prototype.toLocaleString()` for integers (en-US grouping).
@@ -132,7 +133,12 @@ impl Inner {
                 this.handle_ctrl_d();
             }
         })));
-        self.action("app.suspend", |this| this.handle_ctrl_z());
+        self.action("app.suspend", |this| {
+            // TS throws out of the key handler, which ends in the uncaught-exception handler.
+            if let Err(error) = this.handle_ctrl_z() {
+                this.uncaught_crash(&anyhow::Error::new(error));
+            }
+        });
         self.action("app.thinking.cycle", |this| this.cycle_thinking_level());
         self.action("app.model.cycleForward", |this| {
             let target = this.clone();
@@ -269,8 +275,10 @@ impl Inner {
             self.show_status("Startup is still in progress");
             return;
         }
+        // The handler runs synchronously up to its first await, like the TS async handler, so
+        // consecutive submissions keep their order and editor updates happen in input order.
         let this = self.clone();
-        self.spawn(async move { this.handle_submit_async(text).await });
+        self.start_now(async move { this.handle_submit_async(text).await });
     }
 
     async fn handle_submit_async(self: Arc<Self>, text: String) {
@@ -799,7 +807,7 @@ impl Inner {
             let prompt_tokens = input + cache_read + cache_write;
             info += &format!("{} {}\n", dim("Input:"), locale_int(prompt_tokens));
             if prompt_tokens > 0.0 && (cache_read > 0.0 || cache_write > 0.0) {
-                let hit_rate = dim(&format!("({:.1}%)", cache_read / prompt_tokens * 100.0));
+                let hit_rate = dim(&format!("({}%)", js_to_fixed(cache_read / prompt_tokens * 100.0, 1)));
                 info += &format!("  {} {} {hit_rate}\n", dim("Cached:"), locale_int(cache_read));
                 let written = if cache_write > 0.0 {
                     format!(" {}", dim(&format!("({} written to cache)", locale_int(cache_write))))
@@ -821,19 +829,19 @@ impl Inner {
             if let Some(decision) = cache_warming_status.as_ref().and_then(|s| s.decision.as_ref())
                 && decision.economics_available
             {
-                info += &format!("{} ${:.3}\n", dim("Cache miss penalty:"), decision.miss_cost);
-                info += &format!("{} ${:.3}\n", dim("Refresh cost:"), decision.warm_cost);
+                info += &format!("{} ${}\n", dim("Cache miss penalty:"), js_to_fixed(decision.miss_cost, 3));
+                info += &format!("{} ${}\n", dim("Refresh cost:"), js_to_fixed(decision.warm_cost, 3));
             }
 
             if stats.cost > 0.0 || cache_waste.missed_tokens > 0 {
                 info += &format!("\n{}\n", t.bold("Cost"));
-                info += &format!("{} ${:.3}", dim("Total:"), stats.cost);
+                info += &format!("{} ${}", dim("Total:"), js_to_fixed(stats.cost, 3));
                 if usage_breakdown.len() > 1 || usage_breakdown.first().map(|e| e.key.as_str()) != Some(selected_model_key.as_str()) {
                     for entry in &usage_breakdown {
                         info += &format!(
-                            "\n  {} ${:.3} {}",
+                            "\n  {} ${} {}",
                             dim(&format!("{}:", entry.key)),
-                            entry.cost,
+                            js_to_fixed(entry.cost, 3),
                             dim(&format!("({} tokens)", format_tokens(entry.tokens as i64)))
                         );
                     }
@@ -846,7 +854,7 @@ impl Inner {
                     };
                     let detail = format!("{} tokens, {miss_label}", locale_int(cache_waste.missed_tokens as f64));
                     if cache_waste.missed_cost >= 0.0001 {
-                        info += &format!("\n{} ${:.3} {}", dim("Cache Re-billed:"), cache_waste.missed_cost, dim(&format!("({detail})")));
+                        info += &format!("\n{} ${} {}", dim("Cache Re-billed:"), js_to_fixed(cache_waste.missed_cost, 3), dim(&format!("({detail})")));
                     } else {
                         info += &format!("\n{} {detail}", dim("Cache Re-billed:"));
                     }

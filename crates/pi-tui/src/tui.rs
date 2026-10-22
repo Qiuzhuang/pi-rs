@@ -856,6 +856,8 @@ pub struct Tui {
     on_debug: Mutex<Option<DebugCallback>>,
     pub(crate) full_redraw_count: std::sync::atomic::AtomicUsize,
     pub(crate) screen: Screen,
+    /// The renderer that replaced this one (see [`Tui::redirect_to`]).
+    redirect: Mutex<Option<Weak<Tui>>>,
 }
 
 const MIN_RENDER_INTERVAL_MS: f64 = 16.0;
@@ -898,7 +900,26 @@ impl Tui {
             on_debug: Mutex::new(None),
             full_redraw_count: std::sync::atomic::AtomicUsize::new(0),
             screen: make_screen(weak),
+            redirect: Mutex::new(None),
         })
+    }
+
+    /// Forward this retired renderer's lifecycle, focus, overlay and render calls to `next`.
+    ///
+    /// TS hands components a proxy that always resolves to the active renderer
+    /// (`createInteractiveTuiReference`); a Rust component keeps the `Arc<Tui>` it was built with,
+    /// so a host that replaces its renderer points the old one at the new one instead.
+    pub fn redirect_to(&self, next: &Arc<Tui>) {
+        if std::ptr::eq(self, Arc::as_ptr(next)) {
+            *self.redirect.lock().unwrap_or_else(|e| e.into_inner()) = None;
+            return;
+        }
+        *self.redirect.lock().unwrap_or_else(|e| e.into_inner()) = Some(Arc::downgrade(next));
+    }
+
+    /// The renderer this one forwards to, if it was retired with [`Tui::redirect_to`].
+    pub fn redirect_target(&self) -> Option<Arc<Tui>> {
+        self.redirect.lock().unwrap_or_else(|e| e.into_inner()).as_ref().and_then(Weak::upgrade)
     }
 
     /// A TUI that renders into the terminal's main screen and scrollback.
@@ -1006,6 +1027,9 @@ impl Tui {
     // ---- focus ----
 
     pub fn set_focus(&self, component: Option<ComponentRef>) {
+        if let Some(target) = self.redirect_target() {
+            return target.set_focus(component);
+        }
         self.set_focus_internal(component, FocusRestorePolicy::Clear);
     }
 
@@ -1200,6 +1224,9 @@ impl Tui {
 
     /// Show an overlay component. Returns a handle to control its visibility.
     pub fn show_overlay(&self, component: ComponentRef, options: Option<OverlayOptions>) -> OverlayHandle {
+        if let Some(target) = self.redirect_target() {
+            return target.show_overlay(component, options);
+        }
         let non_capturing = options.as_ref().is_some_and(|o| o.non_capturing);
         let entry = {
             let mut st = self.state();
@@ -1341,6 +1368,9 @@ impl Tui {
 
     /// Hide the topmost overlay and restore previous focus.
     pub fn hide_overlay(&self) {
+        if let Some(target) = self.redirect_target() {
+            return target.hide_overlay();
+        }
         let (overlay, had_focus, empty) = {
             let mut st = self.state();
             let Some(overlay) = st.overlay_stack.last().cloned() else {
@@ -1372,6 +1402,9 @@ impl Tui {
 
     /// Whether any overlay is visible.
     pub fn has_overlay(&self) -> bool {
+        if let Some(target) = self.redirect_target() {
+            return target.has_overlay();
+        }
         let stack = self.state().overlay_stack.clone();
         stack.iter().any(|o| self.is_overlay_visible(o))
     }
@@ -1460,6 +1493,9 @@ impl Tui {
 
     /// Invalidate all mounted roots and overlays.
     pub fn invalidate(&self) {
+        if let Some(target) = self.redirect_target() {
+            return target.invalidate();
+        }
         for root in self.mounted_roots() {
             root.invalidate();
         }
@@ -1473,6 +1509,9 @@ impl Tui {
 
     /// Start the terminal and begin rendering.
     pub fn start(&self) {
+        if let Some(target) = self.redirect_target() {
+            return target.start();
+        }
         self.state().stopped = false;
         crate::tui_main_screen::register_exit_restore(self.weak_self.clone());
         self.before_terminal_start();
@@ -1591,6 +1630,9 @@ impl Tui {
 
     /// Stop rendering and restore the terminal.
     pub fn stop(&self, options: TuiStopOptions) {
+        if let Some(target) = self.redirect_target() {
+            return target.stop(options);
+        }
         let notifications = {
             let mut st = self.state();
             st.stopped = true;
@@ -1645,6 +1687,9 @@ impl Tui {
 
     /// Render immediately (synchronously), optionally forcing a full redraw.
     pub fn render_now(&self, force: bool) {
+        if let Some(target) = self.redirect_target() {
+            return target.render_now(force);
+        }
         if force {
             self.reset_render_state();
         }
@@ -1662,6 +1707,9 @@ impl Tui {
     /// Request a render. Renders are coalesced and throttled to ~60fps; `force` resets the
     /// render state (full redraw) and renders on the next loop turn.
     pub fn request_render(&self, force: bool) {
+        if let Some(target) = self.redirect_target() {
+            return target.request_render(force);
+        }
         if force {
             self.reset_render_state();
             self.request_immediate_render();

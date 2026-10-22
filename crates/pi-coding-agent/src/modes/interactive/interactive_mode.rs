@@ -14,6 +14,9 @@ mod events;
 mod extension_ui;
 mod resources;
 mod selectors;
+mod test_hooks;
+
+pub use test_hooks::InteractiveModeTestHooks;
 
 use crate::config::{APP_NAME, APP_TITLE, VERSION, get_agent_dir};
 use crate::core::agent_session::{AgentSession, PromptOptions, PromptOptionsStreamingBehavior};
@@ -366,6 +369,81 @@ pub struct LoginProviderCompletionOption {
     pub subscription: Option<bool>,
 }
 
+/// The process signal operations behind suspend-to-background (TS `handleCtrlZ` uses `process.on`,
+/// `process.once` and `process.kill`). [`ProcessSuspendSignals`] is the real implementation; tests
+/// inject a fake through [`InteractiveModeTestHooks::set_suspend_signals`].
+pub trait SuspendSignals: Send + Sync {
+    /// Ignore SIGINT until the returned function restores the previous disposition.
+    fn ignore_sigint(&self) -> Box<dyn FnOnce() + Send>;
+    /// Run `callback` once on the next SIGCONT. The listener is armed before this returns; the returned
+    /// function removes it.
+    fn once_sigcont(&self, callback: Box<dyn FnOnce() + Send>) -> Box<dyn FnOnce() + Send>;
+    /// Send SIGTSTP to the process group (`process.kill(0, "SIGTSTP")`).
+    fn send_sigtstp(&self) -> std::io::Result<()>;
+}
+
+/// [`SuspendSignals`] for the current process.
+pub struct ProcessSuspendSignals {
+    rt: tokio::runtime::Handle,
+}
+
+impl ProcessSuspendSignals {
+    pub fn new(rt: tokio::runtime::Handle) -> Self {
+        Self { rt }
+    }
+}
+
+impl SuspendSignals for ProcessSuspendSignals {
+    fn ignore_sigint(&self) -> Box<dyn FnOnce() + Send> {
+        #[cfg(unix)]
+        {
+            // SAFETY: replaces and later restores the SIGINT disposition.
+            let previous = unsafe { libc::signal(libc::SIGINT, libc::SIG_IGN) };
+            Box::new(move || unsafe {
+                libc::signal(libc::SIGINT, previous);
+            })
+        }
+        #[cfg(not(unix))]
+        {
+            Box::new(|| {})
+        }
+    }
+
+    fn once_sigcont(&self, callback: Box<dyn FnOnce() + Send>) -> Box<dyn FnOnce() + Send> {
+        #[cfg(unix)]
+        {
+            use tokio::signal::unix::{SignalKind, signal};
+            // Register the listener now: a SIGCONT that arrives before a spawned task registers it is lost.
+            let _guard = self.rt.enter();
+            let Ok(mut stream) = signal(SignalKind::from_raw(libc::SIGCONT)) else {
+                return Box::new(|| {});
+            };
+            let task = self.rt.spawn(async move {
+                if stream.recv().await.is_some() {
+                    callback();
+                }
+            });
+            Box::new(move || task.abort())
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = callback;
+            Box::new(|| {})
+        }
+    }
+
+    fn send_sigtstp(&self) -> std::io::Result<()> {
+        #[cfg(unix)]
+        {
+            // SAFETY: plain syscall.
+            if unsafe { libc::kill(0, libc::SIGTSTP) } != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Options for InteractiveMode initialization.
 #[derive(Clone, Default)]
 pub struct InteractiveModeOptions {
@@ -469,6 +547,10 @@ pub(crate) struct State {
     pub(crate) fullscreen_layout_root: Option<ComponentRef>,
     pub(crate) main_screen_render_state: Option<pi_tui::tui_main_screen::TuiMainScreenRenderState>,
     pub(crate) submit_enabled: bool,
+    /// Renderers replaced by `switch_tui_mode`; they forward to the active one.
+    pub(crate) retired_renderers: Vec<Arc<Tui>>,
+    /// Process signal operations used by suspend (Ctrl+Z); tests inject a fake.
+    pub(crate) suspend_signals: Option<Arc<dyn SuspendSignals>>,
 }
 
 pub(crate) struct Inner {
@@ -498,6 +580,8 @@ pub(crate) struct Inner {
     pub(crate) theme_controller: Arc<InteractiveThemeController>,
     pub(crate) input_tx: mpsc::UnboundedSender<String>,
     pub(crate) input_rx: tokio::sync::Mutex<mpsc::UnboundedReceiver<String>>,
+    /// Generation of the registered SIGTERM/SIGHUP handlers; 0 while unregistered.
+    pub(crate) signal_generation: std::sync::atomic::AtomicU64,
     pub(crate) state: Mutex<State>,
 }
 
@@ -745,6 +829,8 @@ impl Inner {
                 fullscreen_layout_root: None,
                 main_screen_render_state: None,
                 submit_enabled: false,
+                retired_renderers: Vec::new(),
+                suspend_signals: None,
             };
 
             Inner {
@@ -774,6 +860,7 @@ impl Inner {
                 theme_controller,
                 input_tx,
                 input_rx: tokio::sync::Mutex::new(input_rx),
+                signal_generation: std::sync::atomic::AtomicU64::new(0),
                 state: Mutex::new(state),
             }
         })
@@ -848,6 +935,21 @@ impl Inner {
         F::Output: Send + 'static,
     {
         self.rt.spawn(future);
+    }
+
+    /// Run `future` up to its first suspension point now, like calling an async function in JS, and
+    /// finish it on the runtime. Keeps the synchronous part of event handlers in event order.
+    pub(crate) fn start_now<F>(&self, future: F)
+    where
+        F: std::future::Future<Output = ()> + Send + 'static,
+    {
+        let _guard = self.rt.enter();
+        let mut future = Box::pin(future);
+        let waker = futures::task::noop_waker();
+        let mut cx = std::task::Context::from_waker(&waker);
+        if future.as_mut().poll(&mut cx).is_pending() {
+            self.rt.spawn(future);
+        }
     }
 
     pub(crate) fn next_id(&self) -> u64 {
@@ -1382,7 +1484,7 @@ impl Inner {
         }
     }
 
-    fn stop_interactive_tui(&self, fullscreen_exit_output: FullscreenExitOutput) {
+    pub(crate) fn stop_interactive_tui(&self, fullscreen_exit_output: FullscreenExitOutput) {
         let renderer = self.ui();
         if renderer.mode() == pi_tui::tui::TuiMode::Fullscreen && fullscreen_exit_output == FullscreenExitOutput::Transcript {
             while renderer.has_overlay() {
@@ -1450,7 +1552,16 @@ impl Inner {
             next_ui.restore_render_state(&state);
         }
         *self.renderer.lock() = next_ui.clone();
-        self.state.lock().tui_mode = mode;
+        // Components keep the renderer they were built with (TS hands them a proxy that follows the
+        // active renderer), so retired renderers forward to the new one and stay alive for them.
+        {
+            let mut s = self.state.lock();
+            s.retired_renderers.push(previous_ui.clone());
+            for retired in &s.retired_renderers {
+                retired.redirect_to(&next_ui);
+            }
+            s.tui_mode = mode;
+        }
         self.mount_interactive_tui(&next_ui, &components);
         next_ui.invalidate();
         next_ui.set_focus(focus);
@@ -2028,54 +2139,131 @@ impl Inner {
     }
 
     fn register_signal_handlers(&self) {
+        self.unregister_signal_handlers();
+        static NEXT_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let generation = NEXT_GENERATION.fetch_add(1, Ordering::SeqCst);
+        self.signal_generation.store(generation, Ordering::SeqCst);
         #[cfg(unix)]
         {
             use tokio::signal::unix::{SignalKind, signal};
-            for kind in [SignalKind::terminate(), SignalKind::hangup()] {
+            for (kind, raw) in [(SignalKind::terminate(), libc::SIGTERM), (SignalKind::hangup(), libc::SIGHUP)] {
                 let weak = self.weak.clone();
+                let _guard = self.rt.enter();
+                let Ok(mut stream) = signal(kind) else { continue };
                 self.spawn(async move {
-                    let Ok(mut stream) = signal(kind) else { return };
-                    if stream.recv().await.is_some() {
-                        crate::utils::shell::kill_tracked_detached_children();
-                        if let Some(this) = weak.upgrade() {
-                            this.shutdown(true).await;
+                    while stream.recv().await.is_some() {
+                        let this = weak.upgrade();
+                        let active = this.as_ref().map(|t| t.signal_generation.load(Ordering::SeqCst));
+                        if active == Some(generation) {
+                            // SIGHUP no longer hard-exits: graceful shutdown emits session_shutdown first,
+                            // then attempts terminal restore.
+                            crate::utils::shell::kill_tracked_detached_children();
+                            if let Some(this) = this {
+                                this.shutdown(true).await;
+                            }
+                            return;
                         }
+                        if active.is_some_and(|g| g != 0) {
+                            // A newer registration handles it.
+                            return;
+                        }
+                        // Unregistered (TS removed its listener): tokio keeps the process handler
+                        // installed, so restore the default action and re-raise the signal.
+                        // SAFETY: resets the disposition and re-sends the signal to this process.
+                        unsafe {
+                            libc::signal(raw, libc::SIG_DFL);
+                            libc::raise(raw);
+                        }
+                        return;
                     }
                 });
             }
         }
     }
 
-    pub(crate) fn handle_ctrl_z(&self) {
-        #[cfg(windows)]
-        {
+    /// TS `unregisterSignalHandlers`: later SIGTERM/SIGHUP get their default action again.
+    pub(crate) fn unregister_signal_handlers(&self) {
+        self.signal_generation.store(0, Ordering::SeqCst);
+    }
+
+    pub(crate) fn suspend_signals(&self) -> Arc<dyn SuspendSignals> {
+        let custom = self.state.lock().suspend_signals.clone();
+        custom.unwrap_or_else(|| Arc::new(ProcessSuspendSignals::new(self.rt.clone())))
+    }
+
+    /// TS `handleCtrlZ`. An error is what TS throws; the key handler turns it into an uncaught crash.
+    pub(crate) fn handle_ctrl_z(&self) -> std::io::Result<()> {
+        if cfg!(windows) {
             self.show_status("Suspend to background is not supported on Windows");
+            return Ok(());
         }
-        #[cfg(unix)]
-        {
-            let ui = self.ui();
-            // Restore the TUI when resumed.
+        let signals = self.suspend_signals();
+
+        // Ignore SIGINT while suspended so Ctrl+C in the terminal does not kill the backgrounded
+        // process. The handler is removed on resume.
+        let restore_sigint: Arc<Mutex<Option<Box<dyn FnOnce() + Send>>>> =
+            Arc::new(Mutex::new(Some(signals.ignore_sigint())));
+
+        // Set up handler to restore TUI when resumed
+        let cancel_sigcont = {
             let weak = self.weak.clone();
-            self.spawn(async move {
-                use tokio::signal::unix::{SignalKind, signal};
-                let Ok(mut cont) = signal(SignalKind::from_raw(libc::SIGCONT)) else { return };
-                if cont.recv().await.is_some()
-                    && let Some(this) = weak.upgrade()
-                {
+            let restore_sigint = restore_sigint.clone();
+            signals.once_sigcont(Box::new(move || {
+                if let Some(restore) = restore_sigint.lock().take() {
+                    restore();
+                }
+                if let Some(this) = weak.upgrade() {
                     let ui = this.ui();
                     ui.start();
                     ui.request_render(true);
                 }
-            });
-            // Stop the TUI (restore terminal to normal mode), then stop the process group.
-            ui.stop(pi_tui::tui::TuiStopOptions::default());
-            // Ignore SIGINT while suspended so Ctrl+C in the terminal does not kill the backgrounded process.
-            unsafe {
-                let previous = libc::signal(libc::SIGINT, libc::SIG_IGN);
-                libc::kill(0, libc::SIGTSTP);
-                libc::signal(libc::SIGINT, previous);
+            }))
+        };
+
+        // Stop the TUI (restore terminal to normal mode)
+        self.ui().stop(pi_tui::tui::TuiStopOptions::default());
+
+        // Send SIGTSTP to process group (pid=0 means all processes in group)
+        if let Err(error) = signals.send_sigtstp() {
+            cancel_sigcont();
+            if let Some(restore) = restore_sigint.lock().take() {
+                restore();
             }
+            return Err(error);
         }
+        Ok(())
+    }
+
+    /// TS `emergencyTerminalExit`: the terminal is gone, so skip the normal shutdown (its restore writes
+    /// would fail again) and exit with 129.
+    pub(crate) fn emergency_terminal_exit(&self) -> ! {
+        self.state.lock().is_shutting_down = true;
+        self.unregister_signal_handlers();
+        crate::utils::shell::kill_tracked_detached_children();
+        crate::utils::process_exit::exit(129);
+    }
+
+    /// TS `uncaughtCrash`: restore the terminal, report the error and the crash, and exit with 1.
+    pub(crate) fn uncaught_crash(&self, error: &anyhow::Error) -> ! {
+        // A dead terminal is not a pi crash. Do not try to restore it or record it.
+        if error.downcast_ref::<std::io::Error>().is_some_and(is_dead_terminal_error) {
+            self.emergency_terminal_exit();
+        }
+        if std::mem::replace(&mut self.state.lock().is_shutting_down, true) {
+            crate::utils::process_exit::exit(1);
+        }
+        self.unregister_signal_handlers();
+        crate::utils::shell::kill_tracked_detached_children();
+        self.ui().stop(pi_tui::tui::TuiStopOptions::default());
+        eprintln!("{APP_NAME} exiting due to uncaughtException:");
+        eprintln!("{error:?}");
+        if let Some(hint) = self.get_crash_extension_hint(error) {
+            eprintln!("\n{hint}");
+        }
+        if self.record_crash(crate::core::crash_log::CrashRecordKind::UncaughtException, error) {
+            eprintln!("\n{}", self.crash_report_instructions());
+        }
+        crate::utils::process_exit::exit(1);
     }
 
     pub(crate) async fn handle_follow_up(self: Arc<Self>) {
@@ -2508,12 +2696,14 @@ impl Inner {
             let first = queued[first_prompt_index].clone();
             let rest = queued[first_prompt_index + 1..].to_vec();
 
-            // Start a prompt when idle, or queue it into a run still finishing compaction.
+            // Start a prompt when idle, or queue it into a run still finishing compaction. The prompt
+            // runs up to its first suspension point now (TS calls it without awaiting), so it starts
+            // before the rest is queued.
             {
                 let this = self.clone();
                 let session = session.clone();
                 let queued_all = queued.clone();
-                self.spawn(async move {
+                self.start_now(async move {
                     let behavior = match first.mode {
                         CompactionQueuedMessageMode::Steer => PromptOptionsStreamingBehavior::Steer,
                         CompactionQueuedMessageMode::FollowUp => PromptOptionsStreamingBehavior::FollowUp,
@@ -2524,8 +2714,6 @@ impl Inner {
                     }
                 });
             }
-            // Let the prompt start before queueing the rest.
-            tokio::task::yield_now().await;
             for message in rest {
                 send_queued(message).await?;
             }
@@ -2613,6 +2801,7 @@ impl Inner {
         if initialized {
             self.stop_interactive_tui(fullscreen_exit_output);
         }
+        self.unregister_signal_handlers();
     }
 }
 

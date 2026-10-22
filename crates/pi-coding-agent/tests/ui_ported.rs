@@ -129,6 +129,43 @@ impl Drop for FakeClock {
 // tool-execution-component.test.ts
 // ---------------------------------------------------------------------------------------------
 
+/// Small 2x2 blue JPEG image.
+const TINY_JPEG: &str = "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYIDAoMDAsKCwsNDhIQDQ4RDgsLEBYQERMUFRUVDA8XGBYUGBIUFRT/2wBDAQMEBAUEBQkFBQkUDQsNFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBT/wAARCAACAAIDAREAAhEBAxEB/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/xAAVAQEBAAAAAAAAAAAAAAAAAAAGCf/EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAMAwEAAhEDEQA/AD3VTB3/2Q==";
+
+// Issue #10292: the component loads the PNG transcoder itself, so this works in any TUI host.
+// Issue #8577: a replaced partial image must not resurface.
+#[test]
+fn converts_non_png_tool_images_once_the_transcoder_loads() {
+    let _g = setup();
+    pi_tui::terminal_image::set_capabilities(pi_tui::terminal_image::TerminalCapabilities {
+        images: Some(pi_tui::terminal_image::ImageProtocol::Kitty),
+        true_color: true,
+        hyperlinks: true,
+    });
+    let c = ToolExecutionComponent::new("tool", "id", json!({}), None, None, fake_tui(), &cwd());
+    c.update_result(
+        &result(json!({ "content": [{ "type": "image", "data": "cGFydGlhbA==", "mimeType": "image/jpeg" }], "isError": false })),
+        Some(true),
+    );
+    c.update_result(
+        &result(json!({ "content": [{ "type": "image", "data": TINY_JPEG, "mimeType": "image/jpeg" }], "isError": false })),
+        None,
+    );
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !c.render(120).join("\n").contains(";iVBORw0KGgo") {
+        assert!(std::time::Instant::now() < deadline, "the image was not converted:\n{}", c.render(120).join("\n"));
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let rendered = c.render(120).join("\n");
+    assert!(!rendered.contains("cGFydGlhbA=="));
+
+    // Invalidation reuses the converted image, so the Kitty image ID stays the same.
+    c.invalidate();
+    assert_eq!(c.render(120).join("\n"), rendered);
+    pi_tui::terminal_image::reset_capabilities_cache();
+}
+
 #[test]
 fn uses_built_in_rendering_for_built_in_overrides_without_custom_renderers() {
     let _g = setup();

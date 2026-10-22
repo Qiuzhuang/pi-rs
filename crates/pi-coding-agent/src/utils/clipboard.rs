@@ -173,8 +173,23 @@ fn write_private_file(path: &std::path::Path, text: &str) -> std::io::Result<()>
     options.open(path)?.write_all(text.as_bytes())
 }
 
+type ReadTextOverride = Arc<dyn Fn() -> futures::future::BoxFuture<'static, anyhow::Result<Option<String>>> + Send + Sync>;
+
+static READ_TEXT_OVERRIDE: parking_lot::RwLock<Option<ReadTextOverride>> = parking_lot::RwLock::new(None);
+
+/// Route [`read_clipboard_text`] to `read` instead of the system clipboard, or restore it with `None`.
+/// The equivalent of the TS tests' `vi.mock("../src/utils/clipboard.ts")`.
+#[doc(hidden)]
+pub fn set_read_clipboard_text_override(read: Option<ReadTextOverride>) {
+    *READ_TEXT_OVERRIDE.write() = read;
+}
+
 /// Read plain text from the system clipboard.
 pub async fn read_clipboard_text() -> anyhow::Result<Option<String>> {
+    let read = READ_TEXT_OVERRIDE.read().clone();
+    if let Some(read) = read {
+        return read().await;
+    }
     Ok(read_clipboard_text_with(&ClipboardHost::process()).await)
 }
 

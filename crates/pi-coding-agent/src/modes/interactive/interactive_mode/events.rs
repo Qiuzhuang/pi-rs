@@ -10,6 +10,7 @@ use crate::core::extensions::types::{CompactionReason, MarkdownTransformer};
 use crate::core::messages::{CodingAgentMessage, create_compaction_summary_message, create_custom_message};
 use crate::core::model_runtime::ModelRuntime;
 use crate::core::session_manager::{CustomEntry, UsageEntry, session_entry_to_context_messages};
+use crate::core::tools::js_util::js_to_fixed;
 use crate::core::tools::truncate::TruncationResult;
 use crate::modes::interactive::components::branch_summary_message::BranchSummaryMessageComponent;
 use crate::modes::interactive::components::compaction_summary_message::CompactionSummaryMessageComponent;
@@ -826,7 +827,7 @@ impl Inner {
         }
         let usage = &notice.usage;
         let tokens = usage.input + usage.output + usage.cache_read + usage.cache_write;
-        let cost = if usage.cost.total >= 0.01 { format!(" (~${:.2})", usage.cost.total) } else { String::new() };
+        let cost = if usage.cost.total >= 0.01 { format!(" (~${})", js_to_fixed(usage.cost.total, 2)) } else { String::new() };
         let label = match notice.kind {
             CompactionCostNoticeKind::Compaction => "Compaction",
             CompactionCostNoticeKind::BranchSummary => "Branch summary",
@@ -905,7 +906,7 @@ impl Inner {
         if miss.missed_tokens < 20_000 && miss.missed_cost < 0.1 {
             return;
         }
-        let cost = if miss.missed_cost >= 0.01 { format!(" (~${:.2})", miss.missed_cost) } else { String::new() };
+        let cost = if miss.missed_cost >= 0.01 { format!(" (~${})", js_to_fixed(miss.missed_cost, 2)) } else { String::new() };
         let re_billed = format!("{} tokens re-billed{cost}", format_tokens(miss.missed_tokens as i64));
         let label = if miss.model_changed {
             "Cache miss after model switch".to_string()

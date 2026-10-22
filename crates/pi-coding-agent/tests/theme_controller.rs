@@ -203,6 +203,24 @@ fn uses_the_reported_scheme_for_the_system_theme_when_the_terminal_reports_no_co
 }
 
 #[test]
+fn re_renders_only_when_the_reported_colors_change() {
+    let fx = Fixture::new();
+    let controller = fx.controller(|| in_memory(json!({ "theme": "dark" })), None);
+
+    controller.apply_from_settings();
+    fx.reply(DARK_REPLY);
+    // A timeout keeps the known colors; erasing them would count as a change and re-render.
+    controller.apply_from_settings();
+    fx.time_out();
+    // The same colors again.
+    controller.apply_from_settings();
+    fx.reply(DARK_REPLY);
+
+    assert_eq!(fx.color_queries(), 3);
+    assert_eq!(controller.render_request_count(), 1);
+}
+
+#[test]
 fn disables_terminal_appearance_updates_when_disposed() {
     let fx = Fixture::new();
     let controller = fx.controller(|| in_memory(json!({ "theme": "light/dark" })), None);

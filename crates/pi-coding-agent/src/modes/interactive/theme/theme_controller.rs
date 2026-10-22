@@ -91,6 +91,7 @@ pub struct InteractiveThemeController {
     show_error: Arc<dyn Fn(String) + Send + Sync>,
     on_changed: Arc<dyn Fn() + Send + Sync>,
     state: Mutex<State>,
+    render_requests: std::sync::atomic::AtomicUsize,
 }
 
 impl InteractiveThemeController {
@@ -109,6 +110,7 @@ impl InteractiveThemeController {
                 terminal_color_scheme_listener: None,
                 terminal_color_query: async {}.boxed().shared(),
             }),
+            render_requests: std::sync::atomic::AtomicUsize::new(0),
         });
         let name = controller.resolve_theme_name();
         controller.state.lock().active_theme_name = Some(name.clone());
@@ -123,9 +125,25 @@ impl InteractiveThemeController {
         self.ui.lock().clone()
     }
 
-    /// Rebind to a new TUI (after InteractiveMode switched renderers).
+    /// Rebind to a new TUI (after InteractiveMode switched renderers). The color scheme listener moves
+    /// with `rebind_tui()`.
     pub fn set_tui(&self, ui: Arc<Tui>) {
-        *self.ui.lock() = ui;
+        let previous = self.state.lock().terminal_color_scheme_listener.take();
+        let old = std::mem::replace(&mut *self.ui.lock(), ui);
+        if let Some(id) = previous {
+            old.remove_terminal_color_scheme_listener(id);
+        }
+    }
+
+    /// How many renders the controller requested (TS tests count `ui.requestRender` calls).
+    #[doc(hidden)]
+    pub fn render_request_count(&self) -> usize {
+        self.render_requests.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    fn request_render(&self, ui: &Tui) {
+        self.render_requests.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        ui.request_render(false);
     }
 
     pub fn rebind_tui(&self) {
@@ -196,7 +214,7 @@ impl InteractiveThemeController {
         if set_theme(&theme_name, Some(true)).success {
             let ui = self.ui();
             ui.invalidate();
-            ui.request_render(false);
+            self.request_render(&ui);
         }
     }
 
@@ -290,7 +308,7 @@ impl InteractiveThemeController {
         self.reapply_for_terminal();
         let ui = self.ui();
         ui.invalidate();
-        ui.request_render(false);
+        self.request_render(&ui);
     }
 
     /// Re-apply the setting after the terminal's colors or appearance changed.

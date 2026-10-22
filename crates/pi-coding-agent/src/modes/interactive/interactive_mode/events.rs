@@ -186,7 +186,23 @@ impl Inner {
         ))
     }
 
+    /// TS `handleEvent`: initializes the mode first when an event arrives before `init()`.
     pub(crate) fn handle_event(&self, event: AgentSessionEvent) {
+        if !self.state.lock().is_initialized {
+            let this = self.this();
+            self.start_now(async move {
+                if let Err(error) = this.clone().init().await {
+                    // The listener's promise rejects and nobody handles it.
+                    this.uncaught_crash(&error);
+                }
+                this.handle_initialized_event(event);
+            });
+            return;
+        }
+        self.handle_initialized_event(event);
+    }
+
+    fn handle_initialized_event(&self, event: AgentSessionEvent) {
         self.footer.invalidate();
         self.program_status.handle_event(&event);
         let settings = self.settings_manager();
@@ -288,6 +304,9 @@ impl Inner {
                         let text = aborted_message(self.session().retry_attempt());
                         assistant.error_message = Some(text.clone());
                         error_message = Some(text);
+                        // TS writes this into the shared message object, so agent state, the
+                        // persisted entry and a later chat rebuild show it too.
+                        self.session().replace_message_end_message(AgentMessage::Assistant(assistant.clone()));
                     }
                     streaming.update_content(assistant.clone(), Some(false));
                     if matches!(assistant.stop_reason, StopReason::Aborted | StopReason::Error) {

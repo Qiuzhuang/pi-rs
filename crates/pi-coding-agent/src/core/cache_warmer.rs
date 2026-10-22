@@ -3,6 +3,7 @@
 use crate::core::session_manager::SessionEntry;
 use crate::core::session_manager::UsageEntry;
 use crate::core::settings_schema::CacheWarmingMode;
+use crate::core::tools::js_util::js_to_fixed;
 use futures::future::BoxFuture;
 use pi_ai::models::ModelsRequestOptions;
 use pi_ai::types::Context;
@@ -789,9 +790,9 @@ impl Drop for CacheWarmer {
 
 fn format_dollars(value: f64) -> String {
     if value < 0.0 {
-        format!("-${:.3}", value.abs())
+        format!("-${}", js_to_fixed(value.abs(), 3))
     } else {
-        format!("${value:.3}")
+        format!("${}", js_to_fixed(value, 3))
     }
 }
 
@@ -811,9 +812,9 @@ fn format_cache_warming_economics(decision: &CacheWarmingDecision) -> String {
         "<"
     };
     format!(
-        "{probability_text}, expected savings {} {comparison} ${:.3}",
+        "{probability_text}, expected savings {} {comparison} ${}",
         format_dollars(decision.expected_savings),
-        CACHE_WARMING_MINIMUM_EXPECTED_SAVINGS
+        js_to_fixed(CACHE_WARMING_MINIMUM_EXPECTED_SAVINGS, 3)
     )
 }
 
@@ -886,10 +887,11 @@ pub fn format_cache_warming_usage(entry: &UsageEntry) -> String {
     let note = entry
         .note
         .as_deref()
+        .filter(|n| !n.is_empty())
         .map(|n| format!(" ({n})"))
         .unwrap_or_default();
     // toFixed(6), then drop trailing zeros beyond the third decimal.
-    let fixed = format!("{:.6}", entry.usage.cost.total);
+    let fixed = js_to_fixed(entry.usage.cost.total, 6);
     let cost = match fixed.find('.') {
         Some(dot) => {
             let keep = dot + 4;
@@ -1420,5 +1422,28 @@ mod tests {
             .append_usage("cache_warm", &model.provider, &model.id, usage, Some("extension override"))
             .unwrap();
         assert_eq!(format_cache_warming_usage(&entry), "Cache warmed (extension override): $0.029497");
+    }
+
+    #[test]
+    fn amounts_round_like_js_to_fixed() {
+        // Exact binary ties: JS `toFixed` rounds them up, Rust's `{:.N}` rounds half to even.
+        assert_eq!(format_dollars(0.0625), "$0.063");
+        assert_eq!(format_dollars(-0.0625), "-$0.063");
+        assert_eq!(format_dollars(-0.0), "$0.000");
+        let mut usage = warm_usage();
+        usage.cost.total = 1.0 / 128.0;
+        let model = adaptive_model();
+        let entry = SessionManager::in_memory(None, None, None)
+            .unwrap()
+            .append_usage("cache_warm", &model.provider, &model.id, usage.clone(), Some(""))
+            .unwrap();
+        // `entry.note ? ... : ""`: an empty note adds nothing.
+        assert_eq!(format_cache_warming_usage(&entry), "Cache warmed: $0.007813");
+        usage.cost.total = 0.5;
+        let entry = SessionManager::in_memory(None, None, None)
+            .unwrap()
+            .append_usage("cache_warm", &model.provider, &model.id, usage, None)
+            .unwrap();
+        assert_eq!(format_cache_warming_usage(&entry), "Cache warmed: $0.500");
     }
 }

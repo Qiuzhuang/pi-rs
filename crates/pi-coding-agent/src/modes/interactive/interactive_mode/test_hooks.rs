@@ -131,6 +131,40 @@ impl InteractiveModeTestHooks {
         self.inner.active_indicator_kind()
     }
 
+    /// TS `isInitialized`.
+    pub fn is_initialized(&self) -> bool {
+        self.inner.state.lock().is_initialized
+    }
+
+    /// TS `shutdownRequested`.
+    pub fn shutdown_requested(&self) -> bool {
+        self.inner.state.lock().shutdown_requested
+    }
+
+    /// The context extension shortcut handlers receive.
+    pub fn shortcut_context(&self) -> crate::core::extensions::types::ExtensionContext {
+        self.inner.create_shortcut_context()
+    }
+
+    /// Run a detached task the way the mode does (a panic in it is uncaught).
+    pub fn spawn<F>(&self, future: F)
+    where
+        F: std::future::Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        self.inner.spawn(future);
+    }
+
+    /// The stdin/stdout error handler (TS `terminalErrorHandler`).
+    pub fn handle_terminal_error(&self, error: &std::io::Error) {
+        self.inner.handle_terminal_error(error);
+    }
+
+    /// TS `rebuildChatFromMessages`.
+    pub fn rebuild_chat_from_messages(&self) {
+        self.inner.rebuild_chat_from_messages();
+    }
+
     /// TS `activeWorkingIndicatorEmbedded`.
     pub fn working_indicator_embedded(&self) -> bool {
         self.inner.state.lock().active_working_indicator_embedded

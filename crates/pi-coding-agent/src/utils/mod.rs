@@ -35,6 +35,7 @@ pub mod syntax_highlight;
 pub mod text;
 pub mod tool_result_images;
 pub mod tools_manager;
+pub mod uncaught;
 pub mod version_check;
 pub mod windows_self_update;
 pub mod wsl;

@@ -311,7 +311,7 @@ impl EventLoop {
             .name("pi-tui-event-loop".into())
             .spawn(move || {
                 let _guard = lp.make_current();
-                lp.run();
+                run_thread_guarded(|| lp.run());
             })
             .expect("spawn event loop thread")
     }
@@ -509,6 +509,31 @@ static FUTURE_SPAWNER: Mutex<Option<FutureSpawner>> = Mutex::new(None);
 /// such as `tokio::spawn`. Without a spawner, futures are polled on the [`current`] event loop.
 pub fn set_future_spawner(spawner: Option<FutureSpawner>) {
     *FUTURE_SPAWNER.lock().unwrap_or_else(|e| e.into_inner()) = spawner;
+}
+
+/// Receives the payload of a panic that escaped a thread pi-tui owns (the real-time event loop
+/// and the `ProcessTerminal` stdin reader), i.e. a panic nothing caught. Node's analog is the
+/// `uncaughtException` handler. It runs on the dying thread; when it returns, the thread ends.
+pub type ThreadPanicHandler = Arc<dyn Fn(Box<dyn std::any::Any + Send>) + Send + Sync>;
+
+static THREAD_PANIC_HANDLER: Mutex<Option<ThreadPanicHandler>> = Mutex::new(None);
+
+/// Install (or clear) the handler for panics escaping pi-tui's threads. Without one, the panic
+/// unwinds out of the thread as usual.
+pub fn set_thread_panic_handler(handler: Option<ThreadPanicHandler>) {
+    *THREAD_PANIC_HANDLER.lock().unwrap_or_else(|e| e.into_inner()) = handler;
+}
+
+/// Run a pi-tui thread's body, handing an escaping panic to the [`set_thread_panic_handler`]
+/// handler.
+pub(crate) fn run_thread_guarded(body: impl FnOnce()) {
+    if let Err(payload) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(body)) {
+        let handler = THREAD_PANIC_HANDLER.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        match handler {
+            Some(handler) => handler(payload),
+            None => std::panic::resume_unwind(payload),
+        }
+    }
 }
 
 struct LoopTask {

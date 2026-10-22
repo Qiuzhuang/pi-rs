@@ -26,6 +26,92 @@ use pi_tui::autocomplete::{
 use pi_tui::components::text::Text;
 use tokio::sync::oneshot;
 
+/// The context of extension shortcut handlers (see [`Inner::create_shortcut_context`]).
+struct ShortcutContextHost {
+    base: Arc<dyn crate::core::extensions::types::ExtensionContextHost>,
+    ui: Arc<dyn ExtensionUIContext>,
+    mode: Weak<Inner>,
+}
+
+impl crate::core::extensions::types::ExtensionContextHost for ShortcutContextHost {
+    fn assert_active(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+    fn ui(&self) -> Arc<dyn ExtensionUIContext> {
+        self.ui.clone()
+    }
+    fn mode(&self) -> ExtensionMode {
+        ExtensionMode::Tui
+    }
+    fn has_ui(&self) -> bool {
+        true
+    }
+    fn cwd(&self) -> String {
+        self.mode.upgrade().map(|mode| mode.session_manager().get_cwd()).unwrap_or_else(|| self.base.cwd())
+    }
+    fn session_manager(&self) -> Option<crate::core::session_manager::ReadonlySessionManager> {
+        self.base.session_manager()
+    }
+    fn model_registry(&self) -> Option<Arc<crate::core::model_registry::ModelRegistry>> {
+        self.base.model_registry()
+    }
+    fn thinking_level(&self) -> Option<pi_agent::types::ThinkingLevel> {
+        self.base.thinking_level()
+    }
+    fn actions(&self) -> Arc<dyn crate::core::extensions::types::ExtensionContextActions> {
+        Arc::new(ShortcutContextActions { base: self.base.actions(), mode: self.mode.clone() })
+    }
+}
+
+/// Shortcut-context actions: the session's, except `shutdown()` (flag only) and without the
+/// optional members the TS shortcut context does not define (`getSystemPromptOptions`, `tools`,
+/// `executeTool`).
+struct ShortcutContextActions {
+    base: Arc<dyn crate::core::extensions::types::ExtensionContextActions>,
+    mode: Weak<Inner>,
+}
+
+impl crate::core::extensions::types::ExtensionContextActions for ShortcutContextActions {
+    fn get_model(&self) -> Option<pi_ai::types::Model> {
+        self.base.get_model()
+    }
+    fn get_scoped_models(&self) -> Vec<crate::core::model_resolver::ScopedModel> {
+        self.base.get_scoped_models()
+    }
+    fn is_idle(&self) -> bool {
+        self.base.is_idle()
+    }
+    fn is_project_trusted(&self) -> bool {
+        self.base.is_project_trusted()
+    }
+    fn get_signal(&self) -> Option<tokio_util::sync::CancellationToken> {
+        self.base.get_signal()
+    }
+    fn abort(&self) {
+        // `restoreQueuedMessagesToEditor({ abort: true })`
+        if let Some(mode) = self.mode.upgrade() {
+            mode.restore_queued_messages_to_editor(true, None);
+        }
+    }
+    fn has_pending_messages(&self) -> bool {
+        self.base.has_pending_messages()
+    }
+    fn shutdown(&self) {
+        if let Some(mode) = self.mode.upgrade() {
+            mode.state.lock().shutdown_requested = true;
+        }
+    }
+    fn get_context_usage(&self) -> Option<crate::core::extensions::types::ContextUsage> {
+        self.base.get_context_usage()
+    }
+    fn compact(&self, options: crate::core::extensions::types::CompactOptions) {
+        self.base.compact(options);
+    }
+    fn get_system_prompt(&self) -> String {
+        self.base.get_system_prompt()
+    }
+}
+
 /// A provider with an explicit set of trigger characters (TS assigns `provider.triggerCharacters`).
 struct TriggerCharactersProvider {
     inner: Arc<dyn AutocompleteProvider>,
@@ -684,6 +770,17 @@ impl Inner {
     }
 
     /// Set up keyboard shortcuts registered by extensions.
+    /// TS `setupExtensionShortcuts` `createContext`: a plain context object (no staleness checks)
+    /// whose `shutdown()` only requests shutdown; it happens once the agent is idle.
+    pub(crate) fn create_shortcut_context(&self) -> crate::core::extensions::types::ExtensionContext {
+        let base = self.session().extension_runner().create_context().host().clone();
+        crate::core::extensions::types::ExtensionContext::new(Arc::new(ShortcutContextHost {
+            base,
+            ui: self.create_extension_ui_context(),
+            mode: self.weak.clone(),
+        }))
+    }
+
     pub(crate) fn setup_extension_shortcuts(&self) {
         let runner = self.session().extension_runner();
         let shortcuts = runner.get_shortcuts(&self.keybindings.get_effective_config());
@@ -696,7 +793,7 @@ impl Inner {
                 if pi_tui::keys::matches_key(&data, shortcut_str) {
                     let Some(this) = weak.upgrade() else { return false };
                     let handler = shortcut.handler.clone();
-                    let ctx = this.session().extension_runner().create_context();
+                    let ctx = this.create_shortcut_context();
                     let target = this.clone();
                     this.spawn(async move {
                         if let Err(error) = handler(ctx).await {

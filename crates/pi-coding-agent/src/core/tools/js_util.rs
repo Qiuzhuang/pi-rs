@@ -77,8 +77,15 @@ pub fn js_number_string(value: f64) -> String {
     text
 }
 
-/// `Number.prototype.toFixed(digits)` for finite values below 1e21.
+/// `Number.prototype.toFixed(digits)`. Shared by every user-visible money/percent/size format so
+/// rounding matches JS (ties round away from zero on the exact binary value, `-0` prints as `0`).
 pub fn js_to_fixed(value: f64, digits: usize) -> String {
+    // `toFixed` falls back to `String(x)` for NaN, infinities and |x| >= 1e21.
+    if !value.is_finite() || value.abs() >= 1e21 {
+        return js_number_string(value);
+    }
+    // `-0` is not `< 0`, so JS prints no sign.
+    let value = if value == 0.0 { 0.0 } else { value };
     // JS rounds the exact binary value half-up (away from zero); Rust's formatting rounds the
     // exact value half-to-even. They differ only on exact ties, which we detect on the exact
     // decimal expansion and round away from zero.
@@ -177,6 +184,12 @@ mod tests {
         assert_eq!(js_to_fixed(0.05, 1), "0.1");
         assert_eq!(js_to_fixed(2.5, 0), "3");
         assert_eq!(js_to_fixed(1023.0 / 1024.0, 1), "1.0");
+        assert_eq!(js_to_fixed(-0.0, 3), "0.000");
+        assert_eq!(js_to_fixed(-0.0001, 3), "-0.000");
+        assert_eq!(js_to_fixed(0.125, 2), "0.13");
+        assert_eq!(js_to_fixed(-1.25, 1), "-1.3");
+        assert_eq!(js_to_fixed(f64::NAN, 2), "NaN");
+        assert_eq!(js_to_fixed(f64::INFINITY, 2), "Infinity");
     }
 
     #[test]

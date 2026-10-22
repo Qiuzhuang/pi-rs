@@ -29,7 +29,9 @@ use std::sync::Arc;
 pub struct ModelItem {
     pub provider: String,
     pub id: String,
-    pub model: Model,
+    /// Shared so the all/active/filtered lists rebuilt on every refresh and keystroke copy a pointer,
+    /// not the whole model.
+    pub model: Arc<Model>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -134,7 +136,7 @@ impl Inner {
             .model_runtime
             .get_available_snapshot()
             .into_iter()
-            .map(|model| ModelItem { provider: model.provider.clone(), id: model.id.clone(), model })
+            .map(|model| ModelItem { provider: model.provider.clone(), id: model.id.clone(), model: Arc::new(model) })
             .collect();
         let all_models = self.sort_models(models);
         let mut s = self.state.lock();
@@ -154,7 +156,7 @@ impl Inner {
             .map(|scoped| ModelItem {
                 provider: scoped.model.provider.clone(),
                 id: scoped.model.id.clone(),
-                model: scoped.model.clone(),
+                model: Arc::new(scoped.model.clone()),
             })
             .collect();
         s.active_models = if s.scope == ModelScope::Scoped { s.scoped_model_items.clone() } else { s.all_models.clone() };
@@ -379,7 +381,7 @@ impl Inner {
 
     fn selected_model(&self) -> Option<Model> {
         let s = self.state.lock();
-        s.filtered_models.get(s.selected_index).map(|item| item.model.clone())
+        s.filtered_models.get(s.selected_index).map(|item| Model::clone(&item.model))
     }
 }
 

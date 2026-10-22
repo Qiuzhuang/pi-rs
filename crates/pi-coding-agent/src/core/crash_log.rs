@@ -253,6 +253,10 @@ pub struct RecordCrashCrash {
 
 /// Describe an error as the JSON shape [`record_crash`] reads (`{ name, message, stack }`).
 pub fn error_to_value(error: &anyhow::Error) -> Value {
+    // A panic carries where it happened, like a JS error's stack.
+    if let Some(panic) = error.downcast_ref::<crate::utils::uncaught::PanicError>() {
+        return serde_json::json!({ "name": "Error", "message": panic.message, "stack": panic.stack });
+    }
     let chain: Vec<String> = error.chain().skip(1).map(|e| e.to_string()).collect();
     let mut stack = format!("Error: {error}");
     for cause in chain {

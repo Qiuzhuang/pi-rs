@@ -418,11 +418,11 @@ impl SuspendSignals for ProcessSuspendSignals {
             let Ok(mut stream) = signal(SignalKind::from_raw(libc::SIGCONT)) else {
                 return Box::new(|| {});
             };
-            let task = self.rt.spawn(async move {
+            let task = self.rt.spawn(crate::utils::uncaught::supervise(async move {
                 if stream.recv().await.is_some() {
                     callback();
                 }
-            });
+            }));
             Box::new(move || task.abort())
         }
         #[cfg(not(unix))]
@@ -618,7 +618,12 @@ impl InteractiveMode {
     /// Run the interactive mode. This is the main entry point.
     /// Initializes the UI, shows warnings, processes initial messages, and starts the interactive loop.
     pub async fn run(&self) -> anyhow::Result<()> {
-        self.inner.clone().run().await
+        use futures::FutureExt;
+        // A panic escaping the main loop is uncaught (TS: the `uncaughtException` handler).
+        match std::panic::AssertUnwindSafe(self.inner.clone().run()).catch_unwind().await {
+            Ok(result) => result,
+            Err(payload) => crate::utils::uncaught::report_uncaught(payload),
+        }
     }
 
     pub fn render_initial_messages(&self) {
@@ -934,7 +939,8 @@ impl Inner {
         F: std::future::Future + Send + 'static,
         F::Output: Send + 'static,
     {
-        self.rt.spawn(future);
+        // Detached like a promise nobody awaits: a panic is uncaught (TS `unhandledRejection`).
+        self.rt.spawn(crate::utils::uncaught::supervise(future));
     }
 
     /// Run `future` up to its first suspension point now, like calling an async function in JS, and
@@ -944,7 +950,7 @@ impl Inner {
         F: std::future::Future<Output = ()> + Send + 'static,
     {
         let _guard = self.rt.enter();
-        let mut future = Box::pin(future);
+        let mut future = Box::pin(crate::utils::uncaught::supervise(future));
         let waker = futures::task::noop_waker();
         let mut cx = std::task::Context::from_waker(&waker);
         if future.as_mut().poll(&mut cx).is_pending() {
@@ -2184,11 +2190,57 @@ impl Inner {
                 });
             }
         }
+
+        // stdin needs the handler too: once the terminal is gone, reads fail with EIO (orphaned
+        // background process group) or ENOTTY (revoked tty).
+        let weak = self.weak.clone();
+        pi_tui::terminal::set_stdin_error_handler(Some(Arc::new(move |error: &std::io::Error| {
+            if let Some(this) = weak.upgrade()
+                && this.signal_generation.load(Ordering::SeqCst) == generation
+            {
+                this.handle_terminal_error(error);
+            }
+        })));
+
+        // Restore the terminal before the process dies on any uncaught panic (see
+        // `utils::uncaught`). Without this, a panic leaves the terminal in raw mode with no cursor.
+        let weak = self.weak.clone();
+        crate::utils::uncaught::set_uncaught_handler(
+            generation,
+            Some(Arc::new(move |error: anyhow::Error| {
+                if let Some(this) = weak.upgrade() {
+                    this.uncaught_crash(&error);
+                }
+            })),
+            // Panic messages would garble the TUI on the process terminal.
+            self.options.terminal.is_none(),
+        );
     }
 
     /// TS `unregisterSignalHandlers`: later SIGTERM/SIGHUP get their default action again.
     pub(crate) fn unregister_signal_handlers(&self) {
-        self.signal_generation.store(0, Ordering::SeqCst);
+        let generation = self.signal_generation.swap(0, Ordering::SeqCst);
+        if generation != 0 {
+            pi_tui::terminal::set_stdin_error_handler(None);
+            crate::utils::uncaught::set_uncaught_handler(generation, None, false);
+        }
+    }
+
+    /// TS `terminalErrorHandler` for stdin errors: a dead terminal exits with 129; anything else is
+    /// rethrown and ends in the uncaught-exception handler.
+    pub(crate) fn handle_terminal_error(&self, error: &std::io::Error) {
+        if is_dead_terminal_error(error) {
+            self.emergency_terminal_exit();
+        }
+        let error = match error.raw_os_error() {
+            Some(code) => std::io::Error::from_raw_os_error(code),
+            None => std::io::Error::new(error.kind(), error.to_string()),
+        };
+        // Reported off the stdin reader thread: restoring the terminal joins that thread.
+        let this = self.this();
+        let _ = std::thread::Builder::new()
+            .name("pi-uncaught".into())
+            .spawn(move || this.uncaught_crash(&anyhow::Error::new(error)));
     }
 
     pub(crate) fn suspend_signals(&self) -> Arc<dyn SuspendSignals> {
@@ -2261,7 +2313,11 @@ impl Inner {
         crate::utils::shell::kill_tracked_detached_children();
         self.ui().stop(pi_tui::tui::TuiStopOptions::default());
         eprintln!("{APP_NAME} exiting due to uncaughtException:");
-        eprintln!("{error:?}");
+        // `console.error(error)` prints the stack; a panic's stack is where it happened.
+        match error.downcast_ref::<crate::utils::uncaught::PanicError>() {
+            Some(panic) => eprintln!("{}", panic.stack),
+            None => eprintln!("{error:?}"),
+        }
         if let Some(hint) = self.get_crash_extension_hint(error) {
             eprintln!("\n{hint}");
         }
@@ -2876,7 +2932,7 @@ fn url_encode(value: &str) -> String {
 fn install_future_spawner(rt: &tokio::runtime::Handle) {
     let rt = rt.clone();
     pi_tui::event_loop::set_future_spawner(Some(Arc::new(move |future| {
-        rt.spawn(future);
+        rt.spawn(crate::utils::uncaught::supervise(future));
     })));
 }
 

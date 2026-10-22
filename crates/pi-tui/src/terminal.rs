@@ -56,6 +56,31 @@ pub fn set_stdin_end_handler(handler: Option<StdinEndHandler>) {
     *STDIN_END_HANDLER.lock().unwrap_or_else(|e| e.into_inner()) = handler;
 }
 
+/// Called when reading the process's stdin fails while a `ProcessTerminal` reads it (Node's
+/// `process.stdin` `"error"` event), e.g. `EIO` for an orphaned background process group or
+/// `ENOTTY` for a revoked tty. The reader stops after the handler returns.
+pub type StdinErrorHandler = Arc<dyn Fn(&std::io::Error) + Send + Sync>;
+
+static STDIN_ERROR_HANDLER: std::sync::Mutex<Option<StdinErrorHandler>> = std::sync::Mutex::new(None);
+
+/// Install (or clear) the handler run when reading stdin fails during terminal input.
+pub fn set_stdin_error_handler(handler: Option<StdinErrorHandler>) {
+    *STDIN_ERROR_HANDLER.lock().unwrap_or_else(|e| e.into_inner()) = handler;
+}
+
+/// Report a stdin read error to the [`set_stdin_error_handler`] handler. Returns whether a
+/// handler was installed.
+pub fn notify_stdin_error(error: &std::io::Error) -> bool {
+    let handler = STDIN_ERROR_HANDLER.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    match handler {
+        Some(handler) => {
+            handler(error);
+            true
+        }
+        None => false,
+    }
+}
+
 #[cfg_attr(not(unix), allow(dead_code))]
 fn notify_stdin_end() {
     let handler = STDIN_END_HANDLER.lock().unwrap_or_else(|e| e.into_inner()).clone();
@@ -601,6 +626,7 @@ mod process {
                         if matches!(err.raw_os_error(), Some(libc::EINTR) | Some(libc::EAGAIN)) {
                             continue;
                         }
+                        notify_stdin_error(&err);
                         break;
                     }
                     let ms = self.inner.epoch.elapsed().as_millis() as u64;
@@ -688,7 +714,7 @@ mod process {
                     let handle = std::thread::Builder::new()
                         .name("pi-tui-stdin".into())
                         .spawn(move || {
-                            me.reader_loop(r);
+                            crate::event_loop::run_thread_guarded(|| me.reader_loop(r));
                             unsafe { libc::close(r) };
                         })
                         .expect("spawn stdin reader");

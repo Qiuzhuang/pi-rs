@@ -915,6 +915,9 @@ struct SessionState {
     turn_index: u64,
     /// Entry ids of persisted messages (TS `WeakMap` keyed by message identity; Rust compares values).
     entry_ids_by_message: Vec<(AgentMessage, String)>,
+    /// Set by a listener of the `message_end` event being emitted (see
+    /// [`AgentSession::replace_message_end_message`]).
+    message_end_replacement: Option<AgentMessage>,
     /// Messages whose turn_end boundary already ran in `finish_turn`.
     boundary_dispatched_messages: Vec<AgentMessage>,
     last_assistant_message: Option<AssistantMessage>,
@@ -1050,6 +1053,7 @@ impl AgentSession {
                 extension_runner: None,
                 turn_index: 0,
                 entry_ids_by_message: Vec::new(),
+                message_end_replacement: None,
                 boundary_dispatched_messages: Vec::new(),
                 last_assistant_message: None,
                 last_assistant_tool_results: Vec::new(),
@@ -2201,9 +2205,23 @@ impl AgentSession {
             }),
             other => AgentSessionEvent::from_agent_event(other.clone(), None),
         };
+        let is_message_end = matches!(event, AgentEvent::MessageEnd { .. });
+        if is_message_end {
+            self.state.lock().message_end_replacement = None;
+        }
         if let Some(public_event) = public_event {
             self.emit(public_event);
         }
+        // TS listeners share the message object and may mutate it (interactive mode writes the
+        // abort text into `errorMessage`); persistence, agent state and later events see that.
+        let replacement = if is_message_end { self.state.lock().message_end_replacement.take() } else { None };
+        let event = match (event, replacement) {
+            (AgentEvent::MessageEnd { .. }, Some(message)) => {
+                self.agent.replace_event_message(message.clone());
+                AgentEvent::MessageEnd { message }
+            }
+            (event, _) => event,
+        };
 
         // Handle session persistence
         if let AgentEvent::MessageEnd { message } = &event {
@@ -2688,6 +2706,13 @@ impl AgentSession {
                 .unwrap_or_else(|| state.base_system_prompt_options.clone())
         };
         build_system_prompt(&BuildSystemPromptOptions::from(options)).unwrap_or_default()
+    }
+
+    /// Replace the message of the `message_end` event being emitted, for listeners. TS listeners
+    /// receive the shared message object and may mutate it before it is persisted; this is the
+    /// Rust equivalent. Ignored outside a `message_end` emit.
+    pub fn replace_message_end_message(&self, message: AgentMessage) {
+        self.state.lock().message_end_replacement = Some(message);
     }
 
     /// Current retry attempt (0 if not retrying)

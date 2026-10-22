@@ -37,7 +37,11 @@ pub fn set_exit_hook(hook: Option<ExitHook>) {
 pub fn exit(code: i32) -> ! {
     let hook = EXIT_HOOK.read().clone();
     if let Some(hook) = hook {
-        hook(code);
+        // A hook that unwinds keeps the process alive; mark the unwind so the uncaught-panic
+        // handling (`utils::uncaught`) lets it pass instead of reporting a crash.
+        if let Err(payload) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| hook(code))) {
+            std::panic::resume_unwind(Box::new(crate::utils::uncaught::ExitHookUnwind(payload)));
+        }
     }
     let _ = std::io::stdout().flush();
     let _ = std::io::stderr().flush();

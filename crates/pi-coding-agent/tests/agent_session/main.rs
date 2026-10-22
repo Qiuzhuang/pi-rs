@@ -14,3 +14,4 @@ mod extension_mutations;
 mod runtime;
 mod bash_persistence;
 mod model_extension;
+mod lax_content;

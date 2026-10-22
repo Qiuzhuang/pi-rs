@@ -150,5 +150,27 @@ const crypto = {
   generateKeyPairSync: unsupported("generateKeyPairSync"),
   pbkdf2Sync: unsupported("pbkdf2Sync"),
   scryptSync: unsupported("scryptSync"),
+  // No ciphers, curves, asymmetric keys or Diffie-Hellman: feature probes see empty lists and
+  // calls throw (packages such as ssh2 load and fail only when those algorithms are used).
+  getCiphers: () => [],
+  getCurves: () => [],
+  createECDH: unsupported("createECDH"),
+  createDiffieHellman: unsupported("createDiffieHellman"),
+  getDiffieHellman: unsupported("getDiffieHellman"),
+  diffieHellman: unsupported("diffieHellman"),
+  createPublicKey: unsupported("createPublicKey"),
+  createPrivateKey: unsupported("createPrivateKey"),
+  createSecretKey: unsupported("createSecretKey"),
+  generateKeyPair: unsupported("generateKeyPair"),
+  sign: unsupported("sign"),
+  verify: unsupported("verify"),
+  publicEncrypt: unsupported("publicEncrypt"),
+  privateDecrypt: unsupported("privateDecrypt"),
+  privateEncrypt: unsupported("privateEncrypt"),
+  publicDecrypt: unsupported("publicDecrypt"),
+  pbkdf2: unsupported("pbkdf2"),
+  scrypt: unsupported("scrypt"),
+  hkdf: unsupported("hkdf"),
+  hkdfSync: unsupported("hkdfSync"),
 };
 internal.defineBuiltin("crypto", () => crypto);

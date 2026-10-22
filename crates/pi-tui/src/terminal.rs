@@ -45,6 +45,18 @@ fn is_keyboard_protocol_negotiation_sequence_prefix(sequence: &str) -> bool {
     }
 }
 
+/// Descriptor of the process's real stdout for [`Terminal::restore_on_exit`]. Node's
+/// `restoreOnExit` writes with `fs.writeSync(process.stdout.fd)`, which bypasses an app that
+/// redirects `process.stdout.write`; apps that move fd 1 (pi's stdout takeover) register the
+/// descriptor holding the real stdout here.
+#[cfg_attr(not(unix), allow(dead_code))]
+static EXIT_RESTORE_FD: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(1);
+
+/// Set the descriptor exit-time terminal restoration writes to (1 by default).
+pub fn set_exit_restore_fd(fd: i32) {
+    EXIT_RESTORE_FD.store(fd, std::sync::atomic::Ordering::SeqCst);
+}
+
 /// Called when the process's stdin reaches end of file while a `ProcessTerminal` reads it
 /// (Node's `process.stdin` `"end"` event).
 pub type StdinEndHandler = Arc<dyn Fn() + Send + Sync>;
@@ -807,7 +819,7 @@ mod process {
                 sequence.push_str("\x1b[>4;0m");
             }
             sequence.push_str(after);
-            self.raw_write(&sequence);
+            write_all_fd(EXIT_RESTORE_FD.load(std::sync::atomic::Ordering::SeqCst), sequence.as_bytes());
             if let Some(t) = state.saved_termios {
                 unsafe {
                     libc::tcsetattr(libc::STDIN_FILENO, libc::TCSADRAIN, &t);

@@ -65,14 +65,40 @@ fn prints_a_friendly_error_and_preserves_non_session_file_content() {
 // stdout-cleanliness.test.ts
 // With stdin at end of file nothing can answer the --resume picker. Node exits once stdin ends and
 // its event loop drains (exit code 0, nothing printed after the picker); the port must not hang.
+// Like Node, the session list load and the terminal color query (100 ms timeout) still finish
+// and are rendered first (the TUI writes to stderr while print mode owns stdout), and the exit
+// hook's terminal restore goes to the real stdout (`fs.writeSync(process.stdout.fd)`).
 #[test]
 fn resume_picker_exits_when_stdin_is_at_eof() {
     let (_dir, agent_dir, project_dir) = temp_root();
+    let encoded = format!(
+        "--{}--",
+        project_dir.to_string_lossy().trim_start_matches('/').replace(['/', ':'], "-")
+    );
+    let session_dir = agent_dir.join("sessions").join(encoded);
+    std::fs::create_dir_all(&session_dir).unwrap();
+    let header = serde_json::json!({
+        "type": "session", "version": 3, "id": "abc", "timestamp": "2026-01-01T00:00:00.000Z",
+        "cwd": project_dir.to_string_lossy(),
+    });
+    let message = serde_json::json!({
+        "type": "message", "id": "m1", "parentId": null, "timestamp": "2026-01-01T00:00:01.000Z",
+        "message": { "role": "user", "content": [{ "type": "text", "text": "hello from the resume picker" }],
+            "timestamp": 1767225601000i64 }
+    });
+    std::fs::write(session_dir.join("2026-01-01T00-00-00-000Z_abc.jsonl"), format!("{header}\n{message}\n")).unwrap();
+
     let start = std::time::Instant::now();
     let result = run_pi(&["--resume", "-p"], &project_dir, &agent_dir, true);
     assert_eq!(result.code, Some(0), "{}", result.stderr);
     assert!(!result.stdout.contains("No session selected"), "{}", result.stdout);
     assert!(start.elapsed() < std::time::Duration::from_secs(20));
+    // TS: `restoreOnExit("\x1b[?25h", "")` with the Kitty keyboard protocol pushed.
+    assert_eq!(result.stdout, "\x1b[?25h\x1b[?2004l\x1b[<u");
+    let last_frame = &result.stderr[result.stderr.rfind("\x1b[?2026h").expect("a rendered frame")..];
+    assert!(last_frame.contains("Resume Session"), "{last_frame:?}");
+    assert!(last_frame.contains("hello from the resume picker"), "{last_frame:?}");
+    assert!(!last_frame.contains("Loading"), "{last_frame:?}");
 }
 
 fn stdout_project() -> (tempfile::TempDir, PathBuf, PathBuf) {

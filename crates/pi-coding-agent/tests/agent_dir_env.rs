@@ -603,3 +603,51 @@ mod ensure_tool {
         assert!(message.matches(": ").count() >= 3, "{message}");
     }
 }
+
+// ---------------------------------------------------------------------------
+// http-dispatcher.test.ts "http proxy settings". The dispatcher cases (CONNECT tunneling of
+// proxied HTTP origins, Node's happy-eyeballs attempt timeout) test undici/Node internals; reqwest
+// forwards proxied plain-HTTP requests instead of tunneling them.
+// ---------------------------------------------------------------------------
+
+mod http_proxy_settings {
+    use super::{ENV_LOCK, with_env};
+    use pi_coding_agent::core::http_dispatcher::apply_http_proxy_settings;
+
+    fn proxy_vars() -> (Option<String>, Option<String>) {
+        (std::env::var("HTTP_PROXY").ok(), std::env::var("HTTPS_PROXY").ok())
+    }
+
+    #[test]
+    fn applies_http_proxy_to_http_proxy_and_https_proxy() {
+        let _guard = ENV_LOCK.lock();
+        let vars = with_env(&[("HTTP_PROXY", None), ("HTTPS_PROXY", None)], || {
+            apply_http_proxy_settings(Some("http://127.0.0.1:7890"));
+            proxy_vars()
+        });
+        assert_eq!(vars, (Some("http://127.0.0.1:7890".into()), Some("http://127.0.0.1:7890".into())));
+    }
+
+    #[test]
+    fn does_not_override_existing_proxy_env_vars() {
+        let _guard = ENV_LOCK.lock();
+        let vars = with_env(
+            &[("HTTP_PROXY", Some("http://env-http:8080")), ("HTTPS_PROXY", Some("http://env-https:8080"))],
+            || {
+                apply_http_proxy_settings(Some("http://settings:7890"));
+                proxy_vars()
+            },
+        );
+        assert_eq!(vars, (Some("http://env-http:8080".into()), Some("http://env-https:8080".into())));
+    }
+
+    #[test]
+    fn ignores_empty_values() {
+        let _guard = ENV_LOCK.lock();
+        let vars = with_env(&[("HTTP_PROXY", None), ("HTTPS_PROXY", None)], || {
+            apply_http_proxy_settings(Some("   "));
+            proxy_vars()
+        });
+        assert_eq!(vars, (None, None));
+    }
+}

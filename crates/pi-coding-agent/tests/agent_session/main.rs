@@ -12,3 +12,4 @@ mod compaction_model_overrides;
 mod boundaries;
 mod extension_mutations;
 mod runtime;
+mod bash_persistence;

@@ -689,3 +689,58 @@ async fn restores_model_and_thinking_state_from_the_destination_session() {
     let _ = other.dispose().await;
     t.cleanup().await;
 }
+
+// Port of the case of `test/agent-session-runtime-events.test.ts` the suite above does not cover.
+#[tokio::test]
+async fn runs_before_session_invalidate_after_session_shutdown_and_before_rebind_session() {
+    let phases = Arc::new(Mutex::new(Vec::<String>::new()));
+    let p = phases.clone();
+    let setup: Setup = Arc::new(move |pi| {
+        let p = p.clone();
+        pi.on(
+            "session_shutdown",
+            Arc::new(move |_event: ExtensionEvent, _ctx| {
+                let p = p.clone();
+                Box::pin(async move {
+                    p.lock().push("session_shutdown".into());
+                    Ok(None)
+                })
+            }),
+        )?;
+        Ok(())
+    });
+    let t = create_runtime_for_test(Some(setup), None, true, false).await;
+    let old_session = t.runtime.session();
+    let (p, old) = (phases.clone(), old_session.clone());
+    let cwd_at_invalidate = Arc::new(Mutex::new(None::<(String, String)>));
+    let c = cwd_at_invalidate.clone();
+    t.runtime.set_before_session_invalidate(Some(Arc::new(move || {
+        p.lock().push("beforeSessionInvalidate".into());
+        *c.lock() = Some((
+            old.extension_runner().create_context().cwd().unwrap(),
+            old.session_manager().get_cwd(),
+        ));
+    })));
+    let p = phases.clone();
+    t.runtime.set_rebind_session(Some(Arc::new(move |_session| {
+        let p = p.clone();
+        Box::pin(async move {
+            p.lock().push("rebindSession".into());
+            Ok(())
+        })
+    })));
+
+    t.runtime.new_session(None).await.unwrap();
+
+    assert_eq!(*phases.lock(), vec!["session_shutdown", "beforeSessionInvalidate", "rebindSession"]);
+    let (ctx_cwd, manager_cwd) = cwd_at_invalidate.lock().clone().unwrap();
+    assert_eq!(ctx_cwd, manager_cwd);
+    let error = old_session.extension_runner().create_context().cwd().unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "This extension ctx is stale after session replacement or reload. Do not use a captured pi or command ctx after ctx.newSession(), ctx.fork(), ctx.switchSession(), or ctx.reload(). For newSession, fork, and switchSession, move post-replacement work into withSession and use the ctx passed to withSession. For reload, do not use the old ctx after await ctx.reload()."
+    );
+    t.runtime.set_before_session_invalidate(None);
+    t.runtime.set_rebind_session(None);
+    t.cleanup().await;
+}

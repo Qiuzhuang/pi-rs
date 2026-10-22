@@ -383,3 +383,35 @@ mod session_id {
         assert!(result.stderr.contains("Session already exists with id 'existing-id'"), "{}", result.stderr);
     }
 }
+
+// cli/setup.ts sets `process.title = "pi"`; libuv overwrites the command line in place (the
+// arguments disappear from `ps`) and sets the thread name.
+#[cfg(target_os = "linux")]
+#[test]
+fn sets_the_process_title_like_node() {
+    let (_dir, agent_dir, project_dir) = temp_root();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_pi"))
+        .args(["--mode", "rpc", "--no-session"])
+        .current_dir(&project_dir)
+        .env("PI_CODING_AGENT_DIR", &agent_dir)
+        .env("PI_OFFLINE", "1")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    // The RPC loop answers once setup has run.
+    use std::io::{BufRead, Write};
+    let mut stdin = child.stdin.take().unwrap();
+    writeln!(stdin, "{{\"type\":\"get_state\",\"id\":\"1\"}}").unwrap();
+    let mut line = String::new();
+    std::io::BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
+    let proc_dir = format!("/proc/{}", child.id());
+    let comm = std::fs::read_to_string(format!("{proc_dir}/comm")).unwrap();
+    let cmdline = std::fs::read(format!("{proc_dir}/cmdline")).unwrap();
+    drop(stdin);
+    let _ = child.wait();
+    assert_eq!(comm.trim_end(), "pi");
+    let shown: Vec<u8> = cmdline.into_iter().take_while(|b| *b != 0).collect();
+    assert_eq!(String::from_utf8(shown).unwrap(), "pi");
+}

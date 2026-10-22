@@ -2,7 +2,7 @@
 
 fn main() {
     pi_coding_agent::cli::setup::setup_cli();
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let args: Vec<String> = pi_coding_agent::cli::setup::process_args().iter().skip(1).cloned().collect();
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()

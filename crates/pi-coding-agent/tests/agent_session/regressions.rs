@@ -1402,3 +1402,437 @@ async fn persists_the_aborted_response_before_running_the_requested_manual_compa
     assert_eq!(entries.iter().filter(|e| matches!(e, SessionEntry::Compaction(_))).count(), 1);
     harness.cleanup();
 }
+
+// #6162: extension active tools next-turn refresh.
+fn register_switch_tools(pi: &ExtensionAPIRef) -> anyhow::Result<()> {
+    use pi_coding_agent::core::extensions::types::ToolDefinition;
+    let api = pi.clone();
+    let mut switch = ToolDefinition::new(
+        "switch_tools",
+        "Switch Tools",
+        "Switch the active extension tool set",
+        json!({"type": "object", "properties": {}}),
+        move |_id, _p, _s, _u, _c| {
+            let api = api.clone();
+            async move {
+                api.set_active_tools(vec!["after_switch".into()])?;
+                Ok(pi_agent::types::AgentToolResult::text("switched", Some(json!({}))))
+            }
+        },
+    );
+    switch.prompt_snippet = Some("Switch to the next extension tool".into());
+    pi.register_tool(switch)?;
+    let mut after = ToolDefinition::new(
+        "after_switch",
+        "After Switch",
+        "Tool that should be available after switching",
+        json!({"type": "object", "properties": {}}),
+        |_id, _p, _s, _u, _c| async { Ok(pi_agent::types::AgentToolResult::text("after", Some(json!({})))) },
+    );
+    after.prompt_snippet = Some("Run after the active tool set changes".into());
+    pi.register_tool(after)
+}
+
+fn provider_tool_names(context: &pi_ai::types::TranscriptContext) -> Vec<String> {
+    let mut names: Vec<String> = pi_ai::utils::transcript::get_current_tools(&context.messages)
+        .into_iter()
+        .map(|t| t.name)
+        .collect();
+    names.sort();
+    names
+}
+
+#[derive(Default, Clone)]
+struct Captured {
+    tools: Arc<Mutex<Vec<Vec<String>>>>,
+    prompts: Arc<Mutex<Vec<String>>>,
+    session_prompts: Arc<Mutex<Vec<String>>>,
+}
+
+fn capture_step(
+    captured: &Captured,
+    harness: &Arc<Harness>,
+    reply: pi_ai::types::AssistantMessage,
+) -> pi_ai::providers::faux::FauxResponseStep {
+    let (c, weak) = (captured.clone(), Arc::downgrade(harness));
+    respond_with(move |context| {
+        c.tools.lock().push(provider_tool_names(context));
+        c.prompts.lock().push(pi_ai::get_current_system_prompt(&context.messages));
+        if let Some(h) = weak.upgrade() {
+            c.session_prompts.lock().push(h.session.system_prompt());
+        }
+        reply.clone()
+    })
+}
+
+async fn switch_tools_run(extra: Option<TestExtension>) -> Captured {
+    let mut extensions = vec![ext(|pi| register_switch_tools(&pi))];
+    extensions.extend(extra);
+    let harness = Arc::new(
+        create_harness(HarnessOptions {
+            extension_factories: extensions,
+            ..Default::default()
+        })
+        .await
+        .unwrap(),
+    );
+    harness.session.set_active_tools_by_name(&["switch_tools".to_string()]);
+    assert_eq!(harness.session.get_active_tool_names(), vec!["switch_tools"]);
+    let captured = Captured::default();
+    harness.set_responses(vec![
+        capture_step(&captured, &harness, message(vec![tool_call("switch_tools", json!({}))], Some(StopReason::ToolUse))),
+        capture_step(&captured, &harness, faux_text_message("done")),
+    ]);
+
+    harness.session.prompt("start", None).await.unwrap();
+
+    assert_eq!(harness.session.get_active_tool_names(), vec!["after_switch"]);
+    harness.cleanup();
+    captured
+}
+
+#[tokio::test]
+async fn applies_set_active_tools_before_the_next_provider_request_in_the_same_run() {
+    let captured = switch_tools_run(None).await;
+    assert_eq!(
+        *captured.tools.lock(),
+        vec![vec!["switch_tools".to_string()], vec!["after_switch".to_string()]]
+    );
+}
+
+#[tokio::test]
+async fn reports_the_refreshed_system_prompt_during_the_run() {
+    let captured = switch_tools_run(None).await;
+    let prompts = captured.prompts.lock().clone();
+    assert_eq!(prompts.len(), 2);
+    assert_ne!(prompts[0], prompts[1]);
+    assert_eq!(*captured.session_prompts.lock(), prompts);
+}
+
+#[tokio::test]
+async fn preserves_before_agent_start_system_prompt_overrides_when_tools_change_mid_run() {
+    use pi_coding_agent::core::extensions::types::{BeforeAgentStartEvent, BeforeAgentStartEventResult};
+    let captured = switch_tools_run(Some(ext(|pi| {
+        on_event::<BeforeAgentStartEvent, _, _>(&*pi, |event, _ctx| async move {
+            Ok(Some(BeforeAgentStartEventResult {
+                system_prompt: Some(format!("{}\n\nkeep this run override", event.system_prompt)),
+                ..Default::default()
+            }))
+        })?;
+        Ok(())
+    })))
+    .await;
+    assert_eq!(
+        *captured.tools.lock(),
+        vec![vec!["switch_tools".to_string()], vec!["after_switch".to_string()]]
+    );
+    let prompts = captured.prompts.lock().clone();
+    assert_eq!(prompts.len(), 2);
+    assert!(prompts.iter().all(|p| p.contains("keep this run override")));
+}
+
+// #8537: custom messages injected during tool execution.
+async fn custom_message_during_tool(extra_turn: bool) -> Arc<Harness> {
+    let slot: Arc<Mutex<Option<std::sync::Weak<Harness>>>> = Arc::new(Mutex::new(None));
+    let s = slot.clone();
+    let tool = FnAgentTool::new(
+        "wait",
+        "Wait",
+        "Wait for a background task",
+        json!({"type": "object", "properties": {}}),
+        move |_id, _p, _s, _u| {
+            let s = s.clone();
+            async move {
+                // A background task notifies the session while the tool is still running.
+                let harness = s.lock().clone().and_then(|w| w.upgrade());
+                if let Some(harness) = harness {
+                    harness
+                        .session
+                        .send_custom_message(
+                            &pi_coding_agent::core::agent_session::AgentSessionSendCustomMessageMessage {
+                                custom_type: "subagent-reply".into(),
+                                content: pi_ai::types::UserContent::Text("subagent replied".into()),
+                                display: true,
+                                details: None,
+                            },
+                            Some(&pi_coding_agent::core::agent_session::AgentSessionSendCustomMessageOptions {
+                                trigger_turn: Some(false),
+                                deliver_as: None,
+                            }),
+                        )
+                        .await?;
+                }
+                Ok(pi_agent::types::AgentToolResult::text("tool done", Some(json!({}))))
+            }
+        },
+    )
+    .into_ref();
+    let harness = Arc::new(
+        create_harness(HarnessOptions {
+            tools: Some(vec![tool]),
+            ..Default::default()
+        })
+        .await
+        .unwrap(),
+    );
+    *slot.lock() = Some(Arc::downgrade(&harness));
+    let mut responses = vec![tool_use("wait", json!({})), text("done")];
+    if extra_turn {
+        responses.push(text("second turn"));
+    }
+    harness.set_responses(responses);
+    harness.session.prompt("hi", None).await.unwrap();
+    harness
+}
+
+const ORDER: [&str; 6] = ["system", "user", "assistant", "toolResult", "custom", "assistant"];
+
+#[tokio::test]
+async fn appends_custom_messages_after_the_turns_tool_results() {
+    let harness = custom_message_during_tool(false).await;
+    let roles: Vec<String> = harness.session.messages().iter().map(|m| m.role().to_string()).collect();
+    assert_eq!(roles, ORDER);
+    harness.cleanup();
+}
+
+#[tokio::test]
+async fn keeps_session_entries_and_message_events_in_the_same_order_as_agent_state() {
+    let harness = custom_message_during_tool(false).await;
+    let entry_kinds: Vec<String> = harness
+        .session_manager
+        .get_branch(None)
+        .iter()
+        .filter_map(|e| match e {
+            SessionEntry::Message(m) => Some(m.message.role().to_string()),
+            SessionEntry::CustomMessage(_) => Some("custom".to_string()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(entry_kinds, ORDER);
+    // Message events never describe a message the session tree does not contain yet.
+    let starts: Vec<String> = harness
+        .events_of_type("message_start")
+        .iter()
+        .map(|e| e["message"]["role"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(starts, ORDER);
+    harness.cleanup();
+}
+
+#[tokio::test]
+async fn produces_an_llm_history_where_every_tool_result_follows_its_tool_call() {
+    let harness = custom_message_during_tool(true).await;
+    harness.session.prompt("and now?", None).await.unwrap();
+
+    let mut open = std::collections::HashSet::new();
+    for message in pi_coding_agent::core::messages::convert_to_llm(&harness.session.messages()) {
+        match message {
+            pi_ai::types::Message::Assistant(a) => {
+                open.clear();
+                for call in a.tool_calls() {
+                    open.insert(call.id.clone());
+                }
+            }
+            pi_ai::types::Message::ToolResult(r) => {
+                assert!(open.remove(&r.tool_call_id), "orphan tool result {}", r.tool_call_id);
+            }
+            _ => open.clear(),
+        }
+    }
+    harness.cleanup();
+}
+
+// #6363: agent settled event and idle waiting.
+#[tokio::test]
+async fn emits_one_agent_settled_event_after_automatic_retry_finishes() {
+    use pi_coding_agent::core::extensions::types::{AgentEndEvent, AgentSettledEvent};
+    let ext_events = Arc::new(Mutex::new(Vec::<String>::new()));
+    let e = ext_events.clone();
+    let harness = create_harness(HarnessOptions {
+        settings: retry_settings(3, 1),
+        extension_factories: vec![ext(move |pi| {
+            let e1 = e.clone();
+            on_event::<AgentEndEvent, _, _>(&*pi, move |_event, _ctx| {
+                let e = e1.clone();
+                async move {
+                    e.lock().push("agent_end".into());
+                    Ok(None)
+                }
+            })?;
+            let e2 = e.clone();
+            on_event::<AgentSettledEvent, _, _>(&*pi, move |_event, ctx| {
+                let e = e2.clone();
+                async move {
+                    e.lock().push(format!("agent_settled:{}", ctx.is_idle()?));
+                    Ok(None)
+                }
+            })?;
+            Ok(())
+        })],
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    harness.set_responses(vec![error_response("overloaded_error"), text("recovered")]);
+
+    harness.session.prompt("test", None).await.unwrap();
+
+    let will_retry: Vec<Value> = harness.events_of_type("agent_end").iter().map(|e| e["willRetry"].clone()).collect();
+    assert_eq!(will_retry, vec![json!(true), json!(false)]);
+    assert_eq!(
+        harness.events_of_type("agent_settled"),
+        vec![json!({"type": "agent_settled", "aborted": false})]
+    );
+    assert_eq!(*ext_events.lock(), vec!["agent_end", "agent_end", "agent_settled:true"]);
+    harness.cleanup();
+}
+
+#[tokio::test]
+async fn settles_only_after_follow_ups_queued_by_agent_end_handlers_run() {
+    use pi_coding_agent::core::extensions::types::{AgentEndEvent, AgentSettledEvent};
+    let queued = Arc::new(Mutex::new(false));
+    let idle_states = Arc::new(Mutex::new(Vec::<bool>::new()));
+    let (q, s) = (queued.clone(), idle_states.clone());
+    let harness = create_harness(HarnessOptions {
+        extension_factories: vec![ext(move |pi| {
+            let (q, api) = (q.clone(), pi.clone());
+            on_event::<AgentEndEvent, _, _>(&*pi, move |_event, _ctx| {
+                let (q, api) = (q.clone(), api.clone());
+                async move {
+                    if std::mem::replace(&mut *q.lock(), true) {
+                        return Ok(None);
+                    }
+                    api.send_user_message(
+                        pi_ai::types::UserContent::Text("status follow-up".into()),
+                        pi_coding_agent::core::extensions::types::SendUserMessageOptions {
+                            deliver_as: Some(pi_coding_agent::core::extensions::types::StreamingBehavior::FollowUp),
+                            expand_prompt_templates: None,
+                        },
+                    )?;
+                    Ok(None)
+                }
+            })?;
+            let s = s.clone();
+            on_event::<AgentSettledEvent, _, _>(&*pi, move |_event, ctx| {
+                let s = s.clone();
+                async move {
+                    s.lock().push(ctx.is_idle()?);
+                    Ok(None)
+                }
+            })?;
+            Ok(())
+        })],
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    harness.set_responses(vec![text("first"), text("second")]);
+
+    harness.session.prompt("hello", None).await.unwrap();
+
+    assert_eq!(harness.user_texts(), vec!["hello", "status follow-up"]);
+    assert_eq!(harness.events_of_type("agent_end").len(), 2);
+    assert_eq!(harness.events_of_type("agent_settled").len(), 1);
+    assert_eq!(*idle_states.lock(), vec![true]);
+    harness.cleanup();
+}
+
+struct IdleActions(std::sync::Weak<pi_coding_agent::core::agent_session::AgentSession>);
+
+#[async_trait::async_trait]
+impl pi_coding_agent::core::extensions::types::ExtensionCommandContextActions for IdleActions {
+    async fn wait_for_idle(&self) -> anyhow::Result<()> {
+        match self.0.upgrade() {
+            Some(session) => session.wait_for_idle().await,
+            None => Ok(()),
+        }
+    }
+    async fn new_session(
+        &self,
+        _options: pi_coding_agent::core::extensions::types::NewSessionOptions,
+    ) -> anyhow::Result<pi_coding_agent::core::extensions::types::SessionReplaceOutcome> {
+        Ok(pi_coding_agent::core::extensions::types::SessionReplaceOutcome { cancelled: false })
+    }
+    async fn fork(
+        &self,
+        _entry_id: &str,
+        _options: pi_coding_agent::core::extensions::types::ForkOptions,
+    ) -> anyhow::Result<pi_coding_agent::core::extensions::types::SessionReplaceOutcome> {
+        Ok(pi_coding_agent::core::extensions::types::SessionReplaceOutcome { cancelled: false })
+    }
+    async fn navigate_tree(
+        &self,
+        _target_id: &str,
+        _options: pi_coding_agent::core::extensions::types::NavigateTreeOptions,
+    ) -> anyhow::Result<pi_coding_agent::core::extensions::types::SessionReplaceOutcome> {
+        Ok(pi_coding_agent::core::extensions::types::SessionReplaceOutcome { cancelled: false })
+    }
+    async fn switch_session(
+        &self,
+        _session_path: &str,
+        _options: pi_coding_agent::core::extensions::types::SwitchSessionOptions,
+    ) -> anyhow::Result<pi_coding_agent::core::extensions::types::SessionReplaceOutcome> {
+        Ok(pi_coding_agent::core::extensions::types::SessionReplaceOutcome { cancelled: false })
+    }
+    async fn reload(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn extension_command_wait_for_idle_waits_for_session_level_settlement() {
+    let (started_tx, started_rx) = tokio::sync::oneshot::channel::<()>();
+    let started_tx = Arc::new(Mutex::new(Some(started_tx)));
+    let results = Arc::new(Mutex::new(Vec::<bool>::new()));
+    let (st, r) = (started_tx.clone(), results.clone());
+    let mut waiting = create_waiting_harness(HarnessOptions {
+        extension_factories: vec![ext(move |pi| {
+            let (st, r) = (st.clone(), r.clone());
+            pi.register_command(
+                "after-idle",
+                pi_coding_agent::core::extensions::types::CommandOptions {
+                    description: Some("Wait for idle".into()),
+                    get_argument_completions: None,
+                    handler: Arc::new(move |_args, ctx| {
+                        let (st, r) = (st.clone(), r.clone());
+                        Box::pin(async move {
+                            if let Some(tx) = st.lock().take() {
+                                let _ = tx.send(());
+                            }
+                            ctx.wait_for_idle().await?;
+                            r.lock().push(ctx.is_idle()?);
+                            Ok(())
+                        })
+                    }),
+                },
+            )
+        })],
+        ..Default::default()
+    })
+    .await;
+    let harness = waiting.harness.clone();
+    harness
+        .session
+        .bind_extensions(&pi_coding_agent::core::agent_session::ExtensionBindings {
+            command_context_actions: Some(Arc::new(IdleActions(Arc::downgrade(&harness.session)))),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    harness.set_responses(vec![tool_use("wait", json!({})), text("done")]);
+    waiting.start();
+    waiting.wait_for_tool_start().await;
+    let session = harness.session.clone();
+    let command = tokio::spawn(async move { session.prompt("/after-idle", None).await });
+    started_rx.await.unwrap();
+    tick().await;
+    assert!(!command.is_finished());
+
+    waiting.release();
+    waiting.finish().await.unwrap();
+    command.await.unwrap().unwrap();
+
+    assert_eq!(*results.lock(), vec![true]);
+    assert_eq!(harness.events_of_type("agent_settled").len(), 1);
+    harness.cleanup();
+}

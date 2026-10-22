@@ -457,12 +457,12 @@ impl Provider for PersonalizedCatalogProvider {
     }
 
     fn get_all_models(&self) -> Vec<AnyModel> {
-        let personal = self.personal_models.read();
-        if personal.is_empty() {
-            self.builtin_models()
-        } else {
-            personal.clone()
-        }
+        // Do not hold the read guard while asking the wrapped provider.
+        let personal = {
+            let personal = self.personal_models.read();
+            (!personal.is_empty()).then(|| personal.clone())
+        };
+        personal.unwrap_or_else(|| self.builtin_models())
     }
 
     async fn refresh_models(&self, context: RefreshModelsContext) -> anyhow::Result<()> {

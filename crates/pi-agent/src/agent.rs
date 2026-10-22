@@ -472,7 +472,10 @@ impl Agent {
     /// Replace the executable tools. Differences from the transcript's declared tools are
     /// announced to the model before the next request.
     pub fn set_tools(&self, tools: Vec<AgentToolRef>) {
-        self.with_state_mut(|s| s.tools = tools);
+        // Drop the previous tools after releasing the state lock: a tool's destructor may run
+        // arbitrary code (e.g. release an extension handle that reaches back into the agent).
+        let previous = self.with_state_mut(|s| std::mem::replace(&mut s.tools, tools));
+        drop(previous);
     }
 
     pub fn messages(&self) -> Vec<AgentMessage> {

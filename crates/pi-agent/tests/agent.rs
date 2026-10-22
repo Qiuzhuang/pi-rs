@@ -1311,3 +1311,38 @@ async fn message_end_replacements_reach_tool_execution_state_and_later_events() 
         .unwrap();
     assert_eq!(state_result.content[0].as_text().unwrap().text, "patched result");
 }
+
+/// Concurrency regression: a listener may unsubscribe itself (and re-enter the agent) while the
+/// agent is emitting to it; emission works on a snapshot and holds no lock during listeners.
+#[tokio::test]
+async fn listener_can_unsubscribe_itself_and_reenter_the_agent_during_emit() {
+    let agent = agent_with(options_with(done_stream_fn()));
+    let first = Arc::new(AtomicUsize::new(0));
+    let other = Arc::new(AtomicUsize::new(0));
+    let slot: Arc<Mutex<Option<pi_agent::agent::Subscription>>> = Arc::new(Mutex::new(None));
+    let weak = agent.downgrade();
+    let (f, s) = (first.clone(), slot.clone());
+    let subscription = agent.subscribe_fn(move |_, _| {
+        f.fetch_add(1, Ordering::SeqCst);
+        if let Some(agent) = weak.upgrade() {
+            let _ = agent.messages();
+            let _ = agent.is_streaming();
+            agent.set_tools(agent.tools());
+        }
+        let own = s.lock().take();
+        if let Some(own) = own {
+            own.unsubscribe();
+        }
+    });
+    *slot.lock() = Some(subscription);
+    let o = other.clone();
+    agent.subscribe_fn(move |_, _| {
+        o.fetch_add(1, Ordering::SeqCst);
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(10), agent.prompt("hello"))
+        .await
+        .expect("agent emit deadlocked")
+        .unwrap();
+    assert_eq!(first.load(Ordering::SeqCst), 1);
+    assert!(other.load(Ordering::SeqCst) > 1);
+}

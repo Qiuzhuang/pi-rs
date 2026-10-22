@@ -4,6 +4,10 @@
 //! `test/session-selector-rename.test.ts`, `test/session-selector-path-delete.test.ts` and
 //! `test/tree-selector.test.ts`.
 
+// `setup()` returns a guard that serializes tests touching the global theme/keybindings; it is
+// held for the whole test on purpose (each test runs on its own single-threaded runtime).
+#![allow(clippy::await_holding_lock)]
+
 mod support;
 
 use std::sync::Arc;

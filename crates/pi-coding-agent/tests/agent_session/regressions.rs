@@ -3088,3 +3088,60 @@ mod copilot_compaction_base_url {
         harness.cleanup();
     }
 }
+
+// TS sessions always have a model: pi-agent's "unknown" placeholder when none was selected.
+mod placeholder_model {
+    use super::*;
+    use pi_agent::types::ThinkingLevel;
+
+    async fn without_model() -> Harness {
+        let harness = create_harness(HarnessOptions {
+            with_configured_auth: Some(false),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        harness.session.agent().set_model(pi_agent::agent::default_model());
+        harness
+    }
+
+    #[tokio::test]
+    async fn reports_the_placeholder_model() {
+        let harness = without_model().await;
+        let model = harness.session.model().expect("placeholder model");
+        assert_eq!((model.id.as_str(), model.provider.as_str(), model.api.as_str()), ("unknown", "unknown", "unknown"));
+        assert!(!harness.session.supports_thinking());
+        assert_eq!(harness.session.get_available_thinking_levels(), vec![ThinkingLevel::Off]);
+        harness.cleanup();
+    }
+
+    #[tokio::test]
+    async fn prompting_without_a_model_reports_a_missing_api_key_for_the_selected_model() {
+        let harness = without_model().await;
+        let error = harness.session.prompt("hi", None).await.unwrap_err();
+        assert!(
+            error.to_string().starts_with("No API key found for the selected model."),
+            "{error}"
+        );
+        harness.cleanup();
+    }
+
+    #[tokio::test]
+    async fn set_thinking_level_clamps_to_off_without_emitting() {
+        let harness = without_model().await;
+        assert_eq!(harness.session.thinking_level(), ThinkingLevel::Off);
+
+        harness.session.set_thinking_level(ThinkingLevel::High, None);
+
+        assert_eq!(harness.session.thinking_level(), ThinkingLevel::Off);
+        assert!(harness.events_of_type("thinking_level_changed").is_empty());
+        assert!(
+            !harness
+                .session_manager
+                .get_entries()
+                .iter()
+                .any(|e| matches!(e, SessionEntry::ThinkingLevelChange(_)))
+        );
+        harness.cleanup();
+    }
+}

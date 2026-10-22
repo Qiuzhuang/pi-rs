@@ -2637,13 +2637,10 @@ impl AgentSession {
 
     /// Current model (may be undefined if not yet selected)
     pub fn model(&self) -> Option<Model> {
-        let model = self.agent.model();
-        // The agent reports a placeholder model when none was selected.
-        if model.provider == "unknown" && model.id == "unknown" && model.api == "unknown" {
-            None
-        } else {
-            Some(model)
-        }
+        // As in TS, this is always the agent's model: pi-agent's placeholder ("unknown" id, api and
+        // provider, no reasoning) when none was selected. Callers then report a missing API key for
+        // "the selected model", clamp thinking to "off", and RPC state carries the placeholder.
+        Some(self.agent.model())
     }
 
     /// Current thinking level

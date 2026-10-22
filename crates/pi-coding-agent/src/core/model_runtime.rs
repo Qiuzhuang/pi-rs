@@ -268,6 +268,9 @@ pub struct ModelRuntime {
     model_network_enabled: bool,
     state: Mutex<RuntimeState>,
     credential_operations: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    /// Serializes `refresh()` calls. TS runs them interleaved on one thread; here a refresh that
+    /// rebuilds providers must not run concurrently with another one's availability pass.
+    refresh_lock: tokio::sync::Mutex<()>,
 }
 
 /// Request prepared by `prepare_request`.
@@ -317,6 +320,7 @@ impl ModelRuntime {
             }),
             default_builtins,
             credential_operations: Mutex::new(HashMap::new()),
+            refresh_lock: tokio::sync::Mutex::new(()),
         });
         runtime.rebuild_providers();
         runtime
@@ -517,11 +521,18 @@ impl ModelRuntime {
         }
     }
 
+    /// Recompose every provider. Providers are replaced one by one (and stale ones removed) rather
+    /// than cleared first, so concurrent readers never observe an empty collection.
     fn rebuild_providers(&self) {
-        self.models.clear_providers();
         self.state.lock().composition_errors.clear();
-        for provider_id in self.provider_ids() {
-            self.recompose_provider(&provider_id);
+        let ids = self.provider_ids();
+        for provider_id in &ids {
+            self.recompose_provider(provider_id);
+        }
+        for provider in self.models.get_providers() {
+            if !ids.contains(provider.id()) {
+                self.models.delete_provider(provider.id());
+            }
         }
         self.update_model_snapshot();
     }
@@ -1350,6 +1361,7 @@ impl ModelRuntime {
 
     pub async fn refresh(&self, options: Option<ModelsRefreshOptions>) -> anyhow::Result<ModelsRefreshResult> {
         let options = options.unwrap_or_default();
+        let _refresh_guard = self.refresh_lock.lock().await;
         let config = ModelConfig::load(self.models_path.as_deref()).await;
         self.state.lock().config = config;
         self.configure_radius_providers();

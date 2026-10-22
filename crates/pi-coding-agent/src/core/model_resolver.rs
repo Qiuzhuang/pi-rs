@@ -1029,13 +1029,35 @@ fn find_default_available(available: &[Model]) -> Option<Model> {
     })
 }
 
+/// The catalog reads model selection needs (implemented by [`ModelRuntime`]).
+pub trait ModelLookup: Send + Sync {
+    fn get_model(&self, provider: &str, model_id: &str) -> Option<Model>;
+    fn has_configured_auth(&self, provider: &str) -> bool;
+    fn get_available_snapshot(&self) -> Vec<Model>;
+}
+
+impl ModelLookup for ModelRuntime {
+    fn get_model(&self, provider: &str, model_id: &str) -> Option<Model> {
+        ModelRuntime::get_model(self, provider, model_id)
+    }
+    fn has_configured_auth(&self, provider: &str) -> bool {
+        ModelRuntime::has_configured_auth(self, provider)
+    }
+    fn get_available_snapshot(&self) -> Vec<Model> {
+        ModelRuntime::get_available_snapshot(self)
+    }
+}
+
 /// Find the initial model to use based on priority:
 /// 1. First model from scoped models (if not continuing/resuming)
 /// 2. Saved default from settings
 /// 3. First available model with valid API key
 pub async fn find_initial_model(options: &FindInitialModelOptions) -> anyhow::Result<InitialModelResult> {
-    let runtime = &options.model_runtime;
+    Ok(select_initial_model(options, options.model_runtime.as_ref()))
+}
 
+/// [`find_initial_model`] over any [`ModelLookup`] (`options.model_runtime` is not used).
+pub fn select_initial_model(options: &FindInitialModelOptions, runtime: &dyn ModelLookup) -> InitialModelResult {
     // 1. Use first model from scoped models (skip if continuing/resuming)
     if let Some(scoped) = options.scoped_models.first()
         && !options.is_continuing
@@ -1045,7 +1067,7 @@ pub async fn find_initial_model(options: &FindInitialModelOptions) -> anyhow::Re
             .as_ref()
             .and_then(|levels| levels.get(&format!("{}/{}", scoped.model.provider, scoped.model.id)))
             .copied();
-        return Ok(InitialModelResult {
+        return InitialModelResult {
             model: Some(scoped.model.clone()),
             thinking_level: scoped
                 .thinking_level
@@ -1053,7 +1075,7 @@ pub async fn find_initial_model(options: &FindInitialModelOptions) -> anyhow::Re
                 .or(options.default_thinking_level)
                 .unwrap_or(DEFAULT_THINKING_LEVEL),
             fallback_message: None,
-        });
+        };
     }
 
     // 2. Try saved default from settings if auth is configured.
@@ -1069,22 +1091,18 @@ pub async fn find_initial_model(options: &FindInitialModelOptions) -> anyhow::Re
             .and_then(|levels| levels.get(&format!("{default_provider}/{default_model_id}")))
             .copied();
         let thinking_level = per_model.or(options.default_thinking_level).unwrap_or(DEFAULT_THINKING_LEVEL);
-        return Ok(InitialModelResult { model: Some(found), thinking_level, fallback_message: None });
+        return InitialModelResult { model: Some(found), thinking_level, fallback_message: None };
     }
 
     // 3. Try first available model with valid API key
     let available = runtime.get_available_snapshot();
     if !available.is_empty() {
         let model = find_default_available(&available).unwrap_or_else(|| available[0].clone());
-        return Ok(InitialModelResult {
-            model: Some(model),
-            thinking_level: DEFAULT_THINKING_LEVEL,
-            fallback_message: None,
-        });
+        return InitialModelResult { model: Some(model), thinking_level: DEFAULT_THINKING_LEVEL, fallback_message: None };
     }
 
     // 4. No model found
-    Ok(InitialModelResult { model: None, thinking_level: DEFAULT_THINKING_LEVEL, fallback_message: None })
+    InitialModelResult { model: None, thinking_level: DEFAULT_THINKING_LEVEL, fallback_message: None }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -1160,4 +1178,585 @@ pub async fn restore_model_from_session(
 
     // No models available
     Ok(RestoreModelFromSessionResult::default())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::auth_storage::AuthStorage;
+    use crate::core::model_config::ModelConfig;
+    use crate::core::models_store::InMemoryCodingAgentModelsStore;
+    use crate::core::runtime_credentials::RuntimeCredentials;
+    use serde_json::json;
+    use std::collections::HashSet;
+
+    fn model(provider: &str, id: &str, name: &str, api: &str, reasoning: bool) -> Model {
+        serde_json::from_value(json!({
+            "id": id,
+            "name": name,
+            "api": api,
+            "provider": provider,
+            "baseUrl": "https://example.invalid",
+            "reasoning": reasoning,
+            "input": ["text"],
+            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+            "contextWindow": 128000,
+            "maxTokens": 8192,
+        }))
+        .unwrap()
+    }
+
+    fn reference_model(provider: &str, id: &str) -> Model {
+        model(provider, id, id, "openai-completions", true)
+    }
+
+    fn mock_models() -> Vec<Model> {
+        vec![
+            model("anthropic", "claude-sonnet-4-5", "Claude Sonnet 4.5", "anthropic-messages", true),
+            model("openai", "gpt-4o", "GPT-4o", "anthropic-messages", false),
+            model("openrouter", "qwen/qwen3-coder:exacto", "Qwen3 Coder Exacto", "anthropic-messages", true),
+            model("openrouter", "openai/gpt-4o:extended", "GPT-4o Extended", "anthropic-messages", false),
+        ]
+    }
+
+    fn reference_catalog() -> Vec<Model> {
+        [
+            ("anthropic", "claude-sonnet-4-5"),
+            ("anthropic", "claude-sonnet-4-5-20250929"),
+            ("anthropic", "claude-opus-4-8"),
+            ("anthropic", "exact"),
+            ("anthropic", "shared-pro"),
+            ("openai", "gpt-4o"),
+            ("openrouter", "qwen/qwen3-coder:exacto"),
+            ("openrouter", "openai/gpt-4o:extended"),
+            ("gw-a", "shared"),
+            ("gw-a", "anthropic/future"),
+            ("gw-a", "anthropic/exact"),
+            ("gw-a", "anthropic/claude-opus-4.8"),
+            ("gw-a", "anthropic/claude-opus"),
+            ("gw-b", "shared"),
+            ("gw-b", "anthropic/future"),
+            ("gw-b", "claude-opus-4-8"),
+            ("gw-b", "gw-b/free"),
+            ("gw-b", "zz:free"),
+        ]
+        .into_iter()
+        .map(|(p, id)| reference_model(p, id))
+        .collect()
+    }
+
+    enum Expected {
+        Model(&'static str, Option<&'static str>, Option<&'static str>),
+        Ambiguous(&'static [&'static str], i64),
+        NotFound,
+    }
+
+    struct Case {
+        name: &'static str,
+        text: &'static str,
+        expected: Expected,
+        usable: &'static [&'static str],
+        provider: Option<&'static str>,
+        suffix: ModelReferenceRequestThinkingSuffix,
+        fuzzy: bool,
+    }
+
+    fn case(name: &'static str, text: &'static str, expected: Expected) -> Case {
+        Case {
+            name,
+            text,
+            expected,
+            usable: &[],
+            provider: None,
+            suffix: ModelReferenceRequestThinkingSuffix::Strict,
+            fuzzy: true,
+        }
+    }
+
+    fn model_ref(m: &Model) -> String {
+        format!("{}/{}", m.provider, m.id)
+    }
+
+    #[test]
+    fn resolve_model_reference_cases() {
+        use Expected::*;
+        use ModelReferenceRequestThinkingSuffix as S;
+        let cases = vec![
+            case("exact id", "claude-sonnet-4-5", Model("anthropic/claude-sonnet-4-5", None, None)),
+            case("exact id is case-insensitive", "GPT-4O", Model("openai/gpt-4o", None, None)),
+            case("fuzzy prefers aliases over dated ids", "sonnet", Model("anthropic/claude-sonnet-4-5", None, None)),
+            case("thinking suffix", "sonnet:high", Model("anthropic/claude-sonnet-4-5", Some("high"), None)),
+            case(
+                "colon in a literal id is not a thinking suffix",
+                "qwen/qwen3-coder:exacto",
+                Model("openrouter/qwen/qwen3-coder:exacto", None, None),
+            ),
+            case(
+                "provider prefix, colon id, and thinking suffix",
+                "openrouter/qwen/qwen3-coder:exacto:high",
+                Model("openrouter/qwen/qwen3-coder:exacto", Some("high"), None),
+            ),
+            case(
+                "raw id wins when the provider prefix names no matching model",
+                "openai/gpt-4o:extended",
+                Model("openrouter/openai/gpt-4o:extended", None, None),
+            ),
+            case("fuzzy searches the prefixed provider first", "openrouter/qwen", Model("openrouter/qwen/qwen3-coder:exacto", None, None)),
+            case("strict keeps an invalid suffix in the id", "gpt-4o:random", NotFound),
+            Case {
+                suffix: S::Lenient,
+                ..case(
+                    "lenient drops an invalid suffix with a warning",
+                    "gpt-4o:random",
+                    Model("openai/gpt-4o", None, Some("Invalid thinking level \"random\"")),
+                )
+            },
+            Case {
+                suffix: S::Lenient,
+                ..case(
+                    "lenient invalid outer suffix discards the inner thinking level",
+                    "qwen/qwen3-coder:exacto:high:random",
+                    Model("openrouter/qwen/qwen3-coder:exacto", None, Some("Invalid thinking level \"random\"")),
+                )
+            },
+            Case { suffix: S::None, ..case("none keeps the suffix in the id", "gpt-4o:high", NotFound) },
+            Case { fuzzy: false, ..case("exact-only skips fuzzy matches", "sonnet", NotFound) },
+            case("empty text", "  ", NotFound),
+            Case { usable: &["gw-b"], ..case("sole usable provider wins", "shared", Model("gw-b/shared", None, None)) },
+            case(
+                "no usable provider is ambiguous instead of falling through to fuzzy",
+                "shared",
+                Ambiguous(&["gw-a/shared", "gw-b/shared"], 0),
+            ),
+            Case {
+                usable: &["gw-a", "gw-b"],
+                ..case("several usable providers are ambiguous", "shared", Ambiguous(&["gw-a/shared", "gw-b/shared"], 2))
+            },
+            Case {
+                usable: &["gw-b"],
+                ..case("thinking suffix does not change provider selection", "shared:high", Model("gw-b/shared", Some("high"), None))
+            },
+            Case {
+                usable: &["gw-a", "gw-b"],
+                ..case("thinking suffix does not bypass ambiguity", "shared:high", Ambiguous(&["gw-a/shared", "gw-b/shared"], 2))
+            },
+            Case {
+                usable: &["gw-b"],
+                ..case(
+                    "provider prefix without a direct model selects the usable raw id",
+                    "anthropic/future",
+                    Model("gw-b/anthropic/future", None, None),
+                )
+            },
+            Case {
+                usable: &["anthropic", "gw-a"],
+                ..case("usable qualified match beats a usable raw id", "anthropic/exact", Model("anthropic/exact", None, None))
+            },
+            Case {
+                usable: &["gw-a"],
+                ..case("usable raw id beats an unusable qualified match", "anthropic/exact", Model("gw-a/anthropic/exact", None, None))
+            },
+            case("unusable qualified match is kept when nothing is usable", "anthropic/exact", Model("anthropic/exact", None, None)),
+            Case {
+                usable: &["anthropic"],
+                ..case(
+                    "named provider's usable fuzzy match beats a raw id elsewhere",
+                    "anthropic/claude-opus",
+                    Model("anthropic/claude-opus-4-8", None, None),
+                )
+            },
+            Case {
+                usable: &["gw-a"],
+                ..case(
+                    "usable raw id beats the named provider's unusable fuzzy match",
+                    "anthropic/claude-opus",
+                    Model("gw-a/anthropic/claude-opus", None, None),
+                )
+            },
+            case(
+                "named provider's fuzzy match is kept when nothing is usable",
+                "anthropic/claude-opus",
+                Model("anthropic/claude-opus-4-8", None, None),
+            ),
+            case("named provider's literal id beats its fuzzy matches", "gw-b/free", Model("gw-b/gw-b/free", None, None)),
+            Case { usable: &["gw-a"], ..case("fuzzy prefers usable providers", "opus", Model("gw-a/anthropic/claude-opus-4.8", None, None)) },
+            Case {
+                usable: &["anthropic", "gw-a", "gw-b"],
+                ..case(
+                    "fuzzy id tie across usable providers is ambiguous",
+                    "opus",
+                    Ambiguous(&["anthropic/claude-opus-4-8", "gw-b/claude-opus-4-8"], 2),
+                )
+            },
+            Case {
+                usable: &["anthropic"],
+                ..case("fuzzy id tie resolves to the sole usable provider", "opus", Model("anthropic/claude-opus-4-8", None, None))
+            },
+            Case {
+                provider: Some("gw-a"),
+                usable: &["gw-b"],
+                ..case("explicit provider ignores usable providers elsewhere", "shared", Model("gw-a/shared", None, None))
+            },
+            Case { provider: Some("gw-b"), ..case("explicit provider accepts its own prefix", "GW-B/shared", Model("gw-b/shared", None, None)) },
+            Case { provider: Some("openai"), ..case("explicit provider allows fuzzy matches", "4o", Model("openai/gpt-4o", None, None)) },
+            Case { provider: Some("gw-a"), ..case("explicit provider never leaves the provider", "gpt-4o", NotFound) },
+        ];
+
+        let catalog = reference_catalog();
+        let mut reversed = catalog.clone();
+        reversed.reverse();
+        for case in cases {
+            let usable: HashSet<&str> = case.usable.iter().copied().collect();
+            let request = ModelReferenceRequest {
+                text: case.text.to_string(),
+                provider: case.provider.map(str::to_string),
+                thinking_suffix: case.suffix,
+                fuzzy: case.fuzzy,
+            };
+            // Catalog order must never decide the result.
+            for models in [&catalog, &reversed] {
+                let result = resolve_model_reference(&request, models, &|p| usable.contains(p));
+                match (&case.expected, result) {
+                    (NotFound, ModelReferenceResult::NotFound { .. }) => {}
+                    (Ambiguous(expected, count), ModelReferenceResult::Ambiguous { candidates, usable_count, .. }) => {
+                        let mut refs: Vec<String> = candidates.iter().map(model_ref).collect();
+                        refs.sort();
+                        assert_eq!(refs, *expected, "{}", case.name);
+                        assert_eq!(usable_count, *count, "{}", case.name);
+                    }
+                    (Model(expected, thinking, warning), ModelReferenceResult::Resolved { model, thinking_level, warning: actual }) => {
+                        assert_eq!(model_ref(&model), *expected, "{}", case.name);
+                        assert_eq!(thinking_level.map(|l| l.as_str()), *thinking, "{}", case.name);
+                        match warning {
+                            Some(warning) => assert!(actual.unwrap_or_default().contains(warning), "{}", case.name),
+                            None => assert!(actual.is_none(), "{}", case.name),
+                        }
+                    }
+                    (_, other) => panic!("{}: unexpected result {other:?}", case.name),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn scope_returns_scoped_models_and_structured_diagnostics() {
+        let patterns = vec!["sonnet:high".to_string(), "gpt-4o:invalid".to_string(), "missing".to_string()];
+        let result = resolve_model_scope_from_models(&patterns, &mock_models());
+        let ids: Vec<&str> = result.scoped_models.iter().map(|s| s.model.id.as_str()).collect();
+        assert_eq!(ids, ["claude-sonnet-4-5", "gpt-4o"]);
+        assert_eq!(result.scoped_models[0].thinking_level, Some(ThinkingLevel::High));
+        assert_eq!(result.scoped_models[1].thinking_level, None);
+        assert_eq!(
+            result.diagnostics,
+            vec![
+                ModelScopeDiagnostic {
+                    r#type: "warning".into(),
+                    code: ModelScopeDiagnosticCode::InvalidThinkingLevel,
+                    message: "Invalid thinking level \"invalid\" in pattern \"gpt-4o:invalid\". Using default instead.".into(),
+                    pattern: "gpt-4o:invalid".into(),
+                },
+                ModelScopeDiagnostic {
+                    r#type: "warning".into(),
+                    code: ModelScopeDiagnosticCode::NoMatch,
+                    message: "No models match pattern \"missing\"".into(),
+                    pattern: "missing".into(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn scope_adds_every_provider_for_an_id_on_several_providers() {
+        let mut models = mock_models();
+        let mut azure = models[1].clone();
+        azure.provider = "azure".into();
+        let mut codex = models[1].clone();
+        codex.provider = "openai-codex".into();
+        codex.id = "gpt-4o-mini".into();
+        models.push(azure);
+        models.push(codex);
+        for (pattern, thinking) in [("gpt-4o:high", Some(ThinkingLevel::High)), ("GPT-4o", None)] {
+            let result = resolve_model_scope_from_models(&[pattern.to_string()], &models);
+            let mut scoped: Vec<(String, Option<ThinkingLevel>)> =
+                result.scoped_models.iter().map(|s| (model_ref(&s.model), s.thinking_level)).collect();
+            scoped.sort_by(|a, b| a.0.cmp(&b.0));
+            assert_eq!(scoped, vec![("azure/gpt-4o".to_string(), thinking), ("openai/gpt-4o".to_string(), thinking)]);
+            assert_eq!(
+                result.diagnostics,
+                vec![ModelScopeDiagnostic {
+                    r#type: "warning".into(),
+                    code: ModelScopeDiagnosticCode::Ambiguous,
+                    message: format!(
+                        "Pattern \"{pattern}\" matches several providers: azure, openai. Use provider/id to choose one."
+                    ),
+                    pattern: pattern.into(),
+                }]
+            );
+        }
+    }
+
+    #[test]
+    fn scope_resolves_bracketed_ids_before_glob_matching() {
+        let mut models = mock_models();
+        models.push(model("custom", "bracketed-model[1m]", "Bracketed Model", "anthropic-messages", true));
+        let result = resolve_model_scope_from_models(&["custom/bracketed-model[1m]".to_string()], &models);
+        assert_eq!(result.scoped_models.len(), 1);
+        assert_eq!(result.scoped_models[0].model.id, "bracketed-model[1m]");
+        assert!(result.diagnostics.is_empty());
+
+        let result = resolve_model_scope_from_models(&["custom/bracketed-model[1m]:high".to_string()], &models);
+        assert_eq!(result.scoped_models[0].model.id, "bracketed-model[1m]");
+        assert_eq!(result.scoped_models[0].thinking_level, Some(ThinkingLevel::High));
+        assert!(result.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn scope_glob_patterns() {
+        let models = mock_models();
+        let ids = |pattern: &str| -> Vec<String> {
+            resolve_model_scope_from_models(&[pattern.to_string()], &models)
+                .scoped_models
+                .iter()
+                .map(|s| model_ref(&s.model))
+                .collect()
+        };
+        assert_eq!(ids("*sonnet*"), ["anthropic/claude-sonnet-4-5"]);
+        assert_eq!(ids("openai/*"), ["openai/gpt-4o"]);
+        // `*` does not match `/`, as in minimatch.
+        assert!(ids("openrouter/*").is_empty());
+        assert_eq!(ids("openrouter/**"), ["openrouter/qwen/qwen3-coder:exacto", "openrouter/openai/gpt-4o:extended"]);
+        assert_eq!(ids("ANTHROPIC/*"), ["anthropic/claude-sonnet-4-5"]);
+        assert_eq!(ids("gpt-?o"), ["openai/gpt-4o"]);
+        assert_eq!(ids("{openai,anthropic}/*"), ["anthropic/claude-sonnet-4-5", "openai/gpt-4o"]);
+        let with_thinking = resolve_model_scope_from_models(&["anthropic/*:high".to_string()], &models);
+        assert_eq!(with_thinking.scoped_models[0].thinking_level, Some(ThinkingLevel::High));
+        assert!(minimatch("a/b/c", "a/**"));
+        assert!(!minimatch("a/b", "*"));
+    }
+
+    fn cli(provider: Option<&str>, model: &str, thinking: Option<ThinkingLevel>, models: &[Model]) -> ResolveCliModelResult {
+        resolve_cli_model_from(provider, Some(model), thinking, false, models, &|_| false)
+    }
+
+    #[test]
+    fn cli_does_not_strip_invalid_suffix_as_thinking_level() {
+        let result = cli(Some("openai"), "gpt-4o:extended", None, &mock_models());
+        assert_eq!(result.error, None);
+        let model = result.model.unwrap();
+        assert_eq!(model.provider, "openai");
+        assert_eq!(model.id, "gpt-4o:extended");
+    }
+
+    #[test]
+    fn cli_allows_custom_ids_for_explicit_providers_without_double_prefixing() {
+        let result = cli(Some("openrouter"), "openrouter/openai/ghost-model", None, &mock_models());
+        assert_eq!(result.error, None);
+        let model = result.model.unwrap();
+        assert_eq!(model.provider, "openrouter");
+        assert_eq!(model.id, "openai/ghost-model");
+    }
+
+    #[test]
+    fn cli_errors_without_models_and_for_unknown_providers() {
+        let result = cli(Some("openai"), "gpt-4o", None, &[]);
+        assert!(result.model.is_none());
+        assert!(result.error.unwrap().contains("No models available"));
+        let result = cli(Some("nope"), "gpt-4o", None, &mock_models());
+        assert_eq!(
+            result.error.as_deref(),
+            Some("Unknown provider \"nope\". Use --list-models to see available providers/models.")
+        );
+        let result = cli(None, "totally-unknown", None, &mock_models());
+        assert_eq!(
+            result.error.as_deref(),
+            Some("Model \"totally-unknown\" not found. Use --list-models to see available models.")
+        );
+    }
+
+    #[test]
+    fn cli_duplicate_raw_ids_behind_a_known_provider_prefix() {
+        let base = mock_models()[0].clone();
+        let direct = base.clone();
+        let mut openrouter = base.clone();
+        openrouter.id = "anthropic/claude-opus-5.5".into();
+        openrouter.provider = "openrouter".into();
+        let mut vercel = openrouter.clone();
+        vercel.provider = "vercel-ai-gateway".into();
+        let models = vec![direct, openrouter, vercel];
+        for (model, thinking) in [("anthropic/claude-opus-5.5", None), ("anthropic/claude-opus-5.5:high", Some(ThinkingLevel::High))] {
+            let result = resolve_cli_model_from(None, Some(model), None, false, &models, &|p| p == "vercel-ai-gateway");
+            assert_eq!(result.error, None);
+            assert_eq!(result.model.unwrap().provider, "vercel-ai-gateway");
+            assert_eq!(result.thinking_level, thinking);
+        }
+        let result = resolve_cli_model_from(None, Some("anthropic/claude-opus-5.5"), None, false, &models, &|_| false);
+        assert!(result.model.is_none());
+        let error = result.error.unwrap();
+        assert!(error.contains("openrouter/anthropic/claude-opus-5.5, vercel-ai-gateway/anthropic/claude-opus-5.5"));
+        assert!(error.contains("No matching provider is authenticated. Use --provider or provider/model."));
+        let result = resolve_cli_model_from(None, Some("anthropic/claude-opus-5.5"), None, true, &models, &|p| p == "vercel-ai-gateway");
+        assert!(result.model.is_none());
+        assert!(result.error.unwrap().contains("--api-key does not choose a provider."));
+    }
+
+    #[test]
+    fn cli_custom_model_fallback_with_thinking_suffix() {
+        let mut models = mock_models();
+        models.push(model("neuralwatt", "some-base-model", "Some Base Model", "anthropic-messages", false));
+
+        let result = cli(None, "neuralwatt/zai-org/GLM-5.1-FP8:high", None, &models);
+        assert_eq!(result.error, None);
+        let fallback = result.model.unwrap();
+        assert_eq!(fallback.provider, "neuralwatt");
+        assert_eq!(fallback.id, "zai-org/GLM-5.1-FP8");
+        assert!(fallback.reasoning);
+        assert_eq!(result.thinking_level, Some(ThinkingLevel::High));
+        assert_eq!(
+            result.warning.as_deref(),
+            Some("Model \"zai-org/GLM-5.1-FP8\" not found for provider \"neuralwatt\". Using custom model id.")
+        );
+
+        let result = cli(None, "neuralwatt/zai-org/GLM-5.1-FP8", None, &models);
+        assert_eq!(result.model.unwrap().id, "zai-org/GLM-5.1-FP8");
+        assert_eq!(result.thinking_level, None);
+
+        for level in ["off", "minimal", "low", "medium", "high", "xhigh", "max"] {
+            let result = cli(None, &format!("neuralwatt/zai-org/GLM-5.1-FP8:{level}"), None, &models);
+            assert_eq!(result.error, None);
+            assert_eq!(result.model.unwrap().id, "zai-org/GLM-5.1-FP8");
+            assert_eq!(result.thinking_level.map(|l| l.as_str()), Some(level));
+        }
+
+        let result = cli(None, "neuralwatt/zai-org/GLM-5.1-FP8:banana", None, &models);
+        assert_eq!(result.model.unwrap().id, "zai-org/GLM-5.1-FP8:banana");
+        assert_eq!(result.thinking_level, None);
+
+        let result = cli(Some("neuralwatt"), "zai-org/GLM-5.1-FP8:high", None, &models);
+        assert_eq!(result.model.unwrap().id, "zai-org/GLM-5.1-FP8");
+        assert_eq!(result.thinking_level, Some(ThinkingLevel::High));
+
+        let result = cli(None, "neuralwatt/zai-org/GLM-5.1-FP8:high", Some(ThinkingLevel::Medium), &models);
+        assert_eq!(result.model.unwrap().id, "zai-org/GLM-5.1-FP8:high");
+        assert_eq!(result.thinking_level, None);
+    }
+
+    #[test]
+    fn default_models_track_current_models() {
+        let get = |p: &str| DEFAULT_MODEL_PER_PROVIDER.get(p).map(String::as_str);
+        assert_eq!(get("openai"), Some("gpt-5.5"));
+        assert_eq!(get("openai-codex"), Some("gpt-6.1-sol"));
+        assert_eq!(get("zai"), Some("glm-5.3"));
+        assert_eq!(get("zai-coding-cn"), Some("glm-5.3"));
+        assert_eq!(get("minimax"), Some("MiniMax-M2.7"));
+        assert_eq!(get("minimax-cn"), Some("MiniMax-M2.7"));
+        assert_eq!(get("cerebras"), Some("gpt-oss-120b"));
+        assert_eq!(get("ant-ling"), Some("Ring-2.6-1T"));
+        assert_eq!(get("vercel-ai-gateway"), Some("zai/glm-5.1"));
+        assert_eq!(get("xai"), Some("grok-4.7"));
+        assert_eq!(get("qwen-token-plan-individual"), Some("qwen3.8-max"));
+    }
+
+    #[test]
+    fn built_in_chat_providers_have_defaults_in_their_generated_catalogs() {
+        for provider in pi_ai::providers::all::get_builtin_providers() {
+            let chat_models = pi_ai::providers::all::get_builtin_models(&provider);
+            let default_id = DEFAULT_MODEL_PER_PROVIDER.get(&provider);
+            if chat_models.is_empty() {
+                assert!(default_id.is_none(), "{provider} has no chat models and should have no chat default");
+                continue;
+            }
+            let default_id = default_id.unwrap_or_else(|| panic!("{provider} should have a default"));
+            assert!(
+                chat_models.iter().any(|m| &m.id == default_id),
+                "{provider} default {default_id} should exist in its generated catalog"
+            );
+        }
+    }
+
+    struct FakeLookup {
+        models: Vec<Model>,
+        configured: Vec<&'static str>,
+        available: Vec<Model>,
+    }
+
+    impl ModelLookup for FakeLookup {
+        fn get_model(&self, provider: &str, model_id: &str) -> Option<Model> {
+            self.models.iter().find(|m| m.provider == provider && m.id == model_id).cloned()
+        }
+        fn has_configured_auth(&self, provider: &str) -> bool {
+            self.configured.contains(&provider)
+        }
+        fn get_available_snapshot(&self) -> Vec<Model> {
+            self.available.clone()
+        }
+    }
+
+    fn options() -> FindInitialModelOptions {
+        let credentials = Arc::new(RuntimeCredentials::new(AuthStorage::in_memory(None)));
+        FindInitialModelOptions {
+            scoped_models: Vec::new(),
+            is_continuing: false,
+            default_provider: None,
+            default_model_id: None,
+            default_thinking_level: None,
+            model_thinking_levels: None,
+            model_runtime: ModelRuntime::new(
+                credentials,
+                Arc::new(ModelConfig::default()),
+                None,
+                Arc::new(InMemoryCodingAgentModelsStore::new()),
+                Vec::new(),
+                false,
+            ),
+        }
+    }
+
+    #[test]
+    fn find_initial_model_selects_ai_gateway_default_when_available() {
+        let gateway = model("vercel-ai-gateway", "anthropic/claude-opus-4-6", "Claude Opus 4.6", "anthropic-messages", true);
+        let lookup = FakeLookup { models: vec![], configured: vec![], available: vec![gateway] };
+        let result = select_initial_model(&options(), &lookup);
+        let model = result.model.unwrap();
+        assert_eq!(model.provider, "vercel-ai-gateway");
+        assert_eq!(model.id, "anthropic/claude-opus-4-6");
+    }
+
+    #[test]
+    fn find_initial_model_ignores_an_unauthenticated_saved_default() {
+        let saved = model("deepseek", "deepseek-v4-flash", "DeepSeek V4 Flash", "anthropic-messages", true);
+        let mut local = saved.clone();
+        local.provider = "spark-two".into();
+        let lookup = FakeLookup { models: vec![saved], configured: vec!["spark-two"], available: vec![local] };
+        let options = FindInitialModelOptions {
+            default_provider: Some("deepseek".into()),
+            default_model_id: Some("deepseek-v4-flash".into()),
+            ..options()
+        };
+        let result = select_initial_model(&options, &lookup);
+        let model = result.model.unwrap();
+        assert_eq!(model.provider, "spark-two");
+        assert_eq!(model.id, "deepseek-v4-flash");
+    }
+
+    #[test]
+    fn find_initial_model_prefers_scoped_models_and_per_model_levels() {
+        let sonnet = mock_models()[0].clone();
+        let mut levels = IndexMap::new();
+        levels.insert("anthropic/claude-sonnet-4-5".to_string(), ThinkingLevel::Low);
+        let lookup = FakeLookup { models: vec![], configured: vec![], available: vec![] };
+        let options = FindInitialModelOptions {
+            scoped_models: vec![ScopedModel { model: sonnet.clone(), thinking_level: None }],
+            model_thinking_levels: Some(levels),
+            default_thinking_level: Some(ThinkingLevel::High),
+            ..options()
+        };
+        let result = select_initial_model(&options, &lookup);
+        assert_eq!(result.model.unwrap().id, "claude-sonnet-4-5");
+        assert_eq!(result.thinking_level, ThinkingLevel::Low);
+
+        let continuing = FindInitialModelOptions { is_continuing: true, ..options };
+        let result = select_initial_model(&continuing, &lookup);
+        assert!(result.model.is_none());
+        assert_eq!(result.thinking_level, DEFAULT_THINKING_LEVEL);
+    }
 }

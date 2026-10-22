@@ -140,6 +140,8 @@ fn credential_chain() {
 [profile proc]\ncredential_process = echo '{\"Version\":1,\"AccessKeyId\":\"AKIAPROC\",\"SecretAccessKey\":\"p\"}'\n\
 [profile sso]\nsso_session = corp\nsso_account_id = 123456789012\nsso_role_name = Dev\n\
 [sso-session corp]\nsso_region = us-east-1\nsso_start_url = https://corp.awsapps.com/start\n\
+[profile login]\nlogin_session = arn:aws:iam::123456789012:user/me\nregion = us-east-1\n\
+[profile mfa]\nrole_arn = arn:aws:iam::123456789012:role/mfa\nsource_profile = static\nmfa_serial = arn:aws:iam::123456789012:mfa/me\n\
 [profile regional]\naws_access_key_id = AKIAREGIONAL\naws_secret_access_key = r\nregion = eu-west-3\n";
     write(&home.join(".aws/config"), config);
     let cache_name: String = sha1::Sha1::digest(b"corp").iter().map(|b| format!("{b:02x}")).collect();
@@ -150,6 +152,36 @@ fn credential_chain() {
 
     // Static keys from the credentials file.
     assert_eq!(signed_with(region_options().with_extra("profile", "static")), "AKIASTATIC");
+
+    // `aws login` sessions use the cached credentials while they are fresh.
+    let login_cache = home.join(".aws/login/cache");
+    std::fs::create_dir_all(&login_cache).unwrap();
+    let login_name: String =
+        <sha2::Sha256 as sha2::Digest>::digest(b"arn:aws:iam::123456789012:user/me").iter().map(|b| format!("{b:02x}")).collect();
+    write(
+        &login_cache.join(format!("{login_name}.json")),
+        &json!({
+            "accessToken": { "accessKeyId": "ASIALOGIN", "secretAccessKey": "s", "sessionToken": "t", "accountId": "123456789012", "expiresAt": "2999-01-01T00:00:00Z" },
+            "clientId": "arn:aws:signin:::devtools/same-device",
+            "refreshToken": "r",
+            "dpopKey": "-----BEGIN EC PRIVATE KEY-----\nunused\n-----END EC PRIVATE KEY-----\n"
+        })
+        .to_string(),
+    );
+    assert_eq!(signed_with(region_options().with_extra("profile", "login")), "ASIALOGIN");
+
+    // MFA role profiles stop the chain: the default chain has no MFA code callback.
+    {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let message = runtime.block_on(async {
+            let server = aws_mock().await;
+            bedrock_converse_stream::stream(&model_at(&server.url), &hello(), region_options().with_extra("profile", "mfa")).result().await
+        });
+        assert_eq!(
+            message.error_message.as_deref(),
+            Some("Profile mfa requires multi-factor authentication, but no MFA code callback was provided.")
+        );
+    }
 
     // credential_process.
     if !cfg!(windows) {

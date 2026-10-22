@@ -385,10 +385,16 @@ struct Inner {
 /// Submit / change callback.
 pub type TextCallback = Arc<dyn Fn(String) + Send + Sync>;
 
+/// Override of the top border (TS subclasses overriding `renderTopBorder(width, hiddenLineCount)`).
+/// Returns the styled border line, or `None` for the default border. Called without the editor's
+/// lock held, so it may call back into the editor (e.g. [`Editor::border_color`]).
+pub type TopBorderRenderer = Arc<dyn Fn(usize, usize) -> Option<String> + Send + Sync>;
+
 #[derive(Default)]
 struct Callbacks {
     on_submit: Option<TextCallback>,
     on_change: Option<TextCallback>,
+    top_border: Option<TopBorderRenderer>,
 }
 
 /// Multi-line text editor component.
@@ -506,6 +512,11 @@ impl Editor {
 
     pub fn set_on_change(&self, f: Option<TextCallback>) {
         self.cbs().on_change = f;
+    }
+
+    /// Install a top border override (see [`TopBorderRenderer`]).
+    pub fn set_top_border_renderer(&self, f: Option<TopBorderRenderer>) {
+        self.cbs().top_border = f;
     }
 
     pub fn disable_submit(&self) -> bool {
@@ -1986,7 +1997,8 @@ fn best_autocomplete_match_index(items: &[AutocompleteItem], prefix: &str) -> Op
 impl Component for Editor {
     fn render(&self, width: usize) -> Vec<String> {
         let rows = self.terminal.rows();
-        let (mut result, list, content_width, left, right) = {
+        let top_border = self.cbs().top_border.clone();
+        let (mut result, list, content_width, left, right, top_hidden) = {
             let mut s = self.lock();
             let max_padding = width.saturating_sub(1) / 2;
             let padding_x = s.padding_x.min(max_padding);
@@ -2043,8 +2055,12 @@ impl Component for Editor {
             result.push((s.border_color)(&bottom));
             s.rendered_autocomplete_height = 0;
             let list = if s.ac_state.is_some() { s.ac_list.clone() } else { None };
-            (result, list, content_width, left, right)
+            let top_hidden = s.scroll_offset;
+            (result, list, content_width, left, right, top_hidden)
         };
+        if let Some(top) = top_border.and_then(|f| f(width, top_hidden)) {
+            result[0] = top;
+        }
         if let Some(list) = list {
             let lines = list.render(content_width);
             self.lock().rendered_autocomplete_height = lines.len();

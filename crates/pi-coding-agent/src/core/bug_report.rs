@@ -651,6 +651,36 @@ mod tests {
         );
     }
 
+    // bug-report.test.ts: "removes URL credentials and secret query parameters"
+    #[test]
+    fn removes_url_credentials_and_secret_query_parameters() {
+        assert_eq!(redact_url("https://user:pass@proxy.example.com:8080/"), "https://proxy.example.com:8080/");
+        assert_eq!(redact_url("git:https://pat@github.com/org/repo"), "git:https://github.com/org/repo");
+        assert_eq!(
+            redact_url("https://api.example/v1?api-key=abc&model=x"),
+            "https://api.example/v1?api-key=%3Credacted%3E&model=x"
+        );
+    }
+
+    // bug-report.test.ts: "redacts nested secret values without hiding token counts"
+    #[test]
+    fn redacts_nested_secret_values_without_hiding_token_counts() {
+        assert_eq!(
+            redact_json_value(json!({
+                "apiKey": "sk-123",
+                "headers": { "Authorization": "Bearer x", "X-Trace": "1" },
+                "compaction": { "reserveTokens": 16_384, "keepRecentTokens": 20_000 },
+                "baseUrl": "https://me:secret@example.com/",
+            })),
+            json!({
+                "apiKey": "<redacted>",
+                "headers": { "Authorization": "<redacted>", "X-Trace": "1" },
+                "compaction": { "reserveTokens": 16_384, "keepRecentTokens": 20_000 },
+                "baseUrl": "https://example.com/",
+            })
+        );
+    }
+
     #[test]
     fn sensitive_keys() {
         assert!(is_sensitive_key("apiKey"));

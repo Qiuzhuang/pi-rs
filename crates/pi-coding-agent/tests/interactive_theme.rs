@@ -509,3 +509,82 @@ fn chat_viewport_defaults_the_transcript_scrollbar_to_auto_and_accepts_overrides
     assert_eq!(automatic.transcript.scrollbar(), ScrollbarMode::Auto);
     assert_eq!(hidden.transcript.scrollbar(), ScrollbarMode::Hidden);
 }
+
+/// Fullscreen dock layout at short heights: the transcript keeps one row, the editor keeps
+/// its three-row minimum (top border, cursor row, bottom border) and widgets, footer and the
+/// autocomplete rows below the cursor give way first. Frames were rendered by the TypeScript
+/// reference (`createChatViewport` + `renderLayoutFrame`) with the same component tree.
+#[test]
+fn chat_viewport_short_terminal_layout_matches_typescript_reference() {
+    use pi_tui::components::spacer::Spacer;
+    use pi_tui::components::text::Text;
+    use pi_tui::layout::render_layout_frame;
+    use pi_tui::tui::{CURSOR_MARKER, ComponentRef};
+
+    struct FakeEditor {
+        text: Vec<String>,
+        autocomplete: Vec<String>,
+    }
+    impl Component for FakeEditor {
+        fn render(&self, width: usize) -> Vec<String> {
+            let border = "─".repeat(width);
+            let mut lines = vec![border.clone()];
+            for (i, line) in self.text.iter().enumerate() {
+                let marker = if i + 1 == self.text.len() { CURSOR_MARKER } else { "" };
+                lines.push(format!("{line}{marker}"));
+            }
+            lines.push(border);
+            lines.extend(self.autocomplete.iter().cloned());
+            lines
+        }
+    }
+
+    let strings = |v: &Value| -> Vec<String> {
+        v.as_array().unwrap().iter().map(|s| s.as_str().unwrap().to_string()).collect()
+    };
+    let texts = |container: &Container, lines: &[String], padding_x: usize| {
+        for line in lines {
+            container.add_child(Arc::new(Text::new(line.clone(), padding_x, 0, None)));
+        }
+    };
+    let data: Value = serde_json::from_str(include_str!("fixtures/chat_viewport_layout.json")).unwrap();
+    for case in data["cases"].as_array().unwrap() {
+        let name = case["name"].as_str().unwrap();
+        let width = case["width"].as_u64().unwrap() as usize;
+        for (height, expected) in case["heights"].as_array().unwrap().iter().zip(case["frames"].as_array().unwrap()) {
+            let height = height.as_u64().unwrap() as usize;
+            let document = Container::new_ref();
+            texts(&document, &strings(&case["doc"]), 1);
+            let pending = Container::new_ref();
+            texts(&pending, &strings(&case["pending"]), 1);
+            let status = Container::new_ref();
+            let status_text = case["status"].as_str().unwrap();
+            if !status_text.is_empty() {
+                texts(&status, &[status_text.to_string()], 1);
+            }
+            let above = Container::new_ref();
+            above.add_child(Arc::new(Spacer::new(1)));
+            texts(&above, &strings(&case["above"]), 1);
+            let below = Container::new_ref();
+            texts(&below, &strings(&case["below"]), 1);
+            let editor = Container::new_ref();
+            editor.add_child(Arc::new(FakeEditor { text: strings(&case["text"]), autocomplete: strings(&case["ac"]) }));
+            let footer = Container::new_ref();
+            texts(&footer, &strings(&case["footer"]), 0);
+            let viewport = create_chat_viewport(&ChatViewportOptions {
+                document: document as ComponentRef,
+                pending_messages: pending,
+                status,
+                editor,
+                footer,
+                widgets_above: Some(above),
+                widgets_below: Some(below),
+                scrollbar: None,
+                scrollbar_track_style: None,
+                scrollbar_thumb_style: None,
+            });
+            let frame = render_layout_frame(&viewport.root, width, height, Arc::new(|| {}));
+            assert_eq!(frame.lines, strings(expected), "{name} at {width}x{height}");
+        }
+    }
+}

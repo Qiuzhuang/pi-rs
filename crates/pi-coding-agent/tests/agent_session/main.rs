@@ -24,3 +24,4 @@ mod sdk_stream_options;
 mod sdk;
 mod sdk_client_identity;
 mod tree_navigation;
+mod regressions;

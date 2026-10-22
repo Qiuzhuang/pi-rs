@@ -751,3 +751,82 @@ mod config_selector {
         assert_eq!(extensions(), json!([]));
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// interactive-tui.test.ts (renderer selection)
+// ---------------------------------------------------------------------------------------------
+
+mod interactive_tui {
+    use super::*;
+    use pi_coding_agent::core::settings_schema::TuiModeValue;
+    use pi_coding_agent::modes::interactive::tui_renderer::{InteractiveTuiOptions, create_interactive_tui};
+    use pi_tui::components::scroll_view::{ScrollFollow, ScrollView, ScrollViewOptions};
+    use pi_tui::terminal::Terminal;
+    use std::time::{Duration, Instant};
+
+    fn options(mode: TuiModeValue, terminal: &VirtualTerminal) -> InteractiveTuiOptions {
+        InteractiveTuiOptions {
+            tui_mode: mode,
+            show_hardware_cursor: false,
+            log_directory: std::env::temp_dir().to_string_lossy().into_owned(),
+            terminal: Some(Arc::new(terminal.clone()) as Arc<dyn Terminal>),
+            on_right_click_paste: None,
+            fullscreen_copy_on_select: None,
+            fullscreen_wheel_scroll_lines: None,
+        }
+    }
+
+    fn wait_until(what: &str, predicate: impl Fn() -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !predicate() {
+            assert!(Instant::now() < deadline, "timed out waiting for {what}");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    #[test]
+    fn selects_the_alternate_screen_renderer_only_when_requested() {
+        let _g = setup();
+        let main_terminal = VirtualTerminal::new(80, 24);
+        let main = create_interactive_tui(&options(TuiModeValue::Regular, &main_terminal));
+        assert_eq!(main.mode(), pi_tui::tui::TuiMode::Regular);
+        assert!(!main.is_viewport_tui());
+        main.start();
+        main.request_render(false);
+        wait_until("the main screen render", || !main_terminal.get_writes().is_empty());
+        assert!(!main_terminal.get_writes().contains("\x1b[?1049h"));
+        main.stop(Default::default());
+
+        let alt_terminal = VirtualTerminal::new(80, 24);
+        let alt = create_interactive_tui(&options(TuiModeValue::Fullscreen, &alt_terminal));
+        assert_eq!(alt.mode(), pi_tui::tui::TuiMode::Fullscreen);
+        assert!(alt.is_viewport_tui());
+        alt.start();
+        alt.request_render(false);
+        wait_until("the alternate screen", || alt_terminal.get_writes().contains("\x1b[?1049h"));
+        alt.stop(Default::default());
+    }
+
+    #[test]
+    fn shows_the_configured_jump_to_bottom_shortcut_while_scrolled_up() {
+        let _g = setup();
+        let config = [("tui.altScreen.bottom".to_string(), Some(pi_tui::keybindings::KeySpec::from("ctrl+j")))]
+            .into_iter()
+            .collect();
+        pi_tui::keybindings::set_keybindings(KeybindingsManager::new(Some(config), None).tui_manager());
+        let terminal = VirtualTerminal::new(50, 4);
+        let ui = create_interactive_tui(&options(TuiModeValue::Fullscreen, &terminal));
+        let text = (1..=8).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+        ui.set_layout_root(Some(ScrollView::new(
+            Arc::new(Text::new(text, 0, 0, None)),
+            ScrollViewOptions { follow: Some(ScrollFollow::End), primary: Some(true), ..Default::default() },
+        )));
+        ui.start();
+        ui.request_render(false);
+        wait_until("the first render", || terminal.get_viewport().iter().any(|l| l.contains("line 8")));
+        terminal.send_input("\x1b[<64;1;1M");
+        wait_until("the jump hint", || terminal.get_viewport()[3].contains("↓ Jump to latest message · Ctrl+J"));
+        ui.stop(Default::default());
+        pi_tui::keybindings::set_keybindings(KeybindingsManager::new(None, None).tui_manager());
+    }
+}

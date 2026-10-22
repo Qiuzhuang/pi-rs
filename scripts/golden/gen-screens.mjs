@@ -1,4 +1,5 @@
-// Golden captures of full InteractiveMode screens on a virtual terminal with the faux provider:
+// Golden captures of full InteractiveMode screens (fullscreen, the default TUI mode, unless a case
+// sets tuiMode "regular") on a virtual terminal with the faux provider:
 // the startup screen, and the screen after one streamed reply with a tool call.
 //
 // Each case records the live region the TUI renders (`ui.render(columns)`, with ANSI), then the text
@@ -172,6 +173,14 @@ await screen("tools-expanded/100x40", {
 	rows: 40,
 	settings: { quietStartup: true },
 	steps: [{ responses: reply }, { type: "list the files" }, { type: "\r" }, { wait: "entry point" }, { idle: true }, { type: "\x0f" }],
+});
+
+await screen("regular/startup", { columns: 80, rows: 24, settings: { tuiMode: "regular" } });
+await screen("regular/reply", {
+	columns: 100,
+	rows: 30,
+	settings: { tuiMode: "regular", quietStartup: true },
+	steps: [{ responses: reply }, { type: "list the files" }, { type: "\r" }, { wait: "entry point" }, { idle: true }],
 });
 
 g.write();

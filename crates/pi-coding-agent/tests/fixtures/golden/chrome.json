@@ -21,12 +21,17 @@
     "branch": "main"
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;126;136;142m~/project (main)\u001b[39m",
+      "\u001b[38;2;126;136;142m0.0%/200k (auto)\u001b[39m\u001b[38;2;126;136;142m  cl\u001b[0m\u001b[39m"
+     ],
      [
       "\u001b[38;2;126;136;142m~/project (main)\u001b[39m",
       "\u001b[38;2;126;136;142m0.0%/200k (auto)\u001b[39m\u001b[38;2;126;136;142m  claude-sonnet-4-5 • me\u001b[0m\u001b[39m"
@@ -41,6 +46,10 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;135;144;149m~/project (main)\u001b[39m",
+      "\u001b[38;2;135;144;149m0.0%/200k (auto)\u001b[39m\u001b[38;2;135;144;149m  cl\u001b[0m\u001b[39m"
+     ],
      [
       "\u001b[38;2;135;144;149m~/project (main)\u001b[39m",
       "\u001b[38;2;135;144;149m0.0%/200k (auto)\u001b[39m\u001b[38;2;135;144;149m  claude-sonnet-4-5 • me\u001b[0m\u001b[39m"
@@ -68,12 +77,17 @@
     "branch": "main"
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;126;136;142m~/project (main)\u001b[39m",
+      "\u001b[38;2;126;136;142m0.0%/0 (auto)\u001b[39m\u001b[38;2;126;136;142m  no-mo\u001b[0m\u001b[39m"
+     ],
      [
       "\u001b[38;2;126;136;142m~/project (main)\u001b[39m",
       "\u001b[38;2;126;136;142m0.0%/0 (auto)\u001b[39m\u001b[38;2;126;136;142m                   no-model\u001b[39m"
@@ -88,6 +102,10 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;135;144;149m~/project (main)\u001b[39m",
+      "\u001b[38;2;135;144;149m0.0%/0 (auto)\u001b[39m\u001b[38;2;135;144;149m  no-mo\u001b[0m\u001b[39m"
+     ],
      [
       "\u001b[38;2;135;144;149m~/project (main)\u001b[39m",
       "\u001b[38;2;135;144;149m0.0%/0 (auto)\u001b[39m\u001b[38;2;135;144;149m                   no-model\u001b[39m"
@@ -154,12 +172,17 @@
     "branch": "main"
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;126;136;142m~/project (main)\u001b[39m",
+      "\u001b[38;2;126;136;142m↑12k ↓2.3k R100k \u001b[0m...\u001b[0m\u001b[39m\u001b[38;2;126;136;142m\u001b[39m"
+     ],
      [
       "\u001b[38;2;126;136;142m~/project (main)\u001b[39m",
       "\u001b[38;2;126;136;142m↑12k ↓2.3k R100k W5.0k CH85.2% $0.457\u001b[0m...\u001b[0m\u001b[39m\u001b[38;2;126;136;142m\u001b[39m"
@@ -174,6 +197,10 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;135;144;149m~/project (main)\u001b[39m",
+      "\u001b[38;2;135;144;149m↑12k ↓2.3k R100k \u001b[0m...\u001b[0m\u001b[39m\u001b[38;2;135;144;149m\u001b[39m"
+     ],
      [
       "\u001b[38;2;135;144;149m~/project (main)\u001b[39m",
       "\u001b[38;2;135;144;149m↑12k ↓2.3k R100k W5.0k CH85.2% $0.457\u001b[0m...\u001b[0m\u001b[39m\u001b[38;2;135;144;149m\u001b[39m"
@@ -268,12 +295,17 @@
     "branch": "main"
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;126;136;142m~/project (main)\u001b[39m",
+      "\u001b[38;2;126;136;142m↑1.5k ↓1.0k $0.01\u001b[0m...\u001b[0m\u001b[39m\u001b[38;2;126;136;142m\u001b[39m"
+     ],
      [
       "\u001b[38;2;126;136;142m~/project (main)\u001b[39m",
       "\u001b[38;2;126;136;142m↑1.5k ↓1.0k $0.011 \u001b[38;2;205;154;34m75.1%/200k (auto)\u001b[39m\u001b[39m\u001b[38;2;126;136;142m  cl\u001b[0m\u001b[39m"
@@ -288,6 +320,10 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;135;144;149m~/project (main)\u001b[39m",
+      "\u001b[38;2;135;144;149m↑1.5k ↓1.0k $0.01\u001b[0m...\u001b[0m\u001b[39m\u001b[38;2;135;144;149m\u001b[39m"
+     ],
      [
       "\u001b[38;2;135;144;149m~/project (main)\u001b[39m",
       "\u001b[38;2;135;144;149m↑1.5k ↓1.0k $0.011 \u001b[38;2;143;104;2m75.1%/200k (auto)\u001b[39m\u001b[39m\u001b[38;2;135;144;149m  cl\u001b[0m\u001b[39m"
@@ -355,12 +391,17 @@
     "autoCompact": false
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;126;136;142m~/project (main)\u001b[39m",
+      "\u001b[38;2;126;136;142m↑2.5M ↓15M $12.50\u001b[0m...\u001b[0m\u001b[39m\u001b[38;2;126;136;142m\u001b[39m"
+     ],
      [
       "\u001b[38;2;126;136;142m~/project (main)\u001b[39m",
       "\u001b[38;2;126;136;142m↑2.5M ↓15M $12.500 \u001b[38;2;234;127;129m95.0%/200k\u001b[39m\u001b[39m\u001b[38;2;126;136;142m  claude-so\u001b[0m\u001b[39m"
@@ -375,6 +416,10 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;135;144;149m~/project (main)\u001b[39m",
+      "\u001b[38;2;135;144;149m↑2.5M ↓15M $12.50\u001b[0m...\u001b[0m\u001b[39m\u001b[38;2;135;144;149m\u001b[39m"
+     ],
      [
       "\u001b[38;2;135;144;149m~/project (main)\u001b[39m",
       "\u001b[38;2;135;144;149m↑2.5M ↓15M $12.500 \u001b[38;2;200;37;61m95.0%/200k\u001b[39m\u001b[39m\u001b[38;2;135;144;149m  claude-so\u001b[0m\u001b[39m"
@@ -411,12 +456,17 @@
     "branch": "main"
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;126;136;142m~/project (main)\u001b[39m",
+      "\u001b[38;2;126;136;142m?/1.0M (auto)\u001b[39m\u001b[38;2;126;136;142m  claud\u001b[0m\u001b[39m"
+     ],
      [
       "\u001b[38;2;126;136;142m~/project (main)\u001b[39m",
       "\u001b[38;2;126;136;142m?/1.0M (auto)\u001b[39m\u001b[38;2;126;136;142m  claude-sonnet-4-5 • mediu\u001b[0m\u001b[39m"
@@ -431,6 +481,10 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;135;144;149m~/project (main)\u001b[39m",
+      "\u001b[38;2;135;144;149m?/1.0M (auto)\u001b[39m\u001b[38;2;135;144;149m  claud\u001b[0m\u001b[39m"
+     ],
      [
       "\u001b[38;2;135;144;149m~/project (main)\u001b[39m",
       "\u001b[38;2;135;144;149m?/1.0M (auto)\u001b[39m\u001b[38;2;135;144;149m  claude-sonnet-4-5 • mediu\u001b[0m\u001b[39m"
@@ -513,12 +567,17 @@
     "branch": "main"
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;126;136;142m~/project (main)\u001b[39m",
+      "\u001b[38;2;126;136;142m↑9.5k ↓850 $0.022\u001b[0m...\u001b[0m\u001b[39m\u001b[38;2;126;136;142m\u001b[39m"
+     ],
      [
       "\u001b[38;2;126;136;142m~/project (main)\u001b[39m",
       "\u001b[38;2;126;136;142m↑9.5k ↓850 $0.022 0.0%/200k (auto)\u001b[39m\u001b[38;2;126;136;142m  clau\u001b[0m\u001b[39m"
@@ -533,6 +592,10 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;135;144;149m~/project (main)\u001b[39m",
+      "\u001b[38;2;135;144;149m↑9.5k ↓850 $0.022\u001b[0m...\u001b[0m\u001b[39m\u001b[38;2;135;144;149m\u001b[39m"
+     ],
      [
       "\u001b[38;2;135;144;149m~/project (main)\u001b[39m",
       "\u001b[38;2;135;144;149m↑9.5k ↓850 $0.022 0.0%/200k (auto)\u001b[39m\u001b[38;2;135;144;149m  clau\u001b[0m\u001b[39m"
@@ -600,12 +663,17 @@
     "usingSubscription": true
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;126;136;142m~/project (main)\u001b[39m",
+      "\u001b[38;2;126;136;142m↑10 ↓20 $0.000 (s\u001b[0m...\u001b[0m\u001b[39m\u001b[38;2;126;136;142m\u001b[39m"
+     ],
      [
       "\u001b[38;2;126;136;142m~/project (main)\u001b[39m",
       "\u001b[38;2;126;136;142m↑10 ↓20 $0.000 (sub) 0.0%/200k (auto)\u001b[39m\u001b[38;2;126;136;142m  c\u001b[0m\u001b[39m"
@@ -620,6 +688,10 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;135;144;149m~/project (main)\u001b[39m",
+      "\u001b[38;2;135;144;149m↑10 ↓20 $0.000 (s\u001b[0m...\u001b[0m\u001b[39m\u001b[38;2;135;144;149m\u001b[39m"
+     ],
      [
       "\u001b[38;2;135;144;149m~/project (main)\u001b[39m",
       "\u001b[38;2;135;144;149m↑10 ↓20 $0.000 (sub) 0.0%/200k (auto)\u001b[39m\u001b[38;2;135;144;149m  c\u001b[0m\u001b[39m"
@@ -656,12 +728,17 @@
     "branch": "main"
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;126;136;142m~/project (main)\u001b[39m",
+      "\u001b[38;2;126;136;142m$0.000 (sub) 0.0%\u001b[0m...\u001b[0m\u001b[39m\u001b[38;2;126;136;142m\u001b[39m"
+     ],
      [
       "\u001b[38;2;126;136;142m~/project (main)\u001b[39m",
       "\u001b[38;2;126;136;142m$0.000 (sub) 0.0%/200k (auto)\u001b[39m\u001b[38;2;126;136;142m    kimi-k2\u001b[39m"
@@ -676,6 +753,10 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;135;144;149m~/project (main)\u001b[39m",
+      "\u001b[38;2;135;144;149m$0.000 (sub) 0.0%\u001b[0m...\u001b[0m\u001b[39m\u001b[38;2;135;144;149m\u001b[39m"
+     ],
      [
       "\u001b[38;2;135;144;149m~/project (main)\u001b[39m",
       "\u001b[38;2;135;144;149m$0.000 (sub) 0.0%/200k (auto)\u001b[39m\u001b[38;2;135;144;149m    kimi-k2\u001b[39m"
@@ -712,12 +793,17 @@
     "branch": "main"
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;126;136;142m~/project (main)\u001b[39m",
+      "\u001b[38;2;126;136;142m0.0%/200k (auto)\u001b[39m\u001b[38;2;126;136;142m  gp\u001b[0m\u001b[39m"
+     ],
      [
       "\u001b[38;2;126;136;142m~/project (main)\u001b[39m",
       "\u001b[38;2;126;136;142m0.0%/200k (auto)\u001b[39m\u001b[38;2;126;136;142m                  gpt-4o\u001b[39m"
@@ -732,6 +818,10 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;135;144;149m~/project (main)\u001b[39m",
+      "\u001b[38;2;135;144;149m0.0%/200k (auto)\u001b[39m\u001b[38;2;135;144;149m  gp\u001b[0m\u001b[39m"
+     ],
      [
       "\u001b[38;2;135;144;149m~/project (main)\u001b[39m",
       "\u001b[38;2;135;144;149m0.0%/200k (auto)\u001b[39m\u001b[38;2;135;144;149m                  gpt-4o\u001b[39m"
@@ -768,12 +858,17 @@
     "branch": "main"
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;126;136;142m~/project (main)\u001b[39m",
+      "\u001b[38;2;126;136;142m0.0%/200k (auto)\u001b[39m\u001b[38;2;126;136;142m  cl\u001b[0m\u001b[39m"
+     ],
      [
       "\u001b[38;2;126;136;142m~/project (main)\u001b[39m",
       "\u001b[38;2;126;136;142m0.0%/200k (auto)\u001b[39m\u001b[38;2;126;136;142m  claude-sonnet-4-5 • th\u001b[0m\u001b[39m"
@@ -788,6 +883,10 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;135;144;149m~/project (main)\u001b[39m",
+      "\u001b[38;2;135;144;149m0.0%/200k (auto)\u001b[39m\u001b[38;2;135;144;149m  cl\u001b[0m\u001b[39m"
+     ],
      [
       "\u001b[38;2;135;144;149m~/project (main)\u001b[39m",
       "\u001b[38;2;135;144;149m0.0%/200k (auto)\u001b[39m\u001b[38;2;135;144;149m  claude-sonnet-4-5 • th\u001b[0m\u001b[39m"
@@ -828,12 +927,17 @@
     }
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;126;136;142m~/project (main)\u001b[39m",
+      "\u001b[38;2;126;136;142m0.0%/200k (auto)\u001b[39m\u001b[38;2;126;136;142m  au\u001b[0m\u001b[39m"
+     ],
      [
       "\u001b[38;2;126;136;142m~/project (main)\u001b[39m",
       "\u001b[38;2;126;136;142m0.0%/200k (auto)\u001b[39m\u001b[38;2;126;136;142m  auto • medium → claude\u001b[0m\u001b[39m"
@@ -848,6 +952,10 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;135;144;149m~/project (main)\u001b[39m",
+      "\u001b[38;2;135;144;149m0.0%/200k (auto)\u001b[39m\u001b[38;2;135;144;149m  au\u001b[0m\u001b[39m"
+     ],
      [
       "\u001b[38;2;135;144;149m~/project (main)\u001b[39m",
       "\u001b[38;2;135;144;149m0.0%/200k (auto)\u001b[39m\u001b[38;2;135;144;149m  auto • medium → claude\u001b[0m\u001b[39m"
@@ -885,12 +993,17 @@
     "providerCount": 3
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;126;136;142m~/project (main)\u001b[39m",
+      "\u001b[38;2;126;136;142m0.0%/200k (auto)\u001b[39m\u001b[38;2;126;136;142m  cl\u001b[0m\u001b[39m"
+     ],
      [
       "\u001b[38;2;126;136;142m~/project (main)\u001b[39m",
       "\u001b[38;2;126;136;142m0.0%/200k (auto)\u001b[39m\u001b[38;2;126;136;142m  claude-sonnet-4-5 • me\u001b[0m\u001b[39m"
@@ -905,6 +1018,10 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;135;144;149m~/project (main)\u001b[39m",
+      "\u001b[38;2;135;144;149m0.0%/200k (auto)\u001b[39m\u001b[38;2;135;144;149m  cl\u001b[0m\u001b[39m"
+     ],
      [
       "\u001b[38;2;135;144;149m~/project (main)\u001b[39m",
       "\u001b[38;2;135;144;149m0.0%/200k (auto)\u001b[39m\u001b[38;2;135;144;149m  claude-sonnet-4-5 • me\u001b[0m\u001b[39m"
@@ -942,12 +1059,17 @@
     "branch": "feature/a-really-long-branch-name-for-testing"
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;126;136;142m~/project (featur\u001b[0m\u001b[38;2;126;136;142m...\u001b[39m\u001b[0m",
+      "\u001b[38;2;126;136;142m0.0%/200k (auto)\u001b[39m\u001b[38;2;126;136;142m  cl\u001b[0m\u001b[39m"
+     ],
      [
       "\u001b[38;2;126;136;142m~/project (feature/a-really-long-bran\u001b[0m\u001b[38;2;126;136;142m...\u001b[39m\u001b[0m",
       "\u001b[38;2;126;136;142m0.0%/200k (auto)\u001b[39m\u001b[38;2;126;136;142m  claude-sonnet-4-5 • me\u001b[0m\u001b[39m"
@@ -962,6 +1084,10 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;135;144;149m~/project (featur\u001b[0m\u001b[38;2;135;144;149m...\u001b[39m\u001b[0m",
+      "\u001b[38;2;135;144;149m0.0%/200k (auto)\u001b[39m\u001b[38;2;135;144;149m  cl\u001b[0m\u001b[39m"
+     ],
      [
       "\u001b[38;2;135;144;149m~/project (feature/a-really-long-bran\u001b[0m\u001b[38;2;135;144;149m...\u001b[39m\u001b[0m",
       "\u001b[38;2;135;144;149m0.0%/200k (auto)\u001b[39m\u001b[38;2;135;144;149m  claude-sonnet-4-5 • me\u001b[0m\u001b[39m"
@@ -998,12 +1124,17 @@
     "branch": "main"
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;126;136;142m/var/lib/project/\u001b[0m\u001b[38;2;126;136;142m...\u001b[39m\u001b[0m",
+      "\u001b[38;2;126;136;142m0.0%/200k (auto)\u001b[39m\u001b[38;2;126;136;142m  cl\u001b[0m\u001b[39m"
+     ],
      [
       "\u001b[38;2;126;136;142m/var/lib/project/with/a/very/long/pat\u001b[0m\u001b[38;2;126;136;142m...\u001b[39m\u001b[0m",
       "\u001b[38;2;126;136;142m0.0%/200k (auto)\u001b[39m\u001b[38;2;126;136;142m  claude-sonnet-4-5 • me\u001b[0m\u001b[39m"
@@ -1018,6 +1149,10 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;135;144;149m/var/lib/project/\u001b[0m\u001b[38;2;135;144;149m...\u001b[39m\u001b[0m",
+      "\u001b[38;2;135;144;149m0.0%/200k (auto)\u001b[39m\u001b[38;2;135;144;149m  cl\u001b[0m\u001b[39m"
+     ],
      [
       "\u001b[38;2;135;144;149m/var/lib/project/with/a/very/long/pat\u001b[0m\u001b[38;2;135;144;149m...\u001b[39m\u001b[0m",
       "\u001b[38;2;135;144;149m0.0%/200k (auto)\u001b[39m\u001b[38;2;135;144;149m  claude-sonnet-4-5 • me\u001b[0m\u001b[39m"
@@ -1054,12 +1189,17 @@
     "branch": null
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;126;136;142m~/project\u001b[39m",
+      "\u001b[38;2;126;136;142m0.0%/200k (auto)\u001b[39m\u001b[38;2;126;136;142m  cl\u001b[0m\u001b[39m"
+     ],
      [
       "\u001b[38;2;126;136;142m~/project\u001b[39m",
       "\u001b[38;2;126;136;142m0.0%/200k (auto)\u001b[39m\u001b[38;2;126;136;142m  claude-sonnet-4-5 • me\u001b[0m\u001b[39m"
@@ -1074,6 +1214,10 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;135;144;149m~/project\u001b[39m",
+      "\u001b[38;2;135;144;149m0.0%/200k (auto)\u001b[39m\u001b[38;2;135;144;149m  cl\u001b[0m\u001b[39m"
+     ],
      [
       "\u001b[38;2;135;144;149m~/project\u001b[39m",
       "\u001b[38;2;135;144;149m0.0%/200k (auto)\u001b[39m\u001b[38;2;135;144;149m  claude-sonnet-4-5 • me\u001b[0m\u001b[39m"
@@ -1115,12 +1259,18 @@
     }
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;126;136;142m~/project (main)\u001b[39m",
+      "\u001b[38;2;126;136;142m0.0%/200k (auto)\u001b[39m\u001b[38;2;126;136;142m  cl\u001b[0m\u001b[39m",
+      "first status with\u001b[0m\u001b[38;2;126;136;142m...\u001b[39m\u001b[0m"
+     ],
      [
       "\u001b[38;2;126;136;142m~/project (main)\u001b[39m",
       "\u001b[38;2;126;136;142m0.0%/200k (auto)\u001b[39m\u001b[38;2;126;136;142m  claude-sonnet-4-5 • me\u001b[0m\u001b[39m",
@@ -1138,6 +1288,11 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;135;144;149m~/project (main)\u001b[39m",
+      "\u001b[38;2;135;144;149m0.0%/200k (auto)\u001b[39m\u001b[38;2;135;144;149m  cl\u001b[0m\u001b[39m",
+      "first status with\u001b[0m\u001b[38;2;135;144;149m...\u001b[39m\u001b[0m"
+     ],
      [
       "\u001b[38;2;135;144;149m~/project (main)\u001b[39m",
       "\u001b[38;2;135;144;149m0.0%/200k (auto)\u001b[39m\u001b[38;2;135;144;149m  claude-sonnet-4-5 • me\u001b[0m\u001b[39m",
@@ -1180,12 +1335,18 @@
     }
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;126;136;142m~/project (main)\u001b[39m",
+      "\u001b[38;2;126;136;142m0.0%/200k (auto)\u001b[39m\u001b[38;2;126;136;142m  cl\u001b[0m\u001b[39m",
+      "xxxxxxxxxxxxxxxxx\u001b[0m\u001b[38;2;126;136;142m...\u001b[39m\u001b[0m"
+     ],
      [
       "\u001b[38;2;126;136;142m~/project (main)\u001b[39m",
       "\u001b[38;2;126;136;142m0.0%/200k (auto)\u001b[39m\u001b[38;2;126;136;142m  claude-sonnet-4-5 • me\u001b[0m\u001b[39m",
@@ -1203,6 +1364,11 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;135;144;149m~/project (main)\u001b[39m",
+      "\u001b[38;2;135;144;149m0.0%/200k (auto)\u001b[39m\u001b[38;2;135;144;149m  cl\u001b[0m\u001b[39m",
+      "xxxxxxxxxxxxxxxxx\u001b[0m\u001b[38;2;135;144;149m...\u001b[39m\u001b[0m"
+     ],
      [
       "\u001b[38;2;135;144;149m~/project (main)\u001b[39m",
       "\u001b[38;2;135;144;149m0.0%/200k (auto)\u001b[39m\u001b[38;2;135;144;149m  claude-sonnet-4-5 • me\u001b[0m\u001b[39m",
@@ -1243,12 +1409,17 @@
     "providerCount": 2
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;126;136;142m~/project (main)\u001b[39m",
+      "\u001b[38;2;126;136;142m0.0%/200k (auto)\u001b[39m\u001b[38;2;126;136;142m  a-\u001b[0m\u001b[39m"
+     ],
      [
       "\u001b[38;2;126;136;142m~/project (main)\u001b[39m",
       "\u001b[38;2;126;136;142m0.0%/200k (auto)\u001b[39m\u001b[38;2;126;136;142m  a-model-with-an-extrem\u001b[0m\u001b[39m"
@@ -1263,6 +1434,10 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;135;144;149m~/project (main)\u001b[39m",
+      "\u001b[38;2;135;144;149m0.0%/200k (auto)\u001b[39m\u001b[38;2;135;144;149m  a-\u001b[0m\u001b[39m"
+     ],
      [
       "\u001b[38;2;135;144;149m~/project (main)\u001b[39m",
       "\u001b[38;2;135;144;149m0.0%/200k (auto)\u001b[39m\u001b[38;2;135;144;149m  a-model-with-an-extrem\u001b[0m\u001b[39m"
@@ -1286,12 +1461,19 @@
     "message": "Working..."
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "",
+      " \u001b[38;2;167;152;215m⠋\u001b[39m \u001b[38;2;157;165;169mWorking...\u001b[39m       ",
+      "\u001b[38;2;167;152;215m⠋\u001b[39m \u001b[38;2;157;165;169mWorking...\u001b[39m",
+      "\u001b[38;2;167;152;215m⠋\u001b[39m"
+     ],
      [
       "",
       " \u001b[38;2;167;152;215m⠋\u001b[39m \u001b[38;2;157;165;169mWorking...\u001b[39m                           ",
@@ -1312,6 +1494,12 @@
      ]
     ],
     "light": [
+     [
+      "",
+      " \u001b[38;2;116;89;180m⠋\u001b[39m \u001b[38;2;103;113;118mWorking...\u001b[39m       ",
+      "\u001b[38;2;116;89;180m⠋\u001b[39m \u001b[38;2;103;113;118mWorking...\u001b[39m",
+      "\u001b[38;2;116;89;180m⠋\u001b[39m"
+     ],
      [
       "",
       " \u001b[38;2;116;89;180m⠋\u001b[39m \u001b[38;2;103;113;118mWorking...\u001b[39m                           ",
@@ -1341,12 +1529,24 @@
     "message": "Reading a lot of files to understand the whole codebase before editing anything at all"
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "",
+      " \u001b[38;2;167;152;215m⠋\u001b[39m \u001b[38;2;157;165;169mReading a lot of ",
+      " \u001b[38;2;157;165;169mfiles to           ",
+      " \u001b[38;2;157;165;169munderstand the     ",
+      " \u001b[38;2;157;165;169mwhole codebase     ",
+      " \u001b[38;2;157;165;169mbefore editing     ",
+      " \u001b[38;2;157;165;169manything at all\u001b[39m    ",
+      "\u001b[38;2;167;152;215m⠋\u001b[39m \u001b[38;2;157;165;169mReading a lot of",
+      "\u001b[38;2;167;152;215m⠋\u001b[39m"
+     ],
      [
       "",
       " \u001b[38;2;167;152;215m⠋\u001b[39m \u001b[38;2;157;165;169mReading a lot of files to understand ",
@@ -1370,6 +1570,17 @@
      ]
     ],
     "light": [
+     [
+      "",
+      " \u001b[38;2;116;89;180m⠋\u001b[39m \u001b[38;2;103;113;118mReading a lot of ",
+      " \u001b[38;2;103;113;118mfiles to           ",
+      " \u001b[38;2;103;113;118munderstand the     ",
+      " \u001b[38;2;103;113;118mwhole codebase     ",
+      " \u001b[38;2;103;113;118mbefore editing     ",
+      " \u001b[38;2;103;113;118manything at all\u001b[39m    ",
+      "\u001b[38;2;116;89;180m⠋\u001b[39m \u001b[38;2;103;113;118mReading a lot of",
+      "\u001b[38;2;116;89;180m⠋\u001b[39m"
+     ],
      [
       "",
       " \u001b[38;2;116;89;180m⠋\u001b[39m \u001b[38;2;103;113;118mReading a lot of files to understand ",
@@ -1409,12 +1620,19 @@
     }
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "",
+      " \u001b[35m●\u001b[39m \u001b[38;2;157;165;169mThinking\u001b[39m         ",
+      "\u001b[35m●\u001b[39m \u001b[38;2;157;165;169mThinking\u001b[39m",
+      "\u001b[35m●\u001b[39m"
+     ],
      [
       "",
       " \u001b[35m●\u001b[39m \u001b[38;2;157;165;169mThinking\u001b[39m                             ",
@@ -1435,6 +1653,12 @@
      ]
     ],
     "light": [
+     [
+      "",
+      " \u001b[35m●\u001b[39m \u001b[38;2;103;113;118mThinking\u001b[39m         ",
+      "\u001b[35m●\u001b[39m \u001b[38;2;103;113;118mThinking\u001b[39m",
+      "\u001b[35m●\u001b[39m"
+     ],
      [
       "",
       " \u001b[35m●\u001b[39m \u001b[38;2;103;113;118mThinking\u001b[39m                             ",
@@ -1467,12 +1691,19 @@
     }
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "",
+      " \u001b[38;2;157;165;169mQuiet\u001b[39m              ",
+      "\u001b[38;2;157;165;169mQuiet\u001b[39m",
+      ""
+     ],
      [
       "",
       " \u001b[38;2;157;165;169mQuiet\u001b[39m                                  ",
@@ -1493,6 +1724,12 @@
      ]
     ],
     "light": [
+     [
+      "",
+      " \u001b[38;2;103;113;118mQuiet\u001b[39m              ",
+      "\u001b[38;2;103;113;118mQuiet\u001b[39m",
+      ""
+     ],
      [
       "",
       " \u001b[38;2;103;113;118mQuiet\u001b[39m                                  ",
@@ -1524,12 +1761,21 @@
     "delayMs": 4500
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "",
+      " \u001b[38;2;205;154;34m⠋\u001b[39m \u001b[38;2;157;165;169mRetrying (2/5)   ",
+      " \u001b[38;2;157;165;169min 5s... (escape   ",
+      " \u001b[38;2;157;165;169mto cancel)\u001b[39m         ",
+      "\u001b[38;2;205;154;34m⠋\u001b[39m \u001b[38;2;157;165;169mRetrying (2/5) in",
+      "\u001b[38;2;205;154;34m⠋\u001b[39m"
+     ],
      [
       "",
       " \u001b[38;2;205;154;34m⠋\u001b[39m \u001b[38;2;157;165;169mRetrying (2/5) in 5s... (escape to   ",
@@ -1551,6 +1797,14 @@
      ]
     ],
     "light": [
+     [
+      "",
+      " \u001b[38;2;143;104;2m⠋\u001b[39m \u001b[38;2;103;113;118mRetrying (2/5)   ",
+      " \u001b[38;2;103;113;118min 5s... (escape   ",
+      " \u001b[38;2;103;113;118mto cancel)\u001b[39m         ",
+      "\u001b[38;2;143;104;2m⠋\u001b[39m \u001b[38;2;103;113;118mRetrying (2/5) in",
+      "\u001b[38;2;143;104;2m⠋\u001b[39m"
+     ],
      [
       "",
       " \u001b[38;2;143;104;2m⠋\u001b[39m \u001b[38;2;103;113;118mRetrying (2/5) in 5s... (escape to   ",
@@ -1581,12 +1835,21 @@
     "reason": "manual"
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "",
+      " \u001b[38;2;167;152;215m⠋\u001b[39m \u001b[38;2;157;165;169mCompacting       ",
+      " \u001b[38;2;157;165;169mcontext... (escape ",
+      " \u001b[38;2;157;165;169mto cancel)\u001b[39m         ",
+      "\u001b[38;2;167;152;215m⠋\u001b[39m \u001b[38;2;157;165;169mCompacting",
+      "\u001b[38;2;167;152;215m⠋\u001b[39m"
+     ],
      [
       "",
       " \u001b[38;2;167;152;215m⠋\u001b[39m \u001b[38;2;157;165;169mCompacting context... (escape to     ",
@@ -1608,6 +1871,14 @@
      ]
     ],
     "light": [
+     [
+      "",
+      " \u001b[38;2;116;89;180m⠋\u001b[39m \u001b[38;2;103;113;118mCompacting       ",
+      " \u001b[38;2;103;113;118mcontext... (escape ",
+      " \u001b[38;2;103;113;118mto cancel)\u001b[39m         ",
+      "\u001b[38;2;116;89;180m⠋\u001b[39m \u001b[38;2;103;113;118mCompacting",
+      "\u001b[38;2;116;89;180m⠋\u001b[39m"
+     ],
      [
       "",
       " \u001b[38;2;116;89;180m⠋\u001b[39m \u001b[38;2;103;113;118mCompacting context... (escape to     ",
@@ -1638,12 +1909,21 @@
     "reason": "threshold"
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "",
+      " \u001b[38;2;167;152;215m⠋\u001b[39m                  ",
+      " \u001b[38;2;157;165;169mAuto-compacting... ",
+      " \u001b[38;2;157;165;169m(escape to cancel)\u001b[39m ",
+      "\u001b[38;2;167;152;215m⠋\u001b[39m \u001b[38;2;157;165;169mAuto-compacting...",
+      "\u001b[38;2;167;152;215m⠋\u001b[39m"
+     ],
      [
       "",
       " \u001b[38;2;167;152;215m⠋\u001b[39m \u001b[38;2;157;165;169mAuto-compacting... (escape to        ",
@@ -1665,6 +1945,14 @@
      ]
     ],
     "light": [
+     [
+      "",
+      " \u001b[38;2;116;89;180m⠋\u001b[39m                  ",
+      " \u001b[38;2;103;113;118mAuto-compacting... ",
+      " \u001b[38;2;103;113;118m(escape to cancel)\u001b[39m ",
+      "\u001b[38;2;116;89;180m⠋\u001b[39m \u001b[38;2;103;113;118mAuto-compacting...",
+      "\u001b[38;2;116;89;180m⠋\u001b[39m"
+     ],
      [
       "",
       " \u001b[38;2;116;89;180m⠋\u001b[39m \u001b[38;2;103;113;118mAuto-compacting... (escape to        ",
@@ -1695,12 +1983,22 @@
     "reason": "overflow"
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "",
+      " \u001b[38;2;167;152;215m⠋\u001b[39m \u001b[38;2;157;165;169mContext overflow ",
+      " \u001b[38;2;157;165;169mdetected,          ",
+      " \u001b[38;2;157;165;169mAuto-compacting... ",
+      " \u001b[38;2;157;165;169m(escape to cancel)\u001b[39m ",
+      "\u001b[38;2;167;152;215m⠋\u001b[39m \u001b[38;2;157;165;169mContext overflow",
+      "\u001b[38;2;167;152;215m⠋\u001b[39m"
+     ],
      [
       "",
       " \u001b[38;2;167;152;215m⠋\u001b[39m \u001b[38;2;157;165;169mContext overflow detected,           ",
@@ -1722,6 +2020,15 @@
      ]
     ],
     "light": [
+     [
+      "",
+      " \u001b[38;2;116;89;180m⠋\u001b[39m \u001b[38;2;103;113;118mContext overflow ",
+      " \u001b[38;2;103;113;118mdetected,          ",
+      " \u001b[38;2;103;113;118mAuto-compacting... ",
+      " \u001b[38;2;103;113;118m(escape to cancel)\u001b[39m ",
+      "\u001b[38;2;116;89;180m⠋\u001b[39m \u001b[38;2;103;113;118mContext overflow",
+      "\u001b[38;2;116;89;180m⠋\u001b[39m"
+     ],
      [
       "",
       " \u001b[38;2;116;89;180m⠋\u001b[39m \u001b[38;2;103;113;118mContext overflow detected,           ",
@@ -1751,12 +2058,21 @@
     "type": "branchSummary"
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "",
+      " \u001b[38;2;167;152;215m⠋\u001b[39m \u001b[38;2;157;165;169mSummarizing      ",
+      " \u001b[38;2;157;165;169mbranch... (escape  ",
+      " \u001b[38;2;157;165;169mto cancel)\u001b[39m         ",
+      "\u001b[38;2;167;152;215m⠋\u001b[39m \u001b[38;2;157;165;169mSummarizing",
+      "\u001b[38;2;167;152;215m⠋\u001b[39m"
+     ],
      [
       "",
       " \u001b[38;2;167;152;215m⠋\u001b[39m \u001b[38;2;157;165;169mSummarizing branch... (escape to     ",
@@ -1778,6 +2094,14 @@
      ]
     ],
     "light": [
+     [
+      "",
+      " \u001b[38;2;116;89;180m⠋\u001b[39m \u001b[38;2;103;113;118mSummarizing      ",
+      " \u001b[38;2;103;113;118mbranch... (escape  ",
+      " \u001b[38;2;103;113;118mto cancel)\u001b[39m         ",
+      "\u001b[38;2;116;89;180m⠋\u001b[39m \u001b[38;2;103;113;118mSummarizing",
+      "\u001b[38;2;116;89;180m⠋\u001b[39m"
+     ],
      [
       "",
       " \u001b[38;2;116;89;180m⠋\u001b[39m \u001b[38;2;103;113;118mSummarizing branch... (escape to     ",
@@ -1807,12 +2131,17 @@
     "type": "idle"
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "                    ",
+      "                    "
+     ],
      [
       "                                        ",
       "                                        "
@@ -1827,6 +2156,10 @@
      ]
     ],
     "light": [
+     [
+      "                    ",
+      "                    "
+     ],
      [
       "                                        ",
       "                                        "
@@ -1847,12 +2180,16 @@
    "kind": "dynamic_border",
    "input": {},
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;95;168;204m────────────────────────────────────────\u001b[39m"
      ],
@@ -1864,6 +2201,9 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;61;142;179m────────────────────────────────────────\u001b[39m"
      ],
@@ -1884,12 +2224,24 @@
     "cancellable": true
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m",
+      "",
+      " \u001b[38;2;167;152;215m⠋\u001b[39m \u001b[38;2;157;165;169mFetching         ",
+      " \u001b[38;2;157;165;169mmodels...\u001b[39m          ",
+      "",
+      " \u001b[38;2;126;136;142mescape/ctrl+c\u001b[39m\u001b[38;2;157;165;169m      ",
+      " \u001b[38;2;157;165;169mcancel\u001b[39m             ",
+      "",
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;95;168;204m────────────────────────────────────────\u001b[39m",
       "",
@@ -1919,6 +2271,17 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m",
+      "",
+      " \u001b[38;2;116;89;180m⠋\u001b[39m \u001b[38;2;103;113;118mFetching         ",
+      " \u001b[38;2;103;113;118mmodels...\u001b[39m          ",
+      "",
+      " \u001b[38;2;135;144;149mescape/ctrl+c\u001b[39m\u001b[38;2;103;113;118m      ",
+      " \u001b[38;2;103;113;118mcancel\u001b[39m             ",
+      "",
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;61;142;179m────────────────────────────────────────\u001b[39m",
       "",
@@ -1957,12 +2320,20 @@
     "cancellable": false
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m",
+      "",
+      " \u001b[38;2;167;152;215m⠋\u001b[39m \u001b[38;2;157;165;169mSaving\u001b[39m           ",
+      "",
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;95;168;204m────────────────────────────────────────\u001b[39m",
       "",
@@ -1986,6 +2357,13 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m",
+      "",
+      " \u001b[38;2;116;89;180m⠋\u001b[39m \u001b[38;2;103;113;118mSaving\u001b[39m           ",
+      "",
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;61;142;179m────────────────────────────────────────\u001b[39m",
       "",
@@ -2017,12 +2395,25 @@
     "url": "https://auth.example.com/oauth/authorize?client_id=pi&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fcallback&scope=openid%20profile"
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      " \u001b[38;2;167;152;215m\u001b]8;;https://auth.example.com/oauth/authorize?client_id=pi&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fcallback&scope=openid%20profile\u001b\\https://auth.examp\u001b]8;;\u001b\\ ",
+      " \u001b[38;2;167;152;215m\u001b]8;;https://auth.example.com/oauth/authorize?client_id=pi&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fcallback&scope=openid%20profile\u001b\\le.com/oauth/autho\u001b]8;;\u001b\\ ",
+      " \u001b[38;2;167;152;215m\u001b]8;;https://auth.example.com/oauth/authorize?client_id=pi&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fcallback&scope=openid%20profile\u001b\\rize?client_id=pi&\u001b]8;;\u001b\\ ",
+      " \u001b[38;2;167;152;215m\u001b]8;;https://auth.example.com/oauth/authorize?client_id=pi&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fcallback&scope=openid%20profile\u001b\\redirect_uri=http%\u001b]8;;\u001b\\ ",
+      " \u001b[38;2;167;152;215m\u001b]8;;https://auth.example.com/oauth/authorize?client_id=pi&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fcallback&scope=openid%20profile\u001b\\3A%2F%2Flocalhost%\u001b]8;;\u001b\\ ",
+      " \u001b[38;2;167;152;215m\u001b]8;;https://auth.example.com/oauth/authorize?client_id=pi&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fcallback&scope=openid%20profile\u001b\\3A1455%2Fcallback&\u001b]8;;\u001b\\ ",
+      " \u001b[38;2;167;152;215m\u001b]8;;https://auth.example.com/oauth/authorize?client_id=pi&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fcallback&scope=openid%20profile\u001b\\scope=openid%20pro\u001b]8;;\u001b\\ ",
+      " \u001b[38;2;167;152;215m\u001b]8;;https://auth.example.com/oauth/authorize?client_id=pi&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fcallback&scope=openid%20profile\u001b\\file\u001b]8;;\u001b\\\u001b[39m               ",
+      " \u001b[38;2;126;136;142m\u001b]8;;https://auth.example.com/oauth/authorize?client_id=pi&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fcallback&scope=openid%20profile\u001b\\Ctrl+click to open\u001b]8;;\u001b\\ ",
+      " \u001b[38;2;126;136;142m\u001b]8;;https://auth.example.com/oauth/authorize?client_id=pi&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fcallback&scope=openid%20profile\u001b\\\u001b]8;;\u001b\\\u001b[39m \u001b[38;2;126;136;142m•\u001b[39m \u001b[38;2;126;136;142mctrl+x\u001b[39m\u001b[38;2;157;165;169m to copy\u001b[39m  "
+     ],
      [
       " \u001b[38;2;167;152;215m\u001b]8;;https://auth.example.com/oauth/authorize?client_id=pi&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fcallback&scope=openid%20profile\u001b\\https://auth.example.com/oauth/authori\u001b]8;;\u001b\\ ",
       " \u001b[38;2;167;152;215m\u001b]8;;https://auth.example.com/oauth/authorize?client_id=pi&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fcallback&scope=openid%20profile\u001b\\ze?client_id=pi&redirect_uri=http%3A%2\u001b]8;;\u001b\\ ",
@@ -2042,6 +2433,18 @@
      ]
     ],
     "light": [
+     [
+      " \u001b[38;2;116;89;180m\u001b]8;;https://auth.example.com/oauth/authorize?client_id=pi&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fcallback&scope=openid%20profile\u001b\\https://auth.examp\u001b]8;;\u001b\\ ",
+      " \u001b[38;2;116;89;180m\u001b]8;;https://auth.example.com/oauth/authorize?client_id=pi&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fcallback&scope=openid%20profile\u001b\\le.com/oauth/autho\u001b]8;;\u001b\\ ",
+      " \u001b[38;2;116;89;180m\u001b]8;;https://auth.example.com/oauth/authorize?client_id=pi&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fcallback&scope=openid%20profile\u001b\\rize?client_id=pi&\u001b]8;;\u001b\\ ",
+      " \u001b[38;2;116;89;180m\u001b]8;;https://auth.example.com/oauth/authorize?client_id=pi&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fcallback&scope=openid%20profile\u001b\\redirect_uri=http%\u001b]8;;\u001b\\ ",
+      " \u001b[38;2;116;89;180m\u001b]8;;https://auth.example.com/oauth/authorize?client_id=pi&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fcallback&scope=openid%20profile\u001b\\3A%2F%2Flocalhost%\u001b]8;;\u001b\\ ",
+      " \u001b[38;2;116;89;180m\u001b]8;;https://auth.example.com/oauth/authorize?client_id=pi&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fcallback&scope=openid%20profile\u001b\\3A1455%2Fcallback&\u001b]8;;\u001b\\ ",
+      " \u001b[38;2;116;89;180m\u001b]8;;https://auth.example.com/oauth/authorize?client_id=pi&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fcallback&scope=openid%20profile\u001b\\scope=openid%20pro\u001b]8;;\u001b\\ ",
+      " \u001b[38;2;116;89;180m\u001b]8;;https://auth.example.com/oauth/authorize?client_id=pi&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fcallback&scope=openid%20profile\u001b\\file\u001b]8;;\u001b\\\u001b[39m               ",
+      " \u001b[38;2;135;144;149m\u001b]8;;https://auth.example.com/oauth/authorize?client_id=pi&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fcallback&scope=openid%20profile\u001b\\Ctrl+click to open\u001b]8;;\u001b\\ ",
+      " \u001b[38;2;135;144;149m\u001b]8;;https://auth.example.com/oauth/authorize?client_id=pi&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fcallback&scope=openid%20profile\u001b\\\u001b]8;;\u001b\\\u001b[39m \u001b[38;2;135;144;149m•\u001b[39m \u001b[38;2;135;144;149mctrl+x\u001b[39m\u001b[38;2;103;113;118m to copy\u001b[39m  "
+     ],
      [
       " \u001b[38;2;116;89;180m\u001b]8;;https://auth.example.com/oauth/authorize?client_id=pi&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fcallback&scope=openid%20profile\u001b\\https://auth.example.com/oauth/authori\u001b]8;;\u001b\\ ",
       " \u001b[38;2;116;89;180m\u001b]8;;https://auth.example.com/oauth/authorize?client_id=pi&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fcallback&scope=openid%20profile\u001b\\ze?client_id=pi&redirect_uri=http%3A%2\u001b]8;;\u001b\\ ",
@@ -2200,12 +2603,28 @@
    "kind": "earendil_announcement",
    "input": {},
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;167;152;215m────────────────────\u001b[39m",
+      " \u001b[1m\u001b[38;2;167;152;215mpi has joined      ",
+      " \u001b[1;38;2;167;152;215mEarendil\u001b[39m\u001b[22m           ",
+      "",
+      " \u001b[38;2;157;165;169mRead the blog      ",
+      " \u001b[38;2;157;165;169mpost:\u001b[39m              ",
+      " \u001b[38;2;105;173;208mhttps://mariozechn ",
+      " \u001b[38;2;105;173;208mer.at/posts/2026-0 ",
+      " \u001b[38;2;105;173;208m4-08-ive-sold-out/\u001b[39m ",
+      "",
+      "\u001b[38;2;157;165;169m[Image: clankolas\u001b[0m...\u001b[0m",
+      "",
+      "\u001b[38;2;167;152;215m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;167;152;215m────────────────────────────────────────\u001b[39m",
       " \u001b[1m\u001b[38;2;167;152;215mpi has joined Earendil\u001b[39m\u001b[22m                 ",
@@ -2242,6 +2661,21 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;116;89;180m────────────────────\u001b[39m",
+      " \u001b[1m\u001b[38;2;116;89;180mpi has joined      ",
+      " \u001b[1;38;2;116;89;180mEarendil\u001b[39m\u001b[22m           ",
+      "",
+      " \u001b[38;2;103;113;118mRead the blog      ",
+      " \u001b[38;2;103;113;118mpost:\u001b[39m              ",
+      " \u001b[38;2;47;120;153mhttps://mariozechn ",
+      " \u001b[38;2;47;120;153mer.at/posts/2026-0 ",
+      " \u001b[38;2;47;120;153m4-08-ive-sold-out/\u001b[39m ",
+      "",
+      "\u001b[38;2;103;113;118m[Image: clankolas\u001b[0m...\u001b[0m",
+      "",
+      "\u001b[38;2;116;89;180m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;116;89;180m────────────────────────────────────────\u001b[39m",
       " \u001b[1m\u001b[38;2;116;89;180mpi has joined Earendil\u001b[39m\u001b[22m                 ",
@@ -2292,12 +2726,34 @@
     ]
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m",
+      "",
+      " \u001b[38;2;167;152;215m\u001b[1mRun `rm -rf        ",
+      " \u001b[1;38;2;167;152;215mbuild`?\u001b[22m\u001b[39m            ",
+      "",
+      " \u001b[38;2;167;152;215m→ \u001b[39m\u001b[38;2;167;152;215mAllow once\u001b[39m       ",
+      "   \u001b[38;2;222;224;225mAllow always\u001b[39m     ",
+      "   \u001b[38;2;222;224;225mDeny\u001b[39m             ",
+      "   \u001b[38;2;222;224;225mDeny and tell    ",
+      " \u001b[38;2;222;224;225mthe model why it   ",
+      " \u001b[38;2;222;224;225mwas denied in a    ",
+      " \u001b[38;2;222;224;225mlong explanation\u001b[39m   ",
+      "",
+      " \u001b[38;2;126;136;142m↑↓\u001b[39m\u001b[38;2;157;165;169m navigate\u001b[39m  \u001b[38;2;126;136;142menter ",
+      " \u001b[38;2;126;136;142m\u001b[39m\u001b[38;2;157;165;169m select\u001b[39m            ",
+      " \u001b[38;2;126;136;142mescape/ctrl+c\u001b[39m\u001b[38;2;157;165;169m      ",
+      " \u001b[38;2;157;165;169mcancel\u001b[39m             ",
+      "",
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;95;168;204m────────────────────────────────────────\u001b[39m",
       "",
@@ -2344,6 +2800,27 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m",
+      "",
+      " \u001b[38;2;116;89;180m\u001b[1mRun `rm -rf        ",
+      " \u001b[1;38;2;116;89;180mbuild`?\u001b[22m\u001b[39m            ",
+      "",
+      " \u001b[38;2;116;89;180m→ \u001b[39m\u001b[38;2;116;89;180mAllow once\u001b[39m       ",
+      "   \u001b[38;2;59;63;65mAllow always\u001b[39m     ",
+      "   \u001b[38;2;59;63;65mDeny\u001b[39m             ",
+      "   \u001b[38;2;59;63;65mDeny and tell    ",
+      " \u001b[38;2;59;63;65mthe model why it   ",
+      " \u001b[38;2;59;63;65mwas denied in a    ",
+      " \u001b[38;2;59;63;65mlong explanation\u001b[39m   ",
+      "",
+      " \u001b[38;2;135;144;149m↑↓\u001b[39m\u001b[38;2;103;113;118m navigate\u001b[39m  \u001b[38;2;135;144;149menter ",
+      " \u001b[38;2;135;144;149m\u001b[39m\u001b[38;2;103;113;118m select\u001b[39m            ",
+      " \u001b[38;2;135;144;149mescape/ctrl+c\u001b[39m\u001b[38;2;103;113;118m      ",
+      " \u001b[38;2;103;113;118mcancel\u001b[39m             ",
+      "",
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;61;142;179m────────────────────────────────────────\u001b[39m",
       "",
@@ -2405,12 +2882,38 @@
     "description": "The tool wants to delete files outside the project directory."
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m",
+      "",
+      " \u001b[38;2;167;152;215m\u001b[1mPick one\u001b[22m\u001b[39m           ",
+      "",
+      " \u001b[38;2;222;224;225mThe tool wants to  ",
+      " \u001b[38;2;222;224;225mdelete files       ",
+      " \u001b[38;2;222;224;225moutside the        ",
+      " \u001b[38;2;222;224;225mproject directory.\u001b[39m ",
+      "",
+      " \u001b[38;2;167;152;215m→ \u001b[39m\u001b[38;2;167;152;215mAllow once\u001b[39m       ",
+      "   \u001b[38;2;222;224;225mAllow always\u001b[39m     ",
+      "   \u001b[38;2;222;224;225mDeny\u001b[39m             ",
+      "   \u001b[38;2;222;224;225mDeny and tell    ",
+      " \u001b[38;2;222;224;225mthe model why it   ",
+      " \u001b[38;2;222;224;225mwas denied in a    ",
+      " \u001b[38;2;222;224;225mlong explanation\u001b[39m   ",
+      "",
+      " \u001b[38;2;126;136;142m↑↓\u001b[39m\u001b[38;2;157;165;169m navigate\u001b[39m  \u001b[38;2;126;136;142menter ",
+      " \u001b[38;2;126;136;142m\u001b[39m\u001b[38;2;157;165;169m select\u001b[39m            ",
+      " \u001b[38;2;126;136;142mescape/ctrl+c\u001b[39m\u001b[38;2;157;165;169m      ",
+      " \u001b[38;2;157;165;169mcancel\u001b[39m             ",
+      "",
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;95;168;204m────────────────────────────────────────\u001b[39m",
       "",
@@ -2464,6 +2967,31 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m",
+      "",
+      " \u001b[38;2;116;89;180m\u001b[1mPick one\u001b[22m\u001b[39m           ",
+      "",
+      " \u001b[38;2;59;63;65mThe tool wants to  ",
+      " \u001b[38;2;59;63;65mdelete files       ",
+      " \u001b[38;2;59;63;65moutside the        ",
+      " \u001b[38;2;59;63;65mproject directory.\u001b[39m ",
+      "",
+      " \u001b[38;2;116;89;180m→ \u001b[39m\u001b[38;2;116;89;180mAllow once\u001b[39m       ",
+      "   \u001b[38;2;59;63;65mAllow always\u001b[39m     ",
+      "   \u001b[38;2;59;63;65mDeny\u001b[39m             ",
+      "   \u001b[38;2;59;63;65mDeny and tell    ",
+      " \u001b[38;2;59;63;65mthe model why it   ",
+      " \u001b[38;2;59;63;65mwas denied in a    ",
+      " \u001b[38;2;59;63;65mlong explanation\u001b[39m   ",
+      "",
+      " \u001b[38;2;135;144;149m↑↓\u001b[39m\u001b[38;2;103;113;118m navigate\u001b[39m  \u001b[38;2;135;144;149menter ",
+      " \u001b[38;2;135;144;149m\u001b[39m\u001b[38;2;103;113;118m select\u001b[39m            ",
+      " \u001b[38;2;135;144;149mescape/ctrl+c\u001b[39m\u001b[38;2;103;113;118m      ",
+      " \u001b[38;2;103;113;118mcancel\u001b[39m             ",
+      "",
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;61;142;179m────────────────────────────────────────\u001b[39m",
       "",
@@ -2537,12 +3065,33 @@
     ]
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m",
+      "",
+      " \u001b[38;2;167;152;215m\u001b[1mPick\u001b[22m\u001b[39m               ",
+      "",
+      "   \u001b[38;2;222;224;225mAllow once\u001b[39m       ",
+      "   \u001b[38;2;222;224;225mAllow always\u001b[39m     ",
+      " \u001b[38;2;167;152;215m→ \u001b[39m\u001b[38;2;167;152;215mDeny\u001b[39m             ",
+      "   \u001b[38;2;222;224;225mDeny and tell    ",
+      " \u001b[38;2;222;224;225mthe model why it   ",
+      " \u001b[38;2;222;224;225mwas denied in a    ",
+      " \u001b[38;2;222;224;225mlong explanation\u001b[39m   ",
+      "",
+      " \u001b[38;2;126;136;142m↑↓\u001b[39m\u001b[38;2;157;165;169m navigate\u001b[39m  \u001b[38;2;126;136;142menter ",
+      " \u001b[38;2;126;136;142m\u001b[39m\u001b[38;2;157;165;169m select\u001b[39m            ",
+      " \u001b[38;2;126;136;142mescape/ctrl+c\u001b[39m\u001b[38;2;157;165;169m      ",
+      " \u001b[38;2;157;165;169mcancel\u001b[39m             ",
+      "",
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;95;168;204m────────────────────────────────────────\u001b[39m",
       "",
@@ -2589,6 +3138,26 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m",
+      "",
+      " \u001b[38;2;116;89;180m\u001b[1mPick\u001b[22m\u001b[39m               ",
+      "",
+      "   \u001b[38;2;59;63;65mAllow once\u001b[39m       ",
+      "   \u001b[38;2;59;63;65mAllow always\u001b[39m     ",
+      " \u001b[38;2;116;89;180m→ \u001b[39m\u001b[38;2;116;89;180mDeny\u001b[39m             ",
+      "   \u001b[38;2;59;63;65mDeny and tell    ",
+      " \u001b[38;2;59;63;65mthe model why it   ",
+      " \u001b[38;2;59;63;65mwas denied in a    ",
+      " \u001b[38;2;59;63;65mlong explanation\u001b[39m   ",
+      "",
+      " \u001b[38;2;135;144;149m↑↓\u001b[39m\u001b[38;2;103;113;118m navigate\u001b[39m  \u001b[38;2;135;144;149menter ",
+      " \u001b[38;2;135;144;149m\u001b[39m\u001b[38;2;103;113;118m select\u001b[39m            ",
+      " \u001b[38;2;135;144;149mescape/ctrl+c\u001b[39m\u001b[38;2;103;113;118m      ",
+      " \u001b[38;2;103;113;118mcancel\u001b[39m             ",
+      "",
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;61;142;179m────────────────────────────────────────\u001b[39m",
       "",
@@ -2652,12 +3221,28 @@
     ]
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m",
+      "",
+      " \u001b[38;2;167;152;215m\u001b[1mPick\u001b[22m\u001b[39m               ",
+      "",
+      "   \u001b[38;2;222;224;225ma\u001b[39m                ",
+      " \u001b[38;2;167;152;215m→ \u001b[39m\u001b[38;2;167;152;215mb\u001b[39m                ",
+      "",
+      " \u001b[38;2;126;136;142m↑↓\u001b[39m\u001b[38;2;157;165;169m navigate\u001b[39m  \u001b[38;2;126;136;142menter ",
+      " \u001b[38;2;126;136;142m\u001b[39m\u001b[38;2;157;165;169m select\u001b[39m            ",
+      " \u001b[38;2;126;136;142mescape/ctrl+c\u001b[39m\u001b[38;2;157;165;169m      ",
+      " \u001b[38;2;157;165;169mcancel\u001b[39m             ",
+      "",
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;95;168;204m────────────────────────────────────────\u001b[39m",
       "",
@@ -2697,6 +3282,21 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m",
+      "",
+      " \u001b[38;2;116;89;180m\u001b[1mPick\u001b[22m\u001b[39m               ",
+      "",
+      "   \u001b[38;2;59;63;65ma\u001b[39m                ",
+      " \u001b[38;2;116;89;180m→ \u001b[39m\u001b[38;2;116;89;180mb\u001b[39m                ",
+      "",
+      " \u001b[38;2;135;144;149m↑↓\u001b[39m\u001b[38;2;103;113;118m navigate\u001b[39m  \u001b[38;2;135;144;149menter ",
+      " \u001b[38;2;135;144;149m\u001b[39m\u001b[38;2;103;113;118m select\u001b[39m            ",
+      " \u001b[38;2;135;144;149mescape/ctrl+c\u001b[39m\u001b[38;2;103;113;118m      ",
+      " \u001b[38;2;103;113;118mcancel\u001b[39m             ",
+      "",
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;61;142;179m────────────────────────────────────────\u001b[39m",
       "",
@@ -2744,12 +3344,26 @@
     "title": "Commit message"
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m",
+      "",
+      " \u001b[38;2;167;152;215mCommit message\u001b[39m     ",
+      "",
+      "> \u001b_pi:fc\u0007 \u001b_pi:/fc\u0007                 ",
+      "",
+      " \u001b[38;2;126;136;142menter\u001b[39m\u001b[38;2;157;165;169m submit\u001b[39m       ",
+      " \u001b[38;2;126;136;142mescape/ctrl+c\u001b[39m\u001b[38;2;157;165;169m      ",
+      " \u001b[38;2;157;165;169mcancel\u001b[39m             ",
+      "",
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;95;168;204m────────────────────────────────────────\u001b[39m",
       "",
@@ -2785,6 +3399,19 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m",
+      "",
+      " \u001b[38;2;116;89;180mCommit message\u001b[39m     ",
+      "",
+      "> \u001b_pi:fc\u0007 \u001b_pi:/fc\u0007                 ",
+      "",
+      " \u001b[38;2;135;144;149menter\u001b[39m\u001b[38;2;103;113;118m submit\u001b[39m       ",
+      " \u001b[38;2;135;144;149mescape/ctrl+c\u001b[39m\u001b[38;2;103;113;118m      ",
+      " \u001b[38;2;103;113;118mcancel\u001b[39m             ",
+      "",
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;61;142;179m────────────────────────────────────────\u001b[39m",
       "",
@@ -2830,12 +3457,29 @@
     "description": "Used for the branch name."
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m",
+      "",
+      " \u001b[38;2;167;152;215mName\u001b[39m               ",
+      "",
+      " \u001b[38;2;222;224;225mUsed for the       ",
+      " \u001b[38;2;222;224;225mbranch name.\u001b[39m       ",
+      "",
+      "> \u001b_pi:fc\u0007g\u001b_pi:/fc\u0007olden-value      ",
+      "",
+      " \u001b[38;2;126;136;142menter\u001b[39m\u001b[38;2;157;165;169m submit\u001b[39m       ",
+      " \u001b[38;2;126;136;142mescape/ctrl+c\u001b[39m\u001b[38;2;157;165;169m      ",
+      " \u001b[38;2;157;165;169mcancel\u001b[39m             ",
+      "",
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;95;168;204m────────────────────────────────────────\u001b[39m",
       "",
@@ -2877,6 +3521,22 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m",
+      "",
+      " \u001b[38;2;116;89;180mName\u001b[39m               ",
+      "",
+      " \u001b[38;2;59;63;65mUsed for the       ",
+      " \u001b[38;2;59;63;65mbranch name.\u001b[39m       ",
+      "",
+      "> \u001b_pi:fc\u0007g\u001b_pi:/fc\u0007olden-value      ",
+      "",
+      " \u001b[38;2;135;144;149menter\u001b[39m\u001b[38;2;103;113;118m submit\u001b[39m       ",
+      " \u001b[38;2;135;144;149mescape/ctrl+c\u001b[39m\u001b[38;2;103;113;118m      ",
+      " \u001b[38;2;103;113;118mcancel\u001b[39m             ",
+      "",
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;61;142;179m────────────────────────────────────────\u001b[39m",
       "",
@@ -2938,12 +3598,26 @@
     ]
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m",
+      "",
+      " \u001b[38;2;167;152;215mName\u001b[39m               ",
+      "",
+      "> hello\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007w           ",
+      "",
+      " \u001b[38;2;126;136;142menter\u001b[39m\u001b[38;2;157;165;169m submit\u001b[39m       ",
+      " \u001b[38;2;126;136;142mescape/ctrl+c\u001b[39m\u001b[38;2;157;165;169m      ",
+      " \u001b[38;2;157;165;169mcancel\u001b[39m             ",
+      "",
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;95;168;204m────────────────────────────────────────\u001b[39m",
       "",
@@ -2979,6 +3653,19 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m",
+      "",
+      " \u001b[38;2;116;89;180mName\u001b[39m               ",
+      "",
+      "> hello\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007w           ",
+      "",
+      " \u001b[38;2;135;144;149menter\u001b[39m\u001b[38;2;103;113;118m submit\u001b[39m       ",
+      " \u001b[38;2;135;144;149mescape/ctrl+c\u001b[39m\u001b[38;2;103;113;118m      ",
+      " \u001b[38;2;103;113;118mcancel\u001b[39m             ",
+      "",
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;61;142;179m────────────────────────────────────────\u001b[39m",
       "",
@@ -3024,12 +3711,26 @@
     "focused": true
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m",
+      "",
+      " \u001b[38;2;167;152;215mLong\u001b[39m               ",
+      "",
+      "> \u001b_pi:c\u0007\u001b_pi:fc\u0007a\u001b_pi:/fc\u0007 very long value ",
+      "",
+      " \u001b[38;2;126;136;142menter\u001b[39m\u001b[38;2;157;165;169m submit\u001b[39m       ",
+      " \u001b[38;2;126;136;142mescape/ctrl+c\u001b[39m\u001b[38;2;157;165;169m      ",
+      " \u001b[38;2;157;165;169mcancel\u001b[39m             ",
+      "",
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;95;168;204m────────────────────────────────────────\u001b[39m",
       "",
@@ -3065,6 +3766,19 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m",
+      "",
+      " \u001b[38;2;116;89;180mLong\u001b[39m               ",
+      "",
+      "> \u001b_pi:c\u0007\u001b_pi:fc\u0007a\u001b_pi:/fc\u0007 very long value ",
+      "",
+      " \u001b[38;2;135;144;149menter\u001b[39m\u001b[38;2;103;113;118m submit\u001b[39m       ",
+      " \u001b[38;2;135;144;149mescape/ctrl+c\u001b[39m\u001b[38;2;103;113;118m      ",
+      " \u001b[38;2;103;113;118mcancel\u001b[39m             ",
+      "",
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;61;142;179m────────────────────────────────────────\u001b[39m",
       "",
@@ -3108,12 +3822,31 @@
     "title": "Edit the plan"
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m",
+      "",
+      " \u001b[38;2;167;152;215mEdit the plan\u001b[39m      ",
+      "",
+      "\u001b[38;2;118;129;134m────────────────────\u001b[39m",
+      "\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007                   ",
+      "\u001b[38;2;118;129;134m────────────────────\u001b[39m",
+      "",
+      " \u001b[38;2;126;136;142menter\u001b[39m\u001b[38;2;157;165;169m submit\u001b[39m       ",
+      " \u001b[38;2;126;136;142mshift+enter/ctrl+j ",
+      " \u001b[38;2;126;136;142m\u001b[39m\u001b[38;2;157;165;169m newline\u001b[39m           ",
+      " \u001b[38;2;126;136;142mescape/ctrl+c\u001b[39m\u001b[38;2;157;165;169m      ",
+      " \u001b[38;2;157;165;169mcancel\u001b[39m  \u001b[38;2;126;136;142mctrl+g\u001b[39m\u001b[38;2;157;165;169m     ",
+      " \u001b[38;2;157;165;169mexternal editor\u001b[39m    ",
+      "",
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;95;168;204m────────────────────────────────────────\u001b[39m",
       "",
@@ -3158,6 +3891,24 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m",
+      "",
+      " \u001b[38;2;116;89;180mEdit the plan\u001b[39m      ",
+      "",
+      "\u001b[38;2;154;162;167m────────────────────\u001b[39m",
+      "\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007                   ",
+      "\u001b[38;2;154;162;167m────────────────────\u001b[39m",
+      "",
+      " \u001b[38;2;135;144;149menter\u001b[39m\u001b[38;2;103;113;118m submit\u001b[39m       ",
+      " \u001b[38;2;135;144;149mshift+enter/ctrl+j ",
+      " \u001b[38;2;135;144;149m\u001b[39m\u001b[38;2;103;113;118m newline\u001b[39m           ",
+      " \u001b[38;2;135;144;149mescape/ctrl+c\u001b[39m\u001b[38;2;103;113;118m      ",
+      " \u001b[38;2;103;113;118mcancel\u001b[39m  \u001b[38;2;135;144;149mctrl+g\u001b[39m\u001b[38;2;103;113;118m     ",
+      " \u001b[38;2;103;113;118mexternal editor\u001b[39m    ",
+      "",
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;61;142;179m────────────────────────────────────────\u001b[39m",
       "",
@@ -3212,12 +3963,39 @@
     "description": "Describe it."
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m",
+      "",
+      " \u001b[38;2;167;152;215mEdit\u001b[39m               ",
+      "",
+      " \u001b[38;2;222;224;225mDescribe it.\u001b[39m       ",
+      "",
+      "\u001b[38;2;118;129;134m────────────────────\u001b[39m",
+      "line one            ",
+      "line two            ",
+      "                    ",
+      "line four is        ",
+      "longer than the     ",
+      "others and wraps    ",
+      "at narrow widths\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007   ",
+      "\u001b[38;2;118;129;134m────────────────────\u001b[39m",
+      "",
+      " \u001b[38;2;126;136;142menter\u001b[39m\u001b[38;2;157;165;169m submit\u001b[39m       ",
+      " \u001b[38;2;126;136;142mshift+enter/ctrl+j ",
+      " \u001b[38;2;126;136;142m\u001b[39m\u001b[38;2;157;165;169m newline\u001b[39m           ",
+      " \u001b[38;2;126;136;142mescape/ctrl+c\u001b[39m\u001b[38;2;157;165;169m      ",
+      " \u001b[38;2;157;165;169mcancel\u001b[39m  \u001b[38;2;126;136;142mctrl+g\u001b[39m\u001b[38;2;157;165;169m     ",
+      " \u001b[38;2;157;165;169mexternal editor\u001b[39m    ",
+      "",
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;95;168;204m────────────────────────────────────────\u001b[39m",
       "",
@@ -3278,6 +4056,32 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m",
+      "",
+      " \u001b[38;2;116;89;180mEdit\u001b[39m               ",
+      "",
+      " \u001b[38;2;59;63;65mDescribe it.\u001b[39m       ",
+      "",
+      "\u001b[38;2;154;162;167m────────────────────\u001b[39m",
+      "line one            ",
+      "line two            ",
+      "                    ",
+      "line four is        ",
+      "longer than the     ",
+      "others and wraps    ",
+      "at narrow widths\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007   ",
+      "\u001b[38;2;154;162;167m────────────────────\u001b[39m",
+      "",
+      " \u001b[38;2;135;144;149menter\u001b[39m\u001b[38;2;103;113;118m submit\u001b[39m       ",
+      " \u001b[38;2;135;144;149mshift+enter/ctrl+j ",
+      " \u001b[38;2;135;144;149m\u001b[39m\u001b[38;2;103;113;118m newline\u001b[39m           ",
+      " \u001b[38;2;135;144;149mescape/ctrl+c\u001b[39m\u001b[38;2;103;113;118m      ",
+      " \u001b[38;2;103;113;118mcancel\u001b[39m  \u001b[38;2;135;144;149mctrl+g\u001b[39m\u001b[38;2;103;113;118m     ",
+      " \u001b[38;2;103;113;118mexternal editor\u001b[39m    ",
+      "",
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;61;142;179m────────────────────────────────────────\u001b[39m",
       "",
@@ -3353,12 +4157,32 @@
     ]
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m",
+      "",
+      " \u001b[38;2;167;152;215mEdit\u001b[39m               ",
+      "",
+      "\u001b[38;2;118;129;134m────────────────────\u001b[39m",
+      "ab                  ",
+      "c\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007                  ",
+      "\u001b[38;2;118;129;134m────────────────────\u001b[39m",
+      "",
+      " \u001b[38;2;126;136;142menter\u001b[39m\u001b[38;2;157;165;169m submit\u001b[39m       ",
+      " \u001b[38;2;126;136;142mshift+enter/ctrl+j ",
+      " \u001b[38;2;126;136;142m\u001b[39m\u001b[38;2;157;165;169m newline\u001b[39m           ",
+      " \u001b[38;2;126;136;142mescape/ctrl+c\u001b[39m\u001b[38;2;157;165;169m      ",
+      " \u001b[38;2;157;165;169mcancel\u001b[39m  \u001b[38;2;126;136;142mctrl+g\u001b[39m\u001b[38;2;157;165;169m     ",
+      " \u001b[38;2;157;165;169mexternal editor\u001b[39m    ",
+      "",
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;95;168;204m────────────────────────────────────────\u001b[39m",
       "",
@@ -3406,6 +4230,25 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m",
+      "",
+      " \u001b[38;2;116;89;180mEdit\u001b[39m               ",
+      "",
+      "\u001b[38;2;154;162;167m────────────────────\u001b[39m",
+      "ab                  ",
+      "c\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007                  ",
+      "\u001b[38;2;154;162;167m────────────────────\u001b[39m",
+      "",
+      " \u001b[38;2;135;144;149menter\u001b[39m\u001b[38;2;103;113;118m submit\u001b[39m       ",
+      " \u001b[38;2;135;144;149mshift+enter/ctrl+j ",
+      " \u001b[38;2;135;144;149m\u001b[39m\u001b[38;2;103;113;118m newline\u001b[39m           ",
+      " \u001b[38;2;135;144;149mescape/ctrl+c\u001b[39m\u001b[38;2;103;113;118m      ",
+      " \u001b[38;2;103;113;118mcancel\u001b[39m  \u001b[38;2;135;144;149mctrl+g\u001b[39m\u001b[38;2;103;113;118m     ",
+      " \u001b[38;2;103;113;118mexternal editor\u001b[39m    ",
+      "",
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;61;142;179m────────────────────────────────────────\u001b[39m",
       "",
@@ -3459,12 +4302,18 @@
    "kind": "custom_editor",
    "input": {},
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;118;129;134m────────────────────\u001b[39m",
+      "\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007                   ",
+      "\u001b[38;2;118;129;134m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;118;129;134m────────────────────────────────────────\u001b[39m",
       "\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007                                       ",
@@ -3482,6 +4331,11 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;154;162;167m────────────────────\u001b[39m",
+      "\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007                   ",
+      "\u001b[38;2;154;162;167m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;154;162;167m────────────────────────────────────────\u001b[39m",
       "\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007                                       ",
@@ -3507,12 +4361,18 @@
     "focused": true
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;118;129;134m────────────────────\u001b[39m",
+      "\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007                   ",
+      "\u001b[38;2;118;129;134m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;118;129;134m────────────────────────────────────────\u001b[39m",
       "\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007                                       ",
@@ -3530,6 +4390,11 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;154;162;167m────────────────────\u001b[39m",
+      "\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007                   ",
+      "\u001b[38;2;154;162;167m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;154;162;167m────────────────────────────────────────\u001b[39m",
       "\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007                                       ",
@@ -3556,12 +4421,19 @@
     "focused": true
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;118;129;134m────────────────────\u001b[39m",
+      "fix the bug in      ",
+      "parser.ts\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007          ",
+      "\u001b[38;2;118;129;134m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;118;129;134m────────────────────────────────────────\u001b[39m",
       "fix the bug in parser.ts\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007               ",
@@ -3579,6 +4451,12 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;154;162;167m────────────────────\u001b[39m",
+      "fix the bug in      ",
+      "parser.ts\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007          ",
+      "\u001b[38;2;154;162;167m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;154;162;167m────────────────────────────────────────\u001b[39m",
       "fix the bug in parser.ts\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007               ",
@@ -3605,12 +4483,24 @@
     "focused": true
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;118;129;134m────────────────────\u001b[39m",
+      "first line          ",
+      "second line         ",
+      "                    ",
+      "fourth line with    ",
+      "more words that     ",
+      "will wrap when      ",
+      "narrow\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007             ",
+      "\u001b[38;2;118;129;134m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;118;129;134m────────────────────────────────────────\u001b[39m",
       "first line                              ",
@@ -3638,6 +4528,17 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;154;162;167m────────────────────\u001b[39m",
+      "first line          ",
+      "second line         ",
+      "                    ",
+      "fourth line with    ",
+      "more words that     ",
+      "will wrap when      ",
+      "narrow\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007             ",
+      "\u001b[38;2;154;162;167m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;154;162;167m────────────────────────────────────────\u001b[39m",
       "first line                              ",
@@ -3675,12 +4576,18 @@
     "focused": true
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;118;129;134m────────────────────\u001b[39m",
+      "  padded\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007           ",
+      "\u001b[38;2;118;129;134m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;118;129;134m────────────────────────────────────────\u001b[39m",
       "  padded\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007                               ",
@@ -3698,6 +4605,11 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;154;162;167m────────────────────\u001b[39m",
+      "  padded\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007           ",
+      "\u001b[38;2;154;162;167m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;154;162;167m────────────────────────────────────────\u001b[39m",
       "  padded\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007                               ",
@@ -3730,12 +4642,18 @@
     ]
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;118;129;134m────────────────────\u001b[39m",
+      "\u001b_pi:c\u0007\u001b_pi:fc\u0007h\u001b_pi:/fc\u0007ello world         ",
+      "\u001b[38;2;118;129;134m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;118;129;134m────────────────────────────────────────\u001b[39m",
       "\u001b_pi:c\u0007\u001b_pi:fc\u0007h\u001b_pi:/fc\u0007ello world                             ",
@@ -3753,6 +4671,11 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;154;162;167m────────────────────\u001b[39m",
+      "\u001b_pi:c\u0007\u001b_pi:fc\u0007h\u001b_pi:/fc\u0007ello world         ",
+      "\u001b[38;2;154;162;167m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;154;162;167m────────────────────────────────────────\u001b[39m",
       "\u001b_pi:c\u0007\u001b_pi:fc\u0007h\u001b_pi:/fc\u0007ello world                             ",
@@ -3779,12 +4702,19 @@
     "focused": true
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;118;129;134m────────────────────\u001b[39m",
+      "日本語 テキスト 👍  ",
+      "emoji\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007              ",
+      "\u001b[38;2;118;129;134m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;118;129;134m────────────────────────────────────────\u001b[39m",
       "日本語 テキスト 👍 emoji\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007               ",
@@ -3802,6 +4732,12 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;154;162;167m────────────────────\u001b[39m",
+      "日本語 テキスト 👍  ",
+      "emoji\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007              ",
+      "\u001b[38;2;154;162;167m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;154;162;167m────────────────────────────────────────\u001b[39m",
       "日本語 テキスト 👍 emoji\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007               ",
@@ -3828,12 +4764,24 @@
     "focused": true
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;118;129;134m──── ↑ 23 more ─────\u001b[39m",
+      "line 24             ",
+      "line 25             ",
+      "line 26             ",
+      "line 27             ",
+      "line 28             ",
+      "line 29             ",
+      "line 30\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007            ",
+      "\u001b[38;2;118;129;134m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;118;129;134m────────────── ↑ 23 more ───────────────\u001b[39m",
       "line 24                                 ",
@@ -3869,6 +4817,17 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;154;162;167m──── ↑ 23 more ─────\u001b[39m",
+      "line 24             ",
+      "line 25             ",
+      "line 26             ",
+      "line 27             ",
+      "line 28             ",
+      "line 29             ",
+      "line 30\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007            ",
+      "\u001b[38;2;154;162;167m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;154;162;167m────────────── ↑ 23 more ───────────────\u001b[39m",
       "line 24                                 ",
@@ -3915,12 +4874,18 @@
     "focused": true
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;118;129;134m── \u001b[39m\u001b[38;2;167;152;215m⠋\u001b[39m \u001b[38;2;157;165;169mWorking...\u001b[39m\u001b[38;2;118;129;134m ────\u001b[39m",
+      "queued message\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007     ",
+      "\u001b[38;2;118;129;134m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;118;129;134m── \u001b[39m\u001b[38;2;167;152;215m⠋\u001b[39m \u001b[38;2;157;165;169mWorking...\u001b[39m\u001b[38;2;118;129;134m ────────────────────────\u001b[39m",
       "queued message\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007                         ",
@@ -3938,6 +4903,11 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;154;162;167m── \u001b[39m\u001b[38;2;116;89;180m⠋\u001b[39m \u001b[38;2;103;113;118mWorking...\u001b[39m\u001b[38;2;154;162;167m ────\u001b[39m",
+      "queued message\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007     ",
+      "\u001b[38;2;154;162;167m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;154;162;167m── \u001b[39m\u001b[38;2;116;89;180m⠋\u001b[39m \u001b[38;2;103;113;118mWorking...\u001b[39m\u001b[38;2;154;162;167m ────────────────────────\u001b[39m",
       "queued message\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007                         ",
@@ -3966,12 +4936,24 @@
     "focused": true
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;118;129;134m── \u001b[39m\u001b[38;2;167;152;215m⠋\u001b[39m\u001b[38;2;118;129;134m ───────────────\u001b[39m",
+      "line 24             ",
+      "line 25             ",
+      "line 26             ",
+      "line 27             ",
+      "line 28             ",
+      "line 29             ",
+      "line 30\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007            ",
+      "\u001b[38;2;118;129;134m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;118;129;134m── \u001b[39m\u001b[38;2;167;152;215m⠋\u001b[39m\u001b[38;2;118;129;134m ───────── ↑ 23 more ───────────────\u001b[39m",
       "line 24                                 ",
@@ -4007,6 +4989,17 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;154;162;167m── \u001b[39m\u001b[38;2;116;89;180m⠋\u001b[39m\u001b[38;2;154;162;167m ───────────────\u001b[39m",
+      "line 24             ",
+      "line 25             ",
+      "line 26             ",
+      "line 27             ",
+      "line 28             ",
+      "line 29             ",
+      "line 30\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007            ",
+      "\u001b[38;2;154;162;167m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;154;162;167m── \u001b[39m\u001b[38;2;116;89;180m⠋\u001b[39m\u001b[38;2;154;162;167m ───────── ↑ 23 more ───────────────\u001b[39m",
       "line 24                                 ",
@@ -4052,12 +5045,18 @@
     "text": "x"
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;118;129;134m────────────────────\u001b[39m",
+      "x\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007                  ",
+      "\u001b[38;2;118;129;134m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;118;129;134m────────────────────────────────────────\u001b[39m",
       "x\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007                                      ",
@@ -4075,6 +5074,11 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;154;162;167m────────────────────\u001b[39m",
+      "x\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007                  ",
+      "\u001b[38;2;154;162;167m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;154;162;167m────────────────────────────────────────\u001b[39m",
       "x\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007                                      ",
@@ -4100,12 +5104,18 @@
     "provider": "anthropic"
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m",
+      " \u001b[38;2;167;152;215m\u001b[1mLogin to anthropic\u001b[22m\u001b[39m ",
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;95;168;204m────────────────────────────────────────\u001b[39m",
       " \u001b[38;2;167;152;215m\u001b[1mLogin to anthropic\u001b[22m\u001b[39m                     ",
@@ -4123,6 +5133,11 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m",
+      " \u001b[38;2;116;89;180m\u001b[1mLogin to anthropic\u001b[22m\u001b[39m ",
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;61;142;179m────────────────────────────────────────\u001b[39m",
       " \u001b[38;2;116;89;180m\u001b[1mLogin to anthropic\u001b[22m\u001b[39m                     ",
@@ -4160,12 +5175,31 @@
     ]
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m",
+      " \u001b[38;2;167;152;215m\u001b[1mLogin to GitHub    ",
+      " \u001b[1;38;2;167;152;215mCopilot\u001b[22m\u001b[39m            ",
+      "",
+      " \u001b[38;2;167;152;215m\u001b]8;;https://github.com/login/device\u0007https://github.com\u001b]8;;\u0007 ",
+      " \u001b[38;2;167;152;215m\u001b]8;;https://github.com/login/device\u0007/login/device\u001b]8;;\u0007\u001b[39m      ",
+      " \u001b[38;2;126;136;142m\u001b]8;;https://github.com/login/device\u0007Ctrl+click to open\u001b]8;;\u0007\u001b[39m ",
+      "",
+      " \u001b[38;2;205;154;34mEnter code:        ",
+      " \u001b[38;2;205;154;34mABCD-1234\u001b[39m          ",
+      "",
+      " \u001b[38;2;126;136;142mWaiting for        ",
+      " \u001b[38;2;126;136;142mauthorization...\u001b[39m   ",
+      " (\u001b[38;2;126;136;142mescape/ctrl+c\u001b[39m\u001b[38;2;157;165;169m to  ",
+      " \u001b[38;2;157;165;169mcancel\u001b[39m)            ",
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;95;168;204m────────────────────────────────────────\u001b[39m",
       " \u001b[38;2;167;152;215m\u001b[1mLogin to GitHub Copilot\u001b[22m\u001b[39m                ",
@@ -4207,6 +5241,24 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m",
+      " \u001b[38;2;116;89;180m\u001b[1mLogin to GitHub    ",
+      " \u001b[1;38;2;116;89;180mCopilot\u001b[22m\u001b[39m            ",
+      "",
+      " \u001b[38;2;116;89;180m\u001b]8;;https://github.com/login/device\u0007https://github.com\u001b]8;;\u0007 ",
+      " \u001b[38;2;116;89;180m\u001b]8;;https://github.com/login/device\u0007/login/device\u001b]8;;\u0007\u001b[39m      ",
+      " \u001b[38;2;135;144;149m\u001b]8;;https://github.com/login/device\u0007Ctrl+click to open\u001b]8;;\u0007\u001b[39m ",
+      "",
+      " \u001b[38;2;143;104;2mEnter code:        ",
+      " \u001b[38;2;143;104;2mABCD-1234\u001b[39m          ",
+      "",
+      " \u001b[38;2;135;144;149mWaiting for        ",
+      " \u001b[38;2;135;144;149mauthorization...\u001b[39m   ",
+      " (\u001b[38;2;135;144;149mescape/ctrl+c\u001b[39m\u001b[38;2;103;113;118m to  ",
+      " \u001b[38;2;103;113;118mcancel\u001b[39m)            ",
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;61;142;179m────────────────────────────────────────\u001b[39m",
       " \u001b[38;2;116;89;180m\u001b[1mLogin to GitHub Copilot\u001b[22m\u001b[39m                ",
@@ -4279,12 +5331,31 @@
     ]
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m",
+      " \u001b[38;2;167;152;215m\u001b[1mSign in to Custom\u001b[22m\u001b[39m  ",
+      "",
+      " Step 1: open the   ",
+      " site               ",
+      " Step 2: copy the   ",
+      " key                ",
+      "",
+      " \u001b[38;2;222;224;225mPaste your API     ",
+      " \u001b[38;2;222;224;225mkey:\u001b[39m               ",
+      " \u001b[38;2;126;136;142me.g., sk-...\u001b[39m       ",
+      "> sk-1\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007             ",
+      " (\u001b[38;2;126;136;142mescape/ctrl+c\u001b[39m\u001b[38;2;157;165;169m to  ",
+      " \u001b[38;2;157;165;169mcancel,\u001b[39m \u001b[38;2;126;136;142menter\u001b[39m\u001b[38;2;157;165;169m to   ",
+      " \u001b[38;2;157;165;169msubmit\u001b[39m)            ",
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;95;168;204m────────────────────────────────────────\u001b[39m",
       " \u001b[38;2;167;152;215m\u001b[1mSign in to Custom\u001b[22m\u001b[39m                      ",
@@ -4327,6 +5398,24 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m",
+      " \u001b[38;2;116;89;180m\u001b[1mSign in to Custom\u001b[22m\u001b[39m  ",
+      "",
+      " Step 1: open the   ",
+      " site               ",
+      " Step 2: copy the   ",
+      " key                ",
+      "",
+      " \u001b[38;2;59;63;65mPaste your API     ",
+      " \u001b[38;2;59;63;65mkey:\u001b[39m               ",
+      " \u001b[38;2;135;144;149me.g., sk-...\u001b[39m       ",
+      "> sk-1\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007             ",
+      " (\u001b[38;2;135;144;149mescape/ctrl+c\u001b[39m\u001b[38;2;103;113;118m to  ",
+      " \u001b[38;2;103;113;118mcancel,\u001b[39m \u001b[38;2;135;144;149menter\u001b[39m\u001b[38;2;103;113;118m to   ",
+      " \u001b[38;2;103;113;118msubmit\u001b[39m)            ",
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;61;142;179m────────────────────────────────────────\u001b[39m",
       " \u001b[38;2;116;89;180m\u001b[1mSign in to Custom\u001b[22m\u001b[39m                      ",
@@ -4385,12 +5474,26 @@
     ]
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m",
+      " \u001b[38;2;167;152;215m\u001b[1mLogin to openai\u001b[22m\u001b[39m    ",
+      " \u001b[38;2;126;136;142mStarting callback  ",
+      " \u001b[38;2;126;136;142mserver...\u001b[39m          ",
+      "",
+      " \u001b[38;2;126;136;142mPaste the redirect ",
+      " \u001b[38;2;126;136;142mURL:\u001b[39m               ",
+      "> \u001b_pi:fc\u0007 \u001b_pi:/fc\u0007                 ",
+      " (\u001b[38;2;126;136;142mescape/ctrl+c\u001b[39m\u001b[38;2;157;165;169m to  ",
+      " \u001b[38;2;157;165;169mcancel\u001b[39m)            ",
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;95;168;204m────────────────────────────────────────\u001b[39m",
       " \u001b[38;2;167;152;215m\u001b[1mLogin to openai\u001b[22m\u001b[39m                        ",
@@ -4423,6 +5526,19 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m",
+      " \u001b[38;2;116;89;180m\u001b[1mLogin to openai\u001b[22m\u001b[39m    ",
+      " \u001b[38;2;135;144;149mStarting callback  ",
+      " \u001b[38;2;135;144;149mserver...\u001b[39m          ",
+      "",
+      " \u001b[38;2;135;144;149mPaste the redirect ",
+      " \u001b[38;2;135;144;149mURL:\u001b[39m               ",
+      "> \u001b_pi:fc\u0007 \u001b_pi:/fc\u0007                 ",
+      " (\u001b[38;2;135;144;149mescape/ctrl+c\u001b[39m\u001b[38;2;103;113;118m to  ",
+      " \u001b[38;2;103;113;118mcancel\u001b[39m)            ",
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;61;142;179m────────────────────────────────────────\u001b[39m",
       " \u001b[38;2;116;89;180m\u001b[1mLogin to openai\u001b[22m\u001b[39m                        ",
@@ -4480,12 +5596,30 @@
     ]
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m",
+      " \u001b[38;2;167;152;215m\u001b[1mLogin to radius\u001b[22m\u001b[39m    ",
+      "",
+      " \u001b[38;2;222;224;225mYour subscription  ",
+      " \u001b[38;2;222;224;225mis managed on the  ",
+      " \u001b[38;2;222;224;225mweb.\u001b[39m               ",
+      " \u001b[38;2;167;152;215m\u001b]8;;https://example.com/dash\u0007Dashboard: \u001b]8;;\u0007        ",
+      " \u001b[38;2;167;152;215m\u001b]8;;https://example.com/dash\u0007https://example.co\u001b]8;;\u0007 ",
+      " \u001b[38;2;167;152;215m\u001b]8;;https://example.com/dash\u0007m/dash\u001b]8;;\u0007\u001b[39m             ",
+      " \u001b[38;2;167;152;215m\u001b]8;;https://example.com/help\u0007https://example.co\u001b]8;;\u0007 ",
+      " \u001b[38;2;167;152;215m\u001b]8;;https://example.com/help\u0007m/help\u001b]8;;\u0007\u001b[39m             ",
+      "",
+      " (\u001b[38;2;126;136;142mescape/ctrl+c\u001b[39m\u001b[38;2;157;165;169m to  ",
+      " \u001b[38;2;157;165;169mclose\u001b[39m)             ",
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;95;168;204m────────────────────────────────────────\u001b[39m",
       " \u001b[38;2;167;152;215m\u001b[1mLogin to radius\u001b[22m\u001b[39m                        ",
@@ -4522,6 +5656,23 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m",
+      " \u001b[38;2;116;89;180m\u001b[1mLogin to radius\u001b[22m\u001b[39m    ",
+      "",
+      " \u001b[38;2;59;63;65mYour subscription  ",
+      " \u001b[38;2;59;63;65mis managed on the  ",
+      " \u001b[38;2;59;63;65mweb.\u001b[39m               ",
+      " \u001b[38;2;116;89;180m\u001b]8;;https://example.com/dash\u0007Dashboard: \u001b]8;;\u0007        ",
+      " \u001b[38;2;116;89;180m\u001b]8;;https://example.com/dash\u0007https://example.co\u001b]8;;\u0007 ",
+      " \u001b[38;2;116;89;180m\u001b]8;;https://example.com/dash\u0007m/dash\u001b]8;;\u0007\u001b[39m             ",
+      " \u001b[38;2;116;89;180m\u001b]8;;https://example.com/help\u0007https://example.co\u001b]8;;\u0007 ",
+      " \u001b[38;2;116;89;180m\u001b]8;;https://example.com/help\u0007m/help\u001b]8;;\u0007\u001b[39m             ",
+      "",
+      " (\u001b[38;2;135;144;149mescape/ctrl+c\u001b[39m\u001b[38;2;103;113;118m to  ",
+      " \u001b[38;2;103;113;118mclose\u001b[39m)             ",
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;61;142;179m────────────────────────────────────────\u001b[39m",
       " \u001b[38;2;116;89;180m\u001b[1mLogin to radius\u001b[22m\u001b[39m                        ",
@@ -4564,12 +5715,40 @@
    "kind": "first_time_setup",
    "input": {},
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m",
+      "",
+      " \u001b[38;2;167;152;215m██████             ",
+      " \u001b[38;2;167;152;215m██  ██             ",
+      " \u001b[38;2;167;152;215m████  ██           ",
+      " \u001b[38;2;167;152;215m██    ██\u001b[39m           ",
+      "",
+      " \u001b[38;2;167;152;215m\u001b[1mWelcome to pi, the ",
+      " \u001b[1;38;2;167;152;215mminimal coding     ",
+      " \u001b[1;38;2;167;152;215magent.\u001b[22m\u001b[39m             ",
+      "",
+      " \u001b[38;2;222;224;225mPick a theme.\u001b[39m      ",
+      "",
+      " \u001b[38;2;167;152;215m→ \u001b[39m\u001b[38;2;167;152;215mSystem (matches  ",
+      " \u001b[38;2;167;152;215myour terminal      ",
+      " \u001b[38;2;167;152;215mcolors)\u001b[39m            ",
+      "   \u001b[38;2;222;224;225mDark\u001b[39m             ",
+      "   \u001b[38;2;222;224;225mLight\u001b[39m            ",
+      "",
+      " \u001b[38;2;126;136;142m↑↓\u001b[39m\u001b[38;2;157;165;169m navigate\u001b[39m  \u001b[38;2;126;136;142menter ",
+      " \u001b[38;2;126;136;142m\u001b[39m\u001b[38;2;157;165;169m continue\u001b[39m          ",
+      " \u001b[38;2;126;136;142mescape/ctrl+c\u001b[39m\u001b[38;2;157;165;169m skip ",
+      " \u001b[38;2;157;165;169msetup\u001b[39m              ",
+      "",
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;95;168;204m────────────────────────────────────────\u001b[39m",
       "",
@@ -4635,6 +5814,33 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m",
+      "",
+      " \u001b[38;2;116;89;180m██████             ",
+      " \u001b[38;2;116;89;180m██  ██             ",
+      " \u001b[38;2;116;89;180m████  ██           ",
+      " \u001b[38;2;116;89;180m██    ██\u001b[39m           ",
+      "",
+      " \u001b[38;2;116;89;180m\u001b[1mWelcome to pi, the ",
+      " \u001b[1;38;2;116;89;180mminimal coding     ",
+      " \u001b[1;38;2;116;89;180magent.\u001b[22m\u001b[39m             ",
+      "",
+      " \u001b[38;2;59;63;65mPick a theme.\u001b[39m      ",
+      "",
+      " \u001b[38;2;116;89;180m→ \u001b[39m\u001b[38;2;116;89;180mSystem (matches  ",
+      " \u001b[38;2;116;89;180myour terminal      ",
+      " \u001b[38;2;116;89;180mcolors)\u001b[39m            ",
+      "   \u001b[38;2;59;63;65mDark\u001b[39m             ",
+      "   \u001b[38;2;59;63;65mLight\u001b[39m            ",
+      "",
+      " \u001b[38;2;135;144;149m↑↓\u001b[39m\u001b[38;2;103;113;118m navigate\u001b[39m  \u001b[38;2;135;144;149menter ",
+      " \u001b[38;2;135;144;149m\u001b[39m\u001b[38;2;103;113;118m continue\u001b[39m          ",
+      " \u001b[38;2;135;144;149mescape/ctrl+c\u001b[39m\u001b[38;2;103;113;118m skip ",
+      " \u001b[38;2;103;113;118msetup\u001b[39m              ",
+      "",
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;61;142;179m────────────────────────────────────────\u001b[39m",
       "",
@@ -4711,12 +5917,40 @@
     ]
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m",
+      "",
+      " \u001b[38;2;167;152;215m██████             ",
+      " \u001b[38;2;167;152;215m██  ██             ",
+      " \u001b[38;2;167;152;215m████  ██           ",
+      " \u001b[38;2;167;152;215m██    ██\u001b[39m           ",
+      "",
+      " \u001b[38;2;167;152;215m\u001b[1mWelcome to pi, the ",
+      " \u001b[1;38;2;167;152;215mminimal coding     ",
+      " \u001b[1;38;2;167;152;215magent.\u001b[22m\u001b[39m             ",
+      "",
+      " \u001b[38;2;222;224;225mPick a theme.\u001b[39m      ",
+      "",
+      "   \u001b[38;2;222;224;225mSystem (matches  ",
+      " \u001b[38;2;222;224;225myour terminal      ",
+      " \u001b[38;2;222;224;225mcolors)\u001b[39m            ",
+      "   \u001b[38;2;222;224;225mDark\u001b[39m             ",
+      " \u001b[38;2;167;152;215m→ \u001b[39m\u001b[38;2;167;152;215mLight\u001b[39m            ",
+      "",
+      " \u001b[38;2;126;136;142m↑↓\u001b[39m\u001b[38;2;157;165;169m navigate\u001b[39m  \u001b[38;2;126;136;142menter ",
+      " \u001b[38;2;126;136;142m\u001b[39m\u001b[38;2;157;165;169m continue\u001b[39m          ",
+      " \u001b[38;2;126;136;142mescape/ctrl+c\u001b[39m\u001b[38;2;157;165;169m skip ",
+      " \u001b[38;2;157;165;169msetup\u001b[39m              ",
+      "",
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;95;168;204m────────────────────────────────────────\u001b[39m",
       "",
@@ -4782,6 +6016,33 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m",
+      "",
+      " \u001b[38;2;116;89;180m██████             ",
+      " \u001b[38;2;116;89;180m██  ██             ",
+      " \u001b[38;2;116;89;180m████  ██           ",
+      " \u001b[38;2;116;89;180m██    ██\u001b[39m           ",
+      "",
+      " \u001b[38;2;116;89;180m\u001b[1mWelcome to pi, the ",
+      " \u001b[1;38;2;116;89;180mminimal coding     ",
+      " \u001b[1;38;2;116;89;180magent.\u001b[22m\u001b[39m             ",
+      "",
+      " \u001b[38;2;59;63;65mPick a theme.\u001b[39m      ",
+      "",
+      "   \u001b[38;2;59;63;65mSystem (matches  ",
+      " \u001b[38;2;59;63;65myour terminal      ",
+      " \u001b[38;2;59;63;65mcolors)\u001b[39m            ",
+      "   \u001b[38;2;59;63;65mDark\u001b[39m             ",
+      " \u001b[38;2;116;89;180m→ \u001b[39m\u001b[38;2;116;89;180mLight\u001b[39m            ",
+      "",
+      " \u001b[38;2;135;144;149m↑↓\u001b[39m\u001b[38;2;103;113;118m navigate\u001b[39m  \u001b[38;2;135;144;149menter ",
+      " \u001b[38;2;135;144;149m\u001b[39m\u001b[38;2;103;113;118m continue\u001b[39m          ",
+      " \u001b[38;2;135;144;149mescape/ctrl+c\u001b[39m\u001b[38;2;103;113;118m skip ",
+      " \u001b[38;2;103;113;118msetup\u001b[39m              ",
+      "",
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;61;142;179m────────────────────────────────────────\u001b[39m",
       "",
@@ -4858,12 +6119,57 @@
     ]
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m",
+      "",
+      " \u001b[38;2;167;152;215m██████             ",
+      " \u001b[38;2;167;152;215m██  ██             ",
+      " \u001b[38;2;167;152;215m████  ██           ",
+      " \u001b[38;2;167;152;215m██    ██\u001b[39m           ",
+      "",
+      " \u001b[38;2;167;152;215m\u001b[1mWelcome to pi, the ",
+      " \u001b[1;38;2;167;152;215mminimal coding     ",
+      " \u001b[1;38;2;167;152;215magent.\u001b[22m\u001b[39m             ",
+      "",
+      " \u001b[38;2;222;224;225mOpt-in to          ",
+      " \u001b[38;2;222;224;225manonymous usage    ",
+      " \u001b[38;2;222;224;225mdata sharing?\u001b[39m      ",
+      " \u001b[38;2;157;165;169mOpting in stores a ",
+      " \u001b[38;2;157;165;169mtracking           ",
+      " \u001b[38;2;157;165;169midentifier in      ",
+      " \u001b[38;2;157;165;169msettings.json and  ",
+      " \u001b[38;2;157;165;169menables anonymous  ",
+      " \u001b[38;2;157;165;169musage analytics.   ",
+      " \u001b[38;2;157;165;169mThis helps us to   ",
+      " \u001b[38;2;157;165;169mbetter debug,      ",
+      " \u001b[38;2;157;165;169mreproduce, and     ",
+      " \u001b[38;2;157;165;169mresolve issues     ",
+      " \u001b[38;2;157;165;169mand bugs within    ",
+      " \u001b[38;2;157;165;169mPi. You can        ",
+      " \u001b[38;2;157;165;169mobserve what is    ",
+      " \u001b[38;2;157;165;169mshared using       ",
+      " \u001b[38;2;157;165;169m/privacy and make  ",
+      " \u001b[38;2;157;165;169mchanges anytime in ",
+      " \u001b[38;2;157;165;169msettings.json.\u001b[39m     ",
+      "",
+      " \u001b[38;2;167;152;215m→ \u001b[39m\u001b[38;2;167;152;215mShare anonymous  ",
+      " \u001b[38;2;167;152;215musage data\u001b[39m         ",
+      "   \u001b[38;2;222;224;225mDon't share\u001b[39m      ",
+      "",
+      " \u001b[38;2;126;136;142m↑↓\u001b[39m\u001b[38;2;157;165;169m navigate\u001b[39m  \u001b[38;2;126;136;142menter ",
+      " \u001b[38;2;126;136;142m\u001b[39m\u001b[38;2;157;165;169m finish\u001b[39m            ",
+      " \u001b[38;2;126;136;142mescape/ctrl+c\u001b[39m\u001b[38;2;157;165;169m skip ",
+      " \u001b[38;2;157;165;169msetup\u001b[39m              ",
+      "",
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;95;168;204m────────────────────────────────────────\u001b[39m",
       "",
@@ -4942,6 +6248,50 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m",
+      "",
+      " \u001b[38;2;116;89;180m██████             ",
+      " \u001b[38;2;116;89;180m██  ██             ",
+      " \u001b[38;2;116;89;180m████  ██           ",
+      " \u001b[38;2;116;89;180m██    ██\u001b[39m           ",
+      "",
+      " \u001b[38;2;116;89;180m\u001b[1mWelcome to pi, the ",
+      " \u001b[1;38;2;116;89;180mminimal coding     ",
+      " \u001b[1;38;2;116;89;180magent.\u001b[22m\u001b[39m             ",
+      "",
+      " \u001b[38;2;59;63;65mOpt-in to          ",
+      " \u001b[38;2;59;63;65manonymous usage    ",
+      " \u001b[38;2;59;63;65mdata sharing?\u001b[39m      ",
+      " \u001b[38;2;103;113;118mOpting in stores a ",
+      " \u001b[38;2;103;113;118mtracking           ",
+      " \u001b[38;2;103;113;118midentifier in      ",
+      " \u001b[38;2;103;113;118msettings.json and  ",
+      " \u001b[38;2;103;113;118menables anonymous  ",
+      " \u001b[38;2;103;113;118musage analytics.   ",
+      " \u001b[38;2;103;113;118mThis helps us to   ",
+      " \u001b[38;2;103;113;118mbetter debug,      ",
+      " \u001b[38;2;103;113;118mreproduce, and     ",
+      " \u001b[38;2;103;113;118mresolve issues     ",
+      " \u001b[38;2;103;113;118mand bugs within    ",
+      " \u001b[38;2;103;113;118mPi. You can        ",
+      " \u001b[38;2;103;113;118mobserve what is    ",
+      " \u001b[38;2;103;113;118mshared using       ",
+      " \u001b[38;2;103;113;118m/privacy and make  ",
+      " \u001b[38;2;103;113;118mchanges anytime in ",
+      " \u001b[38;2;103;113;118msettings.json.\u001b[39m     ",
+      "",
+      " \u001b[38;2;116;89;180m→ \u001b[39m\u001b[38;2;116;89;180mShare anonymous  ",
+      " \u001b[38;2;116;89;180musage data\u001b[39m         ",
+      "   \u001b[38;2;59;63;65mDon't share\u001b[39m      ",
+      "",
+      " \u001b[38;2;135;144;149m↑↓\u001b[39m\u001b[38;2;103;113;118m navigate\u001b[39m  \u001b[38;2;135;144;149menter ",
+      " \u001b[38;2;135;144;149m\u001b[39m\u001b[38;2;103;113;118m finish\u001b[39m            ",
+      " \u001b[38;2;135;144;149mescape/ctrl+c\u001b[39m\u001b[38;2;103;113;118m skip ",
+      " \u001b[38;2;103;113;118msetup\u001b[39m              ",
+      "",
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;61;142;179m────────────────────────────────────────\u001b[39m",
       "",
@@ -5031,12 +6381,57 @@
     ]
    },
    "widths": [
+    20,
     40,
     80,
     120
    ],
    "out": {
     "dark": [
+     [
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m",
+      "",
+      " \u001b[38;2;167;152;215m██████             ",
+      " \u001b[38;2;167;152;215m██  ██             ",
+      " \u001b[38;2;167;152;215m████  ██           ",
+      " \u001b[38;2;167;152;215m██    ██\u001b[39m           ",
+      "",
+      " \u001b[38;2;167;152;215m\u001b[1mWelcome to pi, the ",
+      " \u001b[1;38;2;167;152;215mminimal coding     ",
+      " \u001b[1;38;2;167;152;215magent.\u001b[22m\u001b[39m             ",
+      "",
+      " \u001b[38;2;222;224;225mOpt-in to          ",
+      " \u001b[38;2;222;224;225manonymous usage    ",
+      " \u001b[38;2;222;224;225mdata sharing?\u001b[39m      ",
+      " \u001b[38;2;157;165;169mOpting in stores a ",
+      " \u001b[38;2;157;165;169mtracking           ",
+      " \u001b[38;2;157;165;169midentifier in      ",
+      " \u001b[38;2;157;165;169msettings.json and  ",
+      " \u001b[38;2;157;165;169menables anonymous  ",
+      " \u001b[38;2;157;165;169musage analytics.   ",
+      " \u001b[38;2;157;165;169mThis helps us to   ",
+      " \u001b[38;2;157;165;169mbetter debug,      ",
+      " \u001b[38;2;157;165;169mreproduce, and     ",
+      " \u001b[38;2;157;165;169mresolve issues     ",
+      " \u001b[38;2;157;165;169mand bugs within    ",
+      " \u001b[38;2;157;165;169mPi. You can        ",
+      " \u001b[38;2;157;165;169mobserve what is    ",
+      " \u001b[38;2;157;165;169mshared using       ",
+      " \u001b[38;2;157;165;169m/privacy and make  ",
+      " \u001b[38;2;157;165;169mchanges anytime in ",
+      " \u001b[38;2;157;165;169msettings.json.\u001b[39m     ",
+      "",
+      "   \u001b[38;2;222;224;225mShare anonymous  ",
+      " \u001b[38;2;222;224;225musage data\u001b[39m         ",
+      " \u001b[38;2;167;152;215m→ \u001b[39m\u001b[38;2;167;152;215mDon't share\u001b[39m      ",
+      "",
+      " \u001b[38;2;126;136;142m↑↓\u001b[39m\u001b[38;2;157;165;169m navigate\u001b[39m  \u001b[38;2;126;136;142menter ",
+      " \u001b[38;2;126;136;142m\u001b[39m\u001b[38;2;157;165;169m finish\u001b[39m            ",
+      " \u001b[38;2;126;136;142mescape/ctrl+c\u001b[39m\u001b[38;2;157;165;169m skip ",
+      " \u001b[38;2;157;165;169msetup\u001b[39m              ",
+      "",
+      "\u001b[38;2;95;168;204m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;95;168;204m────────────────────────────────────────\u001b[39m",
       "",
@@ -5115,6 +6510,50 @@
      ]
     ],
     "light": [
+     [
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m",
+      "",
+      " \u001b[38;2;116;89;180m██████             ",
+      " \u001b[38;2;116;89;180m██  ██             ",
+      " \u001b[38;2;116;89;180m████  ██           ",
+      " \u001b[38;2;116;89;180m██    ██\u001b[39m           ",
+      "",
+      " \u001b[38;2;116;89;180m\u001b[1mWelcome to pi, the ",
+      " \u001b[1;38;2;116;89;180mminimal coding     ",
+      " \u001b[1;38;2;116;89;180magent.\u001b[22m\u001b[39m             ",
+      "",
+      " \u001b[38;2;59;63;65mOpt-in to          ",
+      " \u001b[38;2;59;63;65manonymous usage    ",
+      " \u001b[38;2;59;63;65mdata sharing?\u001b[39m      ",
+      " \u001b[38;2;103;113;118mOpting in stores a ",
+      " \u001b[38;2;103;113;118mtracking           ",
+      " \u001b[38;2;103;113;118midentifier in      ",
+      " \u001b[38;2;103;113;118msettings.json and  ",
+      " \u001b[38;2;103;113;118menables anonymous  ",
+      " \u001b[38;2;103;113;118musage analytics.   ",
+      " \u001b[38;2;103;113;118mThis helps us to   ",
+      " \u001b[38;2;103;113;118mbetter debug,      ",
+      " \u001b[38;2;103;113;118mreproduce, and     ",
+      " \u001b[38;2;103;113;118mresolve issues     ",
+      " \u001b[38;2;103;113;118mand bugs within    ",
+      " \u001b[38;2;103;113;118mPi. You can        ",
+      " \u001b[38;2;103;113;118mobserve what is    ",
+      " \u001b[38;2;103;113;118mshared using       ",
+      " \u001b[38;2;103;113;118m/privacy and make  ",
+      " \u001b[38;2;103;113;118mchanges anytime in ",
+      " \u001b[38;2;103;113;118msettings.json.\u001b[39m     ",
+      "",
+      "   \u001b[38;2;59;63;65mShare anonymous  ",
+      " \u001b[38;2;59;63;65musage data\u001b[39m         ",
+      " \u001b[38;2;116;89;180m→ \u001b[39m\u001b[38;2;116;89;180mDon't share\u001b[39m      ",
+      "",
+      " \u001b[38;2;135;144;149m↑↓\u001b[39m\u001b[38;2;103;113;118m navigate\u001b[39m  \u001b[38;2;135;144;149menter ",
+      " \u001b[38;2;135;144;149m\u001b[39m\u001b[38;2;103;113;118m finish\u001b[39m            ",
+      " \u001b[38;2;135;144;149mescape/ctrl+c\u001b[39m\u001b[38;2;103;113;118m skip ",
+      " \u001b[38;2;103;113;118msetup\u001b[39m              ",
+      "",
+      "\u001b[38;2;61;142;179m────────────────────\u001b[39m"
+     ],
      [
       "\u001b[38;2;61;142;179m────────────────────────────────────────\u001b[39m",
       "",

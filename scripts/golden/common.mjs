@@ -18,7 +18,7 @@ export const OUT_DIR = process.env.GOLDEN_OUT ?? path.resolve(here, "../../crate
 /** Fixed environment shared with the Rust side (see `golden_ui.rs`). */
 export const HOME = "/home/golden";
 export const CWD = "/home/golden/project";
-export const WIDTHS = [40, 80, 120];
+export const WIDTHS = [20, 40, 80, 120];
 export const THEMES = ["dark", "light"];
 /** 2026-01-15T12:00:00Z, used wherever components read the clock. */
 export const NOW = 1768478400000;

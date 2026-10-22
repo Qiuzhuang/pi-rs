@@ -21,6 +21,9 @@ export COLORTERM=truecolor
 export TERM=xterm-256color
 unset TERM_PROGRAM KITTY_WINDOW_ID WEZTERM_PANE GHOSTTY_RESOURCES_DIR ITERM_SESSION_ID TMUX STY 2>/dev/null || true
 export PI_CODING_AGENT_DIR=/home/golden/.pi/agent
+# Provider credentials from the environment would add models and auth states.
+for var in $(env | grep -oE '^[A-Za-z0-9_]*(API_KEY|_TOKEN|AWS_)[A-Za-z0-9_]*' || true); do unset "$var"; done
+unset GH_TOKEN GITHUB_TOKEN COPILOT_GITHUB_TOKEN 2>/dev/null || true
 
 # The reference's model catalog data is generated (network); reuse the copy the Rust port embeds.
 data_dir="$PI_TS_REF/packages/ai/src/providers/data"

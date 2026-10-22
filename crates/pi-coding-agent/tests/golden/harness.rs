@@ -62,7 +62,13 @@ pub fn lock() -> MutexGuard<'static, ()> {
             std::env::set_var("FORCE_COLOR", "3");
             std::env::set_var("TERM", "xterm-256color");
             std::env::remove_var("NO_COLOR");
-            for var in ["TERM_PROGRAM", "KITTY_WINDOW_ID", "WEZTERM_PANE", "GHOSTTY_RESOURCES_DIR", "ITERM_SESSION_ID", "TMUX", "STY"] {
+            // Provider credentials from the environment would add models and auth states.
+            for (key, _) in std::env::vars() {
+                if key.contains("API_KEY") || key.contains("_TOKEN") || key.contains("AWS_") {
+                    std::env::remove_var(&key);
+                }
+            }
+            for var in ["GH_TOKEN", "GITHUB_TOKEN", "COPILOT_GITHUB_TOKEN", "TERM_PROGRAM", "KITTY_WINDOW_ID", "WEZTERM_PANE", "GHOSTTY_RESOURCES_DIR", "ITERM_SESSION_ID", "TMUX", "STY"] {
                 std::env::remove_var(var);
             }
         }

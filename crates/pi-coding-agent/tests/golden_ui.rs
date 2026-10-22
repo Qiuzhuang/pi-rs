@@ -59,3 +59,10 @@ mod tui;
 fn golden_tui() {
     harness::run("tui.json", tui::build);
 }
+#[path = "golden/models.rs"]
+mod models;
+
+#[test]
+fn golden_models() {
+    harness::run("models.json", models::build);
+}

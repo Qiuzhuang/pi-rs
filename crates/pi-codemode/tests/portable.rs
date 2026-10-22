@@ -126,6 +126,20 @@ async fn batches_output_instead_of_making_one_exchange_per_line() {
     assert!(remote.exchanges.lock().len() <= 6, "{:?}", remote.exchanges.lock());
 }
 
+/// The flush threshold counts characters as JavaScript does (UTF-16 code units), not UTF-8 bytes:
+/// two 600k-character lines of a two-byte character stay under 1 MiB characters until the second.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn output_flush_threshold_counts_utf16_characters() {
+    let remote = RecordingRemote::default();
+    let sandbox = remote_sandbox(&remote, vec![]);
+    let result = run(&sandbox, "const line = '\\u00e9'.repeat(600000); text(line); text(line); return 'ok'").await;
+    assert_matches(&result, json!({ "ok": true, "value": "ok" }));
+    assert_eq!(result.output.len(), 2);
+    // One flush carrying both lines, then the terminal batch.
+    assert_eq!(*remote.exchanges.lock(), vec![2, 1], "{:?}", remote.exchanges.lock());
+    remote.all_served().await;
+}
+
 /// Boa has no heap limit; the memory cap applies to `ArrayBuffer` allocations.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn caps_the_interrupt_budget_and_memory_at_the_remotes_limits() {

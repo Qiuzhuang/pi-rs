@@ -265,8 +265,9 @@ impl Server {
         match message {
             WorkerToHostMessage::Output { item } => {
                 state.buffered_chars += match &item {
-                    CodemodeOutputItem::Text { text, .. } => text.len(),
-                    CodemodeOutputItem::Image { data, .. } => data.len(),
+                    // Characters as JavaScript counts them (UTF-16 code units).
+                    CodemodeOutputItem::Text { text, .. } => crate::js::utf16_len(text),
+                    CodemodeOutputItem::Image { data, .. } => crate::js::utf16_len(data),
                 };
                 state.buffered.push(CodemodeRemoteMessage::Vm(WorkerToHostMessage::Output { item }));
                 if state.buffered.len() >= FLUSH_ITEMS || state.buffered_chars >= FLUSH_CHARS {

@@ -344,8 +344,20 @@ fn process_line(
     if data.is_empty() {
         return Ok(());
     }
+    let value: Value = serde_json::from_str(data).map_err(|e| e.to_string())?;
+    // TypeScript warns about and skips event types it does not know.
+    if !is_known_proxy_event_type(value.get("type").and_then(Value::as_str)) {
+        eprintln!(
+            "Unhandled proxy event type: {}",
+            value.get("type").map_or("undefined".into(), |t| match t {
+                Value::String(s) => s.clone(),
+                other => other.to_string(),
+            })
+        );
+        return Ok(());
+    }
     let proxy_event: ProxyAssistantMessageEvent =
-        serde_json::from_str(data).map_err(|e| e.to_string())?;
+        serde_json::from_value(value).map_err(|e| e.to_string())?;
     if let Some(event) = process_proxy_event(proxy_event, state)? {
         if event.is_terminal() {
             *saw_terminal_event = true;
@@ -353,6 +365,26 @@ fn process_line(
         sender.push(event);
     }
     Ok(())
+}
+
+fn is_known_proxy_event_type(event_type: Option<&str>) -> bool {
+    matches!(
+        event_type,
+        Some(
+            "start"
+                | "text_start"
+                | "text_delta"
+                | "text_end"
+                | "thinking_start"
+                | "thinking_delta"
+                | "thinking_end"
+                | "toolcall_start"
+                | "toolcall_delta"
+                | "toolcall_end"
+                | "done"
+                | "error"
+        )
+    )
 }
 
 fn set_content(partial: &mut AssistantMessage, index: usize, content: AssistantContent) {

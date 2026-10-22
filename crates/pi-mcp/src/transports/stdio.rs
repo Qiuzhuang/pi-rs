@@ -534,8 +534,18 @@ mod platform {
     }
 
     /// Own process group, so closing the transport can terminate the server's children too.
+    /// Like Node's `detached: true`, the server also leads a new session (`setsid`), so it has no
+    /// controlling terminal and cannot read from or reconfigure the host's TTY.
     pub fn configure(command: &mut Command) {
-        command.process_group(0);
+        // SAFETY: setsid(2) is async-signal-safe and touches no memory of the parent.
+        unsafe {
+            command.pre_exec(|| {
+                if libc::setsid() == -1 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
     }
 
     pub fn register_group(pid: u32) {

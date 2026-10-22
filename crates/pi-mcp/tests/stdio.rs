@@ -175,3 +175,20 @@ async fn kills_a_server_that_ignores_shutdown_including_its_children() {
     }
     assert!(gone, "grandchild {grandchild} survived");
 }
+
+/// Node's `detached: true` makes the server the leader of a new session and process group.
+#[tokio::test]
+async fn spawns_the_server_in_its_own_session_and_process_group() {
+    let transport = StdioTransport::new(
+        StdioTransportOptions::new("sh").args([fixture("stdio-server.sh")]),
+    );
+    let client = McpClient::new(McpClientOptions::new("stdio-test", "1.0.0"));
+    client.connect(Arc::new(transport.clone())).await.unwrap();
+    let pid = transport.pid().unwrap() as i32;
+    // SAFETY: getsid/getpgid only read process attributes.
+    let (sid, pgid, own_sid) = unsafe { (libc::getsid(pid), libc::getpgid(pid), libc::getsid(0)) };
+    assert_eq!(sid, pid);
+    assert_eq!(pgid, pid);
+    assert_ne!(sid, own_sid);
+    client.close().await.unwrap();
+}

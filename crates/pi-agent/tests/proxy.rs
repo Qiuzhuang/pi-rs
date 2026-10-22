@@ -202,3 +202,29 @@ async fn reports_proxy_http_errors() {
         Some("Proxy error: upstream down")
     );
 }
+
+#[tokio::test]
+async fn skips_unknown_proxy_event_types_like_typescript() {
+    let body = format!(
+        "data: {}\n\ndata: {}\n\ndata: {}\n\n",
+        json!({ "type": "start" }),
+        json!({ "type": "future_event", "contentIndex": 0 }),
+        json!({
+            "type": "done",
+            "reason": "stop",
+            "usage": serde_json::to_value(Usage::default()).unwrap()
+        })
+    );
+    let url = serve("200 OK", body).await;
+    let (events, result) = stream_proxy(model(), transcript_from_messages(vec![]), options(url))
+        .collect_all()
+        .await;
+    assert_eq!(
+        events
+            .iter()
+            .map(AssistantMessageEvent::type_name)
+            .collect::<Vec<_>>(),
+        vec!["start", "done"]
+    );
+    assert_eq!(result.stop_reason, StopReason::Stop);
+}

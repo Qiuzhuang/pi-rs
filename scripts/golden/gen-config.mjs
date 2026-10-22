@@ -1017,6 +1017,98 @@ contextCase("context/directory-candidate", {
 	},
 });
 
+const { DefaultResourceLoader } = await ref("coding-agent/src/core/resource-loader.ts");
+async function loaderCase(name, input) {
+	const root = makeTree(input.files);
+	const cwd = path.join(root, "project");
+	const agentDir = path.join(root, "agent");
+	fs.mkdirSync(cwd, { recursive: true });
+	fs.mkdirSync(agentDir, { recursive: true });
+	const settingsManager = SettingsManager.create(cwd, agentDir, { projectTrusted: input.trusted ?? true });
+	const loader = new DefaultResourceLoader({
+		cwd,
+		agentDir,
+		settingsManager,
+		noExtensions: true,
+		additionalSkillPaths: input.skillPaths,
+		additionalPromptTemplatePaths: input.promptPaths,
+		additionalThemePaths: input.themePaths,
+		noSkills: input.noSkills,
+		noPromptTemplates: input.noPrompts,
+		noThemes: input.noThemes,
+		noContextFiles: input.noContextFiles,
+		systemPrompt: input.systemPrompt,
+		appendSystemPrompt: input.appendSystemPrompt,
+	});
+	await loader.reload();
+	const skills = loader.getSkills();
+	const prompts = loader.getPrompts();
+	const themes = loader.getThemes();
+	const out = {
+		skills: skills.skills.map((s) => ({ name: s.name, filePath: s.filePath, sourceInfo: s.sourceInfo })),
+		skillDiagnostics: skills.diagnostics,
+		prompts: prompts.prompts.map((p) => ({ name: p.name, filePath: p.filePath, sourceInfo: p.sourceInfo })),
+		promptDiagnostics: prompts.diagnostics,
+		themes: themes.themes.map((t) => ({ name: u(t.name), sourcePath: u(t.sourcePath), sourceInfo: u(t.sourceInfo) })),
+		themeDiagnostics: themes.diagnostics,
+		agentsFiles: loader.getAgentsFiles().agentsFiles.filter((f) => f.path.startsWith(root)),
+		systemPrompt: u(loader.getSystemPrompt()),
+		systemPromptSource: u(loader.getSystemPromptSource()),
+		appendSystemPrompt: loader.getAppendSystemPrompt(),
+		appendSystemPromptSources: loader.getAppendSystemPromptSources(),
+	};
+	add(name, "resource_loader", input, relativize(out, root));
+}
+const goodTheme = (name) => fs.readFileSync(path.join(REF, "packages/coding-agent/src/modes/interactive/theme/dark.json"), "utf-8").replace('"name": "dark"', `"name": "${name}"`);
+await loaderCase("loader/full", {
+	skillPaths: ["./cli-skills", "./missing-skills"],
+	promptPaths: ["./cli-prompts/x.md", "./missing.md"],
+	themePaths: ["./cli-themes", "./missing-theme.json"],
+	files: {
+		"agent/skills/user-skill/SKILL.md": skill("user-skill"),
+		"agent/skills/dup/SKILL.md": skill("dup", "user dup"),
+		"project/.pi/skills/dup/SKILL.md": skill("dup", "project dup"),
+		"project/.agents/skills/agents-skill/SKILL.md": skill("agents-skill"),
+		"project/cli-skills/cli-skill/SKILL.md": skill("cli-skill"),
+		"agent/prompts/p.md": prompt("user p"),
+		"project/.pi/prompts/p.md": prompt("project p"),
+		"project/cli-prompts/x.md": prompt("x"),
+		"agent/themes/mine.json": goodTheme("mine"),
+		"agent/themes/broken.json": "{ nope",
+		"project/.pi/themes/mine.json": goodTheme("mine"),
+		"project/cli-themes/other.json": goodTheme("other"),
+		"agent/AGENTS.md": "global agents",
+		"project/AGENTS.md": "project agents",
+		"agent/SYSTEM.md": "global system",
+		"project/.pi/APPEND_SYSTEM.md": "project append",
+		"agent/APPEND_SYSTEM.md": "global append",
+	},
+});
+await loaderCase("loader/untrusted", {
+	trusted: false,
+	files: {
+		"project/.pi/skills/p/SKILL.md": skill("p"),
+		"project/.pi/SYSTEM.md": "project system",
+		"agent/SYSTEM.md": "global system",
+		"project/.pi/APPEND_SYSTEM.md": "project append",
+	},
+});
+await loaderCase("loader/disabled", {
+	noSkills: true,
+	noPrompts: true,
+	noThemes: true,
+	noContextFiles: true,
+	skillPaths: ["./s"],
+	systemPrompt: "inline system prompt",
+	appendSystemPrompt: ["./append.md", "inline append"],
+	files: {
+		"project/s/x/SKILL.md": skill("x"),
+		"agent/skills/u/SKILL.md": skill("u"),
+		"project/append.md": "\uFEFFfile append",
+		"project/AGENTS.md": "agents",
+	},
+});
+
 // ---------------------------------------------------------------------------------------------
 // Prompt template arguments
 

@@ -659,7 +659,7 @@ fn parse_theme_json(label: &str, json: Value) -> anyhow::Result<ThemeJson> {
 }
 
 fn parse_theme_json_content(label: &str, content: &str) -> anyhow::Result<ThemeJson> {
-    let json: Value = serde_json::from_str(&strip_bom(content))
+    let json: Value = crate::utils::js_json::js_json_parse(&strip_bom(content))
         .map_err(|error| anyhow::anyhow!("Failed to parse theme {label}: SyntaxError: {error}"))?;
     parse_theme_json(label, json)
 }

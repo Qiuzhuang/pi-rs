@@ -11969,6 +11969,300 @@
    ]
   },
   {
+   "name": "loader/full",
+   "kind": "resource_loader",
+   "input": {
+    "skillPaths": [
+     "./cli-skills",
+     "./missing-skills"
+    ],
+    "promptPaths": [
+     "./cli-prompts/x.md",
+     "./missing.md"
+    ],
+    "themePaths": [
+     "./cli-themes",
+     "./missing-theme.json"
+    ],
+    "files": {
+     "agent/skills/user-skill/SKILL.md": "---\nname: user-skill\ndescription: user-skill skill\n---\nBody of user-skill\n",
+     "agent/skills/dup/SKILL.md": "---\nname: dup\ndescription: user dup\n---\nBody of dup\n",
+     "project/.pi/skills/dup/SKILL.md": "---\nname: dup\ndescription: project dup\n---\nBody of dup\n",
+     "project/.agents/skills/agents-skill/SKILL.md": "---\nname: agents-skill\ndescription: agents-skill skill\n---\nBody of agents-skill\n",
+     "project/cli-skills/cli-skill/SKILL.md": "---\nname: cli-skill\ndescription: cli-skill skill\n---\nBody of cli-skill\n",
+     "agent/prompts/p.md": "---\ndescription: user p\n---\nPrompt body\n",
+     "project/.pi/prompts/p.md": "---\ndescription: project p\n---\nPrompt body\n",
+     "project/cli-prompts/x.md": "---\ndescription: x\n---\nPrompt body\n",
+     "agent/themes/mine.json": "{\n\t\"$schema\": \"https://pi.dev/schemas/theme.schema.json\",\n\t\"name\": \"mine\",\n\t\"appearance\": \"dark\",\n\t\"vars\": {\n\t\t\"text\": \"okhsl(234 3% 89%)\",\n\t\t\"muted\": \"okhsl(229 6% 67%)\",\n\t\t\"violet\": \"okhsl(295 50% 67%)\",\n\t\t\"blue\": \"okhsl(232 54% 67%)\",\n\t\t\"green\": \"okhsl(159 59% 67%)\",\n\t\t\"red\": \"okhsl(20 72% 67%)\",\n\t\t\"yellow\": \"okhsl(83 88% 67%)\",\n\t\t\"blueBg\": \"okhsl(233 41% 24%)\"\n\t},\n\t\"colors\": {\n\t\t\"accent\": \"violet\",\n\t\t\"border\": \"okhsl(231 57% 65%)\",\n\t\t\"borderAccent\": \"okhsl(295 53% 64%)\",\n\t\t\"borderMuted\": \"okhsl(229 8% 53%)\",\n\t\t\"success\": \"green\",\n\t\t\"error\": \"red\",\n\t\t\"warning\": \"yellow\",\n\t\t\"muted\": \"muted\",\n\t\t\"dim\": \"okhsl(229 8% 56%)\",\n\t\t\"text\": \"text\",\n\t\t\"thinkingText\": \"okhsl(226 7% 65%)\",\n\t\t\"selectedBg\": \"blueBg\",\n\t\t\"scrollbarTrack\": \"okhsl(237 7% 33%)\",\n\t\t\"scrollbarThumb\": \"okhsl(232 7% 65%)\",\n\t\t\"searchMatchBg\": \"okhsl(53 51% 24%)\",\n\t\t\"searchMatchText\": \"muted\",\n\t\t\"userMessageBg\": \"blueBg\",\n\t\t\"userMessageText\": \"text\",\n\t\t\"customMessageBg\": \"okhsl(295 42% 24%)\",\n\t\t\"customMessageText\": \"muted\",\n\t\t\"customMessageLabel\": \"violet\",\n\t\t\"toolPendingBg\": \"okhsl(229 5% 24%)\",\n\t\t\"toolSuccessBg\": \"okhsl(158 46% 25%)\",\n\t\t\"toolErrorBg\": \"okhsl(19 54% 25%)\",\n\t\t\"toolTitle\": \"text\",\n\t\t\"toolOutput\": \"muted\",\n\t\t\"mdHeading\": \"yellow\",\n\t\t\"mdLink\": \"blue\",\n\t\t\"mdLinkUrl\": \"muted\",\n\t\t\"mdCode\": \"violet\",\n\t\t\"mdCodeBlock\": \"green\",\n\t\t\"mdCodeBlockBorder\": \"muted\",\n\t\t\"mdQuote\": \"muted\",\n\t\t\"mdQuoteBorder\": \"muted\",\n\t\t\"mdHr\": \"muted\",\n\t\t\"mdListBullet\": \"violet\",\n\t\t\"toolDiffAdded\": \"green\",\n\t\t\"toolDiffRemoved\": \"red\",\n\t\t\"toolDiffContext\": \"muted\",\n\t\t\"syntaxComment\": \"muted\",\n\t\t\"syntaxKeyword\": \"blue\",\n\t\t\"syntaxFunction\": \"yellow\",\n\t\t\"syntaxVariable\": \"okhsl(202 58% 67%)\",\n\t\t\"syntaxString\": \"okhsl(52 67% 67%)\",\n\t\t\"syntaxNumber\": \"green\",\n\t\t\"syntaxType\": \"violet\",\n\t\t\"syntaxOperator\": \"muted\",\n\t\t\"syntaxPunctuation\": \"muted\",\n\t\t\"thinkingOff\": \"okhsl(229 8% 49%)\",\n\t\t\"thinkingMinimal\": \"okhsl(232 20% 52%)\",\n\t\t\"thinkingLow\": \"okhsl(232 45% 54%)\",\n\t\t\"thinkingMedium\": \"okhsl(263 59% 56%)\",\n\t\t\"thinkingHigh\": \"okhsl(295 73% 59%)\",\n\t\t\"thinkingXhigh\": \"okhsl(337 81% 61%)\",\n\t\t\"thinkingMax\": \"okhsl(20 99% 63%)\",\n\t\t\"bashMode\": \"okhsl(159 64% 65%)\"\n\t},\n\t\"export\": {\n\t\t\"pageBg\": \"okhsl(262 14% 16%)\",\n\t\t\"cardBg\": \"okhsl(264 13% 19%)\",\n\t\t\"infoBg\": \"okhsl(53 51% 24%)\"\n\t}\n}\n",
+     "agent/themes/broken.json": "{ nope",
+     "project/.pi/themes/mine.json": "{\n\t\"$schema\": \"https://pi.dev/schemas/theme.schema.json\",\n\t\"name\": \"mine\",\n\t\"appearance\": \"dark\",\n\t\"vars\": {\n\t\t\"text\": \"okhsl(234 3% 89%)\",\n\t\t\"muted\": \"okhsl(229 6% 67%)\",\n\t\t\"violet\": \"okhsl(295 50% 67%)\",\n\t\t\"blue\": \"okhsl(232 54% 67%)\",\n\t\t\"green\": \"okhsl(159 59% 67%)\",\n\t\t\"red\": \"okhsl(20 72% 67%)\",\n\t\t\"yellow\": \"okhsl(83 88% 67%)\",\n\t\t\"blueBg\": \"okhsl(233 41% 24%)\"\n\t},\n\t\"colors\": {\n\t\t\"accent\": \"violet\",\n\t\t\"border\": \"okhsl(231 57% 65%)\",\n\t\t\"borderAccent\": \"okhsl(295 53% 64%)\",\n\t\t\"borderMuted\": \"okhsl(229 8% 53%)\",\n\t\t\"success\": \"green\",\n\t\t\"error\": \"red\",\n\t\t\"warning\": \"yellow\",\n\t\t\"muted\": \"muted\",\n\t\t\"dim\": \"okhsl(229 8% 56%)\",\n\t\t\"text\": \"text\",\n\t\t\"thinkingText\": \"okhsl(226 7% 65%)\",\n\t\t\"selectedBg\": \"blueBg\",\n\t\t\"scrollbarTrack\": \"okhsl(237 7% 33%)\",\n\t\t\"scrollbarThumb\": \"okhsl(232 7% 65%)\",\n\t\t\"searchMatchBg\": \"okhsl(53 51% 24%)\",\n\t\t\"searchMatchText\": \"muted\",\n\t\t\"userMessageBg\": \"blueBg\",\n\t\t\"userMessageText\": \"text\",\n\t\t\"customMessageBg\": \"okhsl(295 42% 24%)\",\n\t\t\"customMessageText\": \"muted\",\n\t\t\"customMessageLabel\": \"violet\",\n\t\t\"toolPendingBg\": \"okhsl(229 5% 24%)\",\n\t\t\"toolSuccessBg\": \"okhsl(158 46% 25%)\",\n\t\t\"toolErrorBg\": \"okhsl(19 54% 25%)\",\n\t\t\"toolTitle\": \"text\",\n\t\t\"toolOutput\": \"muted\",\n\t\t\"mdHeading\": \"yellow\",\n\t\t\"mdLink\": \"blue\",\n\t\t\"mdLinkUrl\": \"muted\",\n\t\t\"mdCode\": \"violet\",\n\t\t\"mdCodeBlock\": \"green\",\n\t\t\"mdCodeBlockBorder\": \"muted\",\n\t\t\"mdQuote\": \"muted\",\n\t\t\"mdQuoteBorder\": \"muted\",\n\t\t\"mdHr\": \"muted\",\n\t\t\"mdListBullet\": \"violet\",\n\t\t\"toolDiffAdded\": \"green\",\n\t\t\"toolDiffRemoved\": \"red\",\n\t\t\"toolDiffContext\": \"muted\",\n\t\t\"syntaxComment\": \"muted\",\n\t\t\"syntaxKeyword\": \"blue\",\n\t\t\"syntaxFunction\": \"yellow\",\n\t\t\"syntaxVariable\": \"okhsl(202 58% 67%)\",\n\t\t\"syntaxString\": \"okhsl(52 67% 67%)\",\n\t\t\"syntaxNumber\": \"green\",\n\t\t\"syntaxType\": \"violet\",\n\t\t\"syntaxOperator\": \"muted\",\n\t\t\"syntaxPunctuation\": \"muted\",\n\t\t\"thinkingOff\": \"okhsl(229 8% 49%)\",\n\t\t\"thinkingMinimal\": \"okhsl(232 20% 52%)\",\n\t\t\"thinkingLow\": \"okhsl(232 45% 54%)\",\n\t\t\"thinkingMedium\": \"okhsl(263 59% 56%)\",\n\t\t\"thinkingHigh\": \"okhsl(295 73% 59%)\",\n\t\t\"thinkingXhigh\": \"okhsl(337 81% 61%)\",\n\t\t\"thinkingMax\": \"okhsl(20 99% 63%)\",\n\t\t\"bashMode\": \"okhsl(159 64% 65%)\"\n\t},\n\t\"export\": {\n\t\t\"pageBg\": \"okhsl(262 14% 16%)\",\n\t\t\"cardBg\": \"okhsl(264 13% 19%)\",\n\t\t\"infoBg\": \"okhsl(53 51% 24%)\"\n\t}\n}\n",
+     "project/cli-themes/other.json": "{\n\t\"$schema\": \"https://pi.dev/schemas/theme.schema.json\",\n\t\"name\": \"other\",\n\t\"appearance\": \"dark\",\n\t\"vars\": {\n\t\t\"text\": \"okhsl(234 3% 89%)\",\n\t\t\"muted\": \"okhsl(229 6% 67%)\",\n\t\t\"violet\": \"okhsl(295 50% 67%)\",\n\t\t\"blue\": \"okhsl(232 54% 67%)\",\n\t\t\"green\": \"okhsl(159 59% 67%)\",\n\t\t\"red\": \"okhsl(20 72% 67%)\",\n\t\t\"yellow\": \"okhsl(83 88% 67%)\",\n\t\t\"blueBg\": \"okhsl(233 41% 24%)\"\n\t},\n\t\"colors\": {\n\t\t\"accent\": \"violet\",\n\t\t\"border\": \"okhsl(231 57% 65%)\",\n\t\t\"borderAccent\": \"okhsl(295 53% 64%)\",\n\t\t\"borderMuted\": \"okhsl(229 8% 53%)\",\n\t\t\"success\": \"green\",\n\t\t\"error\": \"red\",\n\t\t\"warning\": \"yellow\",\n\t\t\"muted\": \"muted\",\n\t\t\"dim\": \"okhsl(229 8% 56%)\",\n\t\t\"text\": \"text\",\n\t\t\"thinkingText\": \"okhsl(226 7% 65%)\",\n\t\t\"selectedBg\": \"blueBg\",\n\t\t\"scrollbarTrack\": \"okhsl(237 7% 33%)\",\n\t\t\"scrollbarThumb\": \"okhsl(232 7% 65%)\",\n\t\t\"searchMatchBg\": \"okhsl(53 51% 24%)\",\n\t\t\"searchMatchText\": \"muted\",\n\t\t\"userMessageBg\": \"blueBg\",\n\t\t\"userMessageText\": \"text\",\n\t\t\"customMessageBg\": \"okhsl(295 42% 24%)\",\n\t\t\"customMessageText\": \"muted\",\n\t\t\"customMessageLabel\": \"violet\",\n\t\t\"toolPendingBg\": \"okhsl(229 5% 24%)\",\n\t\t\"toolSuccessBg\": \"okhsl(158 46% 25%)\",\n\t\t\"toolErrorBg\": \"okhsl(19 54% 25%)\",\n\t\t\"toolTitle\": \"text\",\n\t\t\"toolOutput\": \"muted\",\n\t\t\"mdHeading\": \"yellow\",\n\t\t\"mdLink\": \"blue\",\n\t\t\"mdLinkUrl\": \"muted\",\n\t\t\"mdCode\": \"violet\",\n\t\t\"mdCodeBlock\": \"green\",\n\t\t\"mdCodeBlockBorder\": \"muted\",\n\t\t\"mdQuote\": \"muted\",\n\t\t\"mdQuoteBorder\": \"muted\",\n\t\t\"mdHr\": \"muted\",\n\t\t\"mdListBullet\": \"violet\",\n\t\t\"toolDiffAdded\": \"green\",\n\t\t\"toolDiffRemoved\": \"red\",\n\t\t\"toolDiffContext\": \"muted\",\n\t\t\"syntaxComment\": \"muted\",\n\t\t\"syntaxKeyword\": \"blue\",\n\t\t\"syntaxFunction\": \"yellow\",\n\t\t\"syntaxVariable\": \"okhsl(202 58% 67%)\",\n\t\t\"syntaxString\": \"okhsl(52 67% 67%)\",\n\t\t\"syntaxNumber\": \"green\",\n\t\t\"syntaxType\": \"violet\",\n\t\t\"syntaxOperator\": \"muted\",\n\t\t\"syntaxPunctuation\": \"muted\",\n\t\t\"thinkingOff\": \"okhsl(229 8% 49%)\",\n\t\t\"thinkingMinimal\": \"okhsl(232 20% 52%)\",\n\t\t\"thinkingLow\": \"okhsl(232 45% 54%)\",\n\t\t\"thinkingMedium\": \"okhsl(263 59% 56%)\",\n\t\t\"thinkingHigh\": \"okhsl(295 73% 59%)\",\n\t\t\"thinkingXhigh\": \"okhsl(337 81% 61%)\",\n\t\t\"thinkingMax\": \"okhsl(20 99% 63%)\",\n\t\t\"bashMode\": \"okhsl(159 64% 65%)\"\n\t},\n\t\"export\": {\n\t\t\"pageBg\": \"okhsl(262 14% 16%)\",\n\t\t\"cardBg\": \"okhsl(264 13% 19%)\",\n\t\t\"infoBg\": \"okhsl(53 51% 24%)\"\n\t}\n}\n",
+     "agent/AGENTS.md": "global agents",
+     "project/AGENTS.md": "project agents",
+     "agent/SYSTEM.md": "global system",
+     "project/.pi/APPEND_SYSTEM.md": "project append",
+     "agent/APPEND_SYSTEM.md": "global append"
+    }
+   },
+   "out": {
+    "skills": [
+     {
+      "name": "dup",
+      "filePath": "<root>/project/.pi/skills/dup/SKILL.md",
+      "sourceInfo": {
+       "path": "<root>/project/.pi/skills/dup/SKILL.md",
+       "source": "auto",
+       "scope": "project",
+       "origin": "top-level",
+       "baseDir": "<root>/project/.pi"
+      }
+     },
+     {
+      "name": "agents-skill",
+      "filePath": "<root>/project/.agents/skills/agents-skill/SKILL.md",
+      "sourceInfo": {
+       "path": "<root>/project/.agents/skills/agents-skill/SKILL.md",
+       "source": "auto",
+       "scope": "project",
+       "origin": "top-level",
+       "baseDir": "<root>/project/.agents"
+      }
+     },
+     {
+      "name": "user-skill",
+      "filePath": "<root>/agent/skills/user-skill/SKILL.md",
+      "sourceInfo": {
+       "path": "<root>/agent/skills/user-skill/SKILL.md",
+       "source": "auto",
+       "scope": "user",
+       "origin": "top-level",
+       "baseDir": "<root>/agent"
+      }
+     },
+     {
+      "name": "cli-skill",
+      "filePath": "<root>/project/cli-skills/cli-skill/SKILL.md",
+      "sourceInfo": {
+       "path": "<root>/project/cli-skills/cli-skill/SKILL.md",
+       "source": "local",
+       "scope": "temporary",
+       "origin": "top-level",
+       "baseDir": "<root>/project/cli-skills/cli-skill"
+      }
+     }
+    ],
+    "skillDiagnostics": [
+     {
+      "type": "warning",
+      "message": "skill path does not exist",
+      "path": "<root>/project/missing-skills"
+     },
+     {
+      "type": "collision",
+      "message": "name \"dup\" collision",
+      "path": "<root>/agent/skills/dup/SKILL.md",
+      "collision": {
+       "resourceType": "skill",
+       "name": "dup",
+       "winnerPath": "<root>/project/.pi/skills/dup/SKILL.md",
+       "loserPath": "<root>/agent/skills/dup/SKILL.md"
+      }
+     }
+    ],
+    "prompts": [
+     {
+      "name": "p",
+      "filePath": "<root>/project/.pi/prompts/p.md",
+      "sourceInfo": {
+       "path": "<root>/project/.pi/prompts/p.md",
+       "source": "auto",
+       "scope": "project",
+       "origin": "top-level",
+       "baseDir": "<root>/project/.pi"
+      }
+     },
+     {
+      "name": "x",
+      "filePath": "<root>/project/cli-prompts/x.md",
+      "sourceInfo": {
+       "path": "<root>/project/cli-prompts/x.md",
+       "source": "local",
+       "scope": "temporary",
+       "origin": "top-level",
+       "baseDir": "<root>/project/cli-prompts"
+      }
+     }
+    ],
+    "promptDiagnostics": [
+     {
+      "type": "collision",
+      "message": "name \"/p\" collision",
+      "path": "<root>/agent/prompts/p.md",
+      "collision": {
+       "resourceType": "prompt",
+       "name": "p",
+       "winnerPath": "<root>/project/.pi/prompts/p.md",
+       "loserPath": "<root>/agent/prompts/p.md"
+      }
+     },
+     {
+      "type": "error",
+      "message": "Prompt template path does not exist",
+      "path": "<root>/project/missing.md"
+     }
+    ],
+    "themes": [
+     {
+      "name": "mine",
+      "sourcePath": "<root>/project/.pi/themes/mine.json",
+      "sourceInfo": {
+       "path": "<root>/project/.pi/themes/mine.json",
+       "source": "auto",
+       "scope": "project",
+       "origin": "top-level",
+       "baseDir": "<root>/project/.pi"
+      }
+     },
+     {
+      "name": "other",
+      "sourcePath": "<root>/project/cli-themes/other.json",
+      "sourceInfo": {
+       "path": "<root>/project/cli-themes/other.json",
+       "source": "local",
+       "scope": "temporary",
+       "origin": "top-level",
+       "baseDir": "<root>/project/cli-themes"
+      }
+     }
+    ],
+    "themeDiagnostics": [
+     {
+      "type": "warning",
+      "message": "Failed to parse theme <root>/agent/themes/broken.json: SyntaxError: Expected property name or '}' in JSON at position 2 (line 1 column 3)",
+      "path": "<root>/agent/themes/broken.json"
+     },
+     {
+      "type": "warning",
+      "message": "theme path does not exist",
+      "path": "<root>/project/missing-theme.json"
+     },
+     {
+      "type": "collision",
+      "message": "name \"mine\" collision",
+      "path": "<root>/agent/themes/mine.json",
+      "collision": {
+       "resourceType": "theme",
+       "name": "mine",
+       "winnerPath": "<root>/project/.pi/themes/mine.json",
+       "loserPath": "<root>/agent/themes/mine.json"
+      }
+     }
+    ],
+    "agentsFiles": [
+     {
+      "path": "<root>/agent/AGENTS.md",
+      "content": "global agents"
+     },
+     {
+      "path": "<root>/project/AGENTS.md",
+      "content": "project agents"
+     }
+    ],
+    "systemPrompt": "global system",
+    "systemPromptSource": {
+     "path": "<root>/agent/SYSTEM.md"
+    },
+    "appendSystemPrompt": [
+     "project append"
+    ],
+    "appendSystemPromptSources": [
+     {
+      "path": "<root>/project/.pi/APPEND_SYSTEM.md"
+     }
+    ]
+   }
+  },
+  {
+   "name": "loader/untrusted",
+   "kind": "resource_loader",
+   "input": {
+    "trusted": false,
+    "files": {
+     "project/.pi/skills/p/SKILL.md": "---\nname: p\ndescription: p skill\n---\nBody of p\n",
+     "project/.pi/SYSTEM.md": "project system",
+     "agent/SYSTEM.md": "global system",
+     "project/.pi/APPEND_SYSTEM.md": "project append"
+    }
+   },
+   "out": {
+    "skills": [],
+    "skillDiagnostics": [],
+    "prompts": [],
+    "promptDiagnostics": [],
+    "themes": [],
+    "themeDiagnostics": [],
+    "agentsFiles": [],
+    "systemPrompt": "global system",
+    "systemPromptSource": {
+     "path": "<root>/agent/SYSTEM.md"
+    },
+    "appendSystemPrompt": [],
+    "appendSystemPromptSources": []
+   }
+  },
+  {
+   "name": "loader/disabled",
+   "kind": "resource_loader",
+   "input": {
+    "noSkills": true,
+    "noPrompts": true,
+    "noThemes": true,
+    "noContextFiles": true,
+    "skillPaths": [
+     "./s"
+    ],
+    "systemPrompt": "inline system prompt",
+    "appendSystemPrompt": [
+     "./append.md",
+     "inline append"
+    ],
+    "files": {
+     "project/s/x/SKILL.md": "---\nname: x\ndescription: x skill\n---\nBody of x\n",
+     "agent/skills/u/SKILL.md": "---\nname: u\ndescription: u skill\n---\nBody of u\n",
+     "project/append.md": "﻿file append",
+     "project/AGENTS.md": "agents"
+    }
+   },
+   "out": {
+    "skills": [
+     {
+      "name": "x",
+      "filePath": "<root>/project/s/x/SKILL.md",
+      "sourceInfo": {
+       "path": "<root>/project/s/x/SKILL.md",
+       "source": "local",
+       "scope": "temporary",
+       "origin": "top-level",
+       "baseDir": "<root>/project/s/x"
+      }
+     }
+    ],
+    "skillDiagnostics": [],
+    "prompts": [],
+    "promptDiagnostics": [],
+    "themes": [],
+    "themeDiagnostics": [],
+    "agentsFiles": [],
+    "systemPrompt": "inline system prompt",
+    "systemPromptSource": "<undefined>",
+    "appendSystemPrompt": [
+     "./append.md",
+     "inline append"
+    ],
+    "appendSystemPromptSources": []
+   }
+  },
+  {
    "name": "args/\"\"",
    "kind": "parse_args",
    "input": {

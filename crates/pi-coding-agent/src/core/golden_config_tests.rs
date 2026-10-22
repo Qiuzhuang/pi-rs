@@ -960,3 +960,65 @@ fn golden_provider_composition() {
     }
     finish("provider composition", failures);
 }
+
+#[test]
+fn golden_resource_loader() {
+    use crate::core::resource_loader::{DefaultResourceLoader, DefaultResourceLoaderOptions, ResourceLoader};
+    let fixture = fixture();
+    let rt = runtime();
+    let mut failures = Vec::new();
+    for case in selected(&fixture, "resource_loader") {
+        let input = &case.input;
+        let tree = Tree::new(input.get("files"));
+        let cwd = tree.path("project");
+        let agent_dir = tree.path("agent");
+        std::fs::create_dir_all(&cwd).unwrap();
+        std::fs::create_dir_all(&agent_dir).unwrap();
+        let trusted = input.get("trusted").and_then(Value::as_bool).unwrap_or(true);
+        let settings = SettingsManager::create(
+            &cwd,
+            Some(&agent_dir),
+            Some(&SettingsManagerCreateOptions { project_trusted: Some(trusted) }),
+        );
+        let flag = |key: &str| input.get(key).and_then(Value::as_bool);
+        let loader = DefaultResourceLoader::new(&DefaultResourceLoaderOptions {
+            cwd: cwd.clone(),
+            agent_dir: agent_dir.clone(),
+            settings_manager: Some(settings),
+            no_extensions: Some(true),
+            additional_skill_paths: input.get("skillPaths").map(strings),
+            additional_prompt_template_paths: input.get("promptPaths").map(strings),
+            additional_theme_paths: input.get("themePaths").map(strings),
+            no_skills: flag("noSkills"),
+            no_prompt_templates: flag("noPrompts"),
+            no_themes: flag("noThemes"),
+            no_context_files: flag("noContextFiles"),
+            system_prompt: input.get("systemPrompt").and_then(Value::as_str).map(str::to_string),
+            append_system_prompt: input.get("appendSystemPrompt").map(strings),
+            ..Default::default()
+        });
+        rt.block_on(loader.reload(None)).unwrap();
+        let skills = loader.get_skills();
+        let prompts = loader.get_prompts();
+        let themes = loader.get_themes();
+        let actual = json!({
+            "skills": skills.skills.iter().map(|s| json!({ "name": s.name, "filePath": s.file_path, "sourceInfo": to_json(&s.source_info) })).collect::<Vec<_>>(),
+            "skillDiagnostics": to_json(&skills.diagnostics),
+            "prompts": prompts.prompts.iter().map(|p| json!({ "name": p.name, "filePath": p.file_path, "sourceInfo": to_json(&p.source_info) })).collect::<Vec<_>>(),
+            "promptDiagnostics": to_json(&prompts.diagnostics),
+            "themes": themes.themes.iter().map(|t| json!({
+                "name": u(t.name().map(Value::from)),
+                "sourcePath": u(t.source_path().map(Value::from)),
+                "sourceInfo": u(t.source_info().map(|i| to_json(&i))),
+            })).collect::<Vec<_>>(),
+            "themeDiagnostics": to_json(&themes.diagnostics),
+            "agentsFiles": loader.get_agents_files().agents_files.iter().filter(|f| f.path.starts_with(&tree.root)).map(to_json).collect::<Vec<_>>(),
+            "systemPrompt": u(loader.get_system_prompt().map(Value::from)),
+            "systemPromptSource": u(loader.get_system_prompt_source().map(|s| to_json(&s))),
+            "appendSystemPrompt": loader.get_append_system_prompt(),
+            "appendSystemPromptSources": to_json(&loader.get_append_system_prompt_sources()),
+        });
+        check(&mut failures, &case.name, &case.out, &tree.relativize(actual));
+    }
+    finish("resource loader", failures);
+}

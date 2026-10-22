@@ -424,6 +424,9 @@ impl JsExtensionHost {
         let rt2 = rt.clone();
         let slot2 = bridge_slot.clone();
         let init = async move {
+            // Renders hold the UI lock while they call into JS (extension components), so the JS
+            // thread must never wait for that lock (e.g. a host call that emits session events).
+            rt2.with_context(|_| pi_tui::ui_lock::exempt_current_thread()).await?;
             let slot = slot2.clone();
             rt2.register_function("__piHost.call", move |rt, args| {
                 let bridge = slot.lock().upgrade().ok_or_else(|| pi_jsrt::Error::host("pi extension host is shut down"))?;

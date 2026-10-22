@@ -176,3 +176,20 @@ impl MarkedOptions {
 pub fn lexer(src: &str, options: MarkedOptions) -> Vec<Token> {
     Lexer::new(options).lex(src)
 }
+
+/// Build the lexer's lazily compiled grammar on a background thread, once per process.
+///
+/// The grammar is a few hundred regexes compiled on first use; doing that inside the first
+/// markdown render stalls that frame (about a second in debug builds), so the TUI starts it early.
+pub fn warm_up_in_background() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let _ = std::thread::Builder::new().name("pi-tui-marked-warmup".to_string()).spawn(|| {
+            const DOC: &str = "# Heading\n\nSome *emphasis*, **strong**, `code`, ~~strike~~, [link](https://example.com) \
+                               <https://example.com> $x^2$ and a\\\nbreak.\n\n> quote\n\n- item\n  1. nested\n\n\
+                               | a | b |\n|---|---|\n| 1 | 2 |\n\n```rust\nfn main() {}\n```\n\n$$\nx\n$$\n\n---\n\n<div>html</div>\n";
+            let _ = lexer(DOC, MarkedOptions::pi());
+            let _ = lexer(DOC, MarkedOptions::default());
+        });
+    });
+}

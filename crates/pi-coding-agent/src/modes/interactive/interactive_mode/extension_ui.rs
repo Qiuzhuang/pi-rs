@@ -868,8 +868,13 @@ impl Inner {
                 s.extension_widgets_below.values().cloned().collect::<Vec<_>>(),
             )
         };
-        render_widget_container(&self.widget_container_above, &above, true, true);
-        render_widget_container(&self.widget_container_below, &below, false, false);
+        {
+            // Extensions update widgets from their own threads; keep a frame from rendering the
+            // containers between clear() and the re-added children.
+            let _ui = pi_tui::ui_lock::lock_ui();
+            render_widget_container(&self.widget_container_above, &above, true, true);
+            render_widget_container(&self.widget_container_below, &below, false, false);
+        }
         self.request_render();
     }
 

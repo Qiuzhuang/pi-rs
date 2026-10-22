@@ -59,6 +59,7 @@ pub mod testing;
 pub mod tui;
 pub mod tui_alt_screen;
 pub mod tui_main_screen;
+pub mod ui_lock;
 pub mod undo_stack;
 #[rustfmt::skip]
 mod unicode_tables;

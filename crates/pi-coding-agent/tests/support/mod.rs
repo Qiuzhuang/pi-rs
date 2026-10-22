@@ -264,6 +264,8 @@ pub struct HarnessOptions {
     pub session_manager: Option<Arc<SessionManager>>,
     /// Do not take the shared api-registry guard: the test holds [`exclusive_api_registry`].
     pub exclusive_api_registry: bool,
+    /// Stream faux responses at this rate (default: instantly).
+    pub faux_tokens_per_second: Option<f64>,
 }
 
 /// A session wired to the faux provider.
@@ -414,6 +416,7 @@ pub async fn create_harness(options: HarnessOptions) -> anyhow::Result<Harness> 
     let faux = register_faux_provider(RegisterFauxProviderOptions {
         provider: options.provider.clone(),
         models: options.models,
+        tokens_per_second: options.faux_tokens_per_second,
         ..Default::default()
     });
     faux.set_responses(Vec::new());

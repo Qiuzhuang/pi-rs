@@ -1514,6 +1514,7 @@ impl Tui {
         }
         self.state().stopped = false;
         crate::tui_main_screen::register_exit_restore(self.weak_self.clone());
+        crate::marked::warm_up_in_background();
         self.before_terminal_start();
         let weak_input = self.weak_self.clone();
         let weak_resize = self.weak_self.clone();
@@ -1671,6 +1672,8 @@ impl Tui {
     }
 
     pub(crate) fn do_render(&self) {
+        // Frames must not observe a multi-step component update from another thread half done.
+        let _ui = crate::ui_lock::lock_ui();
         match &self.screen {
             Screen::Main(_) => self.main_do_render(),
             Screen::Alt(alt) => alt.do_render(self),

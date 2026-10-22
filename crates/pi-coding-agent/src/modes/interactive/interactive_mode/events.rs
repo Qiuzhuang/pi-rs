@@ -206,6 +206,10 @@ impl Inner {
     }
 
     fn handle_initialized_event(&self, event: AgentSessionEvent) {
+        // Agent events arrive on runtime threads while frames render on the TUI loop. TS applies
+        // each event before the next frame; hold the UI lock so a frame never shows a component
+        // rebuilt halfway (container cleared, children not yet re-added), which flickers.
+        let _ui = pi_tui::ui_lock::lock_ui();
         self.footer.invalidate();
         self.program_status.handle_event(&event);
         let settings = self.settings_manager();

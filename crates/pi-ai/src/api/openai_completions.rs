@@ -1467,8 +1467,12 @@ pub fn stream_simple(model: &Model, context: &TranscriptContext, options: Stream
         return super::lazy::error_stream(model, error);
     }
     let mut base = build_base_options(model, context, &options, options.api_key.as_deref());
+    // TS forwards `options.toolChoice` as given, so values outside the provider-neutral
+    // `ToolChoice` (e.g. "required" or a named function) arrive through `extra`.
     if let Some(choice) = options.tool_choice {
         base.extra.insert("toolChoice".into(), serde_json::to_value(choice).unwrap_or(Value::Null));
+    } else if let Some(choice) = options.extra_value("toolChoice").filter(|c| !c.is_null()) {
+        base.extra.insert("toolChoice".into(), choice.clone());
     }
     if let Some(level) = options.reasoning {
         let clamped = clamp_thinking_level(model, level.into());

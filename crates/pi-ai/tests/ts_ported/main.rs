@@ -7,3 +7,4 @@ mod mock_http;
 mod support;
 
 mod anthropic;
+mod openai_completions;

@@ -63,6 +63,18 @@ fn prints_a_friendly_error_and_preserves_non_session_file_content() {
 }
 
 // stdout-cleanliness.test.ts
+// With stdin at end of file nothing can answer the --resume picker. Node exits once stdin ends and
+// its event loop drains (exit code 0, nothing printed after the picker); the port must not hang.
+#[test]
+fn resume_picker_exits_when_stdin_is_at_eof() {
+    let (_dir, agent_dir, project_dir) = temp_root();
+    let start = std::time::Instant::now();
+    let result = run_pi(&["--resume", "-p"], &project_dir, &agent_dir, true);
+    assert_eq!(result.code, Some(0), "{}", result.stderr);
+    assert!(!result.stdout.contains("No session selected"), "{}", result.stdout);
+    assert!(start.elapsed() < std::time::Duration::from_secs(20));
+}
+
 fn stdout_project() -> (tempfile::TempDir, PathBuf, PathBuf) {
     let (dir, agent_dir, project_dir) = temp_root();
     let config_dir = project_dir.join(".pi");

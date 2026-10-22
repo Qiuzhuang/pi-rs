@@ -45,6 +45,25 @@ fn is_keyboard_protocol_negotiation_sequence_prefix(sequence: &str) -> bool {
     }
 }
 
+/// Called when the process's stdin reaches end of file while a `ProcessTerminal` reads it
+/// (Node's `process.stdin` `"end"` event).
+pub type StdinEndHandler = Arc<dyn Fn() + Send + Sync>;
+
+static STDIN_END_HANDLER: std::sync::Mutex<Option<StdinEndHandler>> = std::sync::Mutex::new(None);
+
+/// Install (or clear) the handler run when stdin reaches end of file during terminal input.
+pub fn set_stdin_end_handler(handler: Option<StdinEndHandler>) {
+    *STDIN_END_HANDLER.lock().unwrap_or_else(|e| e.into_inner()) = handler;
+}
+
+#[cfg_attr(not(unix), allow(dead_code))]
+fn notify_stdin_end() {
+    let handler = STDIN_END_HANDLER.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    if let Some(handler) = handler {
+        handler();
+    }
+}
+
 /// Whether we run in macOS Terminal.app.
 pub fn is_apple_terminal_session() -> bool {
     cfg!(target_os = "macos") && std::env::var("TERM_PROGRAM").as_deref() == Ok("Apple_Terminal")
@@ -574,6 +593,7 @@ mod process {
                     let n = unsafe { libc::read(libc::STDIN_FILENO, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
                     if n == 0 {
                         // EOF: stop polling stdin.
+                        notify_stdin_end();
                         break;
                     }
                     if n < 0 {

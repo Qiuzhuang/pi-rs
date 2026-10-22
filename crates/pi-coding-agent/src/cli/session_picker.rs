@@ -84,6 +84,24 @@ pub async fn select_session(
     ui.add_child(component);
     let list: ComponentRef = selector.get_session_list();
     ui.set_focus(Some(list));
-    start_startup_tui(ui, settings_manager);
-    Ok(rx.await.unwrap_or(None))
+    // Node exits (with `process.exitCode`, 0 when unset) once stdin ends and nothing else keeps
+    // the event loop alive; the selector promise never settles then.
+    let (eof_tx, eof_rx) = oneshot::channel::<()>();
+    let eof_tx = Mutex::new(Some(eof_tx));
+    pi_tui::terminal::set_stdin_end_handler(Some(Arc::new(move || {
+        if let Some(tx) = eof_tx.lock().take() {
+            let _ = tx.send(());
+        }
+    })));
+    start_startup_tui(ui.clone(), settings_manager);
+    let selected = tokio::select! {
+        selected = rx => selected.unwrap_or(None),
+        Ok(()) = eof_rx => {
+            pi_tui::terminal::set_stdin_end_handler(None);
+            ui.stop(TuiStopOptions::default());
+            exit(crate::utils::process_exit::exit_code().unwrap_or(0));
+        }
+    };
+    pi_tui::terminal::set_stdin_end_handler(None);
+    Ok(selected)
 }

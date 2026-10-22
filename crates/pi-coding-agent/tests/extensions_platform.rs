@@ -169,3 +169,101 @@ async fn js_models_requests_are_observed_by_pi_ai_telemetry() {
     harness.cleanup();
     let _ = std::fs::remove_dir_all(dir);
 }
+
+const LAYOUT_EXTENSION: &str = r#"
+import { ScrollView, Text, VStack, HStack } from "@earendil-works/pi-tui";
+export default function (pi) {
+    const body = new Text(Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join("\n"), 0, 0);
+    const scroll = new ScrollView(body, { primary: true, follow: "end", scrollbar: "hidden" });
+    globalThis.__layoutScroll = scroll;
+    const side = new HStack([new Text("L", 0, 0), { component: new Text("R", 0, 0), grow: 1 }], { gap: 1 });
+    const root = new VStack([
+        new Text("header", 0, 0),
+        { component: scroll, basis: 0, grow: 1 },
+        { component: new Text("hidden when narrow", 0, 0), visible: (viewport) => viewport.width >= 30 },
+        side,
+    ]);
+    pi.registerTool({
+        name: "layout",
+        label: "layout",
+        description: "layout",
+        parameters: { type: "object", properties: {} },
+        execute: async (_id, params) => {
+            if (params.action === "end") scroll.scrollToEnd();
+            const out = { scrollTop: scroll.scrollTop, following: scroll.isFollowingEnd, viewport: scroll.viewportHeight };
+            return { content: [{ type: "text", text: JSON.stringify(out) }], details: {} };
+        },
+        renderCall: () => root,
+    });
+}
+"#;
+
+/// TS `[LAYOUT_NODE]()`: JavaScript VStack/HStack/ScrollView take part in pi-tui's fullscreen layout
+/// (flex sizing, visibility predicates, a primary scroll view that follows the end and scrolls with
+/// the wheel), and the JavaScript ScrollView reads the state the layout gives it.
+#[tokio::test(flavor = "multi_thread")]
+async fn js_stacks_and_scroll_views_use_the_fullscreen_layout() {
+    use pi_coding_agent::core::extensions::types::ToolRenderContext;
+    let dir = ExtDir::new();
+    dir.write("layout.ts", LAYOUT_EXTENSION);
+    let result = dir.discover().await;
+    assert!(result.errors.is_empty(), "{:#?}", result.errors);
+    let tool = result.extensions[0].read().tools["layout"].definition.clone();
+    let theme = pi_coding_agent::modes::interactive::theme::theme::theme();
+    let render_ctx = ToolRenderContext {
+        args: json!({}),
+        tool_call_id: "call".into(),
+        invalidate: Arc::new(|| {}),
+        last_component: None,
+        state: Default::default(),
+        cwd: dir.root(),
+        execution_started: false,
+        args_complete: true,
+        is_partial: false,
+        expanded: false,
+        show_images: false,
+        is_error: false,
+        duration_ms: None,
+        output_pad: 0,
+    };
+    let root = (tool.render_call.clone().expect("renderCall"))(&json!({}), &theme, &render_ctx);
+    assert!(root.layout_node().is_some(), "a JS VStack has a layout node");
+    let plain = |frame: &pi_tui::layout::LayoutFrame| -> Vec<String> {
+        frame.lines.iter().map(|l| pi_coding_agent::utils::ansi::strip_ansi(l).unwrap().trim_end().to_string()).collect()
+    };
+    let render = |width: usize| {
+        let root = root.clone();
+        tokio::task::block_in_place(move || pi_tui::layout::render_layout_frame(&root, width, 8, Arc::new(|| {})))
+    };
+    let execute = |action: &str| {
+        let execute = tool.execute.clone();
+        let args = json!({ "action": action });
+        async move {
+            let result = execute("call".into(), args, None, None, None).await.unwrap();
+            let text = serde_json::to_value(&result.content).unwrap()[0]["text"].as_str().unwrap().to_string();
+            serde_json::from_str::<Value>(&text).unwrap()
+        }
+    };
+
+    // 8 rows: header, the scroll view grows into 5 rows (following the end), the visible line, the HStack.
+    let lines = plain(&render(40));
+    assert_eq!(lines[..7], ["header", "line 16", "line 17", "line 18", "line 19", "line 20", "hidden when narrow"]);
+    // HStack: both Texts pad to the full width (intrinsic 40 each) and shrink side by side.
+    assert!(lines[7].starts_with("L ") && lines[7].ends_with('R'), "{:?}", lines[7]);
+    assert_eq!(execute("read").await, json!({ "scrollTop": 15, "following": true, "viewport": 5 }));
+
+    // Narrow viewport: the predicate hides an entry and the scroll view takes the row.
+    let frame = render(20);
+    assert_eq!(plain(&frame)[1..7], ["line 15", "line 16", "line 17", "line 18", "line 19", "line 20"]);
+
+    // Wheel scrolling goes to the primary scroll view; the JS ScrollView sees the new state.
+    let frame = render(40);
+    let primary = frame.primary_scroll_view.clone().expect("the JS ScrollView is the primary scroll view");
+    primary.scroll_by(-10);
+    assert_eq!(plain(&render(40))[1..6], ["line 6", "line 7", "line 8", "line 9", "line 10"]);
+    assert_eq!(execute("read").await, json!({ "scrollTop": 5, "following": false, "viewport": 5 }));
+
+    // JS scrolling reaches the layout.
+    assert_eq!(execute("end").await, json!({ "scrollTop": 15, "following": true, "viewport": 5 }));
+    assert_eq!(plain(&render(40))[1], "line 16");
+}

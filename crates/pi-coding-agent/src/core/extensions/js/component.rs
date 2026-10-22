@@ -18,6 +18,11 @@ use pi_tui::tui::{
     OverlayMargin, OverlayOptions, SizeValue, Tui,
 };
 use pi_tui::StyleFn;
+use pi_tui::components::scroll_view::{Overscroll, ScrollFollow, ScrollView, ScrollViewOptions, ScrollViewScrollToOptions, ScrollViewScrollbar};
+use pi_tui::layout_node::{
+    LayoutNode, LayoutViewport, ScrollLayoutNode, StackAlign, StackBasis, StackLayoutEntry, StackLayoutNode, StackType,
+    StackVisibleFn,
+};
 use serde_json::{Value, json};
 
 use super::api::{arg, autocomplete_item, autocomplete_item_json, custom_entry_json, opt, post_call, rust_marker, str_arg};
@@ -87,6 +92,10 @@ pub(crate) struct ComponentRegistries {
     render_context_ids: Mutex<HashMap<String, u64>>,
     pub(crate) markdown_themes: Registry<MarkdownTheme>,
     pub(crate) autocomplete: Registry<Arc<dyn AutocompleteProvider>>,
+    /// One wrapper per JavaScript layout child (`layoutId`), reused across layouts.
+    layout_children: Mutex<HashMap<u64, std::sync::Weak<JsComponent>>>,
+    /// Rust `ScrollView`s that lay out JavaScript ScrollViews (`sv` host calls), by mirror id.
+    scroll_mirrors: Mutex<HashMap<u64, std::sync::Weak<ScrollView>>>,
 }
 
 impl<T: Clone> Default for Registry<T> {
@@ -136,6 +145,12 @@ pub struct JsComponent {
     has_mouse: bool,
     /// Rust component behind a JS subclass of a Rust-backed class (e.g. CustomEditor).
     rust_id: Option<u64>,
+    /// Has `[LAYOUT_NODE]()` (JS stacks and scroll views).
+    has_layout_node: bool,
+    /// The Rust ScrollView laying out this JS ScrollView in the fullscreen layout.
+    scroll_mirror: Mutex<Option<Arc<ScrollView>>>,
+    /// Child wrappers of the last layout node (kept alive with this component).
+    layout_children: Mutex<Vec<ComponentRef>>,
     focused: AtomicBool,
     last_lines: Mutex<Vec<String>>,
 }
@@ -152,6 +167,9 @@ impl JsComponent {
             has_dispose: desc["hasDispose"].as_bool().unwrap_or(false),
             has_mouse: desc["hasMouse"].as_bool().unwrap_or(false),
             rust_id: desc["rid"].as_u64(),
+            has_layout_node: desc["hasLayoutNode"].as_bool().unwrap_or(false),
+            scroll_mirror: Mutex::new(None),
+            layout_children: Mutex::new(Vec::new()),
             focused: AtomicBool::new(false),
             last_lines: Mutex::new(Vec::new()),
         }
@@ -238,6 +256,221 @@ impl Component for JsComponent {
     fn focused(&self) -> bool {
         self.focused.load(Ordering::SeqCst)
     }
+
+    fn layout_node(&self) -> Option<LayoutNode> {
+        if !self.has_layout_node {
+            return None;
+        }
+        let desc = self.bridge.glue_call_blocking("describeLayoutNode", vec![self.handle.to_value()]).ok()?;
+        let node = layout_node_from(&self.bridge, &desc, &self.scroll_mirror)?;
+        // The children (and a scroll view's mirror inside its child wrapper) live as long as this
+        // component, so their wrappers and scroll state persist between layouts.
+        *self.layout_children.lock() = match &node {
+            LayoutNode::Stack(stack) => stack.entries.iter().map(|e| e.component.clone()).collect(),
+            LayoutNode::Scroll(scroll) => vec![scroll.component.clone()],
+        };
+        Some(node)
+    }
+}
+
+/// A layout child: Rust components directly, JavaScript components through one wrapper per
+/// JavaScript object (its `layoutId`). The parent owns the child, so wrappers never dispose it.
+fn layout_child(bridge: &Arc<Bridge>, desc: &Value) -> Option<ComponentRef> {
+    if desc.get("$piComponent").is_some() {
+        return component_from_value(bridge, desc);
+    }
+    let handle = bridge.handle(&desc["$piJsComponent"])?;
+    let Some(id) = desc["layoutId"].as_u64() else {
+        let mut component = JsComponent::new(bridge.clone(), handle, desc);
+        component.has_dispose = false;
+        return Some(Arc::new(component));
+    };
+    let mut children = bridge.components.layout_children.lock();
+    if let Some(existing) = children.get(&id).and_then(std::sync::Weak::upgrade) {
+        return Some(existing);
+    }
+    if children.len() > 64 {
+        children.retain(|_, weak| weak.strong_count() > 0);
+    }
+    let mut component = JsComponent::new(bridge.clone(), handle, desc);
+    component.has_dispose = false;
+    let component = Arc::new(component);
+    children.insert(id, Arc::downgrade(&component));
+    Some(component)
+}
+
+fn layout_size(value: &Value) -> Option<usize> {
+    value.as_f64().filter(|v| v.is_finite()).map(|v| v.max(0.0) as usize)
+}
+
+/// A JavaScript layout node (`describeLayoutNode` in bridge.js) as a pi-tui [`LayoutNode`].
+fn layout_node_from(bridge: &Arc<Bridge>, desc: &Value, mirror_slot: &Mutex<Option<Arc<ScrollView>>>) -> Option<LayoutNode> {
+    match desc["type"].as_str()? {
+        "scroll" => {
+            let child = layout_child(bridge, &desc["component"])?;
+            let existing = desc["mirror"]
+                .as_u64()
+                .and_then(|id| bridge.components.scroll_mirrors.lock().get(&id).and_then(std::sync::Weak::upgrade));
+            // Adopt the handles of the description (released when unused).
+            let js_state = bridge.handle(&desc["state"]);
+            let state = match existing {
+                Some(state) => {
+                    drop((bridge.handle(&desc["init"]["trackStyle"]), bridge.handle(&desc["init"]["thumbStyle"])));
+                    state
+                }
+                None => {
+                    let state = new_scroll_mirror(bridge, child.clone(), &desc["init"]);
+                    let id = super::next_id();
+                    bridge.components.scroll_mirrors.lock().insert(id, Arc::downgrade(&state));
+                    if let Some(js_state) = &js_state {
+                        let _ = bridge.glue_call_blocking("attachScrollMirror", vec![js_state.to_value(), json!(id)]);
+                    }
+                    state
+                }
+            };
+            *mirror_slot.lock() = Some(state.clone());
+            Some(LayoutNode::Scroll(ScrollLayoutNode { component: child, state }))
+        }
+        kind @ ("vstack" | "hstack") => {
+            let entries = desc["entries"]
+                .as_array()
+                .map(|entries| {
+                    entries
+                        .iter()
+                        .filter_map(|entry| {
+                            let component = layout_child(bridge, &entry["component"])?;
+                            let visible: Option<StackVisibleFn> = bridge.handle(&entry["visible"]).map(|handle| {
+                                Arc::new(move |viewport: LayoutViewport| {
+                                    handle
+                                        .call_blocking(vec![json!({ "width": viewport.width, "height": viewport.height })])
+                                        .map(|v| v.as_bool() == Some(true))
+                                        .unwrap_or(true)
+                                }) as StackVisibleFn
+                            });
+                            Some(StackLayoutEntry {
+                                component,
+                                basis: Some(layout_size(&entry["basis"]).map_or(StackBasis::Auto, StackBasis::Size)),
+                                grow: layout_size(&entry["grow"]),
+                                shrink: layout_size(&entry["shrink"]),
+                                min_size: layout_size(&entry["minSize"]),
+                                max_size: layout_size(&entry["maxSize"]),
+                                visible,
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            Some(LayoutNode::Stack(StackLayoutNode {
+                kind: if kind == "vstack" { StackType::VStack } else { StackType::HStack },
+                entries,
+                gap: layout_size(&desc["gap"]).unwrap_or(0),
+                align: match desc["align"].as_str() {
+                    Some("start") => StackAlign::Start,
+                    Some("center") => StackAlign::Center,
+                    Some("end") => StackAlign::End,
+                    _ => StackAlign::Stretch,
+                },
+            }))
+        }
+        _ => None,
+    }
+}
+
+fn parse_scrollbar(value: &Value) -> Option<ScrollViewScrollbar> {
+    match value.as_str()? {
+        "hidden" => Some(ScrollViewScrollbar::Hidden),
+        "auto" => Some(ScrollViewScrollbar::Auto),
+        "always" => Some(ScrollViewScrollbar::Always),
+        _ => None,
+    }
+}
+
+fn scrollbar_name(scrollbar: ScrollViewScrollbar) -> &'static str {
+    match scrollbar {
+        ScrollViewScrollbar::Hidden => "hidden",
+        ScrollViewScrollbar::Auto => "auto",
+        ScrollViewScrollbar::Always => "always",
+    }
+}
+
+/// A Rust ScrollView starting from a JavaScript ScrollView's options and state (`__svInit()`).
+fn new_scroll_mirror(bridge: &Arc<Bridge>, child: ComponentRef, init: &Value) -> Arc<ScrollView> {
+    let options = ScrollViewOptions {
+        follow: Some(if init["follow"].as_str() == Some("end") { ScrollFollow::End } else { ScrollFollow::None }),
+        primary: init["primary"].as_bool(),
+        overscroll: Some(if init["overscroll"].as_str() == Some("contain") { Overscroll::Contain } else { Overscroll::Chain }),
+        scrollbar: parse_scrollbar(&init["scrollbar"]),
+        scrollbar_track_style: js_style_fn(bridge, &init["trackStyle"]),
+        scrollbar_thumb_style: js_style_fn(bridge, &init["thumbStyle"]),
+        scrollbar_hide_delay_ms: init["hideDelayMs"].as_f64().map(|v| v.max(0.0) as u64),
+        event_loop: None,
+    };
+    let state = ScrollView::new(child, options);
+    let content = init["contentHeight"].as_f64().unwrap_or(0.0) as i64;
+    let viewport = init["viewportHeight"].as_f64().unwrap_or(0.0) as i64;
+    state.update_layout(content, viewport, Arc::new(|| {}));
+    if !init["followingEnd"].as_bool().unwrap_or(false) {
+        state.scroll_to(init["scrollTop"].as_f64().unwrap_or(0.0) as i64, ScrollViewScrollToOptions { disable_follow: false });
+    }
+    if init["scrollbarActive"].as_bool() == Some(true) {
+        state.set_scrollbar_active(true);
+    }
+    state
+}
+
+/// `sv` host calls: a JavaScript ScrollView laid out by pi delegates its state to the Rust mirror.
+/// `null` when the mirror is gone (the JavaScript ScrollView then uses its own state again).
+fn scroll_view_call(bridge: &Arc<Bridge>, payload: &Value) -> anyhow::Result<Value> {
+    let id = payload["id"].as_u64().unwrap_or_default();
+    let Some(sv) = bridge.components.scroll_mirrors.lock().get(&id).and_then(std::sync::Weak::upgrade) else {
+        return Ok(Value::Null);
+    };
+    let a = |i: usize| arg(payload, i);
+    let int = |v: &Value| v.as_f64().filter(|v| v.is_finite()).map(|v| v.trunc() as i64);
+    let result = match str_arg(payload, "m").as_str() {
+        "state" => Value::Null,
+        "scrollTo" => {
+            let top = int(&a(0)).unwrap_or_else(|| sv.scroll_top());
+            sv.scroll_to(top, ScrollViewScrollToOptions { disable_follow: a(1)["disableFollow"].as_bool() == Some(true) });
+            Value::Null
+        }
+        "scrollBy" => json!(sv.scroll_by(int(&a(0)).unwrap_or(0))),
+        "scrollToStart" => {
+            sv.scroll_to_start();
+            Value::Null
+        }
+        "scrollToEnd" => {
+            sv.scroll_to_end();
+            Value::Null
+        }
+        "setScrollbar" => {
+            if let Some(scrollbar) = parse_scrollbar(&a(0)) {
+                sv.set_scrollbar(scrollbar);
+            }
+            Value::Null
+        }
+        "setScrollbarActive" => {
+            sv.set_scrollbar_active(a(0).as_bool() == Some(true));
+            Value::Null
+        }
+        "updateLayout" => {
+            sv.update_layout(int(&a(0)).unwrap_or(0), int(&a(1)).unwrap_or(0), Arc::new(|| {}));
+            Value::Null
+        }
+        other => return Err(anyhow::anyhow!("ScrollView.{other} is not available")),
+    };
+    Ok(json!({
+        "result": result,
+        "state": {
+            "scrollTop": sv.scroll_top(),
+            "followingEnd": sv.is_following_end(),
+            "viewportHeight": sv.viewport_height(),
+            "contentHeight": sv.content_height(),
+            "scrollbar": scrollbar_name(sv.scrollbar()),
+            "scrollbarVisible": sv.is_scrollbar_visible(),
+            "scrollbarActive": sv.is_scrollbar_active(),
+        },
+    }))
 }
 
 impl Drop for JsComponent {
@@ -1072,6 +1305,7 @@ pub(crate) fn dispatch(bridge: &Arc<Bridge>, op: &str, payload: Value) -> anyhow
         "theme" => theme_call(bridge, &payload),
         "tui" => tui_call(bridge, &payload),
         "kb" => keybindings_call(bridge, &payload),
+        "sv" => scroll_view_call(bridge, &payload),
         "overlay" => {
             let id = payload["id"].as_u64().unwrap_or_default();
             let handle = bridge.components.overlays.get(id).ok_or_else(|| anyhow::anyhow!("unknown overlay"))?;

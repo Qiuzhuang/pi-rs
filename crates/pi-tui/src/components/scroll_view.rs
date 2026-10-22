@@ -133,6 +133,11 @@ impl ScrollView {
         self.lock().viewport_height
     }
 
+    /// Content height measured by the last layout.
+    pub fn content_height(&self) -> i64 {
+        self.lock().content_height
+    }
+
     pub fn scrollbar(&self) -> ScrollViewScrollbar {
         self.lock().scrollbar
     }

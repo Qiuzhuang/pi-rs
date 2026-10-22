@@ -77,7 +77,7 @@ pub(crate) fn dispatch(bridge: &Arc<Bridge>, rt: &JsRuntime, op: &str, payload: 
         "version" => Ok(json!(crate::config::VERSION)),
         _ if op.starts_with("pi.") => pi_op(bridge, rt, op, payload),
         "ctx.get" | "ctx.call" | "sm" | "mr" | "ui" => context::dispatch(bridge, op, payload),
-        "theme" | "tui" | "kb" | "overlay" | "footer" | "rc" | "rc.new" | "tui.util" | "tui.markdown"
+        "theme" | "tui" | "kb" | "sv" | "overlay" | "footer" | "rc" | "rc.new" | "tui.util" | "tui.markdown"
         | "tui.markdownTheme" | "renderer.call" | "renderer.result" | "ac" => component::dispatch(bridge, op, payload),
         _ if op.starts_with("builtin.") || op.starts_with("ca") => builtin::dispatch(bridge, op, payload),
         "ai" => provider::dispatch(bridge, op, payload),

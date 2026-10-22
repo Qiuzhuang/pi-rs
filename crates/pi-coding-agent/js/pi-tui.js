@@ -1429,8 +1429,8 @@ export class Image {
 }
 
 // Stacks, scroll views and mouse regions (TS components/stack.ts, h-stack.ts, v-stack.ts,
-// scroll-view.ts, mouse-region.ts). The `[LAYOUT_NODE]()` protocol is what pi's viewport TUI uses to
-// lay these out; inside pi-rs they render through `render()`.
+// scroll-view.ts, mouse-region.ts). Like TS, pi's fullscreen (viewport) TUI lays out components
+// with `[LAYOUT_NODE]()` itself (bridge.js `describeLayoutNode`); elsewhere they use `render()`.
 
 function isStackEntry(child) {
   return !("render" in child);
@@ -1632,26 +1632,74 @@ export class ScrollView extends Container {
     this.scrollbarThumbStyle = options.scrollbarThumbStyle ?? ((text) => `\x1B[37m${text}\x1B[39m`);
     this.scrollbarHideDelayMs = Math.max(0, Math.floor(options.scrollbarHideDelayMs ?? 1e3));
   }
+  // pi-rs: while pi's fullscreen layout lays this view out, a Rust ScrollView mirror owns the
+  // scroll state (wheel scrolling, follow-end, scrollbar); reads and writes go through it.
+  __svAttach(id) {
+    Object.defineProperty(this, "__svMirror", { value: id, writable: true, configurable: true, enumerable: false });
+  }
+  __svInit() {
+    return {
+      follow: this.followEnd ? "end" : "none",
+      primary: this.primary,
+      overscroll: this.overscroll,
+      scrollbar: this.currentScrollbar,
+      trackStyle: this.scrollbarTrackStyle,
+      thumbStyle: this.scrollbarThumbStyle,
+      hideDelayMs: this.scrollbarHideDelayMs,
+      scrollTop: this.currentScrollTop,
+      contentHeight: this.contentHeight,
+      viewportHeight: this.currentViewportHeight,
+      followingEnd: this.followingEnd,
+      scrollbarActive: this.scrollbarActive
+    };
+  }
+  __svCall(m, a = []) {
+    if (this.__svMirror === undefined) return undefined;
+    const response = call("sv", { id: this.__svMirror, m, a });
+    if (response === null || response === undefined) {
+      this.__svMirror = undefined;
+      return undefined;
+    }
+    const state = response.state;
+    this.currentScrollTop = state.scrollTop;
+    this.followingEnd = state.followingEnd;
+    this.currentViewportHeight = state.viewportHeight;
+    this.contentHeight = state.contentHeight;
+    this.currentScrollbar = state.scrollbar;
+    this.scrollbarActive = state.scrollbarActive;
+    this.transientScrollbarVisible = state.scrollbarVisible;
+    return response;
+  }
   get scrollTop() {
+    this.__svCall("state");
     return this.currentScrollTop;
   }
   get isFollowingEnd() {
+    this.__svCall("state");
     return this.followingEnd;
   }
   get viewportHeight() {
+    this.__svCall("state");
     return this.currentViewportHeight;
   }
   get scrollbar() {
+    this.__svCall("state");
     return this.currentScrollbar;
   }
   get isScrollbarVisible() {
+    if (this.__svCall("state")) {
+      if (this.currentScrollbar === "always") return this.currentViewportHeight > 0;
+      return this.currentScrollbar === "auto" && this.transientScrollbarVisible;
+    }
     if (this.scrollbar === "always") return this.currentViewportHeight > 0;
     return this.scrollbar === "auto" && this.contentHeight > this.currentViewportHeight && this.transientScrollbarVisible;
   }
   get isScrollbarActive() {
+    this.__svCall("state");
     return this.scrollbarActive;
   }
   setScrollbar(scrollbar) {
+    if (this.__svCall("setScrollbar", [scrollbar])) return;
     if (scrollbar === this.currentScrollbar) return;
     this.currentScrollbar = scrollbar;
     if (scrollbar !== "auto") this.hideTransientScrollbar();
@@ -1683,12 +1731,14 @@ export class ScrollView extends Container {
     this.scrollbarHideTimer = void 0;
   }
   setScrollbarActive(active) {
+    if (this.__svCall("setScrollbarActive", [!!active])) return;
     if (active === this.scrollbarActive) return;
     this.scrollbarActive = active;
     this.markScrollbarActivity();
     this.requestRenderCallback?.();
   }
   scrollTo(scrollTop, options = {}) {
+    if (this.__svCall("scrollTo", [scrollTop, { disableFollow: options.disableFollow === true }])) return;
     const requested = Number.isFinite(scrollTop) ? Math.trunc(scrollTop) : this.currentScrollTop;
     const maxScrollTop = Math.max(0, this.contentHeight - this.currentViewportHeight);
     const next = Math.max(0, Math.min(maxScrollTop, requested));
@@ -1705,6 +1755,8 @@ export class ScrollView extends Container {
     this.requestRenderCallback?.();
   }
   scrollBy(lines) {
+    const mirrored = this.__svCall("scrollBy", [lines]);
+    if (mirrored) return mirrored.result;
     const requested = Number.isFinite(lines) ? Math.trunc(lines) : 0;
     if (requested === 0) return 0;
     const maxScrollTop = Math.max(0, this.contentHeight - this.currentViewportHeight);
@@ -1720,6 +1772,7 @@ export class ScrollView extends Container {
     return requested - moved;
   }
   scrollToStart() {
+    if (this.__svCall("scrollToStart")) return;
     const changed = this.currentScrollTop !== 0 || this.followingEnd !== (this.followEnd && this.contentHeight <= this.currentViewportHeight);
     this.currentScrollTop = 0;
     this.followingEnd = this.followEnd && this.contentHeight <= this.currentViewportHeight;
@@ -1730,6 +1783,7 @@ export class ScrollView extends Container {
     }
   }
   scrollToEnd() {
+    if (this.__svCall("scrollToEnd")) return;
     const next = Math.max(0, this.contentHeight - this.currentViewportHeight);
     const changed = this.currentScrollTop !== next || this.followingEnd !== this.followEnd;
     this.currentScrollTop = next;
@@ -1741,6 +1795,10 @@ export class ScrollView extends Container {
     }
   }
   updateLayout(contentHeight, viewportHeight, requestRender) {
+    if (this.__svCall("updateLayout", [contentHeight, viewportHeight])) {
+      this.requestRenderCallback = requestRender;
+      return;
+    }
     this.contentHeight = Math.max(0, Math.floor(contentHeight));
     this.currentViewportHeight = Math.max(0, Math.floor(viewportHeight));
     this.requestRenderCallback = requestRender;

@@ -96,7 +96,73 @@ export function componentRef(component) {
 		hasInvalidate: typeof component.invalidate === "function",
 		hasDispose: typeof component.dispose === "function",
 		hasMouse: typeof component.handleMouse === "function",
+		hasLayoutNode: typeof component[LAYOUT_NODE] === "function",
 	};
+}
+
+// pi-tui fullscreen layout (TS layout-node.ts): components with `[LAYOUT_NODE]()` (stacks, scroll
+// views) are laid out by pi's viewport TUI. Children keep a stable id per JavaScript object so
+// Rust reuses one wrapper per child across frames (render caches, mouse targets).
+const LAYOUT_NODE = Symbol.for("@earendil-works/pi-tui/layout-node");
+const layoutIds = new WeakMap();
+let nextLayoutId = 1;
+
+function layoutId(object) {
+	let id = layoutIds.get(object);
+	if (id === undefined) {
+		id = nextLayoutId++;
+		layoutIds.set(object, id);
+	}
+	return id;
+}
+
+function layoutChildRef(component) {
+	const desc = componentRef(component);
+	if (desc && desc.$piJsComponent !== undefined) desc.layoutId = layoutId(component);
+	return desc;
+}
+
+function layoutSize(value) {
+	return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : null;
+}
+
+/** The layout node of `component` for Rust (`null` when it has none). */
+export function describeLayoutNode(component) {
+	const node = typeof component?.[LAYOUT_NODE] === "function" ? component[LAYOUT_NODE]() : undefined;
+	if (!node || typeof node !== "object") return null;
+	if (node.type === "scroll") {
+		const state = node.state;
+		if (!state || typeof state.__svAttach !== "function") return null;
+		// `init` and `state` let Rust start a new mirror from the JavaScript state when there is no live
+		// one (Rust releases the handles otherwise).
+		return {
+			type: "scroll",
+			component: layoutChildRef(node.component),
+			mirror: state.__svMirror ?? null,
+			init: state.__svInit(),
+			state: ref(state),
+		};
+	}
+	if (node.type !== "vstack" && node.type !== "hstack") return null;
+	return {
+		type: node.type,
+		gap: layoutSize(node.gap) ?? 0,
+		align: node.align ?? "stretch",
+		entries: (node.entries ?? []).map((entry) => ({
+			component: layoutChildRef(entry.component),
+			basis: entry.basis === undefined || entry.basis === "auto" ? null : layoutSize(entry.basis),
+			grow: layoutSize(entry.grow),
+			shrink: layoutSize(entry.shrink),
+			minSize: layoutSize(entry.minSize),
+			maxSize: layoutSize(entry.maxSize),
+			visible: typeof entry.visible === "function" ? (viewport) => !!entry.visible(viewport) : null,
+		})),
+	};
+}
+
+/** Attach the Rust mirror `id` that lays out a JavaScript ScrollView. */
+export function attachScrollMirror(state, id) {
+	state.__svAttach(id);
 }
 
 /** `component.handleMouse(event)` for Rust: flags plus the dispatch and focus targets as component refs. */

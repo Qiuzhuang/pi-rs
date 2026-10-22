@@ -22,3 +22,10 @@ mod tools;
 fn golden_tools() {
     harness::run("tools.json", tools::build);
 }
+#[path = "golden/chrome.rs"]
+mod chrome;
+
+#[test]
+fn golden_chrome() {
+    harness::run("chrome.json", chrome::build);
+}

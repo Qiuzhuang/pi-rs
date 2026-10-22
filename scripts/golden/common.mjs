@@ -30,6 +30,10 @@ export function ref(rel) {
 
 const tui = await ref("tui/src/index.ts");
 const themeModule = await ref("coding-agent/src/modes/interactive/theme/theme.ts");
+const { KeybindingsManager } = await ref("coding-agent/src/core/keybindings.ts");
+
+// Interactive mode installs the app keybindings globally; key hints read them from there.
+tui.setKeybindings(new KeybindingsManager({}));
 
 /** Fixed terminal capabilities: truecolor, no inline images, no hyperlinks unless a case asks. */
 export function setCaps(overrides = {}) {

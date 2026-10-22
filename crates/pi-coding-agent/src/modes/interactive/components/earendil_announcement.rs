@@ -1,6 +1,7 @@
 //! Port of `packages/coding-agent/src/modes/interactive/components/earendil-announcement.ts`.
 
 use crate::config::get_bundled_interactive_asset_path;
+use crate::modes::interactive::assets::get_bundled_interactive_asset;
 use crate::modes::interactive::components::dynamic_border::DynamicBorder;
 use crate::modes::interactive::theme::theme::{ThemeColor, theme};
 use base64::Engine;
@@ -19,8 +20,10 @@ static CACHED_IMAGE_BASE64: OnceLock<Option<String>> = OnceLock::new();
 fn load_image_base64() -> Option<String> {
     CACHED_IMAGE_BASE64
         .get_or_init(|| {
+            // The image ships inside the binary; a file next to the package (TS layout) still wins.
             std::fs::read(get_bundled_interactive_asset_path(IMAGE_FILENAME))
                 .ok()
+                .or_else(|| get_bundled_interactive_asset(IMAGE_FILENAME).map(<[u8]>::to_vec))
                 .map(|bytes| base64::engine::general_purpose::STANDARD.encode(bytes))
         })
         .clone()

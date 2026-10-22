@@ -61,6 +61,10 @@ pub fn lock() -> MutexGuard<'static, ()> {
             }
         }
     });
+    // Interactive mode installs the app keybindings globally; key hints read them from there.
+    pi_tui::keybindings::set_keybindings(
+        pi_coding_agent::core::keybindings::KeybindingsManager::new(None, None).tui_manager(),
+    );
     guard
 }
 

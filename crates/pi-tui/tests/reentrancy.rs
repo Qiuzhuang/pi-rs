@@ -59,12 +59,17 @@ impl ReentrantComponent {
 
 impl Component for ReentrantComponent {
     fn render(&self, _width: usize) -> Vec<String> {
-        *self.renders.lock().unwrap() += 1;
+        let renders = {
+            let mut renders = self.renders.lock().unwrap();
+            *renders += 1;
+            *renders
+        };
         if let Some(tui) = self.tui() {
             let _ = tui.get_focused_component();
             let _ = tui.has_overlay();
             let _ = tui.children();
-            tui.request_render(false);
+            // A forced render resets the render state, which the renderer must not hold.
+            tui.request_render(renders == 1);
         }
         vec![format!("reentrant {}", self.inputs.lock().unwrap().len())]
     }

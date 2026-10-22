@@ -329,9 +329,20 @@ impl Tui {
             return;
         }
         let terminal = self.terminal().clone();
-        let mut s = self.main_state();
         let width = terminal.columns();
         let height = terminal.rows();
+
+        // Render components and overlays before taking the render-state lock: component code may
+        // re-enter the TUI (e.g. `request_render(true)` resets the render state).
+        let show_hw = self.get_show_hardware_cursor();
+        let mut new_lines = resolve_fake_cursors(self.render_root(width), show_hw);
+        if self.has_overlay_entries() {
+            new_lines = self.composite_overlays(new_lines, width, height);
+        }
+        let cursor_pos = extract_cursor_position(&mut new_lines, height);
+        apply_line_resets(&mut new_lines);
+
+        let mut s = self.main_state();
         let (w, h) = (width as i64, height as i64);
         let width_changed = s.previous_width != 0 && s.previous_width != w;
         let height_changed = s.previous_height != 0 && s.previous_height != h;
@@ -341,14 +352,6 @@ impl Tui {
             if height_changed { (previous_buffer_length - h).max(0) } else { s.previous_viewport_top };
         let mut viewport_top = prev_viewport_top;
         let mut hardware_cursor_row = s.hardware_cursor_row;
-
-        let show_hw = self.get_show_hardware_cursor();
-        let mut new_lines = resolve_fake_cursors(self.render_root(width), show_hw);
-        if self.has_overlay_entries() {
-            new_lines = self.composite_overlays(new_lines, width, height);
-        }
-        let cursor_pos = extract_cursor_position(&mut new_lines, height);
-        apply_line_resets(&mut new_lines);
 
         let write = |d: &str| terminal.write(d);
 

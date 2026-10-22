@@ -235,6 +235,39 @@ async fn refresh_updates_dynamic_providers_and_reports_failures() {
     assert_eq!(*refreshes.lock(), 3);
 }
 
+fn failing_provider(id: &str, delay_ms: u64) -> TestProvider {
+    let message = format!("{id} failed");
+    TestProvider {
+        id: id.into(),
+        auth: ProviderAuth { api_key: Some(Arc::new(Ambient)), oauth: None },
+        models: Arc::default(),
+        refresh: Some(Arc::new(move |context: RefreshModelsContext, _| {
+            let message = message.clone();
+            Box::pin(async move {
+                if !context.allow_network {
+                    return Ok(());
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                anyhow::bail!(message)
+            })
+        })),
+        calls: Arc::default(),
+    }
+}
+
+/// TS returns a `Map`, whose keys iterate in insertion (failure) order; callers list them in that order.
+#[tokio::test]
+async fn refresh_errors_keep_failure_order() {
+    let models = create_models(CreateModelsOptions::default());
+    for (id, delay) in [("zeta", 40), ("alpha", 0), ("mid", 20), ("beta", 60)] {
+        models.set_provider(Arc::new(failing_provider(id, delay)));
+    }
+    let result = models.refresh(ModelsRefreshOptions::default()).await;
+    let keys: Vec<&str> = result.errors.keys().map(String::as_str).collect();
+    assert_eq!(keys, ["alpha", "mid", "zeta", "beta"]);
+    assert_eq!(result.errors["mid"], "mid failed");
+}
+
 #[tokio::test]
 async fn create_provider_persists_and_restores_dynamic_catalogs() {
     let store: Arc<dyn ModelsStore> = Arc::new(InMemoryModelsStore::new());

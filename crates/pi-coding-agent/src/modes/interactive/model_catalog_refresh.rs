@@ -6,6 +6,7 @@ use futures::FutureExt;
 use futures::future::{BoxFuture, Shared};
 use parking_lot::Mutex;
 use pi_ai::models::{ModelsRefreshOptions, ModelsRefreshResult};
+use indexmap::IndexMap;
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
 use tokio_util::sync::CancellationToken;
@@ -24,7 +25,7 @@ impl ModelCatalogRefresh for ModelRuntime {
 /// TS: Pick<ModelRuntime, "refresh">
 pub type ModelCatalogRuntime = Arc<ModelRuntime>;
 
-type SharedRefresh = Shared<BoxFuture<'static, Result<(bool, HashMap<String, String>), Arc<anyhow::Error>>>>;
+type SharedRefresh = Shared<BoxFuture<'static, Result<(bool, IndexMap<String, String>), Arc<anyhow::Error>>>>;
 
 #[derive(Clone)]
 pub struct ActiveModelCatalogRefresh {
@@ -46,7 +47,7 @@ impl Default for ModelCatalogRefreshCoordinator {
     }
 }
 
-fn to_result(value: Result<(bool, HashMap<String, String>), Arc<anyhow::Error>>) -> anyhow::Result<ModelsRefreshResult> {
+fn to_result(value: Result<(bool, IndexMap<String, String>), Arc<anyhow::Error>>) -> anyhow::Result<ModelsRefreshResult> {
     match value {
         Ok((aborted, errors)) => Ok(ModelsRefreshResult { aborted, errors }),
         Err(error) => {
@@ -240,5 +241,27 @@ mod tests {
         };
         let (b, _) = tokio::join!(second, cancel);
         assert!(is_abort(&b.unwrap_err()));
+    }
+
+    struct FailingRuntime;
+
+    impl ModelCatalogRefresh for FailingRuntime {
+        fn refresh_catalogs(self: Arc<Self>, _options: ModelsRefreshOptions) -> BoxFuture<'static, anyhow::Result<ModelsRefreshResult>> {
+            async move {
+                let errors: IndexMap<String, String> =
+                    ["zeta", "alpha", "mid"].into_iter().map(|id| (id.to_string(), format!("{id} failed"))).collect();
+                Ok(ModelsRefreshResult { aborted: false, errors })
+            }
+            .boxed()
+        }
+    }
+
+    /// TS shares `result.errors` (a `Map`) unchanged, so callers list providers in failure order.
+    #[tokio::test]
+    async fn shared_refresh_keeps_error_order() {
+        let coordinator = ModelCatalogRefreshCoordinator::new();
+        let result = coordinator.refresh(&Arc::new(FailingRuntime), CancellationToken::new()).await.unwrap();
+        let keys: Vec<&str> = result.errors.keys().map(String::as_str).collect();
+        assert_eq!(keys, ["zeta", "alpha", "mid"]);
     }
 }

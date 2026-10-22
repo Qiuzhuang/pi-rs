@@ -738,9 +738,8 @@ async fn refresh_model_catalogs(agent_dir: &str) -> anyhow::Result<()> {
             bail!("Model catalog refresh timed out.");
         }
         if !result.errors.is_empty() {
-            let mut errors: Vec<(&String, &String)> = result.errors.iter().collect();
-            errors.sort();
-            let details = errors
+            let details = result
+                .errors
                 .iter()
                 .map(|(provider, error)| format!("{provider}: {error}"))
                 .collect::<Vec<_>>()

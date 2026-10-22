@@ -522,7 +522,8 @@ pub struct ModelsRefreshOptions {
 #[derive(Debug, Default)]
 pub struct ModelsRefreshResult {
     pub aborted: bool,
-    pub errors: HashMap<String, String>,
+    /// Errors by provider ID, in the order the refreshes failed (TS: a `Map`).
+    pub errors: IndexMap<String, String>,
 }
 
 #[derive(Clone, Default)]
@@ -815,9 +816,9 @@ impl Models {
     pub async fn refresh(&self, options: ModelsRefreshOptions) -> ModelsRefreshResult {
         let allow_network = options.allow_network.unwrap_or(true);
         let caller_signal = options.signal.clone().unwrap_or_default();
-        let errors: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
+        let errors: Arc<Mutex<IndexMap<String, String>>> = Arc::new(Mutex::new(IndexMap::new()));
         if caller_signal.is_cancelled() {
-            return ModelsRefreshResult { aborted: true, errors: HashMap::new() };
+            return ModelsRefreshResult { aborted: true, errors: IndexMap::new() };
         }
         let refreshable: Vec<Arc<dyn Provider>> = self
             .get_providers()

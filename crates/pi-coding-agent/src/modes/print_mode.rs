@@ -309,7 +309,13 @@ pub async fn run_print_mode(runtime_host: Arc<AgentSessionRuntime>, options: &Pr
         if mode == PrintModeOptionsMode::Json
             && let Some(header) = runtime_host.session().session_manager().get_header()
         {
-            write_raw_stdout(&serialize_json_line(&header));
+            // The header as stored in the session file: `{ type: "session", ... }`.
+            let mut object = serde_json::Map::new();
+            object.insert("type".to_string(), serde_json::Value::String("session".to_string()));
+            if let serde_json::Value::Object(fields) = serde_json::to_value(&header)? {
+                object.extend(fields);
+            }
+            write_raw_stdout(&serialize_json_line(&object));
         }
 
         state.rebind_session().await?;

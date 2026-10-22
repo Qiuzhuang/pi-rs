@@ -187,8 +187,17 @@ impl Shared {
     }
 }
 
+/// A blocking call from another thread, run on the JS thread while it waits in
+/// [`JsRuntime::wait_servicing`].
+type ServiceJob = Box<dyn FnOnce() + Send>;
+
 pub(crate) struct Inner {
     tx: mpsc::Sender<Msg>,
+    /// Set while the JS thread is blocked inside a host function waiting for another thread
+    /// ([`JsRuntime::wait_servicing`]): blocking calls into JS from other threads are sent here
+    /// and run re-entrantly instead of queueing behind the blocked host call (which deadlocks
+    /// when the thread the JS thread waits for is the one calling into JS).
+    servicing: Mutex<Option<mpsc::Sender<ServiceJob>>>,
     pub(crate) shared: Arc<Shared>,
     thread_id: ThreadId,
     tokio: tokio::runtime::Handle,
@@ -266,6 +275,37 @@ impl Drop for CurrentCtxGuard {
     }
 }
 
+/// Completion of a [`JsRuntime::wait_servicing`] wait; dropping it unresolved ends the wait.
+struct Completion<R> {
+    slot: Arc<Mutex<Option<Option<R>>>>,
+    wake: Option<mpsc::Sender<ServiceJob>>,
+}
+
+impl<R: Send + 'static> Completion<R> {
+    fn into_fn(self) -> impl FnOnce(R) + Send + 'static {
+        move |r| {
+            let mut this = self;
+            *this.slot.lock() = Some(Some(r));
+            if let Some(wake) = this.wake.take() {
+                let _ = wake.send(Box::new(|| {}));
+            }
+        }
+    }
+}
+
+impl<R> Drop for Completion<R> {
+    fn drop(&mut self) {
+        if let Some(wake) = self.wake.take() {
+            let mut slot = self.slot.lock();
+            if slot.is_none() {
+                *slot = Some(None);
+            }
+            drop(slot);
+            let _ = wake.send(Box::new(|| {}));
+        }
+    }
+}
+
 impl JsRuntime {
     /// Start a runtime with the given options.
     pub fn new(options: RuntimeOptions) -> Result<JsRuntime> {
@@ -332,6 +372,7 @@ impl JsRuntime {
             };
             Inner {
                 tx,
+                servicing: Mutex::new(None),
                 shared: shared.clone(),
                 thread_id,
                 tokio,
@@ -362,6 +403,56 @@ impl JsRuntime {
     /// Whether the current thread is the JS thread.
     pub fn is_js_thread(&self) -> bool {
         std::thread::current().id() == self.inner.thread_id
+    }
+
+    /// Block the current thread until `start`'s completion callback is called (or dropped, which
+    /// yields `None`). On the JS thread inside a synchronous host function, blocking calls into
+    /// this runtime made by other threads meanwhile (e.g. by the thread doing the work) are run
+    /// re-entrantly while waiting, so a host function may wait for a thread that calls back
+    /// into JS without deadlocking.
+    pub fn wait_servicing<R: Send + 'static>(&self, start: impl FnOnce(Box<dyn FnOnce(R) + Send>)) -> Option<R> {
+        let slot: Arc<Mutex<Option<Option<R>>>> = Arc::new(Mutex::new(None));
+        if !(self.is_js_thread() && in_host_call()) {
+            let (tx, rx) = mpsc::sync_channel::<R>(1);
+            start(Box::new(move |r| {
+                let _ = tx.send(r);
+            }));
+            return rx.recv().ok();
+        }
+        let (job_tx, job_rx) = mpsc::channel::<ServiceJob>();
+        let previous = self.inner.servicing.lock().replace(job_tx.clone());
+        start(Box::new(Completion { slot: slot.clone(), wake: Some(job_tx) }.into_fn()));
+        let result = loop {
+            if let Some(result) = slot.lock().take() {
+                break result;
+            }
+            match job_rx.recv() {
+                Ok(job) => job(),
+                Err(_) => break None,
+            }
+        };
+        *self.inner.servicing.lock() = previous;
+        // Calls that raced with the end of the wait still run here; later ones are queued.
+        while let Ok(job) = job_rx.try_recv() {
+            job();
+        }
+        result
+    }
+
+    /// Run `call` on the JS thread if it is blocked in [`JsRuntime::wait_servicing`]. `None` when
+    /// it is not (or stopped servicing before running the call): use the regular queue then.
+    fn try_service<R: Send + 'static>(&self, call: impl FnOnce() -> Result<R> + Send + 'static) -> Option<Result<R>> {
+        if self.is_js_thread() {
+            return None;
+        }
+        let sender = self.inner.servicing.lock().clone()?;
+        let (tx, rx) = mpsc::sync_channel::<Result<R>>(1);
+        sender
+            .send(Box::new(move || {
+                let _ = tx.send(call());
+            }))
+            .ok()?;
+        rx.recv().ok()
     }
 
     /// Stop the JS thread. Pending calls fail with [`Error::Terminated`].
@@ -863,6 +954,11 @@ impl JsHandle {
         if self.inner.rt.is_js_thread() {
             return self.run_reentrant(target, args, false).map(settled_json);
         }
+        let this = self.clone();
+        let (t, a) = (target.clone(), args.clone());
+        if let Some(result) = self.inner.rt.try_service(move || this.run_reentrant(t, a, false).map(settled_json)) {
+            return result;
+        }
         let rx = self.invoke(target, args, false);
         self.inner.rt.wait_blocking(rx).map(settled_json)
     }
@@ -876,6 +972,13 @@ impl JsHandle {
         if self.inner.rt.is_js_thread() {
             let id = u64::from(self.run_reentrant(target, args, true)?);
             return Ok(self.inner.rt.settled_handle(id));
+        }
+        let this = self.clone();
+        let (t, a) = (target.clone(), args.clone());
+        if let Some(result) =
+            self.inner.rt.try_service(move || this.run_reentrant(t, a, true).map(|s| this.inner.rt.settled_handle(u64::from(s))))
+        {
+            return result;
         }
         let rx = self.invoke(target, args, true);
         let id = self.inner.rt.wait_blocking(rx)?;

@@ -232,11 +232,13 @@ impl Bridge {
 
     /// Run a UI call on the ordered executor and wait for its result (getters).
     pub(crate) fn ui_dispatch_wait<R: Send + 'static>(&self, f: impl FnOnce() -> R + Send + 'static) -> anyhow::Result<R> {
-        let (tx, rx) = std::sync::mpsc::sync_channel(1);
-        self.ui_dispatch(move || {
-            let _ = tx.send(f());
-        });
-        rx.recv().map_err(|_| anyhow::anyhow!("UI executor stopped"))
+        // On the JS thread, keep servicing blocking calls into JS while waiting: the UI call may
+        // call back into JS (e.g. `showOverlay` focuses a JS component, which sets its `focused`).
+        self.rt
+            .wait_servicing(|done| {
+                self.ui_dispatch(move || done(f()));
+            })
+            .ok_or_else(|| anyhow::anyhow!("UI executor stopped"))
     }
 
     /// Resolve a token id sent by JS (`tokenFor(signal)`).

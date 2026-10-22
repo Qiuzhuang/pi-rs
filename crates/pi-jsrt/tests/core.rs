@@ -342,8 +342,10 @@ fn runtime_without_tokio_context() {
     assert_eq!(f.call_blocking(vec![json!(4)]).unwrap(), json!(8));
 }
 
+/// A blocking call made by a synchronous host function on the JS thread runs re-entrantly
+/// (instead of deadlocking on the queue behind the host call itself).
 #[tokio::test]
-async fn deadlock_is_detected() {
+async fn blocking_call_from_host_function_runs_reentrantly() {
     let rt = JsRuntime::new(RuntimeOptions::default()).unwrap();
     let cb = rt.eval_handle("() => 1").await.unwrap();
     let cb2 = cb.clone();
@@ -353,7 +355,7 @@ async fn deadlock_is_detected() {
     })
     .await
     .unwrap();
-    assert_eq!(rt.eval("host.reenter()").await.unwrap(), json!("deadlock"));
+    assert_eq!(rt.eval("host.reenter()").await.unwrap(), json!("Ok(Number(1))"));
 }
 
 #[tokio::test]
@@ -385,4 +387,35 @@ async fn object_virtual_module() {
         .await
         .unwrap();
     assert_eq!(ns.get("default").await.unwrap(), json!(["1.2.3", 7, 7]));
+}
+
+/// Concurrency regression: a sync host function that waits for another thread which calls back
+/// into JS (blocking) must not deadlock — the JS thread services the call while it waits.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn host_function_waiting_on_a_thread_that_calls_back_into_js() {
+    let rt = JsRuntime::new(RuntimeOptions::default()).unwrap();
+    rt.register_function("host.waitForWorker", |rt, args| {
+        let callback = rt.handle(&args[0]).expect("function marker");
+        let value = rt.wait_servicing(move |done| {
+            std::thread::spawn(move || {
+                // Blocking call into JS from the thread the JS thread is waiting on.
+                let doubled = callback.call_blocking(vec![json!(21)]);
+                done(doubled);
+            });
+        });
+        match value {
+            Some(result) => result,
+            None => Err(Error::host("worker dropped the completion")),
+        }
+    })
+    .await
+    .unwrap();
+    let result = tokio::time::timeout(
+        Duration::from_secs(10),
+        rt.eval("let seen = []; const r = host.waitForWorker((x) => { seen.push(x); return x * 2; }); [r, seen.length]"),
+    )
+    .await
+    .expect("host function waiting on a thread that calls into JS deadlocked")
+    .unwrap();
+    assert_eq!(result, json!([42, 1]));
 }

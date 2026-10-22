@@ -386,7 +386,7 @@ impl ArminComponent {
                             break;
                         }
                     }
-                }))
+                })
                 .ok();
         }
 

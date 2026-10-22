@@ -1709,7 +1709,7 @@ impl EasterEgg3dAnimation {
                         tui.request_render(false);
                     }
                 }
-            }))
+            })
             .ok();
 
         Self { inner }

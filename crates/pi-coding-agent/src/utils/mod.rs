@@ -11,6 +11,7 @@ pub mod clipboard_image;
 pub mod deprecation;
 pub mod exif_orientation;
 pub mod frontmatter;
+pub mod yaml;
 pub mod fs_watch;
 pub mod git;
 pub mod html;

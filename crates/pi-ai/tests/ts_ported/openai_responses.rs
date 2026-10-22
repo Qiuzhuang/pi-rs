@@ -313,3 +313,57 @@ async fn configuration_updates_only_precede_replies_recorded_by_this_model() {
         ]
     );
 }
+
+// ---------------------------------------------------------------------------
+// Port of azure-openai-base-url.test.ts (cases the provider tests do not cover)
+// ---------------------------------------------------------------------------
+
+fn azure_base_url(env_base_url: Option<&str>, resource_name: Option<&str>) -> anyhow::Result<String> {
+    let mut env = ProviderEnv::new();
+    // A scoped env stands in for process.env so parallel tests stay isolated.
+    if let Some(base_url) = env_base_url {
+        env.insert("AZURE_OPENAI_BASE_URL".into(), base_url.into());
+    }
+    if let Some(name) = resource_name {
+        env.insert("AZURE_OPENAI_RESOURCE_NAME".into(), name.into());
+    }
+    let model = pi_ai::providers::all::get_builtin_model("azure", "gpt-4o-mini").unwrap();
+    let options = StreamOptions { api_key: Some("test-api-key".into()), env: Some(env), ..Default::default() };
+    pi_ai::api::azure_openai_config::resolve_azure_base_url(&model, Some(&options))
+}
+
+#[test]
+fn azure_base_url_normalization() {
+    for (input, expected) in [
+        ("https://marc-quicktests-resource.cognitiveservices.azure.com", "https://marc-quicktests-resource.cognitiveservices.azure.com/openai/v1"),
+        ("https://marc-quicktests-resource.ai.azure.com", "https://marc-quicktests-resource.ai.azure.com/openai/v1"),
+        ("https://my-resource.openai.azure.com", "https://my-resource.openai.azure.com/openai/v1"),
+        ("https://my-resource.cognitiveservices.azure.com/openai", "https://my-resource.cognitiveservices.azure.com/openai/v1"),
+        ("https://my-resource.cognitiveservices.azure.com/openai/v1", "https://my-resource.cognitiveservices.azure.com/openai/v1"),
+        ("https://my-resource.services.ai.azure.com/openai/v1/responses", "https://my-resource.services.ai.azure.com/openai/v1"),
+        ("https://my-proxy.example.com/v1", "https://my-proxy.example.com/v1"),
+        ("https://my-resource.openai.azure.com/openai?api-version=2024-12-01", "https://my-resource.openai.azure.com/openai/v1"),
+        ("https://my-proxy.example.com/v1?custom=true", "https://my-proxy.example.com/v1?custom=true"),
+    ] {
+        assert_eq!(azure_base_url(Some(input), None).unwrap(), expected, "{input}");
+    }
+    let error = azure_base_url(Some("not-a-url"), None).unwrap_err();
+    assert!(error.to_string().contains("Invalid Azure OpenAI base URL"));
+    assert_eq!(azure_base_url(None, Some("my-resource")).unwrap(), "https://my-resource.openai.azure.com/openai/v1");
+}
+
+#[tokio::test]
+async fn azure_user_agent_defaults_and_overrides() {
+    let server = MockServer::start(|_, _| Response::json(500, json!({"error": {"message": "stop"}}))).await;
+    let mut model = pi_ai::providers::all::get_builtin_model("azure", "gpt-4o-mini").unwrap();
+    model.base_url = format!("{}/openai/v1", server.url);
+    let context = normalize_context(&user_ctx("hello"));
+    let run = |headers: Option<ProviderHeaders>| StreamOptions { api_key: Some("test-api-key".into()), headers, max_retries: Some(0), ..Default::default() };
+    pi_ai::api::azure_openai_responses::stream(&model, &context, run(None)).result().await;
+    let mut custom = ProviderHeaders::new();
+    custom.insert("User-Agent".into(), Some("custom-agent".into()));
+    pi_ai::api::azure_openai_responses::stream(&model, &context, run(Some(custom))).result().await;
+    let requests = server.requests();
+    assert_eq!(requests[0].header("user-agent"), Some(pi_ai::utils::identity::format_user_agent(None).as_str()));
+    assert_eq!(requests[1].header("user-agent"), Some("custom-agent"));
+}

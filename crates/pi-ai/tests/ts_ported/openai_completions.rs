@@ -1363,3 +1363,203 @@ async fn azure_api_map_routes_by_model_api() {
     let completions = azure_run("deepseek-v4-pro", azure_hi(), false, StreamOptions::default(), &[]).await;
     assert!(completions.requests[0].path_only().ends_with("/chat/completions"));
 }
+
+// ---------------------------------------------------------------------------
+// Port of openai-completions-empty-tools.test.ts
+// ---------------------------------------------------------------------------
+
+fn gpt_4o_mini_completions() -> Model {
+    let mut model = get_builtin_model("openai", "gpt-4o-mini").unwrap();
+    model.api = "openai-completions".into();
+    model.compat = None;
+    model
+}
+
+async fn completions_payload(model: &Model, context: Value, max_tokens: Option<u64>) -> Value {
+    let options = StreamOptions { api_key: Some("test".into()), max_tokens, ..Default::default() };
+    simple_payload(model, &ctx(context), options).await
+}
+
+#[tokio::test]
+async fn empty_tools_and_max_tokens() {
+    // Regression for #3649: `tools: []` is rejected by some OpenAI-compatible backends.
+    let model = gpt_4o_mini_completions();
+    let hi = json!([{"role": "user", "content": "hi", "timestamp": 1}]);
+    let body = completions_payload(&model, json!({"messages": hi, "tools": []}), None).await;
+    assert!(body.get("tools").is_none());
+    let body = completions_payload(&model, json!({"messages": hi}), None).await;
+    assert!(body.get("tools").is_none());
+    assert!(body.get("max_tokens").is_none());
+    assert_eq!(body["max_completion_tokens"], model.max_tokens);
+    let body = completions_payload(&model, json!({"messages": hi}), Some(1234)).await;
+    assert!(body.get("max_tokens").is_none());
+    assert_eq!(body["max_completion_tokens"], 1234);
+
+    // Defaults and explicit values are clamped to the remaining context.
+    let mut small = gpt_4o_mini_completions();
+    small.context_window = 10000;
+    small.max_tokens = 8000;
+    let long = json!([{"role": "user", "content": "x".repeat(8000), "timestamp": 1}]);
+    for explicit in [None, Some(7000)] {
+        let body = completions_payload(&small, json!({"messages": long}), explicit).await;
+        assert!(body.get("max_tokens").is_none());
+        assert_eq!(body["max_completion_tokens"], 3618, "{explicit:?}");
+    }
+
+    // Tool history still sends `tools: []` (Anthropic/LiteLLM proxies require it).
+    let body = completions_payload(
+        &model,
+        json!({"messages": [
+            {"role": "user", "content": "use the tool", "timestamp": 1},
+            {"role": "assistant", "content": [{"type": "toolCall", "id": "t1", "name": "noop", "arguments": {}}], "stopReason": "toolUse",
+             "api": "openai-completions", "provider": "openai", "model": "gpt-4o-mini", "timestamp": 2},
+            {"role": "toolResult", "toolCallId": "t1", "toolName": "noop", "content": [{"type": "text", "text": "done"}], "isError": false, "timestamp": 3}
+        ], "tools": []}),
+        None,
+    )
+    .await;
+    assert_eq!(body["tools"], json!([]));
+}
+
+/// Stands in for the Cloudflare gateway host: records the materialized base URL, then sends the
+/// request (with every header the adapter built) to the mock server.
+struct GatewayRedirect {
+    server: String,
+    base_urls: Arc<Mutex<Vec<String>>>,
+}
+
+impl ProviderStreams for GatewayRedirect {
+    fn stream(&self, model: &Model, context: &TranscriptContext, options: StreamOptions) -> AssistantMessageEventStream {
+        self.stream_simple(model, context, options)
+    }
+    fn stream_simple(&self, model: &Model, context: &TranscriptContext, options: StreamOptions) -> AssistantMessageEventStream {
+        self.base_urls.lock().push(model.base_url.clone());
+        let mut model = model.clone();
+        model.base_url = self.server.clone();
+        let api = pi_ai::compat::get_api_provider(&model.api).expect("builtin api");
+        api.streams.stream_simple(&model, context, StreamOptions { max_retries: Some(0), ..options })
+    }
+}
+
+/// The compat entry point without an api key: the Cloudflare AI Gateway provider auth resolves
+/// `CLOUDFLARE_API_KEY`, `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_GATEWAY_ID`.
+async fn cloudflare_gateway_request(id: &str, system_prompt: Option<&str>, options: StreamOptions) -> (Request, String) {
+    let server = MockServer::start(|_, _| Response::json(400, json!({"error": {"message": "stubbed"}}))).await;
+    let base_urls: Arc<Mutex<Vec<String>>> = Arc::default();
+    let redirect = Arc::new(GatewayRedirect { server: server.url.clone(), base_urls: base_urls.clone() });
+    let provider = create_provider(CreateProviderOptions {
+        id: "cloudflare-ai-gateway".into(),
+        auth: pi_ai::auth::ProviderAuth { api_key: Some(pi_ai::providers::cloudflare::cloudflare_ai_gateway_auth()), oauth: None },
+        models: pi_ai::providers::all::get_builtin_models("cloudflare-ai-gateway").into_iter().map(AnyModel::Chat).collect(),
+        api: Some(ProviderApi::Single(Arc::new(pi_ai::providers::cloudflare::CloudflareStreams(redirect)))),
+        ..Default::default()
+    })
+    .unwrap();
+    let models = create_models(CreateModelsOptions {
+        auth_context: Some(MapAuthContext::new(&[
+            ("CLOUDFLARE_API_KEY", "cf-token"),
+            ("CLOUDFLARE_ACCOUNT_ID", "account-id"),
+            ("CLOUDFLARE_GATEWAY_ID", "gateway-id"),
+        ])),
+        ..Default::default()
+    });
+    models.set_provider(provider);
+    let model = get_builtin_model("cloudflare-ai-gateway", id).unwrap();
+    let mut context = user_ctx("hi");
+    context.system_prompt = system_prompt.map(str::to_string);
+    let result = models.stream_simple(&model, &context, options).result().await;
+    let request = server.requests().into_iter().next().unwrap_or_else(|| panic!("no request: {:?}", result.error_message));
+    let base_url = base_urls.lock().first().cloned().unwrap();
+    (request, base_url)
+}
+
+#[tokio::test]
+async fn cloudflare_ai_gateway_compat_requests() {
+    let workers = "workers-ai/@cf/moonshotai/kimi-k2.6";
+    let gateway_url = "https://gateway.ai.cloudflare.com/v1/account-id/gateway-id/compat";
+    let options = StreamOptions { max_tokens: Some(1234), reasoning: Some(ThinkingLevel::High), ..Default::default() };
+    let (request, base_url) = cloudflare_gateway_request(workers, Some("You are helpful."), options).await;
+    let body = request.json();
+    assert_eq!(body["messages"][0]["role"], "system");
+    assert_eq!(body["max_tokens"], 1234);
+    assert!(body.get("max_completion_tokens").is_none());
+    assert!(body.get("reasoning_effort").is_none());
+    assert!(body.get("store").is_none());
+    assert_eq!(base_url, gateway_url);
+    assert_eq!(request.header("authorization"), None);
+    assert_eq!(request.header("cf-aig-authorization"), Some("Bearer cf-token"));
+
+    // The base URL resolves through provider auth.
+    let (_, base_url) = cloudflare_gateway_request(workers, None, StreamOptions::default()).await;
+    assert_eq!(base_url, gateway_url);
+
+    // BYOK: an inline upstream Authorization survives next to the gateway auth.
+    let mut headers = ProviderHeaders::new();
+    headers.insert("Authorization".into(), Some("Bearer upstream-token".into()));
+    let (request, _) = cloudflare_gateway_request("gpt-5.1", None, StreamOptions { headers: Some(headers), ..Default::default() }).await;
+    assert_eq!(request.header("authorization"), Some("Bearer upstream-token"));
+    assert_eq!(request.header("cf-aig-authorization"), Some("Bearer cf-token"));
+
+    // Session affinity headers for Workers AI through the gateway.
+    let (request, _) = cloudflare_gateway_request(workers, None, StreamOptions { session_id: Some("session-1".into()), ..Default::default() }).await;
+    assert_eq!(request.header("session_id"), Some("session-1"));
+    assert_eq!(request.header("x-client-request-id"), Some("session-1"));
+    assert_eq!(request.header("x-session-affinity"), Some("session-1"));
+}
+
+// ---------------------------------------------------------------------------
+// Port of openai-completions-thinking-as-text.test.ts
+// ---------------------------------------------------------------------------
+
+fn thinking_as_text_model(base_url: &str) -> Model {
+    model(json!({"id": "repro-model", "name": "Repro Model", "api": "openai-completions", "provider": "repro-provider", "baseUrl": base_url,
+        "reasoning": true, "input": ["text"], "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 128000,
+        "maxTokens": 4096, "compat": {"supportsStore": true, "supportsDeveloperRole": true, "supportsReasoningEffort": true,
+        "supportsUsageInStreaming": true, "supportsFinishReason": true, "maxTokensField": "max_completion_tokens", "requiresToolResultName": false,
+        "requiresAssistantAfterToolResult": false, "requiresThinkingAsText": true, "requiresReasoningContentOnAssistantMessages": false,
+        "thinkingFormat": "openai", "zaiToolStream": false, "supportsThinkingTokenBudget": false, "supportsStrictMode": true,
+        "supportsOpenAIGrammarTools": false, "supportsMidConvoSystemMessages": false, "supportsMidConvoToolAdditions": false,
+        "sendSessionAffinityHeaders": false, "sessionAffinityFormat": "openai", "supportsLongCacheRetention": true}}))
+}
+
+fn thinking_replay_context(content: Value) -> Context {
+    ctx(json!({"messages": [
+        {"role": "user", "content": "hello", "timestamp": 1},
+        {"role": "assistant", "content": content, "api": "openai-completions", "provider": "repro-provider", "model": "repro-model", "stopReason": "stop", "timestamp": 2},
+        {"role": "user", "content": "continue", "timestamp": 3}
+    ]}))
+}
+
+#[tokio::test]
+async fn thinking_replays_as_assistant_text_parts() {
+    let model = thinking_as_text_model("http://127.0.0.1:1");
+    let both = json!([{"type": "thinking", "thinking": "internal reasoning"}, {"type": "text", "text": "visible answer"}]);
+    let expected_both = json!({"role": "assistant", "content": [{"type": "text", "text": "internal reasoning"}, {"type": "text", "text": "visible answer"}]});
+    let body = stream_payload(&model, &thinking_replay_context(both.clone()), StreamOptions::default()).await;
+    assert_eq!(body["messages"][1], expected_both);
+    let body = stream_payload(&model, &thinking_replay_context(json!([{"type": "thinking", "thinking": "internal reasoning"}])), StreamOptions::default()).await;
+    assert_eq!(body["messages"][1], json!({"role": "assistant", "content": [{"type": "text", "text": "internal reasoning"}]}));
+
+    // The replay reaches the endpoint and the stream completes.
+    let sse = openai_sse(&[
+        json!({"id": "chatcmpl-repro", "object": "chat.completion.chunk", "created": 0, "model": "repro-model",
+            "choices": [{"index": 0, "delta": {"role": "assistant", "content": "ok"}, "finish_reason": null}]}),
+        json!({"id": "chatcmpl-repro", "object": "chat.completion.chunk", "created": 0, "model": "repro-model",
+            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 1, "completion_tokens": 1}}),
+    ]);
+    let server = MockServer::start(move |req, _| {
+        if req.method != "POST" || req.path != "/chat/completions" {
+            return Response::text(404, "");
+        }
+        Response::sse(&sse)
+    })
+    .await;
+    let model = thinking_as_text_model(&server.url);
+    let context = normalize_context(&thinking_replay_context(both));
+    let options = StreamOptions { api_key: Some("test-key".into()), ..Default::default() };
+    let (events, _) = openai_completions::stream(&model, &context, options).collect_all().await;
+    let requests = server.requests();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].json()["messages"][1], expected_both);
+    assert!(matches!(events.last(), Some(AssistantMessageEvent::Done { .. })), "{:?}", events.last());
+}

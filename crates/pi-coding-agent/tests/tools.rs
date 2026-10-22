@@ -1289,3 +1289,145 @@ async fn ls_lists_dotfiles_and_directories() {
     let err = run(&ls, json!({ "path": "missing" })).await.unwrap_err();
     assert_eq!(err.to_string(), format!("Path not found: {}", p(&empty.path().join("missing"))));
 }
+
+// ---------------------------------------------------------------------------
+// tools.test.ts "tool cwd resolution": tools resolve paths against `ctx.cwd` when a tool context is
+// passed. TS fakes the context with `{ cwd }`; here a minimal `ExtensionContextHost` provides it.
+// ---------------------------------------------------------------------------
+
+mod ctx_cwd {
+    use super::*;
+    use pi_coding_agent::core::extensions::runner::{NoOpUIContext, stale_extension_context};
+    use pi_coding_agent::core::extensions::types::{
+        ExtensionContext, ExtensionContextActions, ExtensionContextHost, ExtensionMode, ExtensionToolContext,
+        ExtensionUIContext, ToolDefinition,
+    };
+    use pi_coding_agent::core::model_registry::ModelRegistry;
+    use pi_coding_agent::core::session_manager::ReadonlySessionManager;
+    use pi_coding_agent::core::tools::bash::{BashToolOptions, create_bash_tool_definition};
+    use pi_coding_agent::core::tools::find::create_find_tool_definition;
+    use pi_coding_agent::core::tools::grep::create_grep_tool_definition;
+    use pi_coding_agent::core::tools::ls::create_ls_tool_definition;
+    use pi_coding_agent::core::tools::read::create_read_tool_definition;
+    use pi_coding_agent::core::tools::write::create_write_tool_definition;
+
+    struct CwdHost(String);
+
+    impl ExtensionContextHost for CwdHost {
+        fn assert_active(&self) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn ui(&self) -> Arc<dyn ExtensionUIContext> {
+            Arc::new(NoOpUIContext)
+        }
+        fn mode(&self) -> ExtensionMode {
+            ExtensionMode::Print
+        }
+        fn has_ui(&self) -> bool {
+            false
+        }
+        fn cwd(&self) -> String {
+            self.0.clone()
+        }
+        fn session_manager(&self) -> Option<ReadonlySessionManager> {
+            None
+        }
+        fn model_registry(&self) -> Option<Arc<ModelRegistry>> {
+            None
+        }
+        fn thinking_level(&self) -> Option<pi_agent::types::ThinkingLevel> {
+            None
+        }
+        fn actions(&self) -> Arc<dyn ExtensionContextActions> {
+            stale_extension_context(None).host().actions()
+        }
+    }
+
+    fn fake_ctx(cwd: &Path) -> ExtensionToolContext {
+        ExtensionToolContext {
+            ctx: ExtensionContext::new(Arc::new(CwdHost(cwd.to_string_lossy().into_owned()))),
+            tool_call_id: "test".into(),
+            signal: None,
+        }
+    }
+
+    async fn execute(tool: &ToolDefinition, id: &str, args: Value, cwd: &Path) -> AgentToolResult {
+        (tool.execute)(id.to_string(), args, None, None, Some(fake_ctx(cwd))).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn read_uses_ctx_cwd_when_provided() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("ctx-cwd-read.txt"), "hello from ctx.cwd").unwrap();
+        let tool = create_read_tool_definition("/", None);
+        let result = execute(&tool, "test-read-ctx-cwd", json!({ "path": "ctx-cwd-read.txt" }), dir.path()).await;
+        assert!(text(&result).contains("hello from ctx.cwd"));
+    }
+
+    #[tokio::test]
+    async fn write_uses_ctx_cwd_when_provided() {
+        let dir = tempfile::tempdir().unwrap();
+        let tool = create_write_tool_definition("/", None);
+        execute(
+            &tool,
+            "test-write-ctx-cwd",
+            json!({ "path": "ctx-cwd-write.txt", "content": "written via ctx.cwd" }),
+            dir.path(),
+        )
+        .await;
+        assert_eq!(fs::read_to_string(dir.path().join("ctx-cwd-write.txt")).unwrap(), "written via ctx.cwd");
+    }
+
+    #[tokio::test]
+    async fn edit_uses_ctx_cwd_when_provided() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("ctx-cwd-edit.txt"), "old text").unwrap();
+        let tool = create_edit_tool_definition("/", None);
+        execute(
+            &tool,
+            "test-edit-ctx-cwd",
+            json!({ "path": "ctx-cwd-edit.txt", "edits": [{ "oldText": "old text", "newText": "new text" }] }),
+            dir.path(),
+        )
+        .await;
+        assert_eq!(fs::read_to_string(dir.path().join("ctx-cwd-edit.txt")).unwrap(), "new text");
+    }
+
+    #[tokio::test]
+    async fn grep_uses_ctx_cwd_when_provided() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("ctx-cwd-grep.txt"), "match in ctx.cwd").unwrap();
+        let tool = create_grep_tool_definition("/", None);
+        let result = execute(&tool, "test-grep-ctx-cwd", json!({ "pattern": "match" }), dir.path()).await;
+        assert!(text(&result).contains("ctx-cwd-grep.txt"), "{}", text(&result));
+    }
+
+    #[tokio::test]
+    async fn find_uses_ctx_cwd_when_provided() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("ctx-cwd-find.txt"), "find me").unwrap();
+        let tool = create_find_tool_definition("/", None);
+        let result = execute(&tool, "test-find-ctx-cwd", json!({ "pattern": "ctx-cwd-find.txt" }), dir.path()).await;
+        assert!(text(&result).contains("ctx-cwd-find.txt"), "{}", text(&result));
+    }
+
+    #[tokio::test]
+    async fn ls_uses_ctx_cwd_when_provided() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("ctx-cwd-ls.txt"), "list me").unwrap();
+        let tool = create_ls_tool_definition("/", None);
+        let result = execute(&tool, "test-ls-ctx-cwd", json!({}), dir.path()).await;
+        assert!(text(&result).contains("ctx-cwd-ls.txt"), "{}", text(&result));
+    }
+
+    #[tokio::test]
+    async fn bash_uses_ctx_cwd_when_provided() {
+        let dir = tempfile::tempdir().unwrap();
+        let tool = create_bash_tool_definition(
+            "/",
+            Some(&BashToolOptions { expose_session_environment: Some(false), ..Default::default() }),
+        );
+        let result = execute(&tool, "test-bash-ctx-cwd", json!({ "command": "pwd" }), dir.path()).await;
+        assert!(text(&result).contains(&dir.path().to_string_lossy().into_owned()), "{}", text(&result));
+    }
+}

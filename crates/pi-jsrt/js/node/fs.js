@@ -639,13 +639,18 @@ function createWriteStream(p, options = {}) {
   let fd = options.fd ?? null;
   const filePath = p === null ? undefined : toPath(p);
   let pos = options.start ?? null;
-  const ensureOpen = async () => {
-    if (fd === null) {
-      fd = await ops.fsAsync("open", filePath, options.flags ?? "w", options.mode ?? 0o666);
+  // One open shared by the eager open and the first writes: a second "w" open would truncate
+  // the file after earlier writes landed.
+  let opening = null;
+  const ensureOpen = () => {
+    if (fd !== null) return Promise.resolve(fd);
+    opening ??= ops.fsAsync("open", filePath, options.flags ?? "w", options.mode ?? 0o666).then((f) => {
+      fd = f;
       stream.emit("open", fd);
       stream.emit("ready");
-    }
-    return fd;
+      return fd;
+    });
+    return opening;
   };
   const stream = new Writable({
     decodeStrings: true,

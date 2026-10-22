@@ -588,11 +588,10 @@ fn op_watch(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValu
         }
         m
     };
+    // The baseline is taken before `fs.watch` returns, like Node's watcher, which is active as
+    // soon as it is created: changes the caller makes right after are reported.
+    let mut prev = snapshot(&path);
     st.tokio.spawn(async move {
-        let mut prev = {
-            let p = path.clone();
-            tokio::task::spawn_blocking(move || snapshot(&p)).await.unwrap_or_default()
-        };
         loop {
             tokio::time::sleep(Duration::from_millis(interval as u64)).await;
             if stop.load(std::sync::atomic::Ordering::Relaxed) {

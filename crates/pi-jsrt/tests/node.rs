@@ -140,9 +140,15 @@ async fn fs_streams_and_watch() {
         for await (const c of fs.createReadStream("out.txt", { encoding: "utf8", highWaterMark: 4 })) chunks.push(c);
         await pipeline(fs.createReadStream("out.txt"), fs.createWriteStream("copy.txt"));
         const changes = [];
-        const w = fs.watch(".", { interval: 50 }, (kind, name) => changes.push(name));
+        let sawNewFile;
+        const seen = new Promise((r) => (sawNewFile = r));
+        const w = fs.watch(".", { interval: 50 }, (kind, name) => {
+            changes.push(name);
+            if (name === "new.txt") sawNewFile();
+        });
         fs.writeFileSync("new.txt", "x");
-        await new Promise((r) => setTimeout(r, 300));
+        // Wait for the event itself; the cap only bounds a broken watcher.
+        await Promise.race([seen, new Promise((r) => setTimeout(r, 10000))]);
         w.close();
         export default { joined: chunks.join(""), many: chunks.length > 1, copy: fs.readFileSync("copy.txt", "utf8"), sawNew: changes.includes("new.txt") };
         "#,

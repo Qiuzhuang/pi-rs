@@ -744,3 +744,477 @@ async fn runs_before_session_invalidate_after_session_shutdown_and_before_rebind
     t.runtime.set_rebind_session(None);
     t.cleanup().await;
 }
+
+// ---------------------------------------------------------------------------
+// Regression #2860: replaced session callbacks.
+// ---------------------------------------------------------------------------
+
+mod replaced_session_context {
+    use super::*;
+    use pi_coding_agent::core::agent_session::AgentSessionNavigateTreeOptions;
+    use pi_coding_agent::core::agent_session_runtime::{
+        AgentSessionRuntimeNewSessionOptions, AgentSessionRuntimeSwitchSessionOptions,
+    };
+    use pi_coding_agent::core::extensions::types::{
+        CommandOptions, ExtensionCommandContext, ExtensionCommandContextActions, ForkOptions, ForkPosition,
+        NavigateTreeOptions, NewSessionOptions, SendUserMessageOptions, SessionReplaceOutcome,
+        SessionShutdownEvent, SessionStartEvent, SwitchSessionOptions,
+    };
+    use pi_ai::types::UserContent;
+    use std::sync::Weak;
+
+    /// The TS test's `commandContextActions` (runtime host for replacement, current session otherwise).
+    struct RuntimeActions(Weak<AgentSessionRuntime>);
+
+    impl RuntimeActions {
+        fn runtime(&self) -> anyhow::Result<Arc<AgentSessionRuntime>> {
+            self.0.upgrade().ok_or_else(|| anyhow::anyhow!("runtime disposed"))
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ExtensionCommandContextActions for RuntimeActions {
+        async fn wait_for_idle(&self) -> anyhow::Result<()> {
+            self.runtime()?.session().agent().wait_for_idle().await;
+            Ok(())
+        }
+        async fn new_session(&self, options: NewSessionOptions) -> anyhow::Result<SessionReplaceOutcome> {
+            let result = self
+                .runtime()?
+                .new_session(Some(&AgentSessionRuntimeNewSessionOptions {
+                    parent_session: options.parent_session,
+                    setup: options.setup,
+                    with_session: options.with_session,
+                }))
+                .await?;
+            Ok(SessionReplaceOutcome { cancelled: result.cancelled })
+        }
+        async fn fork(&self, entry_id: &str, options: ForkOptions) -> anyhow::Result<SessionReplaceOutcome> {
+            let result = self
+                .runtime()?
+                .fork(
+                    entry_id,
+                    Some(&AgentSessionRuntimeForkOptions {
+                        position: options.position.map(|p| match p {
+                            ForkPosition::Before => AgentSessionRuntimeForkOptionsPosition::Before,
+                            ForkPosition::At => AgentSessionRuntimeForkOptionsPosition::At,
+                        }),
+                        with_session: options.with_session,
+                    }),
+                )
+                .await?;
+            Ok(SessionReplaceOutcome { cancelled: result.cancelled })
+        }
+        async fn navigate_tree(
+            &self,
+            target_id: &str,
+            options: NavigateTreeOptions,
+        ) -> anyhow::Result<SessionReplaceOutcome> {
+            let result = self
+                .runtime()?
+                .session()
+                .navigate_tree(
+                    target_id,
+                    Some(&AgentSessionNavigateTreeOptions {
+                        summarize: options.summarize,
+                        custom_instructions: options.custom_instructions,
+                        replace_instructions: options.replace_instructions,
+                        label: options.label,
+                    }),
+                )
+                .await?;
+            Ok(SessionReplaceOutcome { cancelled: result.cancelled })
+        }
+        async fn switch_session(
+            &self,
+            session_path: &str,
+            options: SwitchSessionOptions,
+        ) -> anyhow::Result<SessionReplaceOutcome> {
+            let result = self
+                .runtime()?
+                .switch_session(
+                    session_path,
+                    Some(&AgentSessionRuntimeSwitchSessionOptions {
+                        cwd_override: None,
+                        with_session: options.with_session,
+                        project_trust_context_factory: None,
+                    }),
+                )
+                .await?;
+            Ok(SessionReplaceOutcome { cancelled: result.cancelled })
+        }
+        async fn reload(&self) -> anyhow::Result<()> {
+            self.runtime()?.session().reload(None).await
+        }
+    }
+
+    async fn rebind(runtime: &Arc<AgentSessionRuntime>) -> anyhow::Result<()> {
+        runtime
+            .session()
+            .bind_extensions(&ExtensionBindings {
+                command_context_actions: Some(Arc::new(RuntimeActions(Arc::downgrade(runtime)))),
+                ..Default::default()
+            })
+            .await
+    }
+
+    async fn create(setup: Setup, responses: &[&str]) -> RuntimeTest {
+        let temp_dir = temp_dir("pi-2860");
+        let faux = register_faux();
+        faux.set_responses(responses.iter().map(|r| text(r)).collect());
+        let model_runtime = model_runtime_for(&faux).await;
+        let factory = factory_for(&faux, &temp_dir, model_runtime, Some(setup), Some(faux.get_model()));
+        let runtime = create_agent_session_runtime(
+            &factory,
+            &CreateAgentSessionRuntimeOptions {
+                cwd: temp_dir.clone(),
+                agent_dir: temp_dir.clone(),
+                session_manager: SessionManager::create(&temp_dir, Some(&session_dir(&temp_dir)), None).unwrap(),
+                session_start_event: None,
+            },
+        )
+        .await
+        .unwrap();
+        let weak = Arc::downgrade(&runtime);
+        runtime.set_rebind_session(Some(Arc::new(move |_session| {
+            let weak = weak.clone();
+            Box::pin(async move {
+                match weak.upgrade() {
+                    Some(runtime) => rebind(&runtime).await,
+                    None => Ok(()),
+                }
+            })
+        })));
+        rebind(&runtime).await.unwrap();
+        RuntimeTest {
+            runtime,
+            faux,
+            temp_dir,
+        }
+    }
+
+    fn command(
+        pi: &ExtensionAPIRef,
+        name: &str,
+        handler: impl Fn(ExtensionCommandContext) -> futures::future::BoxFuture<'static, anyhow::Result<()>>
+        + Send
+        + Sync
+        + 'static,
+    ) -> anyhow::Result<()> {
+        let handler = Arc::new(handler);
+        pi.register_command(
+            name,
+            CommandOptions {
+                description: Some(name.into()),
+                get_argument_completions: None,
+                handler: Arc::new(move |_args, ctx| handler(ctx)),
+            },
+        )
+    }
+
+    fn texts(runtime: &AgentSessionRuntime) -> Vec<String> {
+        runtime
+            .session()
+            .messages()
+            .iter()
+            .filter(|m| m.role() != "system")
+            .map(|m| format!("{}:{}", m.role(), get_message_text(m)))
+            .collect()
+    }
+
+    fn user_text(text: &str) -> UserContent {
+        UserContent::Text(text.into())
+    }
+
+    #[tokio::test]
+    async fn rebinds_before_with_session_targets_the_replacement_session_and_invalidates_stale_pi_and_ctx() {
+        let events = Arc::new(Mutex::new(Vec::<String>::new()));
+        #[derive(Default)]
+        struct Observed {
+            old_session_file: Option<String>,
+            replacement_session_file: Option<String>,
+            stale_ctx_throws: bool,
+            stale_pi_throws: bool,
+        }
+        let observed = Arc::new(Mutex::new(Observed::default()));
+        let instance_id = Arc::new(Mutex::new(0));
+        let (ev, ob) = (events.clone(), observed.clone());
+        let setup: Setup = Arc::new(move |pi| {
+            let current = {
+                let mut id = instance_id.lock();
+                *id += 1;
+                *id
+            };
+            let e = ev.clone();
+            on_event::<SessionStartEvent, _, _>(&*pi, move |_event, _ctx| {
+                e.lock().push(format!("start:{current}"));
+                async { Ok(None) }
+            })?;
+            let e = ev.clone();
+            on_event::<SessionShutdownEvent, _, _>(&*pi, move |_event, _ctx| {
+                e.lock().push(format!("shutdown:{current}"));
+                async { Ok(None) }
+            })?;
+            let (e, ob, old_pi) = (ev.clone(), ob.clone(), pi.clone());
+            command(&pi, "repro", move |ctx| {
+                let (e, ob, old_pi) = (e.clone(), ob.clone(), old_pi.clone());
+                Box::pin(async move {
+                    let old_ctx = ctx.clone();
+                    let old_session_file = ctx.session_manager()?.get_session_file();
+                    ob.lock().old_session_file = old_session_file.clone();
+                    let with_session: pi_coding_agent::core::extensions::types::WithSessionFn =
+                        Arc::new(move |replaced| {
+                            let (e, ob, old_ctx, old_pi) = (e.clone(), ob.clone(), old_ctx.clone(), old_pi.clone());
+                            Box::pin(async move {
+                                e.lock().push(format!("with:{current}"));
+                                {
+                                    let mut ob = ob.lock();
+                                    ob.replacement_session_file = replaced.session_manager()?.get_session_file();
+                                    ob.stale_ctx_throws = old_ctx.session_manager().is_err();
+                                    ob.stale_pi_throws = old_pi
+                                        .send_user_message(user_text("stale message"), SendUserMessageOptions::default())
+                                        .is_err();
+                                }
+                                replaced
+                                    .send_user_message(
+                                        user_text("Hello from the new session!"),
+                                        SendUserMessageOptions::default(),
+                                    )
+                                    .await
+                            })
+                        });
+                    ctx.new_session(NewSessionOptions {
+                        parent_session: old_session_file,
+                        setup: None,
+                        with_session: Some(with_session),
+                    })
+                    .await?;
+                    Ok(())
+                })
+            })
+        });
+        let t = create(setup, &["hello reply"]).await;
+
+        assert_eq!(*events.lock(), vec!["start:1"]);
+
+        t.runtime.session().prompt("/repro", None).await.unwrap();
+
+        assert_eq!(*events.lock(), vec!["start:1", "shutdown:1", "start:2", "with:1"]);
+        {
+            let ob = observed.lock();
+            assert!(ob.replacement_session_file.is_some());
+            assert_ne!(ob.replacement_session_file, ob.old_session_file);
+            assert!(ob.stale_ctx_throws);
+            assert!(ob.stale_pi_throws);
+        }
+        assert_eq!(
+            texts(&t.runtime),
+            vec!["user:Hello from the new session!", "assistant:hello reply"]
+        );
+        t.cleanup().await;
+    }
+
+    #[tokio::test]
+    async fn supports_with_session_for_fork() {
+        let setup: Setup = Arc::new(|pi| {
+            command(&pi, "fork-it", |ctx| {
+                Box::pin(async move {
+                    let leaf_id = ctx
+                        .session_manager()?
+                        .get_leaf_id()
+                        .ok_or_else(|| anyhow::anyhow!("Missing leaf id"))?;
+                    ctx.fork(
+                        &leaf_id,
+                        ForkOptions {
+                            position: Some(ForkPosition::At),
+                            with_session: Some(Arc::new(|replaced| {
+                                Box::pin(async move {
+                                    replaced
+                                        .send_user_message(
+                                            user_text("fork callback message"),
+                                            SendUserMessageOptions::default(),
+                                        )
+                                        .await
+                                })
+                            })),
+                        },
+                    )
+                    .await?;
+                    Ok(())
+                })
+            })
+        });
+        let t = create(setup, &["seed reply", "fork reply"]).await;
+
+        t.runtime.session().prompt("seed", None).await.unwrap();
+        t.runtime.session().prompt("/fork-it", None).await.unwrap();
+
+        assert_eq!(
+            texts(&t.runtime),
+            vec!["user:seed", "assistant:seed reply", "user:fork callback message", "assistant:fork reply"]
+        );
+        t.cleanup().await;
+    }
+
+    #[tokio::test]
+    async fn supports_with_session_for_switch_session() {
+        let target_session_path = Arc::new(Mutex::new(String::new()));
+        let target = target_session_path.clone();
+        let setup: Setup = Arc::new(move |pi| {
+            let target = target.clone();
+            command(&pi, "switch-it", move |ctx| {
+                let target = target.lock().clone();
+                Box::pin(async move {
+                    ctx.switch_session(
+                        &target,
+                        SwitchSessionOptions {
+                            with_session: Some(Arc::new(|replaced| {
+                                Box::pin(async move {
+                                    replaced
+                                        .send_user_message(
+                                            user_text("switch callback message"),
+                                            SendUserMessageOptions::default(),
+                                        )
+                                        .await
+                                })
+                            })),
+                        },
+                    )
+                    .await?;
+                    Ok(())
+                })
+            })
+        });
+        let t = create(setup, &["root reply", "target reply", "switch reply"]).await;
+
+        t.runtime.session().prompt("root", None).await.unwrap();
+        let original_session_path = t.runtime.session().session_file().unwrap();
+        let result = t.runtime.new_session(None).await.unwrap();
+        assert!(!result.cancelled);
+        t.runtime.session().prompt("target", None).await.unwrap();
+        *target_session_path.lock() = t.runtime.session().session_file().unwrap();
+        t.runtime.switch_session(&original_session_path, None).await.unwrap();
+
+        t.runtime.session().prompt("/switch-it", None).await.unwrap();
+
+        assert_eq!(t.runtime.session().session_file(), Some(target_session_path.lock().clone()));
+        assert_eq!(
+            texts(&t.runtime),
+            vec!["user:target", "assistant:target reply", "user:switch callback message", "assistant:switch reply"]
+        );
+        t.cleanup().await;
+    }
+}
+
+// Regression #2753: reload applies updated top-level resource settings.
+#[tokio::test]
+async fn applies_updated_top_level_prompt_settings_on_reload_after_startup() {
+    let temp_dir = temp_dir("pi-2753");
+    let agent_dir = format!("{temp_dir}/agent");
+    let prompts_dir = format!("{agent_dir}/prompts");
+    std::fs::create_dir_all(&prompts_dir).unwrap();
+    std::fs::write(format!("{prompts_dir}/test.md"), "Echo test prompt\n").unwrap();
+
+    let faux = register_faux();
+    let model_runtime = model_runtime_for(&faux).await;
+    let provider = faux.get_model().provider.clone();
+    let base_url = faux.get_model().base_url.clone();
+    let api = faux.api().to_string();
+    let models = provider_models(&faux);
+    let model = faux.get_model();
+    let ad = agent_dir.clone();
+    let factory: CreateAgentSessionRuntimeFactory = Arc::new(move |options| {
+        let (provider, base_url, api, models) = (provider.clone(), base_url.clone(), api.clone(), models.clone());
+        let (agent_dir, model_runtime, model) = (ad.clone(), model_runtime.clone(), model.clone());
+        Box::pin(async move {
+            let extension: ExtensionFactory = Arc::new(move |pi: ExtensionAPIRef| {
+                let (provider, base_url, api, models) = (provider.clone(), base_url.clone(), api.clone(), models.clone());
+                Box::pin(async move {
+                    pi.register_provider(ProviderRegistration::Config {
+                        name: provider,
+                        config: ProviderConfig {
+                            base_url: Some(base_url),
+                            api_key: Some("faux-key".into()),
+                            api: Some(api),
+                            models: Some(models),
+                            ..Default::default()
+                        },
+                    })?;
+                    Ok(())
+                })
+            });
+            let services = create_agent_session_services(&CreateAgentSessionServicesOptions {
+                cwd: options.cwd.clone(),
+                agent_dir: Some(agent_dir),
+                settings_manager: None,
+                model_runtime: Some(model_runtime),
+                model_runtime_signal: None,
+                extension_flag_values: None,
+                resource_loader_options: Some(DefaultResourceLoaderOptions {
+                    extension_factories: Some(vec![InlineExtension::Factory(extension)]),
+                    no_skills: Some(true),
+                    no_themes: Some(true),
+                    ..Default::default()
+                }),
+                resource_loader_reload_options: None,
+            })
+            .await?;
+            let created = create_agent_session_from_services(&CreateAgentSessionFromServicesOptions {
+                services: services.clone(),
+                session_manager: options.session_manager.clone(),
+                session_start_event: options.session_start_event.clone(),
+                model: Some(model),
+                thinking_level: None,
+                scoped_models: None,
+                tools: None,
+                exclude_tools: None,
+                no_tools: None,
+                custom_tools: None,
+            })
+            .await?;
+            Ok(CreateAgentSessionRuntimeResult {
+                session: created.session,
+                extensions_result: created.extensions_result,
+                model_fallback_message: created.model_fallback_message,
+                diagnostics: services.diagnostics.clone(),
+                services,
+            })
+        })
+    });
+    let runtime = create_agent_session_runtime(
+        &factory,
+        &CreateAgentSessionRuntimeOptions {
+            cwd: temp_dir.clone(),
+            agent_dir: agent_dir.clone(),
+            session_manager: SessionManager::create(&temp_dir, Some(&session_dir(&temp_dir)), None).unwrap(),
+            session_start_event: None,
+        },
+    )
+    .await
+    .unwrap();
+    let t = RuntimeTest {
+        runtime,
+        faux,
+        temp_dir,
+    };
+    let names = |runtime: &AgentSessionRuntime| -> Vec<String> {
+        runtime.session().prompt_templates().into_iter().map(|p| p.name).collect()
+    };
+
+    assert!(names(&t.runtime).contains(&"test".to_string()));
+
+    std::fs::write(
+        format!("{agent_dir}/settings.json"),
+        format!("{}\n", serde_json::to_string_pretty(&json!({"prompts": ["-prompts/test.md"]})).unwrap()),
+    )
+    .unwrap();
+
+    t.runtime.session().reload(None).await.unwrap();
+
+    assert_eq!(
+        t.runtime.services().settings_manager.get_global_settings().prompts,
+        Some(vec!["-prompts/test.md".to_string()])
+    );
+    assert!(!names(&t.runtime).contains(&"test".to_string()));
+    t.cleanup().await;
+}

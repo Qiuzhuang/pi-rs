@@ -2914,3 +2914,174 @@ mod event_bus_lifecycle {
         harness.cleanup();
     }
 }
+
+// #6768: Copilot compaction base URL.
+mod copilot_compaction_base_url {
+    use super::*;
+    use pi_ai::AnyModel;
+    use pi_ai::auth::types::{
+        ApiKeyAuth, ApiKeyResolveInput, AuthResult, Credential, CredentialStore, ModelAuth, OAuthAuth,
+        OAuthCredential, OAuthCredentials, ProviderAuth, ProviderAuthInteraction,
+    };
+    use pi_ai::models::{
+        CreateProviderOptions, ModelsRefreshOptions, ModelsRequestOptions, ProviderApi, ProviderStreams,
+        create_provider,
+    };
+    use pi_ai::types::{Context, Model, StreamOptions, TranscriptContext};
+    use tokio_util::sync::CancellationToken;
+
+    const INDIVIDUAL_BASE_URL: &str = "https://api.individual.githubcopilot.com";
+    const ENTERPRISE_BASE_URL: &str = "https://api.enterprise.githubcopilot.com";
+
+    struct Respond(Arc<Mutex<Option<String>>>);
+
+    impl Respond {
+        fn respond(&self, model: &Model) -> pi_ai::AssistantMessageEventStream {
+            *self.0.lock() = Some(model.base_url.clone());
+            let mut message = faux_text_message("summary");
+            message.api = model.api.clone();
+            message.provider = model.provider.clone();
+            message.model = model.id.clone();
+            let (sender, stream) = pi_ai::AssistantMessageEventStream::new();
+            sender.push(pi_ai::AssistantMessageEvent::Done {
+                reason: StopReason::Stop,
+                message,
+            });
+            stream
+        }
+    }
+
+    impl ProviderStreams for Respond {
+        fn stream(&self, model: &Model, _context: &TranscriptContext, _options: StreamOptions) -> pi_ai::AssistantMessageEventStream {
+            self.respond(model)
+        }
+        fn stream_simple(
+            &self,
+            model: &Model,
+            _context: &TranscriptContext,
+            _options: StreamOptions,
+        ) -> pi_ai::AssistantMessageEventStream {
+            self.respond(model)
+        }
+    }
+
+    struct TokenAuth;
+
+    #[async_trait::async_trait]
+    impl ApiKeyAuth for TokenAuth {
+        fn name(&self) -> &str {
+            "Copilot token"
+        }
+        async fn resolve(&self, input: ApiKeyResolveInput) -> anyhow::Result<Option<AuthResult>> {
+            Ok(input.credential.and_then(|c| c.key).map(|key| AuthResult {
+                auth: ModelAuth {
+                    api_key: Some(key),
+                    headers: None,
+                    base_url: None,
+                },
+                env: None,
+                source: Some("explicit token".into()),
+            }))
+        }
+    }
+
+    struct CopilotOAuth;
+
+    #[async_trait::async_trait]
+    impl OAuthAuth for CopilotOAuth {
+        fn name(&self) -> &str {
+            "Copilot OAuth"
+        }
+        async fn login(
+            &self,
+            _interaction: ProviderAuthInteraction,
+            _options: Option<pi_ai::auth::types::LoginOptions>,
+        ) -> anyhow::Result<OAuthCredential> {
+            anyhow::bail!("unused")
+        }
+        async fn refresh(&self, credential: OAuthCredential, _signal: CancellationToken) -> anyhow::Result<OAuthCredential> {
+            Ok(credential)
+        }
+        async fn to_auth(&self, credential: &OAuthCredential) -> anyhow::Result<ModelAuth> {
+            Ok(ModelAuth {
+                api_key: Some(credential.access.clone()),
+                headers: None,
+                base_url: Some(ENTERPRISE_BASE_URL.into()),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn uses_the_auth_resolved_base_url_through_the_sdk_style_stream_wrapper() {
+        let harness = create_harness(HarnessOptions::default()).await.unwrap();
+        seed_compactable_session(&harness);
+        let mut catalog_model = harness.get_model();
+        catalog_model.base_url = INDIVIDUAL_BASE_URL.into();
+        harness.session.agent().set_model(catalog_model.clone());
+
+        let request_base_url = Arc::new(Mutex::new(None::<String>));
+        let provider = create_provider(CreateProviderOptions {
+            id: catalog_model.provider.clone(),
+            name: Some("Copilot regression provider".into()),
+            base_url: Some(INDIVIDUAL_BASE_URL.into()),
+            auth: ProviderAuth {
+                api_key: Some(Arc::new(TokenAuth)),
+                oauth: Some(Arc::new(CopilotOAuth)),
+            },
+            models: vec![AnyModel::Chat(catalog_model.clone())],
+            api: Some(ProviderApi::Single(Arc::new(Respond(request_base_url.clone())))),
+            ..Default::default()
+        })
+        .unwrap();
+
+        harness
+            .auth_storage
+            .modify(
+                &catalog_model.provider,
+                Box::new(|_| {
+                    Box::pin(async {
+                        Ok(Some(Credential::OAuth(OAuthCredentials {
+                            access: "enterprise-token".into(),
+                            refresh: "refresh-token".into(),
+                            expires: now_ms() + 60 * 60_000,
+                            extra: Default::default(),
+                        })))
+                    })
+                }),
+                None,
+            )
+            .await
+            .unwrap();
+        let model_runtime = harness.session.model_runtime();
+        model_runtime.register_native_provider(provider).unwrap();
+        model_runtime
+            .refresh(Some(ModelsRefreshOptions {
+                allow_network: Some(false),
+                providers: Some(vec![catalog_model.provider.clone()]),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let runtime = model_runtime.clone();
+        harness.session.agent().set_stream_fn(Some(Arc::new(move |model, context, options| {
+            let stream = runtime.stream_simple(
+                model,
+                Context {
+                    system_prompt: None,
+                    messages: context.messages,
+                    tools: None,
+                },
+                Some(ModelsRequestOptions {
+                    options,
+                    transform_headers: None,
+                }),
+            );
+            Box::pin(async move { Ok(stream) })
+        })));
+
+        harness.session.compact(None).await.unwrap();
+
+        assert_eq!(request_base_url.lock().as_deref(), Some(ENTERPRISE_BASE_URL));
+        harness.cleanup();
+    }
+}

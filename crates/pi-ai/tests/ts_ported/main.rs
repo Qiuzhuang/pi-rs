@@ -16,3 +16,4 @@ mod bedrock;
 mod oauth;
 mod catalog;
 mod models;
+mod errors;

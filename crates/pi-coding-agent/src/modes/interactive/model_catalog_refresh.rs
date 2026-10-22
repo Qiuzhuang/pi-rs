@@ -110,6 +110,9 @@ impl ModelCatalogRefreshCoordinator {
             active.waiters -= 1;
             if active.waiters == 0 {
                 active.controller.cancel();
+                // TS: the abandoned promise settles as aborted and its `finally` removes the entry. Rust
+                // futures only run while polled and nobody awaits it any more, so remove it here.
+                map.remove(&key);
             }
         }
         result

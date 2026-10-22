@@ -182,7 +182,8 @@ impl Inner {
     fn selector_done(&self, token: u64, dispose: Arc<Mutex<Option<Handler>>>) -> Handler {
         let weak = self.weak.clone();
         Arc::new(move || {
-            if let Some(dispose) = dispose.lock().clone() {
+            let dispose = dispose.lock().clone();
+            if let Some(dispose) = dispose {
                 dispose();
             }
             let Some(this) = weak.upgrade() else { return };
@@ -470,7 +471,8 @@ impl Inner {
                         let selector_slot = selector_slot.clone();
                         with(&move |this: Arc<Inner>| {
                             if !this.switch_tui_mode(mode, true, true) {
-                                if let Some(selector) = selector_slot.lock().clone() {
+                                let selector = selector_slot.lock().clone();
+                                if let Some(selector) = selector {
                                     selector
                                         .get_settings_list()
                                         .update_value("tui-mode", this.tui_mode().as_str());

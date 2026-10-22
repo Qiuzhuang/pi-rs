@@ -521,3 +521,50 @@ async fn emits_agent_end_for_aborted_runs_and_persists_the_aborted_assistant_mes
     }
     harness.cleanup();
 }
+
+// Ports of the cases of `test/agent-session-retry.test.ts` the suite above does not cover.
+
+// Regression for #8826.
+#[tokio::test]
+async fn caps_agent_retry_delay() {
+    let harness = create_harness(HarnessOptions {
+        settings: Some(json!({"retry": {"enabled": true, "maxRetries": 5, "baseDelayMs": 1, "maxAgentDelayMs": 5}})),
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    let mut responses: Vec<FauxResponseStep> = (0..4).map(|_| error_response("overloaded_error")).collect();
+    responses.push(text("Success"));
+    harness.set_responses(responses);
+
+    harness.session.prompt("Test", None).await.unwrap();
+
+    let delays: Vec<i64> = harness
+        .events_of_type("auto_retry_start")
+        .iter()
+        .map(|e| e["delayMs"].as_i64().unwrap())
+        .collect();
+    assert_eq!(delays, vec![1, 2, 4, 5]);
+    harness.cleanup();
+}
+
+#[tokio::test]
+async fn retries_provider_network_error_failures() {
+    let harness = create_harness(HarnessOptions {
+        settings: retry_settings(3, 1),
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    let retry_events = record_retry_events(&harness);
+    harness.set_responses(vec![
+        error_response("Provider finish_reason: network_error"),
+        text("Recovered after retry"),
+    ]);
+
+    harness.session.prompt("Test", None).await.unwrap();
+
+    assert_eq!(harness.faux.state().call_count, 2);
+    assert_eq!(*retry_events.lock(), vec!["start:1", "end:true"]);
+    harness.cleanup();
+}

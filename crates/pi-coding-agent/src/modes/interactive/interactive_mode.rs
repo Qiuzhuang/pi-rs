@@ -517,6 +517,7 @@ pub(crate) fn err_message(error: &anyhow::Error) -> String {
     error.to_string()
 }
 
+#[derive(Clone)]
 pub struct InteractiveMode {
     inner: Arc<Inner>,
 }
@@ -554,6 +555,11 @@ impl InteractiveMode {
 
     pub fn show_warning(&self, warning_message: &str) {
         self.inner.show_warning(warning_message);
+    }
+
+    /// Show a dim status line; immediately-sequential status messages replace each other.
+    pub fn show_status(&self, message: &str) {
+        self.inner.show_status(message);
     }
 
     pub fn show_new_version_notification(&self, release: &LatestPiRelease) {
@@ -1437,8 +1443,9 @@ impl Inner {
             fullscreen_wheel_scroll_lines: Some(settings.get_fullscreen_wheel_scroll_lines()),
         });
         next_ui.set_clear_on_shrink(clear_on_shrink);
+        let main_screen_render_state = self.state.lock().main_screen_render_state.clone();
         if !next_ui.is_viewport_tui()
-            && let Some(state) = self.state.lock().main_screen_render_state.clone()
+            && let Some(state) = main_screen_render_state
         {
             next_ui.restore_render_state(&state);
         }

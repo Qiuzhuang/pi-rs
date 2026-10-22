@@ -276,8 +276,10 @@ impl Inner {
                 if matches!(message, AgentMessage::User(_)) {
                     return;
                 }
+                // Bind first: a guard in an `if let` scrutinee would stay locked for the whole block.
+                let streaming_component = self.state.lock().streaming_component.clone();
                 if let AgentMessage::Assistant(assistant) = &message
-                    && let Some(streaming) = self.state.lock().streaming_component.clone()
+                    && let Some(streaming) = streaming_component
                 {
                     let mut assistant = assistant.clone();
                     let mut error_message: Option<String> = None;

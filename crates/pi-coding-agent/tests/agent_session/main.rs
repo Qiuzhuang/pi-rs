@@ -7,3 +7,4 @@ mod support;
 mod common;
 mod queue;
 mod retry_events;
+mod compaction;

@@ -772,7 +772,8 @@ fn load_theme(name: &str, mode: Option<TerminalColorMode>) -> anyhow::Result<Arc
     if name == SYSTEM_THEME_NAME {
         return Ok(Arc::new(create_system_theme(mode)));
     }
-    if let Some(registered) = REGISTERED_THEMES.lock().get(name).cloned() {
+    let registered = REGISTERED_THEMES.lock().get(name).cloned();
+    if let Some(registered) = registered {
         return Ok(registered);
     }
     let theme_json = load_theme_json(name)?;
@@ -1059,7 +1060,8 @@ fn start_theme_watcher() {
             }
         }),
         Arc::new(|| {
-            if let Some(watcher) = THEME_WATCHER.lock().take() {
+            let watcher = THEME_WATCHER.lock().take();
+            if let Some(watcher) = watcher {
                 close_watcher(Some(&watcher));
             }
         }),

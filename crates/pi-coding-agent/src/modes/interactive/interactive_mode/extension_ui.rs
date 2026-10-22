@@ -1132,12 +1132,14 @@ impl Inner {
                 self.install_submit_callback_on(&new_editor);
                 new_editor.set_on_change(Some(self.on_change_callback()));
                 new_editor.set_text(&current_text);
-                if let Some(color) = self.state.lock().editor_border_color.clone() {
+                let border_color = self.state.lock().editor_border_color.clone();
+                if let Some(color) = border_color {
                     new_editor.set_border_color(color);
                 }
                 new_editor.set_padding_x(self.default_editor.get_padding_x());
                 new_editor.set_autocomplete_max_visible(self.default_editor.get_autocomplete_max_visible());
-                if let Some(provider) = self.state.lock().autocomplete_provider.clone() {
+                let autocomplete_provider = self.state.lock().autocomplete_provider.clone();
+                if let Some(provider) = autocomplete_provider {
                     new_editor.set_autocomplete_provider(provider);
                 }
                 // If extending CustomEditor, copy app-level handlers

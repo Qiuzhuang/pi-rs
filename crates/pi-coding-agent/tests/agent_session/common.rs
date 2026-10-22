@@ -217,3 +217,154 @@ pub async fn tick() {
     }
     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
 }
+
+/// A usage block with `total_tokens` input tokens (TS `createUsage`).
+pub fn usage(total_tokens: u64) -> pi_ai::types::Usage {
+    serde_json::from_value(json!({
+        "input": total_tokens,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": total_tokens,
+        "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 }
+    }))
+    .unwrap()
+}
+
+pub fn now_ms() -> i64 {
+    chrono::Utc::now().timestamp_millis()
+}
+
+/// An empty assistant message from the harness model (TS `createAssistant`).
+pub fn create_assistant(
+    harness: &Harness,
+    stop_reason: StopReason,
+    error_message: Option<&str>,
+    total_tokens: u64,
+    timestamp: i64,
+) -> AssistantMessage {
+    let model = harness.get_model();
+    let mut message = faux_assistant_message(
+        vec![faux_text("")],
+        FauxMessageOptions {
+            stop_reason: Some(stop_reason),
+            error_message: error_message.map(str::to_string),
+            ..Default::default()
+        },
+    );
+    message.api = model.api.clone();
+    message.provider = model.provider.clone();
+    message.model = model.id.clone();
+    message.usage = usage(total_tokens);
+    message.timestamp = timestamp;
+    message
+}
+
+/// `AgentMessage` from its JSON form.
+pub fn agent_message(value: Value) -> pi_agent::types::AgentMessage {
+    pi_agent::types::AgentMessage::from_value(value).expect("valid message JSON")
+}
+
+/// A user message with one text block.
+pub fn user_blocks(text: &str, timestamp: i64) -> pi_agent::types::AgentMessage {
+    agent_message(json!({"role": "user", "content": [{"type": "text", "text": text}], "timestamp": timestamp}))
+}
+
+/// TS `userMsg`.
+pub fn user_msg(text: &str) -> pi_agent::types::AgentMessage {
+    agent_message(json!({"role": "user", "content": text, "timestamp": now_ms()}))
+}
+
+/// TS `assistantMsg`.
+pub fn assistant_msg(text: &str) -> pi_agent::types::AgentMessage {
+    agent_message(json!({
+        "role": "assistant",
+        "content": [{ "type": "text", "text": text }],
+        "api": "anthropic-messages",
+        "provider": "anthropic",
+        "model": "test",
+        "usage": {
+            "input": 1, "output": 1, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 2,
+            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 }
+        },
+        "stopReason": "stop",
+        "timestamp": now_ms()
+    }))
+}
+
+/// A stream delivering `message` as its terminal event on a later task.
+pub fn respond_stream(message: AssistantMessage) -> pi_ai::AssistantMessageEventStream {
+    let (sender, stream) = pi_ai::AssistantMessageEventStream::new();
+    tokio::spawn(async move {
+        tokio::task::yield_now().await;
+        let reason = message.stop_reason;
+        if matches!(reason, StopReason::Error | StopReason::Aborted) {
+            sender.push(pi_ai::AssistantMessageEvent::Error { reason, error: message });
+        } else {
+            sender.push(pi_ai::AssistantMessageEvent::Done { reason, message });
+        }
+    });
+    stream
+}
+
+/// A stream function answering with `f(model, context, options)`.
+pub fn stream_fn(
+    f: impl Fn(&pi_ai::types::Model, &TranscriptContext, &pi_ai::types::SimpleStreamOptions) -> AssistantMessage
+    + Send
+    + Sync
+    + 'static,
+) -> pi_agent::types::StreamFn {
+    Arc::new(move |model, context, options| {
+        let message = f(&model, &context, &options);
+        Box::pin(async move { Ok(respond_stream(message)) })
+    })
+}
+
+/// TS `useSummaryStreamFn`: the agent's stream function answers every request with `summary`.
+/// Returns the call counter.
+pub fn use_summary_stream_fn(
+    harness: &Harness,
+    summary: &str,
+    on_request: Option<
+        Arc<dyn Fn(&TranscriptContext, &pi_ai::types::SimpleStreamOptions) + Send + Sync>,
+    >,
+) -> Arc<Mutex<usize>> {
+    let calls = Arc::new(Mutex::new(0usize));
+    let c = calls.clone();
+    let summary = summary.to_string();
+    harness.session.agent().set_stream_fn(Some(stream_fn(move |model, context, options| {
+        *c.lock() += 1;
+        if let Some(on_request) = &on_request {
+            on_request(context, options);
+        }
+        let mut message = faux_text_message(summary.clone());
+        message.api = model.api.clone();
+        message.provider = model.provider.clone();
+        message.model = model.id.clone();
+        message.usage = usage(10);
+        message
+    })));
+    calls
+}
+
+/// TS `seedCompactableSession`.
+pub fn seed_compactable_session(harness: &Harness) {
+    harness
+        .settings_manager
+        .apply_overrides_json(json!({"compaction": {"keepRecentTokens": 1}}).as_object().unwrap());
+    let now = now_ms();
+    harness
+        .session_manager
+        .append_message(user_blocks("message to compact", now - 1000))
+        .unwrap();
+    let mut assistant = create_assistant(harness, StopReason::Stop, None, 100, now - 500);
+    assistant.content = vec![faux_text("assistant response to compact")];
+    harness
+        .session_manager
+        .append_message(pi_agent::types::AgentMessage::Assistant(assistant))
+        .unwrap();
+    harness
+        .session
+        .agent()
+        .set_messages(harness.session_manager.build_session_context().messages);
+}

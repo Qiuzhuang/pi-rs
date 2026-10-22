@@ -963,7 +963,13 @@ pub struct AgentSession {
     state: Mutex<SessionState>,
     /// Bumped whenever the session may have become idle (TS idle-wait promise).
     idle_tx: tokio::sync::watch::Sender<u64>,
+    /// Test-only replacement of `run_auto_compaction` (TS tests spy on the private method).
+    run_auto_compaction_override: Mutex<Option<RunAutoCompactionOverride>>,
 }
+
+/// See [`AgentSession::set_run_auto_compaction_override`].
+pub type RunAutoCompactionOverride = Arc<dyn Fn(CompactionReason, bool) -> bool + Send + Sync>;
+
 impl AgentSession {
     pub fn new(config: AgentSessionConfig) -> Arc<Self> {
         let (allowed_tools, allowlist_filters_mcp) = match &config.allowed_tool_names {
@@ -1001,6 +1007,7 @@ impl AgentSession {
                 previous_session_file: None,
             }),
             agent_subscription: Mutex::new(None),
+            run_auto_compaction_override: Mutex::new(None),
             state: Mutex::new(SessionState {
                 scoped_models: config
                     .scoped_models
@@ -1913,7 +1920,7 @@ impl AgentSession {
                     d.details.clone(),
                 )?,
                 SessionBoundaryDraft::ContextEdit(d) => {
-                    manager.append_context_edit(&d.target_id, Some(&d.replacement))?
+                    manager.append_context_edit(&d.target_id, d.replacement.as_ref())?
                 }
                 SessionBoundaryDraft::Compaction(d) => {
                     let tokens_before = estimate_projected_context_tokens(
@@ -4808,9 +4815,40 @@ impl AgentSession {
         false
     }
 
+    /// Test hook: run the private compaction check (TS tests call `_checkCompaction`).
+    #[doc(hidden)]
+    pub async fn check_compaction_for_test(
+        &self,
+        assistant_message: &AssistantMessage,
+        skip_aborted_check: bool,
+    ) -> bool {
+        self.check_compaction(assistant_message, skip_aborted_check, &[])
+            .await
+    }
+
+    /// Test hook: run the private automatic compaction (TS tests call `_runAutoCompaction`).
+    #[doc(hidden)]
+    pub async fn run_auto_compaction_for_test(
+        &self,
+        reason: CompactionReason,
+        will_retry: bool,
+    ) -> bool {
+        self.run_auto_compaction(reason, will_retry).await
+    }
+
+    /// Test hook: replace automatic compaction with `hook` (TS tests mock `_runAutoCompaction`).
+    #[doc(hidden)]
+    pub fn set_run_auto_compaction_override(&self, hook: Option<RunAutoCompactionOverride>) {
+        *self.run_auto_compaction_override.lock() = hook;
+    }
+
     /// Execute threshold or overflow compaction. Returns whether the post-run loop should call
     /// `agent.continue()`.
     async fn run_auto_compaction(&self, reason: CompactionReason, will_retry: bool) -> bool {
+        let hook = self.run_auto_compaction_override.lock().clone();
+        if let Some(hook) = hook {
+            return hook(reason, will_retry);
+        }
         let model = self.model();
         let mut started = false;
         let mut from_extension = false;

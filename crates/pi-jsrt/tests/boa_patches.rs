@@ -116,3 +116,46 @@ async fn export_list_at_end_of_module_without_semicolon() {
         .unwrap_or_else(|e| panic!("{e}"));
     assert_eq!(ns.get("all").await.unwrap(), json!({ "a": 1, "b": 2, "c": 1 }));
 }
+
+/// Boa's process-wide `Symbol.for` registry is not atomic; runtimes registering the same new keys in
+/// parallel could get different symbols for one key (pi-jsrt serializes `Symbol.for`, see
+/// `serialize_symbol_for`).
+#[test]
+fn symbol_for_is_consistent_across_parallel_runtimes() {
+    const RUNTIMES: usize = 8;
+    let prefix = format!("pi-jsrt-race-{}-", uuid::Uuid::new_v4());
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(RUNTIMES));
+    let threads: Vec<_> = (0..RUNTIMES)
+        .map(|_| {
+            let prefix = prefix.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                let tokio = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+                tokio.block_on(async move {
+                    let rt = JsRuntime::new(RuntimeOptions::default()).unwrap();
+                    rt.register_function("host.barrier", move |_, _| {
+                        barrier.wait();
+                        Ok(serde_json::Value::Null)
+                    })
+                    .await
+                    .unwrap();
+                    rt.eval(format!(
+                        r#"(() => {{
+                            const keys = Array.from({{ length: 20000 }}, (_, i) => "{prefix}" + i);
+                            host.barrier();
+                            const first = keys.map((key) => Symbol.for(key));
+                            let mismatches = 0;
+                            keys.forEach((key, i) => {{ if (Symbol.for(key) !== first[i] || Symbol.keyFor(first[i]) !== key) mismatches++; }});
+                            return mismatches;
+                        }})()"#
+                    ))
+                    .await
+                    .unwrap()
+                })
+            })
+        })
+        .collect();
+    for thread in threads {
+        assert_eq!(thread.join().unwrap(), json!(0));
+    }
+}

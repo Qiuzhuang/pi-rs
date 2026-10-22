@@ -236,7 +236,8 @@ fn classify_spec(alias: &str, raw: &str) -> anyhow::Result<DepSpec> {
         || spec.starts_with("gist:")
         || spec.starts_with('.')
         || spec.starts_with('/')
-        || spec.starts_with('~')
+        // `~/dir` is a path; `~1.2.3` is a semver tilde range.
+        || spec.starts_with("~/")
         || spec.contains('/');
     if unsupported {
         bail!(
@@ -1598,6 +1599,16 @@ mod tests {
             .get("version")?
             .as_str()
             .map(str::to_string)
+    }
+
+    #[test]
+    fn classifies_tilde_ranges_and_home_paths() {
+        assert_eq!(
+            classify_spec("safer-buffer", "~2.1.0").unwrap(),
+            DepSpec::Registry { name: "safer-buffer".into(), spec: "~2.1.0".into() }
+        );
+        assert!(classify_spec("local", "~/src/local").is_err());
+        assert!(classify_spec("repo", "user/repo").is_err());
     }
 
     #[test]

@@ -715,6 +715,40 @@ pub(crate) const CORE_OPS: &[(&str, usize, OpFn)] = &[
 // Thread bootstrap and event loop
 // ---------------------------------------------------------------------------
 
+/// Serializes `Symbol.for` across every runtime of the process.
+static SYMBOL_FOR_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Boa keeps one process-wide `Symbol.for` registry for all contexts, but its
+/// get-or-create is not atomic (look up, create, insert): two threads registering the
+/// same new key at once each get a different symbol, and the loser's symbol is not the
+/// registered one, so `Symbol.for(key)` later returns another symbol in that runtime
+/// (e.g. TypeBox's `Symbol.for("TypeBox.Kind")` or pi-tui's layout-node key no longer
+/// match; methods keyed by them become `undefined`). Wrap `Symbol.for` so registration
+/// runs under a process-wide lock. The key is converted first, outside the lock, because
+/// `ToString` can run user code that calls `Symbol.for` again.
+fn serialize_symbol_for(ctx: &mut Context) -> JsResult<()> {
+    use boa_engine::property::PropertyDescriptor;
+    let symbol = ctx.intrinsics().constructors().symbol().constructor();
+    let original = symbol.get(js_string!("for"), ctx)?;
+    let Some(original) = original.as_object() else { return Ok(()) };
+    let native = NativeFunction::from_copy_closure_with_captures(
+        |_this, args, original: &JsObject, ctx| {
+            let key: JsValue = args.get_or_undefined(0).to_string(ctx)?.into();
+            let _guard = SYMBOL_FOR_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+            original.call(&JsValue::undefined(), &[key], ctx)
+        },
+        original,
+    );
+    let realm = ctx.realm().clone();
+    let function = FunctionObjectBuilder::new(&realm, native).name(js_string!("for")).length(1).build();
+    symbol.define_property_or_throw(
+        js_string!("for"),
+        PropertyDescriptor::builder().value(function).writable(true).enumerable(false).configurable(true),
+        ctx,
+    )?;
+    Ok(())
+}
+
 /// Evaluate a glue script of the form `(function (ops, internal) { ... })`.
 pub(crate) fn run_glue(ctx: &mut Context, name: &str, src: &str, ops: &JsObject, internal: &JsObject) -> JsResult<()> {
     let wrapped = format!("(function (ops, internal) {{\"use strict\";\n{src}\n}})");
@@ -778,7 +812,7 @@ pub(crate) fn thread_main(init: ThreadInit, ready: std::sync::mpsc::SyncSender<R
     });
     ctx.insert_data(st.clone());
 
-    if let Err(e) = crate::ops::bootstrap(&mut ctx) {
+    if let Err(e) = serialize_symbol_for(&mut ctx).and_then(|()| crate::ops::bootstrap(&mut ctx)) {
         let err = error::from_boa(e, &mut ctx);
         let _ = ready.send(Err(err));
         return;

@@ -276,6 +276,10 @@ pub struct ModelRuntime {
     /// coalesce into it. TS starts `void this.refresh()` immediately at registration; the queued pass
     /// takes the refresh lock at request time so it runs before refreshes requested after it.
     background_refresh_pending: Arc<std::sync::atomic::AtomicBool>,
+    /// Serializes provider (re)composition: `rebuild_providers` deletes providers missing from its
+    /// snapshot of the registrations, so a registration on another thread must not land between
+    /// that snapshot and the deletes (TS runs both on one thread).
+    composition: Mutex<()>,
 }
 
 /// Request prepared by `prepare_request`.
@@ -327,6 +331,7 @@ impl ModelRuntime {
             credential_operations: Mutex::new(HashMap::new()),
             refresh_lock: Arc::new(tokio::sync::Mutex::new(())),
             background_refresh_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            composition: Mutex::new(()),
         });
         runtime.rebuild_providers();
         runtime
@@ -530,6 +535,7 @@ impl ModelRuntime {
     /// Recompose every provider. Providers are replaced one by one (and stale ones removed) rather
     /// than cleared first, so concurrent readers never observe an empty collection.
     fn rebuild_providers(&self) {
+        let _composition = self.composition.lock();
         self.state.lock().composition_errors.clear();
         let ids = self.provider_ids();
         for provider_id in &ids {
@@ -1470,11 +1476,14 @@ impl ModelRuntime {
             AuthType::ApiKey
         };
         {
-            let mut state = self.state.lock();
-            state.extension_providers.shift_remove(&provider_id);
-            state.native_extension_providers.insert(provider_id.clone(), provider);
+            let _composition = self.composition.lock();
+            {
+                let mut state = self.state.lock();
+                state.extension_providers.shift_remove(&provider_id);
+                state.native_extension_providers.insert(provider_id.clone(), provider);
+            }
+            self.recompose_provider(&provider_id);
         }
-        self.recompose_provider(&provider_id);
         self.update_model_snapshot();
         let config = self.state.lock().config.clone();
         self.mark_provisionally_configured(
@@ -1524,6 +1533,7 @@ impl ModelRuntime {
         validate_extension_provider(provider_id, base, models_config.get_provider(provider_id), config)?;
         // Re-registration merges defined values over the previous registration and
         // preserves undefined ones, matching the legacy ModelRegistry contract.
+        let composition = self.composition.lock();
         let effective = {
             let mut state = self.state.lock();
             state.native_extension_providers.shift_remove(provider_id);
@@ -1535,6 +1545,7 @@ impl ModelRuntime {
             effective
         };
         self.recompose_provider(provider_id);
+        drop(composition);
         self.update_model_snapshot();
         let auth_type = if effective.oauth.is_some() && effective.api_key.is_none() {
             AuthType::OAuth
@@ -1552,11 +1563,14 @@ impl ModelRuntime {
 
     pub fn unregister_provider(&self, provider_id: &str) {
         {
-            let mut state = self.state.lock();
-            state.extension_providers.shift_remove(provider_id);
-            state.native_extension_providers.shift_remove(provider_id);
+            let _composition = self.composition.lock();
+            {
+                let mut state = self.state.lock();
+                state.extension_providers.shift_remove(provider_id);
+                state.native_extension_providers.shift_remove(provider_id);
+            }
+            self.recompose_provider(provider_id);
         }
-        self.recompose_provider(provider_id);
         self.update_model_snapshot();
         self.spawn_offline_refresh();
     }
@@ -1575,6 +1589,7 @@ impl ModelRuntime {
         {
             anyhow::bail!("Virtual model {provider_id}/{id} conflicts with a physical model.");
         }
+        let composition = self.composition.lock();
         self.state
             .lock()
             .virtual_models
@@ -1587,7 +1602,9 @@ impl ModelRuntime {
                     route: definition.route.clone(),
                 },
             );
-        if self.recompose_provider(&provider_id).is_none() {
+        let recomposed = self.recompose_provider(&provider_id);
+        drop(composition);
+        if recomposed.is_none() {
             let mut state = self.state.lock();
             if !state.snapshot.configured_providers.contains(&provider_id) {
                 // A provider of only virtual models needs no credentials. Mark it configured now: session
@@ -1605,6 +1622,7 @@ impl ModelRuntime {
     }
 
     pub fn unregister_virtual_model(&self, provider_id: &str, id: &str) {
+        let composition = self.composition.lock();
         {
             let mut state = self.state.lock();
             let Some(models) = state.virtual_models.get_mut(provider_id) else { return };
@@ -1616,6 +1634,7 @@ impl ModelRuntime {
             }
         }
         self.recompose_provider(provider_id);
+        drop(composition);
         self.update_model_snapshot();
         self.spawn_offline_refresh();
     }

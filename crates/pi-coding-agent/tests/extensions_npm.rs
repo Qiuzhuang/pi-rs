@@ -124,3 +124,157 @@ async fn custom_provider_anthropic_streams_with_the_sdk() {
     assert!(request.to_ascii_lowercase().contains("x-api-key: sk-ant-api-test"), "{request}");
     harness.cleanup();
 }
+
+/// A mock HTTP server routing by path. Records `"<request line>\n<headers>\n\n<body>"` per request.
+async fn mock_router(route: fn(&str, &str) -> (u16, &'static str, String)) -> (String, Arc<parking_lot::Mutex<Vec<String>>>) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let base_url = format!("http://{}", listener.local_addr().unwrap());
+    let requests: Arc<parking_lot::Mutex<Vec<String>>> = Arc::default();
+    let seen = requests.clone();
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else { return };
+            let seen = seen.clone();
+            tokio::spawn(async move {
+                let mut buf = Vec::new();
+                let mut chunk = [0u8; 8192];
+                let text = loop {
+                    let Ok(n) = socket.read(&mut chunk).await else { return };
+                    if n == 0 {
+                        return;
+                    }
+                    buf.extend_from_slice(&chunk[..n]);
+                    let text = String::from_utf8_lossy(&buf).to_string();
+                    if let Some(end) = text.find("\r\n\r\n") {
+                        let length = text[..end]
+                            .lines()
+                            .find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap_or(0)))
+                            .unwrap_or(0);
+                        if buf.len() >= end + 4 + length {
+                            break text;
+                        }
+                    }
+                };
+                seen.lock().push(text.clone());
+                let path = text.split_whitespace().nth(1).unwrap_or("/").to_string();
+                let body = text.split_once("\r\n\r\n").map(|(_, b)| b.to_string()).unwrap_or_default();
+                let (status, content_type, reply) = route(&path, &body);
+                let response = format!(
+                    "HTTP/1.1 {status} OK\r\ncontent-type: {content_type}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{reply}",
+                    reply.len()
+                );
+                let _ = socket.write_all(response.as_bytes()).await;
+                let _ = socket.shutdown().await;
+            });
+        }
+    });
+    (base_url, requests)
+}
+
+fn gitlab_route(path: &str, _body: &str) -> (u16, &'static str, String) {
+    let path = path.split('?').next().unwrap_or(path);
+    let sse = |events: Vec<Value>, named: bool| -> String {
+        events
+            .iter()
+            .map(|e| match named {
+                true => format!("event: {}\ndata: {e}\n\n", e["type"].as_str().unwrap()),
+                false => format!("data: {e}\n\n"),
+            })
+            .collect()
+    };
+    if path == "/api/v4/ai/third_party_agents/direct_access" {
+        return (200, "application/json", json!({ "token": "direct-token", "headers": { "x-gitlab-instance-id": "instance-1" } }).to_string());
+    }
+    if path.starts_with("/ai/v1/proxy/anthropic") && path.ends_with("/v1/messages") {
+        let events = vec![
+            json!({"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","content":[],"model":"mock","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":5,"output_tokens":1}}}),
+            json!({"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}),
+            json!({"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"duo claude"}}),
+            json!({"type":"content_block_stop","index":0}),
+            json!({"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":3}}),
+            json!({"type":"message_stop"}),
+        ];
+        return (200, "text/event-stream", sse(events, true));
+    }
+    if path == "/ai/v1/proxy/openai/v1/responses" {
+        let events = vec![
+            json!({ "type": "response.output_item.added", "item": { "type": "message", "id": "msg_1", "role": "assistant", "status": "in_progress", "content": [] } }),
+            json!({ "type": "response.content_part.added", "part": { "type": "output_text", "text": "" } }),
+            json!({ "type": "response.output_text.delta", "delta": "duo gpt" }),
+            json!({ "type": "response.output_item.done", "item": { "type": "message", "id": "msg_1", "role": "assistant", "status": "completed", "content": [{ "type": "output_text", "text": "duo gpt" }] } }),
+            json!({ "type": "response.completed", "response": { "status": "completed", "usage": { "input_tokens": 5, "output_tokens": 3, "total_tokens": 8, "input_tokens_details": { "cached_tokens": 0 } } } }),
+        ];
+        return (200, "text/event-stream", sse(events, false));
+    }
+    (404, "text/plain", format!("no route for {path}"))
+}
+
+/// `custom-provider-gitlab-duo` (no npm dependencies): the provider exchanges the GitLab token for a
+/// direct-access token, then streams through pi-ai's Anthropic Messages and OpenAI Responses
+/// implementations. GitLab and the AI gateway are pointed at a local mock.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn custom_provider_gitlab_duo_streams_through_both_backends() {
+    let Some(dir) = prepare("custom-provider-gitlab-duo").await else { return };
+    let (base_url, requests) = mock_router(gitlab_route).await;
+    let index = dir.join("index.ts");
+    let source = std::fs::read_to_string(&index).unwrap();
+    for constant in [r#"const GITLAB_COM_URL = "https://gitlab.com";"#, r#"const AI_GATEWAY_URL = "https://cloud.gitlab.com";"#] {
+        assert!(source.contains(constant), "{constant}");
+    }
+    let source = source
+        .replace(r#"const GITLAB_COM_URL = "https://gitlab.com";"#, &format!("const GITLAB_COM_URL = {base_url:?};"))
+        .replace(r#"const AI_GATEWAY_URL = "https://cloud.gitlab.com";"#, &format!("const AI_GATEWAY_URL = {base_url:?};"));
+    std::fs::write(&index, source).unwrap();
+    // SAFETY: only this test's provider reads GITLAB_TOKEN.
+    unsafe { std::env::set_var("GITLAB_TOKEN", "glpat-test") };
+
+    let cwd = dir.display().to_string();
+    let loader = Arc::new(DefaultResourceLoader::new(&DefaultResourceLoaderOptions {
+        cwd: cwd.clone(),
+        agent_dir: cwd.clone(),
+        additional_extension_paths: Some(vec![dir.display().to_string()]),
+        no_skills: Some(true),
+        no_prompt_templates: Some(true),
+        no_context_files: Some(true),
+        ..Default::default()
+    }));
+    loader.reload(None).await.unwrap();
+    assert!(loader.get_extensions().errors.is_empty(), "{:#?}", loader.get_extensions().errors);
+    let harness = support::create_harness(support::HarnessOptions { resource_loader: Some(loader), ..Default::default() }).await.unwrap();
+    harness.session.bind_extensions(&Default::default()).await.unwrap();
+    let runtime = harness.model_runtime.clone();
+    let context = || pi_ai::types::Context {
+        system_prompt: Some("Be brief.".into()),
+        messages: vec![pi_ai::types::Message::User(pi_ai::types::UserMessage {
+            content: pi_ai::types::UserContent::Text("hi".into()),
+            timestamp: 0,
+        })],
+        tools: None,
+    };
+    let text = |message: &pi_ai::types::AssistantMessage| -> String {
+        message.content.iter().filter_map(|c| c.as_text().map(|t| t.text.clone())).collect()
+    };
+
+    let claude = runtime.get_model("gitlab-duo", "claude-sonnet-4-6").expect("the example registers its models");
+    let message = runtime.complete_simple(claude, context(), None).await;
+    assert_eq!(message.stop_reason, pi_ai::types::StopReason::Stop, "{:?}", message.error_message);
+    assert_eq!(text(&message), "duo claude");
+
+    let gpt = runtime.get_model("gitlab-duo", "gpt-5-codex").unwrap();
+    let message = runtime.complete_simple(gpt, context(), None).await;
+    assert_eq!(message.stop_reason, pi_ai::types::StopReason::Stop, "{:?}", message.error_message);
+    assert_eq!(text(&message), "duo gpt");
+
+    let requests = requests.lock().clone();
+    let lower: Vec<String> = requests.iter().map(|r| r.to_ascii_lowercase()).collect();
+    // One direct-access exchange (cached for both requests) with the GitLab token.
+    let exchanges: Vec<&String> = lower.iter().filter(|r| r.starts_with("post /api/v4/ai/third_party_agents/direct_access")).collect();
+    assert_eq!(exchanges.len(), 1, "{requests:#?}");
+    assert!(exchanges[0].contains("authorization: bearer glpat-test"), "{}", exchanges[0]);
+    let anthropic = lower.iter().find(|r| r.contains("/ai/v1/proxy/anthropic")).expect("anthropic request");
+    assert!(anthropic.contains("authorization: bearer direct-token") && anthropic.contains("x-gitlab-instance-id: instance-1"), "{anthropic}");
+    let openai = lower.iter().find(|r| r.starts_with("post /ai/v1/proxy/openai/v1/responses")).expect("openai request");
+    assert!(openai.contains("authorization: bearer direct-token") && openai.contains("x-gitlab-instance-id: instance-1"), "{openai}");
+    harness.cleanup();
+}

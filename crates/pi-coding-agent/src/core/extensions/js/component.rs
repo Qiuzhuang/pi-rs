@@ -21,7 +21,8 @@ use super::api::{arg, autocomplete_item, autocomplete_item_json, custom_entry_js
 use super::{Bridge, Registry, js_error};
 use crate::core::extensions::types::*;
 use crate::core::footer_data_provider::ReadonlyFooterDataProvider;
-use crate::core::keybindings::KeybindingsManager;
+use crate::core::keybindings::{AppKeybinding, KeybindingsManager};
+use crate::modes::interactive::components::custom_editor::{CustomEditor, CustomEditorOptions};
 use crate::modes::interactive::theme::theme::Theme;
 
 /// A value passed to `done()` of a JS custom UI component.
@@ -42,6 +43,8 @@ pub(crate) struct RendererEntry {
 pub(crate) enum RustComp {
     Input(Arc<Input>),
     Editor(Arc<Editor>),
+    /// coding-agent `CustomEditor` (app-level keybindings) behind JS `CustomEditor`.
+    CustomEditor(Arc<CustomEditor>),
     Other(ComponentRef),
 }
 
@@ -50,7 +53,17 @@ impl RustComp {
         match self {
             Self::Input(c) => c.clone(),
             Self::Editor(c) => c.clone(),
+            Self::CustomEditor(c) => c.clone(),
             Self::Other(c) => c.clone(),
+        }
+    }
+
+    /// The pi-tui editor of an editor-backed component.
+    fn editor(&self) -> Option<&Arc<Editor>> {
+        match self {
+            Self::Editor(e) => Some(e),
+            Self::CustomEditor(c) => Some(c.editor()),
+            _ => None,
         }
     }
 }
@@ -242,6 +255,57 @@ impl JsEditorComponent {
             .inner
             .bridge
             .glue_call_blocking("setPropCallback", vec![self.inner.handle.to_value(), json!(property), value]);
+    }
+
+    /// The Rust `CustomEditor` behind a JS `CustomEditor` subclass, if this is one.
+    pub fn rust_custom_editor(&self) -> Option<Arc<CustomEditor>> {
+        let component = self.inner.rust_component()?;
+        pi_tui::tui::downcast_component::<CustomEditor>(&component)
+    }
+
+    /// TS `setCustomEditorComponent`: when the JS editor extends `CustomEditor` (has an
+    /// `actionHandlers` Map), give it the default editor's escape / ctrl+d / paste-image /
+    /// extension-shortcut handlers it does not set itself and copy the app action handlers.
+    /// Returns whether the editor is a `CustomEditor`.
+    pub fn adopt_app_handlers(&self, default_editor: &Arc<CustomEditor>) -> bool {
+        let bridge = &self.inner.bridge;
+        // Like TS, the copied handlers call the default editor's handler current at call time.
+        let lazy = |get: fn(&CustomEditor) -> Option<Arc<dyn Fn() + Send + Sync>>| {
+            let d = default_editor.clone();
+            bridge.register_callback(Arc::new(move |_| {
+                if let Some(f) = get(&d) {
+                    f();
+                }
+                Ok(Value::Null)
+            }))
+        };
+        let d = default_editor.clone();
+        let shortcut = bridge.register_callback(Arc::new(move |args: Vec<Value>| {
+            let data = args.first().and_then(Value::as_str).unwrap_or_default().to_string();
+            Ok(json!(d.on_extension_shortcut().is_some_and(|f| f(data))))
+        }));
+        let handlers = json!({
+            "onEscape": lazy(CustomEditor::on_escape),
+            "onCtrlD": lazy(CustomEditor::on_ctrl_d),
+            "onPasteImage": lazy(CustomEditor::on_paste_image),
+            "onExtensionShortcut": shortcut,
+        });
+        let void = |f: Arc<dyn Fn() + Send + Sync>| {
+            bridge.register_callback(Arc::new(move |_| {
+                f();
+                Ok(Value::Null)
+            }))
+        };
+        let actions: Vec<Value> = default_editor
+            .action_handlers()
+            .into_iter()
+            .map(|(action, f)| json!([action, void(f)]))
+            .collect();
+        bridge
+            .glue_call_blocking("adoptAppHandlers", vec![self.inner.handle.to_value(), handlers, Value::Array(actions)])
+            .ok()
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
     }
 
     fn call_if_exists(&self, method: &str, args: Vec<Value>) -> Value {
@@ -871,44 +935,6 @@ fn markdown_theme(bridge: &Arc<Bridge>, value: &Value) -> MarkdownTheme {
     theme
 }
 
-/// pi's default Markdown theme (TS `getMarkdownTheme()`), built from `theme`.
-fn default_markdown_theme(theme: &Arc<Theme>) -> MarkdownTheme {
-    let fg = |token: &str, bold: bool| -> StyleFn {
-        let theme = theme.clone();
-        let color = serde_json::from_value(json!(token)).ok();
-        Arc::new(move |text: &str| {
-            let text = if bold { theme.bold(text) } else { text.to_string() };
-            match &color {
-                Some(c) => theme.fg(c, &text),
-                None => text,
-            }
-        })
-    };
-    let mut md = MarkdownTheme::plain();
-    md.heading = fg("mdHeading", true);
-    md.link = fg("mdLink", false);
-    md.link_url = fg("mdLinkUrl", false);
-    md.code = fg("mdCode", false);
-    md.code_block = fg("mdCodeBlock", false);
-    md.code_block_border = fg("mdCodeBlockBorder", false);
-    md.quote = fg("mdQuote", false);
-    md.quote_border = fg("mdQuoteBorder", false);
-    md.hr = fg("mdHr", false);
-    md.list_bullet = fg("mdListBullet", false);
-    let t = theme.clone();
-    md.bold = Arc::new(move |s: &str| t.bold(s));
-    let t = theme.clone();
-    md.italic = Arc::new(move |s: &str| t.italic(s));
-    let t = theme.clone();
-    md.underline = Arc::new(move |s: &str| t.underline(s));
-    let t = theme.clone();
-    md.strikethrough = Arc::new(move |s: &str| t.strikethrough(s));
-    md.highlight_code = Some(Arc::new(|code: &str, lang: Option<&str>| {
-        crate::modes::interactive::theme::theme::highlight_code(code, lang)
-    }));
-    md
-}
-
 fn default_text_style(bridge: &Arc<Bridge>, value: &Value) -> Option<DefaultTextStyle> {
     if !value.is_object() {
         return None;
@@ -1009,7 +1035,7 @@ pub(crate) fn dispatch(bridge: &Arc<Bridge>, op: &str, payload: Value) -> anyhow
         "tui.markdown" => {
             let theme = match &payload["theme"] {
                 Value::Null => MarkdownTheme::plain(),
-                t if t["builtin"].is_string() => default_markdown_theme(&crate::modes::interactive::theme::theme::theme()),
+                t if t["builtin"].is_string() => crate::modes::interactive::theme::theme::get_markdown_theme(),
                 t => t["id"].as_u64().and_then(|id| bridge.components.markdown_themes.get(id)).unwrap_or_else(MarkdownTheme::plain),
             };
             let markdown = Markdown::new(
@@ -1210,11 +1236,24 @@ fn rust_component_new(bridge: &Arc<Bridge>, payload: &Value) -> anyhow::Result<V
                 border_color: js_style_fn(bridge, &theme["borderColor"]).unwrap_or_else(identity_style),
                 select_list: select_list_theme(bridge, &theme["selectList"]),
             };
-            let editor_options = EditorOptions {
-                padding_x: options["paddingX"].as_u64().map(|v| v as usize),
-                autocomplete_max_visible: options["autocompleteMaxVisible"].as_u64().map(|v| v as usize),
-            };
-            RustComp::Editor(Editor::new(&tui, editor_theme, editor_options))
+            if kind == "customEditor" {
+                let keybindings = payload["keybindings"]
+                    .as_u64()
+                    .and_then(|id| bridge.components.keybindings.get(id))
+                    .unwrap_or_else(|| KeybindingsManager::create(None));
+                let custom_options = CustomEditorOptions {
+                    padding_x: options["paddingX"].as_i64(),
+                    autocomplete_max_visible: options["autocompleteMaxVisible"].as_i64(),
+                    embed_working_status: options["embedWorkingStatus"].as_bool(),
+                };
+                RustComp::CustomEditor(Arc::new(CustomEditor::new(tui, Arc::new(editor_theme), keybindings, Some(&custom_options))))
+            } else {
+                let editor_options = EditorOptions {
+                    padding_x: options["paddingX"].as_u64().map(|v| v as usize),
+                    autocomplete_max_visible: options["autocompleteMaxVisible"].as_u64().map(|v| v as usize),
+                };
+                RustComp::Editor(Editor::new(&tui, editor_theme, editor_options))
+            }
         }
         _ => anyhow::bail!("unknown component kind {kind}"),
     };
@@ -1274,7 +1313,54 @@ fn rust_component_call(bridge: &Arc<Bridge>, payload: &Value) -> anyhow::Result<
             }
             _ => return Err(anyhow::anyhow!("Input.{method} is not available")),
         }),
-        RustComp::Editor(editor) => Ok(match method.as_str() {
+        RustComp::CustomEditor(custom) if method == "setActionHandler" => {
+            let action: AppKeybinding = serde_json::from_value(a(0))?;
+            let mut handlers = custom.action_handlers();
+            match bridge.handle(&a(1)) {
+                Some(h) => {
+                    handlers.insert(action, Arc::new(move || {
+                        let _ = h.call_blocking(vec![]);
+                    }) as Arc<dyn Fn() + Send + Sync>);
+                }
+                None => {
+                    handlers.shift_remove(&action);
+                }
+            }
+            custom.set_action_handlers(handlers);
+            Ok(Value::Null)
+        }
+        RustComp::CustomEditor(custom) if method.starts_with("set_on") => {
+            let h = bridge.handle(&a(0));
+            let void = h.clone().map(|h| {
+                Arc::new(move || {
+                    let _ = h.call_blocking(vec![]);
+                }) as Arc<dyn Fn() + Send + Sync>
+            });
+            match method.as_str() {
+                "set_onEscape" => custom.set_on_escape(void),
+                "set_onCtrlD" => custom.set_on_ctrl_d(void),
+                "set_onPasteImage" => custom.set_on_paste_image(void),
+                "set_onExtensionShortcut" => custom.set_on_extension_shortcut(h.map(|h| {
+                    Arc::new(move |data: String| {
+                        h.call_blocking(vec![json!(data)]).ok().is_some_and(|v| v.as_bool().unwrap_or(false))
+                    }) as Arc<dyn Fn(String) -> bool + Send + Sync>
+                })),
+                _ => return Err(anyhow::anyhow!("CustomEditor.{method} is not available")),
+            }
+            Ok(Value::Null)
+        }
+        RustComp::Editor(_) | RustComp::CustomEditor(_) => {
+            let editor = comp.editor().cloned().unwrap_or_else(|| unreachable!("editor-backed component"));
+            editor_call(bridge, &editor, &method, payload)
+        }
+        RustComp::Other(_) => Err(anyhow::anyhow!("component.{method} is not available")),
+    }
+}
+
+fn editor_call(bridge: &Arc<Bridge>, editor: &Arc<Editor>, method: &str, payload: &Value) -> anyhow::Result<Value> {
+    let a = |i: usize| arg(payload, i);
+    {
+        Ok(match method {
             "setOnSubmit" => {
                 editor.set_on_submit(text_callback(bridge, &a(0)));
                 Value::Null
@@ -1332,11 +1418,8 @@ fn rust_component_call(bridge: &Arc<Bridge>, payload: &Value) -> anyhow::Result<
                 }
                 Value::Null
             }
-            // App-level handlers of CustomEditor are wired by the interactive mode on the JS object.
-            "setActionHandler" | "set_onEscape" | "set_onCtrlD" | "set_onPasteImage" | "set_onExtensionShortcut" => Value::Null,
             _ => return Err(anyhow::anyhow!("Editor.{method} is not available")),
-        }),
-        RustComp::Other(_) => Err(anyhow::anyhow!("component.{method} is not available")),
+        })
     }
 }
 

@@ -196,6 +196,15 @@ impl CustomEditor {
     }
 }
 
+/// The `CustomEditor` behind an editor component: a Rust `CustomEditor`, or the Rust editor
+/// backing a JavaScript `CustomEditor` subclass from an extension.
+pub fn as_custom_editor(component: &pi_tui::tui::ComponentRef) -> Option<Arc<CustomEditor>> {
+    if let Some(custom) = pi_tui::tui::downcast_component::<CustomEditor>(component) {
+        return Some(custom);
+    }
+    pi_tui::tui::downcast_component::<crate::core::extensions::js::JsEditorComponent>(component)?.rust_custom_editor()
+}
+
 impl Deref for CustomEditor {
     type Target = Editor;
     fn deref(&self) -> &Editor {

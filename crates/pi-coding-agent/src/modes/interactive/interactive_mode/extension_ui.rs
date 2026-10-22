@@ -850,10 +850,26 @@ impl Inner {
 
     pub(crate) fn rebind_extension_terminal_input_listeners(&self) {
         let ui = self.ui();
-        let mut s = self.state.lock();
-        for sub in s.extension_terminal_input_subscriptions.iter_mut() {
-            ui.remove_input_listener(sub.listener_id);
-            sub.listener_id = ui.add_input_listener(to_input_listener(sub.handler.clone()));
+        // Snapshot under the state lock; call into the TUI without holding it.
+        let subs: Vec<(u64, u64, _)> = self
+            .state
+            .lock()
+            .extension_terminal_input_subscriptions
+            .iter()
+            .map(|sub| (sub.id, sub.listener_id, sub.handler.clone()))
+            .collect();
+        for (id, old_listener_id, handler) in subs {
+            ui.remove_input_listener(old_listener_id);
+            let new_listener_id = ui.add_input_listener(to_input_listener(handler));
+            let mut s = self.state.lock();
+            match s.extension_terminal_input_subscriptions.iter_mut().find(|sub| sub.id == id) {
+                Some(sub) => sub.listener_id = new_listener_id,
+                // Unsubscribed meanwhile: drop the listener we just added.
+                None => {
+                    drop(s);
+                    ui.remove_input_listener(new_listener_id);
+                }
+            }
         }
     }
 
@@ -1180,6 +1196,9 @@ impl Inner {
                         handlers.insert(action, handler);
                     }
                     custom.set_action_handlers(handlers);
+                } else if let Some(js) = pi_tui::tui::downcast_component::<crate::core::extensions::js::JsEditorComponent>(&component) {
+                    // JS `CustomEditor` subclasses get the handlers on the JS object (TS duck typing).
+                    js.adopt_app_handlers(&self.default_editor);
                 }
                 self.state.lock().editor_is_default = false;
                 new_editor
@@ -1211,7 +1230,7 @@ impl Inner {
         self.default_editor.set_working_status_indicator(None);
         let editor = self.editor();
         let component: ComponentRef = editor;
-        match pi_tui::tui::downcast_component::<CustomEditor>(&component) {
+        match crate::modes::interactive::components::custom_editor::as_custom_editor(&component) {
             Some(custom) if custom.embed_working_status() => {
                 custom.set_working_status_indicator(indicator);
                 true
@@ -1248,11 +1267,13 @@ impl Inner {
                 if let Some(this) = weak.upgrade() {
                     // Remove this overlay, not the topmost one: another overlay may have opened above it.
                     if is_overlay {
-                        if let Some(handle) = overlay_handle.lock().take() {
+                        let handle_taken = overlay_handle.lock().take();
+                        if let Some(handle) = handle_taken {
                             handle.hide();
                         }
                     } else {
-                        if let Some(id) = dialog_id.lock().take() {
+                        let id_taken = dialog_id.lock().take();
+                        if let Some(id) = id_taken {
                             this.remove_extension_dialog(id);
                         }
                         this.editor().set_text(&saved_text);

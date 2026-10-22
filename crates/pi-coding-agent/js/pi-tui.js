@@ -664,7 +664,11 @@ export class Editor extends RustComponent {
 							selectList: theme.selectList,
 						}
 					: null,
-				options: { paddingX: options?.paddingX, autocompleteMaxVisible: options?.autocompleteMaxVisible },
+				options: {
+					paddingX: options?.paddingX,
+					autocompleteMaxVisible: options?.autocompleteMaxVisible,
+					embedWorkingStatus: options?.embedWorkingStatus,
+				},
 			}),
 		);
 		this.tui = tui;

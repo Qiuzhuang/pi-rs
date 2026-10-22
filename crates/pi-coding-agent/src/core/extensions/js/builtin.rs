@@ -347,6 +347,13 @@ fn helper(bridge: &Arc<Bridge>, payload: &Value) -> anyhow::Result<Value> {
         }
         "getLanguageFromPath" => json!(crate::modes::interactive::theme::theme::get_language_from_path(&s(0))),
         "highlightCode" => json!(crate::modes::interactive::theme::theme::highlight_code(&s(0), a(1).as_str())),
+        "markdownHighlightCode" => {
+            let theme = crate::modes::interactive::theme::theme::get_markdown_theme();
+            match &theme.highlight_code {
+                Some(f) => json!(f(&s(0), a(1).as_str())),
+                None => json!(s(0).split('\n').collect::<Vec<_>>()),
+            }
+        }
         "generateDiffString" => serde_json::to_value(crate::core::tools::edit_diff::generate_diff_string(
             &s(0),
             &s(1),

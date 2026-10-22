@@ -1084,6 +1084,19 @@ export function callMethodIfExists(target, method, args) {
 	return typeof target?.[method] === "function" ? (target[method](...(args ?? [])) ?? null) : null;
 }
 
+/**
+ * Copy the interactive mode's app-level handlers onto a JS `CustomEditor` (duck-typed on an
+ * `actionHandlers` Map, like TS `setCustomEditorComponent`). Returns whether it is one.
+ */
+export function adoptAppHandlers(editor, handlers, actions) {
+	if (!editor || !(editor.actionHandlers instanceof Map)) return false;
+	for (const name of ["onEscape", "onCtrlD", "onPasteImage", "onExtensionShortcut"]) {
+		if (!editor[name] && handlers[name] !== null && handlers[name] !== undefined) editor[name] = rustCallback(handlers[name]);
+	}
+	for (const [action, id] of actions) editor.actionHandlers.set(action, rustCallback(id));
+	return true;
+}
+
 export function newState() {
 	return ref({});
 }

@@ -233,25 +233,26 @@ function currentTheme() {
 	return themeProxy(call("ca.theme"));
 }
 
+/** pi's Markdown theme (TS `getMarkdownTheme()`): styles follow the current theme at call time. */
 export function getMarkdownTheme() {
-	const theme = currentTheme();
 	const md = {
-		heading: (t) => theme.fg("mdHeading", theme.bold(t)),
-		link: (t) => theme.fg("mdLink", t),
-		linkUrl: (t) => theme.fg("mdLinkUrl", t),
-		code: (t) => theme.fg("mdCode", t),
-		codeBlock: (t) => theme.fg("mdCodeBlock", t),
-		codeBlockBorder: (t) => theme.fg("mdCodeBlockBorder", t),
-		quote: (t) => theme.fg("mdQuote", t),
-		quoteBorder: (t) => theme.fg("mdQuoteBorder", t),
-		hr: (t) => theme.fg("mdHr", t),
-		listBullet: (t) => theme.fg("mdListBullet", t),
-		bold: (t) => theme.bold(t),
-		italic: (t) => theme.italic(t),
-		underline: (t) => theme.underline(t),
-		strikethrough: (t) => theme.strikethrough(t),
-		highlightCode: (code, lang) => highlightCode(code, lang),
+		heading: (t) => currentTheme().fg("mdHeading", t),
+		link: (t) => currentTheme().fg("mdLink", t),
+		linkUrl: (t) => currentTheme().fg("mdLinkUrl", t),
+		code: (t) => currentTheme().fg("mdCode", t),
+		codeBlock: (t) => currentTheme().fg("mdCodeBlock", t),
+		codeBlockBorder: (t) => currentTheme().fg("mdCodeBlockBorder", t),
+		quote: (t) => currentTheme().fg("mdQuote", t),
+		quoteBorder: (t) => currentTheme().fg("mdQuoteBorder", t),
+		hr: (t) => currentTheme().fg("mdHr", t),
+		listBullet: (t) => currentTheme().fg("mdListBullet", t),
+		bold: (t) => currentTheme().bold(t),
+		italic: (t) => currentTheme().italic(t),
+		underline: (t) => currentTheme().underline(t),
+		strikethrough: (t) => currentTheme().strikethrough(t),
+		highlightCode: (code, lang) => host("markdownHighlightCode", String(code), lang ?? null),
 	};
+	// Markdown components render this theme with the Rust `getMarkdownTheme()` directly.
 	Object.defineProperty(md, "__mdTheme", { value: "default", enumerable: false });
 	return md;
 }

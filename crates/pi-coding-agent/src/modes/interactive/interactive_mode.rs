@@ -1708,7 +1708,7 @@ impl Inner {
     fn embedded_status_editor(&self) -> Option<Arc<CustomEditor>> {
         let editor = self.editor();
         let component: ComponentRef = editor;
-        let custom = pi_tui::tui::downcast_component::<CustomEditor>(&component)?;
+        let custom = crate::modes::interactive::components::custom_editor::as_custom_editor(&component)?;
         custom.embed_working_status().then_some(custom)
     }
 

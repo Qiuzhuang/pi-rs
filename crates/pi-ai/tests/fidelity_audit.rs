@@ -6,7 +6,7 @@ mod common;
 use std::time::Duration;
 
 use common::*;
-use pi_ai::api::{anthropic_messages, openai_completions, openai_responses};
+use pi_ai::api::{anthropic_messages, google_generative_ai, openai_completions, openai_responses};
 use pi_ai::providers::all::get_builtin_model;
 use pi_ai::*;
 use serde_json::json;
@@ -235,4 +235,28 @@ async fn anthropic_abort_messages_follow_each_ts_path() {
     let options = StreamOptions { api_key: Some("sk-ant-x".into()), signal: Some(signal), ..Default::default() };
     let (_, result) = anthropic_messages::stream(&anthropic_model(&base), &context(), options).collect_all().await;
     assert_eq!(result.error_message.as_deref(), Some("This operation was aborted"));
+}
+
+// ---------------------------------------------------------------------------
+// google-generative-ai
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn google_generated_tool_call_ids_use_the_js_name_text() {
+    // `${functionCall.name}_${Date.now()}_${++counter}`: "" stays empty, a missing name is "undefined".
+    let chunk = json!({
+        "candidates": [{ "finishReason": "STOP", "content": { "parts": [
+            { "functionCall": { "name": "", "args": {} } },
+            { "functionCall": { "args": {} } }
+        ] } }]
+    });
+    let server = serve(vec![MockResponse::sse(format!("data: {chunk}\r\n\r\n"))]).await;
+    let mut model = get_builtin_model("google", "gemini-2.5-flash").unwrap();
+    model.base_url = format!("{}/v1beta", server.base_url);
+    let options = StreamOptions { api_key: Some("k".into()), ..Default::default() };
+    let (_, result) = google_generative_ai::stream(&model, &context(), options).collect_all().await;
+    let ids: Vec<String> = result.tool_calls().map(|c| c.id.clone()).collect();
+    assert_eq!(ids.len(), 2, "{:?}", result.error_message);
+    assert!(ids[0].starts_with('_'), "{}", ids[0]);
+    assert!(ids[1].starts_with("undefined_"), "{}", ids[1]);
 }

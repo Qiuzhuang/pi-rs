@@ -1358,6 +1358,7 @@ pub fn simple_thinking_options(
 }
 
 static TOOL_CALL_COUNTER: AtomicU64 = AtomicU64::new(0);
+static VERTEX_TOOL_CALL_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 fn end_current_block(output: &AssistantMessage, sender: &AssistantMessageEventSender) {
     let index = output.content.len().saturating_sub(1);
@@ -1453,13 +1454,19 @@ fn process_chunk(
                 let provided = function_call.get("id").and_then(Value::as_str).filter(|s| !s.is_empty());
                 let duplicate =
                     provided.is_some_and(|id| output.content.iter().any(|b| matches!(b, AssistantContent::ToolCall(c) if c.id == id)));
+                // `${functionCall.name}_${Date.now()}_${++toolCallCounter}`: a missing name prints as
+                // "undefined"; google-generative-ai and google-vertex keep separate counters.
+                let counter = if model.api == "google-vertex" { &VERTEX_TOOL_CALL_COUNTER } else { &TOOL_CALL_COUNTER };
                 let id = match provided {
                     Some(id) if !duplicate => id.to_string(),
                     _ => format!(
                         "{}_{}_{}",
-                        if name.is_empty() { "undefined" } else { name.as_str() },
+                        match function_call.get("name") {
+                            None => "undefined".to_string(),
+                            Some(value) => crate::serde_util::js_string(value),
+                        },
                         crate::utils::now_ms(),
-                        TOOL_CALL_COUNTER.fetch_add(1, Ordering::SeqCst) + 1
+                        counter.fetch_add(1, Ordering::SeqCst) + 1
                     ),
                 };
                 let arguments = function_call.get("args").and_then(Value::as_object).cloned().unwrap_or_default();

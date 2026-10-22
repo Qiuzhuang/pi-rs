@@ -6,6 +6,8 @@ pub mod auth_url;
 pub mod bash_execution;
 pub mod bordered_loader;
 mod collapsible_box;
+#[cfg(test)]
+mod component_tests;
 pub mod branch_summary_message;
 pub mod compaction_summary_message;
 pub mod config_selector;

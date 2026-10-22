@@ -109,3 +109,49 @@ fn draw(src: &str) -> Option<(Canvas, Vec<String>)> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::Value;
+
+    fn cls_name(cls: Cls) -> &'static str {
+        match cls {
+            Cls::Border => "border",
+            Cls::Text => "text",
+            Cls::Edge => "edge",
+            Cls::EdgeLabel => "edgeLabel",
+            Cls::Title => "title",
+            Cls::None => "none",
+        }
+    }
+
+    /// Differential test: `test_corpus.json` holds grok-mermaid 0.2.3's `render()` output for each
+    /// source (generated with Node).
+    #[test]
+    fn render_matches_grok_mermaid() {
+        let corpus: Vec<Value> = serde_json::from_str(include_str!("test_corpus.json")).unwrap();
+        let mut failures = Vec::new();
+        for case in &corpus {
+            let src = case["src"].as_str().unwrap();
+            let expected = &case["art"];
+            let actual = render(src).map(|art| {
+                serde_json::json!({
+                    "plain": art.plain,
+                    "styled": art.styled.iter().map(|row| row.iter().map(|s| serde_json::json!({"text": s.text, "cls": cls_name(s.cls)})).collect::<Vec<_>>()).collect::<Vec<_>>(),
+                    "width": art.width,
+                    "warnings": art.warnings,
+                })
+            });
+            let actual = actual.unwrap_or(Value::Null);
+            if &actual != expected {
+                failures.push(format!(
+                    "source:\n{src}\nexpected:\n{}\nactual:\n{}",
+                    expected["plain"].as_array().map(|l| l.iter().map(|v| v.as_str().unwrap_or("")).collect::<Vec<_>>().join("\n")).unwrap_or_default(),
+                    actual["plain"].as_array().map(|l| l.iter().map(|v| v.as_str().unwrap_or("")).collect::<Vec<_>>().join("\n")).unwrap_or_default(),
+                ));
+            }
+        }
+        assert!(failures.is_empty(), "{} of {} cases differ:\n{}", failures.len(), corpus.len(), failures.join("\n\n"));
+    }
+}

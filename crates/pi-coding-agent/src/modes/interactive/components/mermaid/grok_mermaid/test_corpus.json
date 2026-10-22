@@ -1,0 +1,9157 @@
+[
+ {
+  "src": "flowchart LR\n  A[Start] --> B[Done]",
+  "art": {
+   "plain": [
+    "┌───────┐    ┌──────┐",
+    "│ Start ├───▶│ Done │",
+    "└───────┘    └──────┘"
+   ],
+   "styled": [
+    [
+     {
+      "text": "┌───────┐",
+      "cls": "border"
+     },
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "┌──────┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "Start",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "├",
+      "cls": "border"
+     },
+     {
+      "text": "───▶",
+      "cls": "edge"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "Done",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "└───────┘",
+      "cls": "border"
+     },
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "└──────┘",
+      "cls": "border"
+     }
+    ]
+   ],
+   "width": 21,
+   "warnings": []
+  }
+ },
+ {
+  "src": "graph TD\n  A --> B\n  A --> C\n  B --> D\n  C --> D",
+  "art": {
+   "plain": [
+    "     ┌───┐",
+    "     │ A │",
+    "     └─┬─┘",
+    "   ┌───┴───┐",
+    "   ▼       ▼",
+    " ┌───┐   ┌───┐",
+    " │ B │   │ C │",
+    " └─┬─┘   └─┬─┘",
+    "   └───┬───┘",
+    "       ▼",
+    "     ┌───┐",
+    "     │ D │",
+    "     └───┘"
+   ],
+   "styled": [
+    [
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "A",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "└─┬─┘",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───┴───┐",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "▼",
+      "cls": "edge"
+     },
+     {
+      "text": "       ",
+      "cls": "none"
+     },
+     {
+      "text": "▼",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───┐",
+      "cls": "border"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "B",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "C",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "└─┬─┘",
+      "cls": "border"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "└─┬─┘",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "└───┬───┘",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "       ",
+      "cls": "none"
+     },
+     {
+      "text": "▼",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "D",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "└───┘",
+      "cls": "border"
+     }
+    ]
+   ],
+   "width": 14,
+   "warnings": []
+  }
+ },
+ {
+  "src": "graph TD\n  A[Christmas] -->|Get money| B(Go shopping)\n  B --> C{Let me think}\n  C -->|One| D[Laptop]\n  C -->|Two| E[iPhone]\n  C -->|Three| F[fa:fa-car Car]",
+  "art": {
+   "plain": [
+    "             ┌───────────┐",
+    "             │ Christmas │",
+    "             └─────┬─────┘",
+    "                   │",
+    "                   ▼Get money",
+    "            ╭─────────────╮",
+    "            │ Go shopping │",
+    "            ╰──────┬──────╯",
+    "                   │",
+    "                   ▼",
+    "           ╭──────────────╮",
+    "           │ Let me think │",
+    "           ╰──────┬┬──────╯",
+    "     ┌────────────┼┴───────────────┐",
+    "     ▼One         ▼Two             ▼Three",
+    "┌────────┐   ┌────────┐    ┌───────────────┐",
+    "│ Laptop │   │ iPhone │    │ fa:fa-car Car │",
+    "└────────┘   └────────┘    └───────────────┘"
+   ],
+   "styled": [
+    [
+     {
+      "text": "             ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───────────┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "             ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "Christmas",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "             ",
+      "cls": "none"
+     },
+     {
+      "text": "└─────┬─────┘",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "                   ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "                   ",
+      "cls": "none"
+     },
+     {
+      "text": "▼",
+      "cls": "edge"
+     },
+     {
+      "text": "Get money",
+      "cls": "edgeLabel"
+     }
+    ],
+    [
+     {
+      "text": "            ",
+      "cls": "none"
+     },
+     {
+      "text": "╭─────────────╮",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "            ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "Go shopping",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "            ",
+      "cls": "none"
+     },
+     {
+      "text": "╰──────┬──────╯",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "                   ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "                   ",
+      "cls": "none"
+     },
+     {
+      "text": "▼",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "           ",
+      "cls": "none"
+     },
+     {
+      "text": "╭──────────────╮",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "           ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "Let me think",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "           ",
+      "cls": "none"
+     },
+     {
+      "text": "╰──────┬┬──────╯",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "┌────────────┼┴───────────────┐",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "▼",
+      "cls": "edge"
+     },
+     {
+      "text": "One",
+      "cls": "edgeLabel"
+     },
+     {
+      "text": "         ",
+      "cls": "none"
+     },
+     {
+      "text": "▼",
+      "cls": "edge"
+     },
+     {
+      "text": "Two",
+      "cls": "edgeLabel"
+     },
+     {
+      "text": "             ",
+      "cls": "none"
+     },
+     {
+      "text": "▼",
+      "cls": "edge"
+     },
+     {
+      "text": "Three",
+      "cls": "edgeLabel"
+     }
+    ],
+    [
+     {
+      "text": "┌────────┐",
+      "cls": "border"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "┌────────┐",
+      "cls": "border"
+     },
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───────────────┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "Laptop",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "iPhone",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "fa:fa-car Car",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "└────────┘",
+      "cls": "border"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "└────────┘",
+      "cls": "border"
+     },
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "└───────────────┘",
+      "cls": "border"
+     }
+    ]
+   ],
+   "width": 44,
+   "warnings": []
+  }
+ },
+ {
+  "src": "graph BT\n  A --> B --> C",
+  "art": {
+   "plain": [
+    " ┌───┐",
+    " │ C │",
+    " └───┘",
+    "   ▲",
+    "   │",
+    " ┌─┴─┐",
+    " │ B │",
+    " └───┘",
+    "   ▲",
+    "   │",
+    " ┌─┴─┐",
+    " │ A │",
+    " └───┘"
+   ],
+   "styled": [
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "C",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "└───┘",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "▲",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "┌─┴─┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "B",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "└───┘",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "▲",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "┌─┴─┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "A",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "└───┘",
+      "cls": "border"
+     }
+    ]
+   ],
+   "width": 6,
+   "warnings": []
+  }
+ },
+ {
+  "src": "graph RL\n  A[left text] -- label --> B[right text]",
+  "art": {
+   "plain": [
+    "┌────────────┐  label ┌───────────┐",
+    "│ right text │◄───────┤ left text │",
+    "└────────────┘        └───────────┘"
+   ],
+   "styled": [
+    [
+     {
+      "text": "┌────────────┐",
+      "cls": "border"
+     },
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "label",
+      "cls": "edgeLabel"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───────────┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "right text",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "◄───────",
+      "cls": "edge"
+     },
+     {
+      "text": "┤",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "left text",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "└────────────┘",
+      "cls": "border"
+     },
+     {
+      "text": "        ",
+      "cls": "none"
+     },
+     {
+      "text": "└───────────┘",
+      "cls": "border"
+     }
+    ]
+   ],
+   "width": 35,
+   "warnings": []
+  }
+ },
+ {
+  "src": "flowchart LR\n  A[Foo]:::highlight --> B[Bar]",
+  "art": {
+   "plain": [
+    "┌─────┐    ┌─────┐",
+    "│ Foo ├───▶│ Bar │",
+    "└─────┘    └─────┘"
+   ],
+   "styled": [
+    [
+     {
+      "text": "┌─────┐",
+      "cls": "border"
+     },
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "┌─────┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "Foo",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "├",
+      "cls": "border"
+     },
+     {
+      "text": "───▶",
+      "cls": "edge"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "Bar",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "└─────┘",
+      "cls": "border"
+     },
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "└─────┘",
+      "cls": "border"
+     }
+    ]
+   ],
+   "width": 18,
+   "warnings": []
+  }
+ },
+ {
+  "src": "flowchart LR\n  A[Foo] invalid",
+  "art": {
+   "plain": [
+    "┌─────┐",
+    "│ Foo │",
+    "└─────┘"
+   ],
+   "styled": [
+    [
+     {
+      "text": "┌─────┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "Foo",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "└─────┘",
+      "cls": "border"
+     }
+    ]
+   ],
+   "width": 7,
+   "warnings": [
+    "dropped, expected a link: \"invalid\""
+   ]
+  }
+ },
+ {
+  "src": "flowchart LR\n  A[Foo] invalid\n  B[Bar] also-invalid",
+  "art": {
+   "plain": [
+    "┌─────┐",
+    "│ Foo │",
+    "└─────┘",
+    "",
+    "┌─────┐",
+    "│ Bar │",
+    "└─────┘"
+   ],
+   "styled": [
+    [
+     {
+      "text": "┌─────┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "Foo",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "└─────┘",
+      "cls": "border"
+     }
+    ],
+    [],
+    [
+     {
+      "text": "┌─────┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "Bar",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "└─────┘",
+      "cls": "border"
+     }
+    ]
+   ],
+   "width": 7,
+   "warnings": [
+    "dropped, expected a link: \"invalid\"",
+    "dropped, expected a link: \"also-invalid\""
+   ]
+  }
+ },
+ {
+  "src": "flowchart TD\n  A --> B\n  B --> C\n  C --> A\n  A --> A",
+  "art": {
+   "plain": [
+    " ┌─────┐",
+    " │  A  │◄┐",
+    " └──┬┬─┘ │",
+    "    ││▲  │",
+    "    │╰╯  │",
+    "    │    │",
+    "    ▼    │",
+    "  ┌───┐  │",
+    "  │ B │  │",
+    "  └─┬─┘  │",
+    "    │    │",
+    "    ▼    │",
+    "  ┌───┐  │",
+    "  │ C ├──┘",
+    "  └───┘"
+   ],
+   "styled": [
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "┌─────┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "A",
+      "cls": "text"
+     },
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "◄┐",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "└──┬┬─┘",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "││▲",
+      "cls": "edge"
+     },
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│╰╯",
+      "cls": "edge"
+     },
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "▼",
+      "cls": "edge"
+     },
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───┐",
+      "cls": "border"
+     },
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "B",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "└─┬─┘",
+      "cls": "border"
+     },
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "▼",
+      "cls": "edge"
+     },
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───┐",
+      "cls": "border"
+     },
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "C",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "├",
+      "cls": "border"
+     },
+     {
+      "text": "──┘",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "└───┘",
+      "cls": "border"
+     }
+    ]
+   ],
+   "width": 10,
+   "warnings": []
+  }
+ },
+ {
+  "src": "flowchart TD\n  A -.-> B\n  B ==> C\n  C --o D\n  D --x E\n  E <--> F\n  F --- G",
+  "art": {
+   "plain": [
+    " ┌───┐",
+    " │ A │",
+    " └─┬─┘",
+    "   ╎",
+    "   ▼",
+    " ┌───┐",
+    " │ B │",
+    " └─┬─┘",
+    "   ┃",
+    "   ▼",
+    " ┌───┐",
+    " │ C │",
+    " └─┬─┘",
+    "   │",
+    "   o",
+    " ┌───┐",
+    " │ D │",
+    " └─┬─┘",
+    "   │",
+    "   ×",
+    " ┌───┐",
+    " │ E │",
+    " └─▲─┘",
+    "   │",
+    "   ▼",
+    " ┌───┐",
+    " │ F │",
+    " └─┬─┘",
+    "   │",
+    "   │",
+    " ┌───┐",
+    " │ G │",
+    " └───┘"
+   ],
+   "styled": [
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "A",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "└─┬─┘",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "╎",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "▼",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "B",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "└─┬─┘",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "┃",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "▼",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "C",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "└─┬─┘",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "o",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "D",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "└─┬─┘",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "×",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "E",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "└─",
+      "cls": "border"
+     },
+     {
+      "text": "▲",
+      "cls": "edge"
+     },
+     {
+      "text": "─┘",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "▼",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "F",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "└─┬─┘",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "G",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "└───┘",
+      "cls": "border"
+     }
+    ]
+   ],
+   "width": 6,
+   "warnings": []
+  }
+ },
+ {
+  "src": "flowchart TD\n  subgraph one [First]\n    a1 --> a2\n  end\n  subgraph two\n    b1 --> b2\n  end\n  a2 --> b1\n  c1 --> one",
+  "art": {
+   "plain": [
+    "  ┌────┐",
+    "  │ c1 │",
+    "  └──┬─┘",
+    "     │",
+    "     ▼",
+    " ┌ First ┐",
+    " │┌────┐ │",
+    " ││ a1 │ │",
+    " │└──┬─┘ │",
+    " │   │   │",
+    " │   ▼   │",
+    " │┌────┐ │",
+    " ││ a2 │ │",
+    " │└────┘ │",
+    " └───┬───┘",
+    "     │",
+    "     ▼",
+    " ┌ two ─┐",
+    " │┌────┐│",
+    " ││ b1 ││",
+    " │└──┬─┘│",
+    " │   │  │",
+    " │   ▼  │",
+    " │┌────┐│",
+    " ││ b2 ││",
+    " │└────┘│",
+    " └──────┘"
+   ],
+   "styled": [
+    [
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "┌────┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "c1",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "└──┬─┘",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "▼",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "┌",
+      "cls": "border"
+     },
+     {
+      "text": " First ",
+      "cls": "text"
+     },
+     {
+      "text": "┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│┌────┐",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "││",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "a1",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│└──┬─┘",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "▼",
+      "cls": "edge"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│┌────┐",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "││",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "a2",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│└────┘",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "└───┬───┘",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "▼",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "┌",
+      "cls": "border"
+     },
+     {
+      "text": " two ",
+      "cls": "text"
+     },
+     {
+      "text": "─┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│┌────┐│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "││",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "b1",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "││",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│└──┬─┘│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "▼",
+      "cls": "edge"
+     },
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│┌────┐│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "││",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "b2",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "││",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│└────┘│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "└──────┘",
+      "cls": "border"
+     }
+    ]
+   ],
+   "width": 10,
+   "warnings": []
+  }
+ },
+ {
+  "src": "flowchart LR\n  A[\"quoted ; label %% ok\"] --> B((circle)) & C>flag] --> D{{hex}}",
+  "art": {
+   "plain": [
+    "                            ╭────────╮",
+    "                        ┌──▶│ circle ├┐",
+    "┌──────────────────────┐│   ╰────────╯│   ╭─────╮",
+    "│ quoted ; label %% ok ├┤             ├──▶│ hex │",
+    "└──────────────────────┘│   ┌──────┐  │   ╰─────╯",
+    "                        └──▶│ flag ├──┘",
+    "                            └──────┘"
+   ],
+   "styled": [
+    [
+     {
+      "text": "                            ",
+      "cls": "none"
+     },
+     {
+      "text": "╭────────╮",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "                        ",
+      "cls": "none"
+     },
+     {
+      "text": "┌──▶",
+      "cls": "edge"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "circle",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "├",
+      "cls": "border"
+     },
+     {
+      "text": "┐",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "┌──────────────────────┐",
+      "cls": "border"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "╰────────╯",
+      "cls": "border"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "╭─────╮",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "quoted ; label %% ok",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "├",
+      "cls": "border"
+     },
+     {
+      "text": "┤",
+      "cls": "edge"
+     },
+     {
+      "text": "             ",
+      "cls": "none"
+     },
+     {
+      "text": "├──▶",
+      "cls": "edge"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "hex",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "└──────────────────────┘",
+      "cls": "border"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "┌──────┐",
+      "cls": "border"
+     },
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "╰─────╯",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "                        ",
+      "cls": "none"
+     },
+     {
+      "text": "└──▶",
+      "cls": "edge"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "flag",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "├",
+      "cls": "border"
+     },
+     {
+      "text": "──┘",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "                            ",
+      "cls": "none"
+     },
+     {
+      "text": "└──────┘",
+      "cls": "border"
+     }
+    ]
+   ],
+   "width": 49,
+   "warnings": []
+  }
+ },
+ {
+  "src": "flowchart TD\n  A[This is a very long label that should wrap across multiple lines because it is long] --> B[short]",
+  "art": {
+   "plain": [
+    "┌────────────────────────┐",
+    "│  This is a very long   │",
+    "│ label that should wrap │",
+    "│ across multiple lines  │",
+    "│   because it is long   │",
+    "└────────────┬───────────┘",
+    "             │",
+    "             ▼",
+    "         ┌───────┐",
+    "         │ short │",
+    "         └───────┘"
+   ],
+   "styled": [
+    [
+     {
+      "text": "┌────────────────────────┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "This is a very long",
+      "cls": "text"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "label that should wrap",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "across multiple lines",
+      "cls": "text"
+     },
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "because it is long",
+      "cls": "text"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "└────────────┬───────────┘",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "             ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "             ",
+      "cls": "none"
+     },
+     {
+      "text": "▼",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "         ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───────┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "         ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "short",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "         ",
+      "cls": "none"
+     },
+     {
+      "text": "└───────┘",
+      "cls": "border"
+     }
+    ]
+   ],
+   "width": 26,
+   "warnings": []
+  }
+ },
+ {
+  "src": "flowchart TD\n  A[漢字ラベル] --> B[emoji 👨‍👩‍👧 family]\n  B --> C[&lt;b&gt; &amp; <b>bold</b>]",
+  "art": {
+   "plain": [
+    "   ┌────────────┐   ┌───┐   ┌────┐",
+    "   │ 漢字ラベル │   │ b │   │ gt │",
+    "   └──────┬─────┘   └───┘   └────┘",
+    "          │",
+    "          ▼",
+    " ┌─────────────────┐",
+    " │ emoji 👨‍👩‍👧 family │",
+    " └────────┬────────┘",
+    "          │",
+    "          ▼",
+    "       ┌─────┐",
+    "       │ &lt │",
+    "       └─────┘"
+   ],
+   "styled": [
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "┌────────────┐",
+      "cls": "border"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───┐",
+      "cls": "border"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "┌────┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "漢字ラベル",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "b",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "gt",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "└──────┬─────┘",
+      "cls": "border"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "└───┘",
+      "cls": "border"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "└────┘",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "          ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "          ",
+      "cls": "none"
+     },
+     {
+      "text": "▼",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "┌─────────────────┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "emoji 👨‍👩‍👧 family",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "└────────┬────────┘",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "          ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "          ",
+      "cls": "none"
+     },
+     {
+      "text": "▼",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "       ",
+      "cls": "none"
+     },
+     {
+      "text": "┌─────┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "       ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "&lt",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "       ",
+      "cls": "none"
+     },
+     {
+      "text": "└─────┘",
+      "cls": "border"
+     }
+    ]
+   ],
+   "width": 34,
+   "warnings": [
+    "node \"C\": label is missing its closing `]`",
+    "dropped, does not start with a node: \"&amp\"",
+    "dropped, does not start with a node: \"<b>bold</b>]\""
+   ]
+  }
+ },
+ {
+  "src": "flowchart LR\n  A -->|a very long edge label that will be truncated| B\n  A --> C\n  A --> D",
+  "art": {
+   "plain": [
+    "      a very long edge label that…  ┌───┐",
+    "     ┌─────────────────────────────▶│ B │",
+    "     │                              └───┘",
+    "     │",
+    "┌───┐│                              ┌───┐",
+    "│ A ├┼─────────────────────────────▶│ C │",
+    "└───┘│                              └───┘",
+    "     │",
+    "     │                              ┌───┐",
+    "     └─────────────────────────────▶│ D │",
+    "                                    └───┘"
+   ],
+   "styled": [
+    [
+     {
+      "text": "      ",
+      "cls": "none"
+     },
+     {
+      "text": "a very long edge label that…",
+      "cls": "edgeLabel"
+     },
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "┌─────────────────────────────▶",
+      "cls": "edge"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "B",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "                              ",
+      "cls": "none"
+     },
+     {
+      "text": "└───┘",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "┌───┐",
+      "cls": "border"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "                              ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "A",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "├",
+      "cls": "border"
+     },
+     {
+      "text": "┼─────────────────────────────▶",
+      "cls": "edge"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "C",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "└───┘",
+      "cls": "border"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "                              ",
+      "cls": "none"
+     },
+     {
+      "text": "└───┘",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "                              ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "└─────────────────────────────▶",
+      "cls": "edge"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "D",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "                                    ",
+      "cls": "none"
+     },
+     {
+      "text": "└───┘",
+      "cls": "border"
+     }
+    ]
+   ],
+   "width": 41,
+   "warnings": []
+  }
+ },
+ {
+  "src": "flowchart TD\n  A --> B\n  A --> C\n  A --> D\n  B --> E\n  C --> E\n  D --> E\n  A --> E",
+  "art": {
+   "plain": [
+    "         ┌───┐",
+    "         │ A ├─────────┐",
+    "         └─┬─┘         │",
+    "   ┌───────┼───────┐   │",
+    "   ▼       ▼       ▼   │",
+    " ┌───┐   ┌───┐   ┌───┐ │",
+    " │ B │   │ C │   │ D │ │",
+    " └─┬─┘   └─┬─┘   └─┬─┘ │",
+    "   └───────┼───────┘   │",
+    "           ▼           │",
+    "         ┌───┐         │",
+    "         │ E │◄────────┘",
+    "         └───┘"
+   ],
+   "styled": [
+    [
+     {
+      "text": "         ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "         ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "A",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "├",
+      "cls": "border"
+     },
+     {
+      "text": "─────────┐",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "         ",
+      "cls": "none"
+     },
+     {
+      "text": "└─┬─┘",
+      "cls": "border"
+     },
+     {
+      "text": "         ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───────┼───────┐",
+      "cls": "edge"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "▼",
+      "cls": "edge"
+     },
+     {
+      "text": "       ",
+      "cls": "none"
+     },
+     {
+      "text": "▼",
+      "cls": "edge"
+     },
+     {
+      "text": "       ",
+      "cls": "none"
+     },
+     {
+      "text": "▼",
+      "cls": "edge"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───┐",
+      "cls": "border"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───┐",
+      "cls": "border"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───┐",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "B",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "C",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "D",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "└─┬─┘",
+      "cls": "border"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "└─┬─┘",
+      "cls": "border"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "└─┬─┘",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "└───────┼───────┘",
+      "cls": "edge"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "           ",
+      "cls": "none"
+     },
+     {
+      "text": "▼",
+      "cls": "edge"
+     },
+     {
+      "text": "           ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "         ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───┐",
+      "cls": "border"
+     },
+     {
+      "text": "         ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "         ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "E",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "◄────────┘",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "         ",
+      "cls": "none"
+     },
+     {
+      "text": "└───┘",
+      "cls": "border"
+     }
+    ]
+   ],
+   "width": 24,
+   "warnings": []
+  }
+ },
+ {
+  "src": "stateDiagram-v2\n  [*] --> Still\n  Still --> [*]\n  Still --> Moving\n  Moving --> Still\n  Moving --> Crash\n  Crash --> [*]",
+  "art": {
+   "plain": [
+    "   ╭───╮",
+    "   │ ● │",
+    "   ╰─┬─╯",
+    "     │",
+    "     ▼",
+    " ╭───────╮",
+    " │ Still ├◄┬┐",
+    " ╰───┬───╯ ││",
+    "     │     ││",
+    "     ▼     ││",
+    "╭────────╮ ││",
+    "│ Moving ├─┘│",
+    "╰────┬───╯  │",
+    "     │      │",
+    "     ▼      │",
+    " ╭───────╮  │",
+    " │ Crash │  │",
+    " ╰───┬───╯  │",
+    "     │      │",
+    "     ▼      │",
+    "   ╭───╮    │",
+    "   │ ● │◄───┘",
+    "   ╰───╯"
+   ],
+   "styled": [
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "╭───╮",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "●",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "╰─┬─╯",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "▼",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "╭───────╮",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "Still",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "├",
+      "cls": "border"
+     },
+     {
+      "text": "◄┬┐",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "╰───┬───╯",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "││",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "││",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "▼",
+      "cls": "edge"
+     },
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "││",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "╭────────╮",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "││",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "Moving",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "├",
+      "cls": "border"
+     },
+     {
+      "text": "─┘│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "╰────┬───╯",
+      "cls": "border"
+     },
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "      ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "▼",
+      "cls": "edge"
+     },
+     {
+      "text": "      ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "╭───────╮",
+      "cls": "border"
+     },
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "Crash",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "╰───┬───╯",
+      "cls": "border"
+     },
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "      ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "▼",
+      "cls": "edge"
+     },
+     {
+      "text": "      ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "╭───╮",
+      "cls": "border"
+     },
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "●",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "◄───┘",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "╰───╯",
+      "cls": "border"
+     }
+    ]
+   ],
+   "width": 13,
+   "warnings": []
+  }
+ },
+ {
+  "src": "stateDiagram-v2\n  direction LR\n  state \"Long Name\" as LN\n  state choice1 <<choice>>\n  [*] --> LN: start\n  LN --> choice1\n  choice1 --> A: yes\n  choice1 --> B: no\n  note right of A : a note\n  A: description of A",
+  "art": {
+   "plain": [
+    "                                              yes    ╭──────────────────╮",
+    "                                             ┌──────▶│ description of A │",
+    "╭───╮ start  ╭───────────╮        ╭─────────╮│       ╰──────────────────╯",
+    "│ ● ├───────▶│ Long Name ├───────▶│ choice1 ├┤",
+    "╰───╯        ╰───────────╯        ╰─────────╯│no     ╭───╮",
+    "                                             └──────▶│ B │",
+    "                                                     ╰───╯"
+   ],
+   "styled": [
+    [
+     {
+      "text": "                                              ",
+      "cls": "none"
+     },
+     {
+      "text": "yes",
+      "cls": "edgeLabel"
+     },
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "╭──────────────────╮",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "                                             ",
+      "cls": "none"
+     },
+     {
+      "text": "┌──────▶",
+      "cls": "edge"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "description of A",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "╭───╮",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "start",
+      "cls": "edgeLabel"
+     },
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "╭───────────╮",
+      "cls": "border"
+     },
+     {
+      "text": "        ",
+      "cls": "none"
+     },
+     {
+      "text": "╭─────────╮",
+      "cls": "border"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "       ",
+      "cls": "none"
+     },
+     {
+      "text": "╰──────────────────╯",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "●",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "├",
+      "cls": "border"
+     },
+     {
+      "text": "───────▶",
+      "cls": "edge"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "Long Name",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "├",
+      "cls": "border"
+     },
+     {
+      "text": "───────▶",
+      "cls": "edge"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "choice1",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "├",
+      "cls": "border"
+     },
+     {
+      "text": "┤",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "╰───╯",
+      "cls": "border"
+     },
+     {
+      "text": "        ",
+      "cls": "none"
+     },
+     {
+      "text": "╰───────────╯",
+      "cls": "border"
+     },
+     {
+      "text": "        ",
+      "cls": "none"
+     },
+     {
+      "text": "╰─────────╯",
+      "cls": "border"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "no",
+      "cls": "edgeLabel"
+     },
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "╭───╮",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "                                             ",
+      "cls": "none"
+     },
+     {
+      "text": "└──────▶",
+      "cls": "edge"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "B",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "                                                     ",
+      "cls": "none"
+     },
+     {
+      "text": "╰───╯",
+      "cls": "border"
+     }
+    ]
+   ],
+   "width": 73,
+   "warnings": []
+  }
+ },
+ {
+  "src": "classDiagram\n  Animal <|-- Duck\n  Animal <|-- Fish\n  Animal : +int age\n  Animal : +String gender\n  Animal: +isMammal()\n  class Duck{\n    +String beakColor\n    +swim()\n    +quack()\n  }\n  class Fish{\n    -int sizeInFeet\n    -canEat()\n  }\n  <<interface>> Animal\n  Duck \"1\" --> \"*\" Fish : eats",
+  "art": {
+   "plain": [
+    "  ┌────────────────┐",
+    "  │  «interface»   │",
+    "  │     Animal     │",
+    "  ├────────────────┤",
+    "  │ +int age       ◁───┐",
+    "  │ +String gender │   │",
+    "  ├────────────────┤   │",
+    "  │ +isMammal()    │   │",
+    "  └────────△───────┘   │",
+    "           │           │",
+    "           │           │",
+    " ┌───────────────────┐ │",
+    " │       Duck        │ │",
+    " ├───────────────────┤ │",
+    " │ +String beakColor │ │",
+    " ├───────────────────┤ │",
+    " │ +swim()           │ │",
+    " │ +quack()          │ │",
+    " └─────────┬─────────┘ │",
+    "           │           │",
+    "           ▼1 eats *   │",
+    "  ┌─────────────────┐  │",
+    "  │      Fish       │  │",
+    "  ├─────────────────┤  │",
+    "  │ -int sizeInFeet │──┘",
+    "  ├─────────────────┤",
+    "  │ -canEat()       │",
+    "  └─────────────────┘"
+   ],
+   "styled": [
+    [
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "┌────────────────┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "«interface»",
+      "cls": "text"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "Animal",
+      "cls": "text"
+     },
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "├────────────────┤",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "+int age",
+      "cls": "text"
+     },
+     {
+      "text": "       ",
+      "cls": "none"
+     },
+     {
+      "text": "◁───┐",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "+String gender",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "├────────────────┤",
+      "cls": "border"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "+isMammal()",
+      "cls": "text"
+     },
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "└────────",
+      "cls": "border"
+     },
+     {
+      "text": "△",
+      "cls": "edge"
+     },
+     {
+      "text": "───────┘",
+      "cls": "border"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "           ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "           ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "           ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "           ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───────────────────┐",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "       ",
+      "cls": "none"
+     },
+     {
+      "text": "Duck",
+      "cls": "text"
+     },
+     {
+      "text": "        ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "├───────────────────┤",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "+String beakColor",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "├───────────────────┤",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "+swim()",
+      "cls": "text"
+     },
+     {
+      "text": "           ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "+quack()",
+      "cls": "text"
+     },
+     {
+      "text": "          ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "└─────────┬─────────┘",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "           ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "           ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "           ",
+      "cls": "none"
+     },
+     {
+      "text": "▼",
+      "cls": "edge"
+     },
+     {
+      "text": "1 eats *",
+      "cls": "edgeLabel"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "┌─────────────────┐",
+      "cls": "border"
+     },
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "      ",
+      "cls": "none"
+     },
+     {
+      "text": "Fish",
+      "cls": "text"
+     },
+     {
+      "text": "       ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "├─────────────────┤",
+      "cls": "border"
+     },
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "-int sizeInFeet",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "──┘",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "├─────────────────┤",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "-canEat()",
+      "cls": "text"
+     },
+     {
+      "text": "       ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "└─────────────────┘",
+      "cls": "border"
+     }
+    ]
+   ],
+   "width": 24,
+   "warnings": []
+  }
+ },
+ {
+  "src": "classDiagram\n  class List~T~\n  List~T~ *-- Node\n  Node o-- Item\n  Item ..> Other\n  Other ..|> Base",
+  "art": {
+   "plain": [
+    " ┌─────────┐",
+    " │ List<T> │",
+    " └────◆────┘",
+    "      │",
+    "      │",
+    "  ┌──────┐",
+    "  │ Node │",
+    "  └───◇──┘",
+    "      │",
+    "      │",
+    "  ┌──────┐",
+    "  │ Item │",
+    "  └───┬──┘",
+    "      ╎",
+    "      ▼",
+    "  ┌───────┐",
+    "  │ Other │",
+    "  └───┬───┘",
+    "      ╎",
+    "      ▽",
+    "  ┌──────┐",
+    "  │ Base │",
+    "  └──────┘"
+   ],
+   "styled": [
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "┌─────────┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "List<T>",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "└────",
+      "cls": "border"
+     },
+     {
+      "text": "◆",
+      "cls": "edge"
+     },
+     {
+      "text": "────┘",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "      ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "      ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "┌──────┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "Node",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "└───",
+      "cls": "border"
+     },
+     {
+      "text": "◇",
+      "cls": "edge"
+     },
+     {
+      "text": "──┘",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "      ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "      ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "┌──────┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "Item",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "└───┬──┘",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "      ",
+      "cls": "none"
+     },
+     {
+      "text": "╎",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "      ",
+      "cls": "none"
+     },
+     {
+      "text": "▼",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───────┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "Other",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "└───┬───┘",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "      ",
+      "cls": "none"
+     },
+     {
+      "text": "╎",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "      ",
+      "cls": "none"
+     },
+     {
+      "text": "▽",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "┌──────┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "Base",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "└──────┘",
+      "cls": "border"
+     }
+    ]
+   ],
+   "width": 12,
+   "warnings": []
+  }
+ },
+ {
+  "src": "erDiagram\n  CUSTOMER ||--o{ ORDER : places\n  ORDER ||--|{ LINE-ITEM : contains\n  CUSTOMER }|..|{ DELIVERY-ADDRESS : uses\n  CUSTOMER {\n    string name\n    string custNumber \"comment\"\n    string sector\n  }",
+  "art": {
+   "plain": [
+    "     ┌───────────────────┐",
+    "     │     CUSTOMER      │",
+    "     ├───────────────────┤",
+    "     │ string name       │",
+    "     │ string custNumber │",
+    "     │ string sector     │",
+    "     └─────────┬─────────┘",
+    "       ┌───────┴╌╌╌╌╌╌╌╌┐",
+    "       │1 places 0..*   ╎1..* uses 1..*",
+    "   ┌───────┐  ┌──────────────────┐",
+    "   │ ORDER │  │ DELIVERY-ADDRESS │",
+    "   └───┬───┘  └──────────────────┘",
+    "       │",
+    "       │1 contains 1..*",
+    " ┌───────────┐",
+    " │ LINE-ITEM │",
+    " └───────────┘"
+   ],
+   "styled": [
+    [
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───────────────────┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "CUSTOMER",
+      "cls": "text"
+     },
+     {
+      "text": "      ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "├───────────────────┤",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "string name",
+      "cls": "text"
+     },
+     {
+      "text": "       ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "string custNumber",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "string sector",
+      "cls": "text"
+     },
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "└─────────┬─────────┘",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "       ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───────┴╌╌╌╌╌╌╌╌┐",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "       ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "1 places 0..*",
+      "cls": "edgeLabel"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "╎",
+      "cls": "edge"
+     },
+     {
+      "text": "1..* uses 1..*",
+      "cls": "edgeLabel"
+     }
+    ],
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───────┐",
+      "cls": "border"
+     },
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "┌──────────────────┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "ORDER",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "DELIVERY-ADDRESS",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "└───┬───┘",
+      "cls": "border"
+     },
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "└──────────────────┘",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "       ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "       ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "1 contains 1..*",
+      "cls": "edgeLabel"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───────────┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "LINE-ITEM",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "└───────────┘",
+      "cls": "border"
+     }
+    ]
+   ],
+   "width": 39,
+   "warnings": []
+  }
+ },
+ {
+  "src": "sequenceDiagram\n  participant A as Alice\n  participant B as Bob\n  A->>B: Hello Bob, how are you?\n  B-->>A: Great!\n  A-)B: async\n  A-xB: lost\n  B->>B: think\n  Note right of B: Bob thinks\n  Note over A,B: shared note\n  loop Every minute\n    A->>B: ping\n  end\n  alt is sick\n    B->>A: Not so good\n  else is well\n    B->>A: Feeling fresh\n  end",
+  "art": {
+   "plain": [
+    "┌───────┐                 ┌─────┐",
+    "│ Alice │                 │ Bob │",
+    "└───┬───┘                 └──┬──┘",
+    "    │                        │",
+    "    │Hello Bob, how are you? │",
+    "    ├───────────────────────▶│",
+    "    │                        │",
+    "    │         Great!         │",
+    "    │◄╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┤",
+    "    │                        │",
+    "    │         async          │",
+    "    ├───────────────────────▶│",
+    "    │                        │",
+    "    │          lost          │",
+    "    ├───────────────────────×│",
+    "    │                        │",
+    "    │                        ├──╮",
+    "    │                        │  │ think",
+    "    │                        │◄─╯",
+    "    │                        │",
+    "    │                        │ ┌────────────┐",
+    "    │                        │ │ Bob thinks │",
+    "    │                        │ └────────────┘",
+    "    │                        │",
+    " ┌────────────────────────────┐",
+    " │        shared note         │",
+    " └────────────────────────────┘",
+    "    │                        │",
+    "── loop Every minute ─────────────────────────",
+    "    │                        │",
+    "    │          ping          │",
+    "    ├───────────────────────▶│",
+    "    │                        │",
+    "── end ───────────────────────────────────────",
+    "    │                        │",
+    "── alt is sick ───────────────────────────────",
+    "    │                        │",
+    "    │      Not so good       │",
+    "    │◄───────────────────────┤",
+    "    │                        │",
+    "── else is well ──────────────────────────────",
+    "    │                        │",
+    "    │     Feeling fresh      │",
+    "    │◄───────────────────────┤",
+    "    │                        │",
+    "── end ───────────────────────────────────────",
+    "    │                        │",
+    "┌───┴───┐                 ┌──┴──┐",
+    "│ Alice │                 │ Bob │",
+    "└───────┘                 └─────┘"
+   ],
+   "styled": [
+    [
+     {
+      "text": "┌───────┐",
+      "cls": "border"
+     },
+     {
+      "text": "                 ",
+      "cls": "none"
+     },
+     {
+      "text": "┌─────┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "Alice",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "                 ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "Bob",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "└───┬───┘",
+      "cls": "border"
+     },
+     {
+      "text": "                 ",
+      "cls": "none"
+     },
+     {
+      "text": "└──┬──┘",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "                        ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "Hello Bob, how are you?",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "├───────────────────────▶│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "                        ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "         ",
+      "cls": "none"
+     },
+     {
+      "text": "Great!",
+      "cls": "text"
+     },
+     {
+      "text": "         ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│◄╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┤",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "                        ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "         ",
+      "cls": "none"
+     },
+     {
+      "text": "async",
+      "cls": "text"
+     },
+     {
+      "text": "          ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "├───────────────────────▶│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "                        ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "          ",
+      "cls": "none"
+     },
+     {
+      "text": "lost",
+      "cls": "text"
+     },
+     {
+      "text": "          ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "├───────────────────────×│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "                        ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "                        ",
+      "cls": "none"
+     },
+     {
+      "text": "├──╮",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "                        ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "think",
+      "cls": "text"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "                        ",
+      "cls": "none"
+     },
+     {
+      "text": "│◄─╯",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "                        ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "                        ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "┌────────────┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "                        ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "Bob thinks",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "                        ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "└────────────┘",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "                        ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "┌────────────────────────────┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "        ",
+      "cls": "none"
+     },
+     {
+      "text": "shared note",
+      "cls": "text"
+     },
+     {
+      "text": "         ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "└────────────────────────────┘",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "                        ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "──",
+      "cls": "edge"
+     },
+     {
+      "text": " loop Every minute ",
+      "cls": "edgeLabel"
+     },
+     {
+      "text": "─────────────────────────",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "                        ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "          ",
+      "cls": "none"
+     },
+     {
+      "text": "ping",
+      "cls": "text"
+     },
+     {
+      "text": "          ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "├───────────────────────▶│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "                        ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "──",
+      "cls": "edge"
+     },
+     {
+      "text": " end ",
+      "cls": "edgeLabel"
+     },
+     {
+      "text": "───────────────────────────────────────",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "                        ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "──",
+      "cls": "edge"
+     },
+     {
+      "text": " alt is sick ",
+      "cls": "edgeLabel"
+     },
+     {
+      "text": "───────────────────────────────",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "                        ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "      ",
+      "cls": "none"
+     },
+     {
+      "text": "Not so good",
+      "cls": "text"
+     },
+     {
+      "text": "       ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│◄───────────────────────┤",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "                        ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "──",
+      "cls": "edge"
+     },
+     {
+      "text": " else is well ",
+      "cls": "edgeLabel"
+     },
+     {
+      "text": "──────────────────────────────",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "                        ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "Feeling fresh",
+      "cls": "text"
+     },
+     {
+      "text": "      ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│◄───────────────────────┤",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "                        ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "──",
+      "cls": "edge"
+     },
+     {
+      "text": " end ",
+      "cls": "edgeLabel"
+     },
+     {
+      "text": "───────────────────────────────────────",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "                        ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "┌───┴───┐",
+      "cls": "border"
+     },
+     {
+      "text": "                 ",
+      "cls": "none"
+     },
+     {
+      "text": "┌──┴──┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "Alice",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "                 ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "Bob",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "└───────┘",
+      "cls": "border"
+     },
+     {
+      "text": "                 ",
+      "cls": "none"
+     },
+     {
+      "text": "└─────┘",
+      "cls": "border"
+     }
+    ]
+   ],
+   "width": 46,
+   "warnings": []
+  }
+ },
+ {
+  "src": "sequenceDiagram\n  autonumber\n  Alice->>John: Hello John\n  John-->>Alice: Hi\n  Note left of Alice: left note\n  Note over John: over one\n  rect rgb(0,0,0)\n  Alice->>+John: activate\n  end\n  John->>Alice",
+  "art": {
+   "plain": [
+    "┌───────┐      ┌──────┐",
+    "│ Alice │      │ John │",
+    "└───┬───┘      └───┬──┘",
+    "    │              │",
+    "    │1. Hello John │",
+    "    ├─────────────▶│",
+    "    │              │",
+    "    │    2. Hi     │",
+    "    │◄╌╌╌╌╌╌╌╌╌╌╌╌╌┤",
+    "    │              │",
+    "┌───────────┐      │",
+    "│ left note │      │",
+    "└───────────┘      │",
+    "    │              │",
+    "    │        ┌──────────┐",
+    "    │        │ over one │",
+    "    │        └──────────┘",
+    "    │              │",
+    "    │ 3. activate  │",
+    "    ├─────────────▶│",
+    "    │              │",
+    "    │      4.      │",
+    "    │◄─────────────┤",
+    "    │              │",
+    "┌───┴───┐      ┌───┴──┐",
+    "│ Alice │      │ John │",
+    "└───────┘      └──────┘"
+   ],
+   "styled": [
+    [
+     {
+      "text": "┌───────┐",
+      "cls": "border"
+     },
+     {
+      "text": "      ",
+      "cls": "none"
+     },
+     {
+      "text": "┌──────┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "Alice",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "      ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "John",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "└───┬───┘",
+      "cls": "border"
+     },
+     {
+      "text": "      ",
+      "cls": "none"
+     },
+     {
+      "text": "└───┬──┘",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "              ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "1. Hello John",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "├─────────────▶│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "              ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "2. Hi",
+      "cls": "text"
+     },
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│◄╌╌╌╌╌╌╌╌╌╌╌╌╌┤",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "              ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "┌───────────┐",
+      "cls": "border"
+     },
+     {
+      "text": "      ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "left note",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "      ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "└───────────┘",
+      "cls": "border"
+     },
+     {
+      "text": "      ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "              ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "        ",
+      "cls": "none"
+     },
+     {
+      "text": "┌──────────┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "        ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "over one",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "        ",
+      "cls": "none"
+     },
+     {
+      "text": "└──────────┘",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "              ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "3. activate",
+      "cls": "text"
+     },
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "├─────────────▶│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "              ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "      ",
+      "cls": "none"
+     },
+     {
+      "text": "4.",
+      "cls": "text"
+     },
+     {
+      "text": "      ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│◄─────────────┤",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "              ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "┌───┴───┐",
+      "cls": "border"
+     },
+     {
+      "text": "      ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───┴──┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "Alice",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "      ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "John",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "└───────┘",
+      "cls": "border"
+     },
+     {
+      "text": "      ",
+      "cls": "none"
+     },
+     {
+      "text": "└──────┘",
+      "cls": "border"
+     }
+    ]
+   ],
+   "width": 25,
+   "warnings": []
+  }
+ },
+ {
+  "src": "sequenceDiagram\n  Alice->>Bob: hi\n  Bob->>Alice: half typed ->",
+  "art": {
+   "plain": [
+    "┌───────┐       ┌─────┐",
+    "│ Alice │       │ Bob │",
+    "└───┬───┘       └──┬──┘",
+    "    │              │",
+    "    │      hi      │",
+    "    ├─────────────▶│",
+    "    │              │",
+    "    │half typed -> │",
+    "    │◄─────────────┤",
+    "    │              │",
+    "┌───┴───┐       ┌──┴──┐",
+    "│ Alice │       │ Bob │",
+    "└───────┘       └─────┘"
+   ],
+   "styled": [
+    [
+     {
+      "text": "┌───────┐",
+      "cls": "border"
+     },
+     {
+      "text": "       ",
+      "cls": "none"
+     },
+     {
+      "text": "┌─────┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "Alice",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "       ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "Bob",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "└───┬───┘",
+      "cls": "border"
+     },
+     {
+      "text": "       ",
+      "cls": "none"
+     },
+     {
+      "text": "└──┬──┘",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "              ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "      ",
+      "cls": "none"
+     },
+     {
+      "text": "hi",
+      "cls": "text"
+     },
+     {
+      "text": "      ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "├─────────────▶│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "              ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "half typed ->",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│◄─────────────┤",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "              ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "┌───┴───┐",
+      "cls": "border"
+     },
+     {
+      "text": "       ",
+      "cls": "none"
+     },
+     {
+      "text": "┌──┴──┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "Alice",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "       ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "Bob",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "└───────┘",
+      "cls": "border"
+     },
+     {
+      "text": "       ",
+      "cls": "none"
+     },
+     {
+      "text": "└─────┘",
+      "cls": "border"
+     }
+    ]
+   ],
+   "width": 23,
+   "warnings": []
+  }
+ },
+ {
+  "src": "pie\n  title Pets\n  \"Dogs\" : 4",
+  "art": null
+ },
+ {
+  "src": "",
+  "art": null
+ },
+ {
+  "src": "flowchart LR\n  A --> B\n  %% comment\n  B --> C; C --> D",
+  "art": {
+   "plain": [
+    "┌───┐    ┌───┐    ┌───┐    ┌───┐",
+    "│ A ├───▶│ B ├───▶│ C ├───▶│ D │",
+    "└───┘    └───┘    └───┘    └───┘"
+   ],
+   "styled": [
+    [
+     {
+      "text": "┌───┐",
+      "cls": "border"
+     },
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───┐",
+      "cls": "border"
+     },
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───┐",
+      "cls": "border"
+     },
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "A",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "├",
+      "cls": "border"
+     },
+     {
+      "text": "───▶",
+      "cls": "edge"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "B",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "├",
+      "cls": "border"
+     },
+     {
+      "text": "───▶",
+      "cls": "edge"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "C",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "├",
+      "cls": "border"
+     },
+     {
+      "text": "───▶",
+      "cls": "edge"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "D",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "└───┘",
+      "cls": "border"
+     },
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "└───┘",
+      "cls": "border"
+     },
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "└───┘",
+      "cls": "border"
+     },
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "└───┘",
+      "cls": "border"
+     }
+    ]
+   ],
+   "width": 32,
+   "warnings": []
+  }
+ },
+ {
+  "src": "graph TD\n  A[unclosed --> B",
+  "art": {
+   "plain": [
+    "┌────────────────┐",
+    "│ unclosed --> B │",
+    "└────────────────┘"
+   ],
+   "styled": [
+    [
+     {
+      "text": "┌────────────────┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "unclosed --> B",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "└────────────────┘",
+      "cls": "border"
+     }
+    ]
+   ],
+   "width": 18,
+   "warnings": [
+    "node \"A\": label is missing its closing `]`"
+   ]
+  }
+ },
+ {
+  "src": "flowchart TD\n  A[\"`**bold** and _snake_case_`\"] --> B",
+  "art": {
+   "plain": [
+    " ┌─────────────────────┐",
+    " │ bold and snake_case │",
+    " └──────────┬──────────┘",
+    "            │",
+    "            ▼",
+    "          ┌───┐",
+    "          │ B │",
+    "          └───┘"
+   ],
+   "styled": [
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "┌─────────────────────┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "bold and snake_case",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "└──────────┬──────────┘",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "            ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "            ",
+      "cls": "none"
+     },
+     {
+      "text": "▼",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "          ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "          ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "B",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "          ",
+      "cls": "none"
+     },
+     {
+      "text": "└───┘",
+      "cls": "border"
+     }
+    ]
+   ],
+   "width": 24,
+   "warnings": []
+  }
+ },
+ {
+  "src": "flowchart LR\n  a_very_long_identifier_name_without_spaces_that_must_break.here/and/there --> b",
+  "art": {
+   "plain": [
+    "┌─────────────────────────┐",
+    "│ a_very_long_identifier_ │ here/and/there  ┌───┐",
+    "│  name_without_spaces_   ├╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌▶│ b │",
+    "│     that_must_break     │                 └───┘",
+    "└─────────────────────────┘"
+   ],
+   "styled": [
+    [
+     {
+      "text": "┌─────────────────────────┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "a_very_long_identifier_",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "here/and/there",
+      "cls": "edgeLabel"
+     },
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "name_without_spaces_",
+      "cls": "text"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "├",
+      "cls": "border"
+     },
+     {
+      "text": "╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌▶",
+      "cls": "edge"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "b",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "that_must_break",
+      "cls": "text"
+     },
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "                 ",
+      "cls": "none"
+     },
+     {
+      "text": "└───┘",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "└─────────────────────────┘",
+      "cls": "border"
+     }
+    ]
+   ],
+   "width": 49,
+   "warnings": []
+  }
+ },
+ {
+  "src": "flowchart TD\n  A --> B\n  subgraph S1\n    subgraph S2\n      C --> D\n    end\n  end\n  B --> C\n  D --> S1",
+  "art": {
+   "plain": [
+    "   ┌───┐",
+    "   │ A │",
+    "   └─┬─┘",
+    "     │",
+    "     ▼",
+    "   ┌───┐",
+    "   │ B │",
+    "   └─┬─┘",
+    "     │",
+    "     ▼",
+    "┌ S1 ────┐",
+    "│┌ S2 ──┐│",
+    "││ ┌───┐││",
+    "││ │ C │││",
+    "││ └─┬─┘││",
+    "││   │  ││",
+    "││   ▼  ││",
+    "││ ┌───┐││",
+    "││ │ D │││",
+    "││ └───┘││",
+    "│└──────┘│",
+    "└─────┬──┘",
+    "      │ ▲",
+    "      ╰─╯"
+   ],
+   "styled": [
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "A",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "└─┬─┘",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "▼",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "B",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "└─┬─┘",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "     ",
+      "cls": "none"
+     },
+     {
+      "text": "▼",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "┌",
+      "cls": "border"
+     },
+     {
+      "text": " S1 ",
+      "cls": "text"
+     },
+     {
+      "text": "────┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "│┌",
+      "cls": "border"
+     },
+     {
+      "text": " S2 ",
+      "cls": "text"
+     },
+     {
+      "text": "──┐│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "││",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───┐││",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "││",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "C",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│││",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "││",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "└─┬─┘││",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "││",
+      "cls": "border"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "││",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "││",
+      "cls": "border"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "▼",
+      "cls": "edge"
+     },
+     {
+      "text": "  ",
+      "cls": "none"
+     },
+     {
+      "text": "││",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "││",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───┐││",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "││",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "D",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│││",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "││",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "└───┘││",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "│└──────┘│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "└─────┬──┘",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "      ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "▲",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "      ",
+      "cls": "none"
+     },
+     {
+      "text": "╰─╯",
+      "cls": "edge"
+     }
+    ]
+   ],
+   "width": 10,
+   "warnings": []
+  }
+ },
+ {
+  "src": "stateDiagram\n  A --> B --> C\n  B --> A",
+  "art": {
+   "plain": [
+    " ╭───╮",
+    " │ A │◄┐",
+    " ╰─┬─╯ │",
+    "   │   │",
+    "   ▼   │",
+    " ╭───╮ │",
+    " │ B ├─┘",
+    " ╰─┬─╯",
+    "   │",
+    "   ▼",
+    " ╭───╮",
+    " │ C │",
+    " ╰───╯"
+   ],
+   "styled": [
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "╭───╮",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "A",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "◄┐",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "╰─┬─╯",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "▼",
+      "cls": "edge"
+     },
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "╭───╮",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "B",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "├",
+      "cls": "border"
+     },
+     {
+      "text": "─┘",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "╰─┬─╯",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": "   ",
+      "cls": "none"
+     },
+     {
+      "text": "▼",
+      "cls": "edge"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "╭───╮",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "C",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "╰───╯",
+      "cls": "border"
+     }
+    ]
+   ],
+   "width": 8,
+   "warnings": []
+  }
+ },
+ {
+  "src": "classDiagram\n  direction RL\n  A --> B\n  B --> C",
+  "art": {
+   "plain": [
+    "┌───┐    ┌───┐    ┌───┐",
+    "│ C │◄───┤ B │◄───┤ A │",
+    "└───┘    └───┘    └───┘"
+   ],
+   "styled": [
+    [
+     {
+      "text": "┌───┐",
+      "cls": "border"
+     },
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───┐",
+      "cls": "border"
+     },
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "┌───┐",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "C",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "◄───",
+      "cls": "edge"
+     },
+     {
+      "text": "┤",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "B",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     },
+     {
+      "text": "◄───",
+      "cls": "edge"
+     },
+     {
+      "text": "┤",
+      "cls": "border"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "A",
+      "cls": "text"
+     },
+     {
+      "text": " ",
+      "cls": "none"
+     },
+     {
+      "text": "│",
+      "cls": "border"
+     }
+    ],
+    [
+     {
+      "text": "└───┘",
+      "cls": "border"
+     },
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "└───┘",
+      "cls": "border"
+     },
+     {
+      "text": "    ",
+      "cls": "none"
+     },
+     {
+      "text": "└───┘",
+      "cls": "border"
+     }
+    ]
+   ],
+   "width": 23,
+   "warnings": []
+  }
+ }
+]

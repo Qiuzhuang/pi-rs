@@ -66,6 +66,7 @@ pub struct ToolExecutionComponentUpdateResultResult {
 }
 
 #[derive(Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum ToolExecutionComponentToolDefinition {
     ToolRenderers(ToolRenderers),
     ToolDefinition(ToolDefinition),

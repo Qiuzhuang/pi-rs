@@ -484,6 +484,20 @@ mod tests {
     }
 
     #[test]
+    fn diff_words_whitespace_cases_match_jsdiff() {
+        assert_eq!(words("foo\nbar baz", "foo baz"), vec![c("foo", false, false), c("\nbar", false, true), c(" baz", false, false)]);
+        assert_eq!(words("foo baz", "foo\nbar baz"), vec![c("foo\n", false, false), c("bar ", true, false), c("baz", false, false)]);
+        assert_eq!(words("\tlet a = foo(1, 2);", "\tlet a = bar(1, 3);"), vec![c("\tlet a = ", false, false), c("foo", false, true), c("bar", true, false), c("(1, ", false, false), c("2", false, true), c("3", true, false), c(");", false, false)]);
+        assert_eq!(words("café au lait", "cafe au lait"), vec![c("café", false, true), c("cafe", true, false), c(" au lait", false, false)]);
+        assert_eq!(words("a b c d", "x b y d"), vec![c("a", false, true), c("x", true, false), c(" b ", false, false), c("c", false, true), c("y", true, false), c(" d", false, false)]);
+        assert_eq!(words("   ", "  x"), vec![c("   ", false, true), c("  x", true, false)]);
+        assert_eq!(words("return x", "return"), vec![c("return", false, false), c(" x", false, true)]);
+        assert_eq!(words("", "new"), vec![c("new", true, false)]);
+        assert_eq!(words("old", ""), vec![c("old", false, true)]);
+        assert_eq!(words("hello, world!", "hello world"), vec![c("hello", false, false), c(",", false, true), c(" world", false, false), c("!", false, true)]);
+    }
+
+    #[test]
     fn parses_diff_lines() {
         let p = parse_diff_line("+12 hello").unwrap();
         assert_eq!((p.prefix, p.line_num, p.content), ('+', "12", "hello"));

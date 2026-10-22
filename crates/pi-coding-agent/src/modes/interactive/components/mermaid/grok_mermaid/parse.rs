@@ -500,10 +500,10 @@ fn parse_state_decl(st: &str, graph: &mut Graph) -> Option<()> {
         return Some(());
     }
 
-    if rest.starts_with('"') {
-        let close = rest[1..].find('"')? + 1;
-        let label = &rest[1..close];
-        let after = js_trim(&rest[close + 1..]);
+    if let Some(quoted) = rest.strip_prefix('"') {
+        let close = quoted.find('"')?;
+        let label = &quoted[..close];
+        let after = js_trim(&quoted[close + 1..]);
         let id = if let Some(stripped) = after.strip_prefix("as") { js_trim(stripped) } else { label };
         return graph.node_label(id, decode_html_entities(label)).map(|_| ());
     }
@@ -531,8 +531,7 @@ fn parse_transition(st: &str, graph: &mut Graph) -> Option<()> {
     let mut rest = st.to_string();
     let mut prev: Option<usize> = None;
 
-    loop {
-        let Some((lhs, rhs)) = split_once(&rest, "-->") else { break };
+    while let Some((lhs, rhs)) = split_once(&rest, "-->") {
         let (lhs, rhs) = (lhs.to_string(), rhs.to_string());
 
         let from_id = js_trim(js_trim_end(&lhs).trim_end_matches('-'));

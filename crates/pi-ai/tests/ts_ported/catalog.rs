@@ -439,3 +439,52 @@ fn transform_messages_normalizes_null_and_missing_content() {
         assert_eq!(serde_json::to_value(&message).unwrap()["content"], json!([]), "{message:?}");
     }
 }
+
+// ---------------------------------------------------------------------------
+// Port of env-api-keys.test.ts
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn environment_api_keys() {
+    use pi_ai::env_api_keys::get_env_api_key;
+    let _lock = ENV_LOCK.lock().await;
+    let keys = |provider: &str| find_env_keys(provider, None);
+    {
+        let _env = EnvGuard::set(&[("COPILOT_GITHUB_TOKEN", None), ("GH_TOKEN", Some("gh-token")), ("GITHUB_TOKEN", Some("github-token"))]);
+        assert_eq!(keys("github-copilot"), None, "generic GitHub tokens are not Copilot credentials");
+        assert_eq!(get_env_api_key("github-copilot", None), None);
+        let _copilot = EnvGuard::set(&[("COPILOT_GITHUB_TOKEN", Some("copilot-token"))]);
+        assert_eq!(keys("github-copilot"), Some(vec!["COPILOT_GITHUB_TOKEN".to_string()]));
+        assert_eq!(get_env_api_key("github-copilot", None).as_deref(), Some("copilot-token"));
+    }
+    {
+        let _env = EnvGuard::set(&[("ZAI_CODING_CN_API_KEY", Some("zai-coding-cn-token"))]);
+        assert_eq!(keys("zai-coding-cn"), Some(vec!["ZAI_CODING_CN_API_KEY".to_string()]));
+        assert_eq!(get_env_api_key("zai-coding-cn", None).as_deref(), Some("zai-coding-cn-token"));
+    }
+    let anthropic = |auth: Option<&str>, oauth: Option<&str>, api: Option<&str>| {
+        EnvGuard::set(&[("ANTHROPIC_AUTH_TOKEN", auth), ("ANTHROPIC_OAUTH_TOKEN", oauth), ("ANTHROPIC_API_KEY", api)])
+    };
+    {
+        let _env = anthropic(Some("auth-token"), Some("oauth-token"), Some("api-key"));
+        assert_eq!(
+            keys("anthropic"),
+            Some(["ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_API_KEY"].map(String::from).to_vec())
+        );
+        assert_eq!(get_env_api_key("anthropic", None).as_deref(), Some("oauth-token"));
+    }
+    {
+        let _env = anthropic(Some("auth-token"), None, None);
+        assert_eq!(keys("anthropic"), Some(vec!["ANTHROPIC_AUTH_TOKEN".to_string()]));
+        assert_eq!(get_env_api_key("anthropic", None), None);
+    }
+    {
+        let _env = anthropic(None, Some("oauth-token"), None);
+        assert_eq!(keys("anthropic"), Some(vec!["ANTHROPIC_OAUTH_TOKEN".to_string()]));
+        assert_eq!(get_env_api_key("anthropic", None).as_deref(), Some("oauth-token"));
+    }
+    {
+        let _env = anthropic(None, None, Some("api-key"));
+        assert_eq!(get_env_api_key("anthropic", None).as_deref(), Some("api-key"));
+    }
+}

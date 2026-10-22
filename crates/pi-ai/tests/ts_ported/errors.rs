@@ -248,3 +248,97 @@ async fn copilot_claude_through_anthropic_messages() {
         .await;
     assert!(!server.request(1).header("anthropic-beta").unwrap_or_default().contains("interleaved-thinking-2025-05-14"));
 }
+
+// ---------------------------------------------------------------------------
+// Port of overflow.test.ts
+// ---------------------------------------------------------------------------
+
+fn overflow_error(error_message: &str, provider: &str) -> AssistantMessage {
+    AssistantMessage {
+        api: "openai-completions".into(),
+        provider: provider.into(),
+        model: "qwen3.5:35b".into(),
+        stop_reason: StopReason::Error,
+        error_message: Some(error_message.into()),
+        timestamp: 1,
+        ..Default::default()
+    }
+}
+
+fn length_stop(input: u64, cache_read: u64, cache_write: u64, output: u64, provider: &str) -> AssistantMessage {
+    let mut message = AssistantMessage { provider: provider.into(), stop_reason: StopReason::Length, timestamp: 1, ..Default::default() };
+    message.usage.input = input;
+    message.usage.cache_read = cache_read;
+    message.usage.cache_write = cache_write;
+    message.usage.output = output;
+    message.usage.total_tokens = input + cache_read + cache_write + output;
+    message
+}
+
+#[test]
+fn context_overflow_detection() {
+    use pi_ai::utils::overflow::{is_context_overflow, is_recoverable_length};
+    // The 413 pattern is provider-agnostic and holds even with zero usage and a large window.
+    for message in [
+        r#"github-copilot API error (413): {"message":"failed to parse request","code":""}"#,
+        "custom-provider API error (413): Payload Too Large",
+        r#"413 {"error":{"message":"failed to parse request","code":""}}"#,
+        "413",
+    ] {
+        assert!(is_context_overflow(&overflow_error(message, "ollama"), Some(1_000_000)), "{message}");
+        assert!(is_context_overflow(&overflow_error(message, "ollama"), None), "{message}");
+    }
+    for message in [
+        r#"github-copilot API error (400): {"message":"failed to parse request","code":""}"#,
+        "custom-provider API error (429): Too many requests",
+        r#"github-copilot API error (400): {"message":"failed to parse request: invalid value 413"}"#,
+        "custom-provider API error (400): upstream mentioned OpenAI API error (413): invalid input",
+        "custom-provider API error (4130): invalid input",
+        "4130 failed to parse request",
+    ] {
+        assert!(!is_context_overflow(&overflow_error(message, "ollama"), None), "{message}");
+    }
+    // HTTP-status matching is limited to failed responses.
+    for stop in [StopReason::Aborted, StopReason::Stop] {
+        let mut message = overflow_error(r#"OpenAI API error (413): {"message":"failed to parse request"}"#, "ollama");
+        message.stop_reason = stop;
+        assert!(!is_context_overflow(&message, None));
+    }
+    for (message, provider, window) in [
+        ("400 `prompt too long; exceeded max context length by 100918 tokens`", "ollama", 32768),
+        (r#"400 {"code":"1261","message":"Prompt too long"}"#, "zai", 1048576),
+        (r#"400 {"code":"1261","message":"Prompt exceeds max length"}"#, "zai", 1048576),
+        ("400 The input (516368 tokens) is longer than the model's context length (262144 tokens).", "ollama", 262144),
+        (
+            "Error: 503 litellm.ServiceUnavailableError: litellm.MidStreamFallbackError: litellm.APIConnectionError: APIConnectionError: OpenAIException - Requested token count exceeds the model's maximum context length of 131072 tokens.",
+            "ollama",
+            131072,
+        ),
+        ("Error: 400 Input length (265330) exceeds model's maximum context length (262144).", "ollama", 262144),
+        ("Provider returned error: Input length 131393 exceeds the maximum allowed input length of 131040 tokens.", "ollama", 131072),
+        ("400 Prompt has 256468 tokens, but the configured context size is 256000 tokens", "ollama", 256000),
+        ("Prompt has 5,958,968 tokens, but the configured context size is 256,000 tokens", "ollama", 256000),
+        ("400 status code (no body)", "cerebras", 131072),
+    ] {
+        assert!(is_context_overflow(&overflow_error(message, provider), Some(window)), "{message}");
+    }
+    for (message, provider, window) in [
+        ("500 `model runner crashed unexpectedly`", "ollama", 32768),
+        // A bodyless 400 is only known to indicate overflow for Cerebras (#9482).
+        ("400 status code (no body)", "opencode-go", 1_000_000),
+        ("Throttling error: Too many tokens, please wait before trying again.", "ollama", 200000),
+        ("Service unavailable: The service is temporarily unavailable.", "ollama", 200000),
+        ("Rate limit exceeded, please retry after 30 seconds.", "ollama", 200000),
+        ("Too many requests. Please slow down.", "ollama", 200000),
+    ] {
+        assert!(!is_context_overflow(&overflow_error(message, provider), Some(window)), "{message}");
+    }
+
+    // Xiaomi-style overflow: length stop with zero output and a filled context.
+    assert!(is_context_overflow(&length_stop(58, 1048512, 0, 0, "xiaomi"), Some(1048576)));
+    assert!(is_recoverable_length(&length_stop(3, 253584, 25554, 16, "openai"), 128000));
+    assert!(!is_recoverable_length(&length_stop(4062, 0, 0, 1024, "test-provider"), 1024));
+    assert!(is_recoverable_length(&length_stop(100, 0, 0, 0, "test-provider"), 128000));
+    assert!(!is_context_overflow(&length_stop(1000, 0, 0, 4096, "test-provider"), Some(200000)));
+    assert!(!is_context_overflow(&length_stop(100, 0, 0, 0, "test-provider"), Some(200000)));
+}

@@ -220,6 +220,10 @@ struct AgentInner {
     follow_up_queue: Mutex<PendingMessageQueue>,
     settings: Mutex<AgentSettings>,
     active_run: Mutex<Option<ActiveRun>>,
+    /// Replacement set by a listener of the `message_start`/`message_end` event being dispatched.
+    listener_replacement: Mutex<Option<AgentMessage>>,
+    /// The final replacement of the last dispatched message event, for the loop to take.
+    loop_replacement: Mutex<Option<AgentMessage>>,
 }
 
 /// Input accepted by [`Agent::prompt`]: text with optional images, or messages.
@@ -370,6 +374,8 @@ impl Agent {
                 )),
                 settings: Mutex::new(settings),
                 active_run: Mutex::new(None),
+                listener_replacement: Mutex::new(None),
+                loop_replacement: Mutex::new(None),
             }),
         }
     }
@@ -421,6 +427,16 @@ impl Agent {
     /// Read the state without cloning it.
     pub fn with_state<R>(&self, f: impl FnOnce(&AgentState) -> R) -> R {
         f(&self.inner.state.lock())
+    }
+
+    /// Replace the message of the `message_start`/`message_end` event currently being dispatched
+    /// to listeners. Call it from a listener of that event. TypeScript listeners mutate the shared
+    /// message object in place; this applies the same change: later listeners of the event, the
+    /// message in agent state (for `message_end`) and the agent loop's own copy see the
+    /// replacement, so tool execution, `turn_end`/`agent_end` and the turn context use it too.
+    /// Ignored outside such a dispatch.
+    pub fn replace_event_message(&self, message: AgentMessage) {
+        *self.inner.listener_replacement.lock() = Some(message);
     }
 
     /// Mutate the state in place (for example, to append a message).
@@ -765,6 +781,7 @@ impl Agent {
         let skip_flag = Arc::new(AtomicBool::new(skip_initial_steering_poll));
         let steering_inner = Arc::downgrade(&self.inner);
         let follow_up_inner = Arc::downgrade(&self.inner);
+        let replacement_inner = Arc::downgrade(&self.inner);
 
         AgentLoopConfig {
             model,
@@ -796,6 +813,11 @@ impl Agent {
             tool_execution: Some(settings.tool_execution),
             before_tool_call: settings.before_tool_call,
             after_tool_call: settings.after_tool_call,
+            take_message_replacement: Some(Arc::new(move || {
+                replacement_inner
+                    .upgrade()
+                    .and_then(|inner| inner.loop_replacement.lock().take())
+            })),
         }
     }
 
@@ -995,9 +1017,18 @@ async fn handle_run_failure(
 }
 
 /// Reduce internal state for a loop event, then await listeners.
-async fn process_events(inner: &Arc<AgentInner>, event: AgentEvent, signal: &CancellationToken) {
+async fn process_events(inner: &Arc<AgentInner>, mut event: AgentEvent, signal: &CancellationToken) {
+    let message_event = matches!(
+        event,
+        AgentEvent::MessageStart { .. } | AgentEvent::MessageEnd { .. }
+    );
+    // Index of the message_end message in state, for listener replacements.
+    let mut state_index = None;
     {
         let mut state = inner.state.lock();
+        if let AgentEvent::MessageEnd { .. } = &event {
+            state_index = Some(state.messages.len());
+        }
         match &event {
             AgentEvent::MessageStart { message } | AgentEvent::MessageUpdate { message, .. } => {
                 state.streaming_message = Some(message.clone());
@@ -1035,7 +1066,37 @@ async fn process_events(inner: &Arc<AgentInner>, event: AgentEvent, signal: &Can
         .iter()
         .map(|(_, l)| l.clone())
         .collect();
+    if !message_event {
+        for listener in listeners {
+            listener(event.clone(), signal.clone()).await;
+        }
+        return;
+    }
+
+    inner.listener_replacement.lock().take();
+    let mut replaced = None;
     for listener in listeners {
         listener(event.clone(), signal.clone()).await;
+        let Some(replacement) = inner.listener_replacement.lock().take() else {
+            continue;
+        };
+        match &mut event {
+            AgentEvent::MessageStart { message } => {
+                *message = replacement.clone();
+                inner.state.lock().streaming_message = Some(replacement.clone());
+            }
+            AgentEvent::MessageEnd { message } => {
+                *message = replacement.clone();
+                if let Some(index) = state_index {
+                    let mut state = inner.state.lock();
+                    if let Some(slot) = state.messages.get_mut(index) {
+                        *slot = replacement.clone();
+                    }
+                }
+            }
+            _ => {}
+        }
+        replaced = Some(replacement);
     }
+    *inner.loop_replacement.lock() = replaced;
 }

@@ -29,8 +29,39 @@ use crate::types::{
     AfterToolCallContext, AfterToolCallFn, AgentContext, AgentEvent, AgentLoopConfig, AgentMessage,
     AgentToolCall, AgentToolCallOutcome, AgentToolRef, AgentToolResult, AgentToolUpdateCallback,
     AgentTurnContext, AgentTurnDecision, BeforeToolCallContext, BeforeToolCallFn,
-    PrepareRequestContext, StreamFn, ThinkingLevel, ToolExecutionMode, to_tool_declaration,
+    PrepareRequestContext, StreamFn, TakeMessageReplacementFn, ThinkingLevel, ToolExecutionMode,
+    to_tool_declaration,
 };
+
+/// Take the listener replacement for the message of the event just emitted, if any.
+fn take_replacement(take: Option<&TakeMessageReplacementFn>) -> Option<AgentMessage> {
+    take.and_then(|take| take())
+}
+
+/// Emit `message_start` and `message_end` for a message the loop shares with its listeners
+/// (TypeScript emits the same object, so in-place listener mutations reach the loop's copy).
+/// Returns the message as the listeners left it.
+async fn emit_shared_message(
+    mut message: AgentMessage,
+    emit: &AgentEventSink,
+    take: Option<&TakeMessageReplacementFn>,
+) -> AgentMessage {
+    emit(AgentEvent::MessageStart {
+        message: message.clone(),
+    })
+    .await;
+    if let Some(replacement) = take_replacement(take) {
+        message = replacement;
+    }
+    emit(AgentEvent::MessageEnd {
+        message: message.clone(),
+    })
+    .await;
+    if let Some(replacement) = take_replacement(take) {
+        message = replacement;
+    }
+    message
+}
 
 /// Receives loop events. Awaited before the loop continues.
 pub type AgentEventSink = Arc<dyn Fn(AgentEvent) -> BoxFuture<'static, ()> + Send + Sync>;
@@ -146,18 +177,18 @@ pub async fn run_agent_loop(
     let initial_messages = declare_tool_changes(&context, prompts);
     let mut new_messages = initial_messages.clone();
     let mut current_context = context;
+    let offset = current_context.messages.len();
     current_context
         .messages
         .extend(initial_messages.iter().cloned());
 
     emit(AgentEvent::AgentStart).await;
     emit(AgentEvent::TurnStart).await;
-    for message in initial_messages {
-        emit(AgentEvent::MessageStart {
-            message: message.clone(),
-        })
-        .await;
-        emit(AgentEvent::MessageEnd { message }).await;
+    for (index, message) in initial_messages.into_iter().enumerate() {
+        let message =
+            emit_shared_message(message, &emit, config.take_message_replacement.as_ref()).await;
+        new_messages[index] = message.clone();
+        current_context.messages[offset + index] = message;
     }
 
     let stream_fn = match stream_fn {
@@ -278,14 +309,9 @@ async fn run_loop(
             let mut queued = prepared_messages;
             queued.append(&mut pending_messages);
             for message in declare_tool_changes(&current_context, queued) {
-                emit(AgentEvent::MessageStart {
-                    message: message.clone(),
-                })
-                .await;
-                emit(AgentEvent::MessageEnd {
-                    message: message.clone(),
-                })
-                .await;
+                let message =
+                    emit_shared_message(message, emit, config.take_message_replacement.as_ref())
+                        .await;
                 current_context.messages.push(message.clone());
                 new_messages.push(message);
             }
@@ -344,7 +370,12 @@ async fn run_loop(
                 // tool call in the message may carry truncated arguments. Fail them all
                 // instead of executing potentially broken calls.
                 let batch = if message.stop_reason == StopReason::Length {
-                    fail_tool_calls_from_truncated_message(&tool_calls, emit).await
+                    fail_tool_calls_from_truncated_message(
+                        &tool_calls,
+                        emit,
+                        config.take_message_replacement.as_ref(),
+                    )
+                    .await
                 } else {
                     execute_tool_calls(&current_context, &message, &config, &signal, emit).await
                 };
@@ -558,11 +589,13 @@ async fn stream_assistant_response(
                     message: AgentMessage::Assistant(partial),
                 })
                 .await;
+                // TypeScript emits a copy of the partial message; changes do not reach the loop.
+                let _ = take_replacement(config.take_message_replacement.as_ref());
             }
             AssistantMessageEvent::Done { .. } | AssistantMessageEvent::Error { .. } => {
                 let mut final_message = response.result().await;
                 final_message.thinking_level = Some(thinking_level);
-                return Ok(finish_response(context, final_message, partial_added, emit).await);
+                return Ok(finish_response(context, final_message, partial_added, config, emit).await);
             }
             event => {
                 if partial_added {
@@ -582,15 +615,17 @@ async fn stream_assistant_response(
 
     let mut final_message = response.result().await;
     final_message.thinking_level = Some(thinking_level);
-    Ok(finish_response(context, final_message, partial_added, emit).await)
+    Ok(finish_response(context, final_message, partial_added, config, emit).await)
 }
 
 async fn finish_response(
     context: &mut AgentContext,
-    final_message: AssistantMessage,
+    mut final_message: AssistantMessage,
     partial_added: bool,
+    config: &AgentLoopConfig,
     emit: &AgentEventSink,
 ) -> AssistantMessage {
+    let take = config.take_message_replacement.as_ref();
     if partial_added {
         if let Some(last) = context.messages.last_mut() {
             *last = AgentMessage::Assistant(final_message.clone());
@@ -603,11 +638,21 @@ async fn finish_response(
             message: AgentMessage::Assistant(final_message.clone()),
         })
         .await;
+        // TypeScript emits a copy at message_start; changes do not reach the loop.
+        let _ = take_replacement(take);
     }
     emit(AgentEvent::MessageEnd {
         message: AgentMessage::Assistant(final_message.clone()),
     })
     .await;
+    // message_end carries the loop's own object: a replacement changes the message the loop
+    // executes tools from and returns.
+    if let Some(AgentMessage::Assistant(replacement)) = take_replacement(take) {
+        final_message = replacement;
+        if let Some(last) = context.messages.last_mut() {
+            *last = AgentMessage::Assistant(final_message.clone());
+        }
+    }
     final_message
 }
 
@@ -620,6 +665,7 @@ struct ExecutedToolCallBatch {
 async fn fail_tool_calls_from_truncated_message(
     tool_calls: &[AgentToolCall],
     emit: &AgentEventSink,
+    take: Option<&TakeMessageReplacementFn>,
 ) -> ExecutedToolCallBatch {
     let mut messages = Vec::new();
     for tool_call in tool_calls {
@@ -635,7 +681,7 @@ async fn fail_tool_calls_from_truncated_message(
         };
         emit_tool_execution_end(&finalized, emit).await;
         let tool_result_message = create_tool_result_message(&finalized);
-        emit_tool_result_message(&tool_result_message, emit).await;
+        let tool_result_message = emit_tool_result_message(tool_result_message, emit, take).await;
         messages.push(tool_result_message);
     }
     ExecutedToolCallBatch {
@@ -685,6 +731,7 @@ async fn execute_tool_calls(
             .is_some_and(|t| t.execution_mode() == Some(ToolExecutionMode::Sequential))
     });
     let hooks = ToolCallHooks::from_config(config);
+    let take = config.take_message_replacement.as_ref();
     if config.tool_execution == Some(ToolExecutionMode::Sequential) || has_sequential_tool_call {
         execute_tool_calls_sequential(
             current_context,
@@ -693,6 +740,7 @@ async fn execute_tool_calls(
             &hooks,
             signal,
             emit,
+            take,
         )
         .await
     } else {
@@ -703,6 +751,7 @@ async fn execute_tool_calls(
             &hooks,
             signal,
             emit,
+            take,
         )
         .await
     }
@@ -715,6 +764,7 @@ async fn execute_tool_calls_sequential(
     hooks: &ToolCallHooks,
     signal: &CancellationToken,
     emit: &AgentEventSink,
+    take: Option<&TakeMessageReplacementFn>,
 ) -> ExecutedToolCallBatch {
     let mut finalized_calls = Vec::new();
     let mut messages = Vec::new();
@@ -759,7 +809,7 @@ async fn execute_tool_calls_sequential(
 
         emit_tool_execution_end(&finalized, emit).await;
         let tool_result_message = create_tool_result_message(&finalized);
-        emit_tool_result_message(&tool_result_message, emit).await;
+        let tool_result_message = emit_tool_result_message(tool_result_message, emit, take).await;
         finalized_calls.push(finalized);
         messages.push(tool_result_message);
 
@@ -786,6 +836,7 @@ async fn execute_tool_calls_parallel(
     hooks: &ToolCallHooks,
     signal: &CancellationToken,
     emit: &AgentEventSink,
+    take: Option<&TakeMessageReplacementFn>,
 ) -> ExecutedToolCallBatch {
     let mut entries: Vec<FinalizedEntry<'_>> = Vec::new();
 
@@ -865,7 +916,7 @@ async fn execute_tool_calls_parallel(
     let mut messages = Vec::new();
     for finalized in &ordered_finalized_calls {
         let tool_result_message = create_tool_result_message(finalized);
-        emit_tool_result_message(&tool_result_message, emit).await;
+        let tool_result_message = emit_tool_result_message(tool_result_message, emit, take).await;
         messages.push(tool_result_message);
     }
 
@@ -1251,13 +1302,16 @@ fn create_tool_result_message(finalized: &AgentToolCallOutcome) -> ToolResultMes
     }
 }
 
-async fn emit_tool_result_message(tool_result_message: &ToolResultMessage, emit: &AgentEventSink) {
-    emit(AgentEvent::MessageStart {
-        message: AgentMessage::ToolResult(tool_result_message.clone()),
-    })
-    .await;
-    emit(AgentEvent::MessageEnd {
-        message: AgentMessage::ToolResult(tool_result_message.clone()),
-    })
-    .await;
+/// Emit a tool result's message events; returns the result as the listeners left it.
+async fn emit_tool_result_message(
+    tool_result_message: ToolResultMessage,
+    emit: &AgentEventSink,
+    take: Option<&TakeMessageReplacementFn>,
+) -> ToolResultMessage {
+    match emit_shared_message(AgentMessage::ToolResult(tool_result_message.clone()), emit, take)
+        .await
+    {
+        AgentMessage::ToolResult(message) => message,
+        _ => tool_result_message,
+    }
 }

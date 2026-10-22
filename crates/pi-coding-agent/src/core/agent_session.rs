@@ -906,9 +906,6 @@ struct SessionState {
     entry_ids_by_message: Vec<(AgentMessage, String)>,
     /// Messages whose turn_end boundary already ran in `finish_turn`.
     boundary_dispatched_messages: Vec<AgentMessage>,
-    /// Messages replaced during the run (extension `message_end` replacements, nested-call records),
-    /// applied to later events that still carry the agent loop's copy (TS mutates in place).
-    message_replacements: Vec<(AgentMessage, AgentMessage)>,
     last_assistant_message: Option<AssistantMessage>,
     last_assistant_tool_results: Vec<AgentMessage>,
     last_activity_outcome: AgentActivityOutcome,
@@ -1036,7 +1033,6 @@ impl AgentSession {
                 turn_index: 0,
                 entry_ids_by_message: Vec::new(),
                 boundary_dispatched_messages: Vec::new(),
-                message_replacements: Vec::new(),
                 last_assistant_message: None,
                 last_assistant_tool_results: Vec::new(),
                 last_activity_outcome: AgentActivityOutcome::Completed,
@@ -2099,74 +2095,6 @@ impl AgentSession {
         Ok(())
     }
 
-    /// Replace `original` in agent state with `replacement` (TS mutates the shared object).
-    fn replace_message_in_state(&self, original: &AgentMessage, replacement: &AgentMessage) {
-        if original == replacement {
-            return;
-        }
-        self.agent.with_state_mut(|state| {
-            if let Some(slot) = state.messages.iter_mut().rev().find(|m| *m == original) {
-                *slot = replacement.clone();
-            }
-        });
-        let mut state = self.state.lock();
-        for (orig, current) in state.message_replacements.iter_mut() {
-            if current == original {
-                *current = replacement.clone();
-                let _ = orig;
-                return;
-            }
-        }
-        state
-            .message_replacements
-            .push((original.clone(), replacement.clone()));
-    }
-
-    /// The current version of `message` after replacements made earlier in this run.
-    fn current_version(&self, message: &AgentMessage) -> AgentMessage {
-        self.state
-            .lock()
-            .message_replacements
-            .iter()
-            .find(|(orig, _)| orig == message)
-            .map(|(_, current)| current.clone())
-            .unwrap_or_else(|| message.clone())
-    }
-
-    /// Apply in-run message replacements to an event from the agent loop.
-    fn patch_agent_event(&self, event: AgentEvent) -> AgentEvent {
-        if self.state.lock().message_replacements.is_empty() {
-            return event;
-        }
-        match event {
-            AgentEvent::MessageStart { message } => AgentEvent::MessageStart {
-                message: self.current_version(&message),
-            },
-            AgentEvent::MessageEnd { message } => AgentEvent::MessageEnd {
-                message: self.current_version(&message),
-            },
-            AgentEvent::TurnEnd {
-                message,
-                tool_results,
-            } => AgentEvent::TurnEnd {
-                message: self.current_version(&message),
-                tool_results: tool_results
-                    .into_iter()
-                    .map(|r| {
-                        match self.current_version(&AgentMessage::ToolResult(r.clone())) {
-                            AgentMessage::ToolResult(patched) => patched,
-                            _ => r,
-                        }
-                    })
-                    .collect(),
-            },
-            AgentEvent::AgentEnd { messages } => AgentEvent::AgentEnd {
-                messages: messages.iter().map(|m| self.current_version(m)).collect(),
-            },
-            other => other,
-        }
-    }
-
     /// Internal handler for agent events.
     async fn handle_agent_event(&self, event: AgentEvent) {
         // An abort requested while the run was starting, e.g. during before_agent_start, stops it
@@ -2174,10 +2102,7 @@ impl AgentSession {
         if matches!(event, AgentEvent::AgentStart) && self.state.lock().agent_run_abort_requested {
             self.agent.abort();
         }
-        if matches!(event, AgentEvent::AgentStart) {
-            self.state.lock().message_replacements.clear();
-        }
-        let mut event = self.patch_agent_event(event);
+        let mut event = event;
 
         // Record the calls a tool made through ctx.executeTool() and their usage on its result message.
         let nested = self.state.lock().nested_tool_calls.clone();
@@ -2197,12 +2122,10 @@ impl AgentSession {
                                 None => usage,
                             });
                         }
-                        let original = AgentMessage::ToolResult(message.clone());
+                        // TS mutates the shared message object: the agent loop's copy, agent
+                        // state and later events carry the record too.
                         let patched = AgentMessage::ToolResult(patched);
-                        self.state
-                            .lock()
-                            .message_replacements
-                            .push((original, patched.clone()));
+                        self.agent.replace_event_message(patched.clone());
                         event = AgentEvent::MessageStart { message: patched };
                     }
                 }
@@ -2210,25 +2133,6 @@ impl AgentSession {
                 _ => {}
             }
         }
-        // The agent pushed its own copy into state before calling listeners; keep state in step
-        // with replacements made at message_start.
-        if let AgentEvent::MessageEnd { message } = &event {
-            let raw = self
-                .state
-                .lock()
-                .message_replacements
-                .iter()
-                .find(|(_, current)| current == message)
-                .map(|(orig, _)| orig.clone());
-            if let Some(raw) = raw {
-                self.agent.with_state_mut(|state| {
-                    if let Some(slot) = state.messages.iter_mut().rev().find(|m| **m == raw) {
-                        *slot = message.clone();
-                    }
-                });
-            }
-        }
-
         // When a user message starts, check if it's from either queue and remove it BEFORE
         // emitting. This ensures the UI sees the updated queue state.
         if let AgentEvent::MessageStart {
@@ -2539,7 +2443,12 @@ impl AgentSession {
                         // Untyped extension handlers can return messages with null/missing
                         // content; normalize so it never enters agent state or session history.
                         let normalized = normalize_replacement_content(replacement);
-                        self.replace_message_in_state(&message, &normalized);
+                        // TS replaces the shared message object in place, so agent state, the
+                        // agent loop's copy (tool execution, turn_end, agent_end) and persistence
+                        // all see the replacement.
+                        if normalized != message {
+                            self.agent.replace_event_message(normalized.clone());
+                        }
                         AgentEvent::MessageEnd {
                             message: normalized,
                         }

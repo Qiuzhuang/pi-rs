@@ -1221,3 +1221,93 @@ async fn attributes_requests_to_pi_by_default_and_merges_a_configured_identity()
         ]
     );
 }
+
+/// Rust-specific: listener replacements at `message_end` reach the loop's own copy (TS mutates the
+/// shared message object in place).
+#[tokio::test]
+async fn message_end_replacements_reach_tool_execution_state_and_later_events() {
+    let executed = Arc::new(Mutex::new(Vec::<String>::new()));
+    let (stream_fn, _) = scripted_stream_fn(|index| {
+        if index == 0 {
+            assistant_tool_calls(
+                vec![tool_call("call-1", "echo", json!({ "value": "original" }))],
+                StopReason::ToolUse,
+            )
+        } else {
+            assistant_text("done")
+        }
+    });
+    let agent = agent_with(AgentOptions {
+        initial_state: Some(AgentInitialState {
+            tools: Some(vec![echo_tool(executed.clone())]),
+            ..Default::default()
+        }),
+        ..options_with(stream_fn)
+    });
+    let handle = agent.clone();
+    let turn_end_texts = Arc::new(Mutex::new(Vec::<String>::new()));
+    let agent_end_results = Arc::new(Mutex::new(Vec::<String>::new()));
+    let (te, ae) = (turn_end_texts.clone(), agent_end_results.clone());
+    let _sub = agent.subscribe_fn(move |event, _| match event {
+        AgentEvent::MessageEnd {
+            message: AgentMessage::Assistant(message),
+        } if message.tool_calls().next().is_some() => {
+            let mut replaced = message.clone();
+            replaced.content = vec![pi_ai::AssistantContent::ToolCall(tool_call(
+                "call-1",
+                "echo",
+                json!({ "value": "replaced" }),
+            ))];
+            handle.replace_event_message(AgentMessage::Assistant(replaced));
+        }
+        AgentEvent::MessageEnd {
+            message: AgentMessage::ToolResult(message),
+        } => {
+            let mut replaced = message.clone();
+            replaced.content = vec![pi_ai::ToolResultContent::Text(pi_ai::TextContent::new(
+                "patched result",
+            ))];
+            handle.replace_event_message(AgentMessage::ToolResult(replaced));
+        }
+        AgentEvent::TurnEnd { tool_results, .. } => {
+            for result in tool_results {
+                te.lock().push(
+                    result
+                        .content
+                        .iter()
+                        .filter_map(|c| c.as_text().map(|t| t.text.clone()))
+                        .collect(),
+                );
+            }
+        }
+        AgentEvent::AgentEnd { messages } => {
+            for message in messages {
+                if let AgentMessage::ToolResult(result) = message {
+                    ae.lock().push(
+                        result
+                            .content
+                            .iter()
+                            .filter_map(|c| c.as_text().map(|t| t.text.clone()))
+                            .collect(),
+                    );
+                }
+            }
+        }
+        _ => {}
+    });
+
+    agent.prompt("go").await.unwrap();
+
+    assert_eq!(*executed.lock(), vec!["replaced".to_string()]);
+    assert_eq!(*turn_end_texts.lock(), vec!["patched result".to_string()]);
+    assert_eq!(*agent_end_results.lock(), vec!["patched result".to_string()]);
+    let state_result = agent
+        .messages()
+        .into_iter()
+        .find_map(|m| match m {
+            AgentMessage::ToolResult(r) => Some(r),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(state_result.content[0].as_text().unwrap().text, "patched result");
+}

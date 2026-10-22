@@ -905,6 +905,12 @@ pub type PrepareNextTurnFn = Arc<
 >;
 /// Returns queued steering or follow-up messages.
 pub type GetMessagesFn = Arc<dyn Fn() -> BoxFuture<'static, Vec<AgentMessage>> + Send + Sync>;
+/// Takes the replacement a listener made for the message of the `message_start`/`message_end`
+/// event that was just emitted (see [`crate::Agent::replace_event_message`]). TypeScript listeners
+/// mutate the shared message object in place, so the loop's own copy (used for tool execution,
+/// later events, the turn context and the returned messages) changes too; the loop calls this
+/// after each such event and adopts the replacement where TypeScript shares the object.
+pub type TakeMessageReplacementFn = Arc<dyn Fn() -> Option<AgentMessage> + Send + Sync>;
 /// Called before a tool executes, after argument validation. `Err` becomes an error result.
 pub type BeforeToolCallFn = Arc<
     dyn Fn(
@@ -959,6 +965,8 @@ pub struct AgentLoopConfig {
     pub tool_execution: Option<ToolExecutionMode>,
     pub before_tool_call: Option<BeforeToolCallFn>,
     pub after_tool_call: Option<AfterToolCallFn>,
+    /// Message replacements made by event listeners (see [`TakeMessageReplacementFn`]).
+    pub take_message_replacement: Option<TakeMessageReplacementFn>,
 }
 
 impl AgentLoopConfig {
@@ -978,6 +986,7 @@ impl AgentLoopConfig {
             tool_execution: None,
             before_tool_call: None,
             after_tool_call: None,
+            take_message_replacement: None,
         }
     }
 }

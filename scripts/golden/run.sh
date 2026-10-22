@@ -22,6 +22,13 @@ export TERM=xterm-256color
 unset TERM_PROGRAM KITTY_WINDOW_ID WEZTERM_PANE GHOSTTY_RESOURCES_DIR ITERM_SESSION_ID TMUX STY 2>/dev/null || true
 export PI_CODING_AGENT_DIR=/home/golden/.pi/agent
 
+# The reference's model catalog data is generated (network); reuse the copy the Rust port embeds.
+data_dir="$PI_TS_REF/packages/ai/src/providers/data"
+if [ ! -f "$data_dir/.manifest.json" ]; then
+	mkdir -p "$data_dir"
+	cp -R "$here/../../crates/pi-ai/data/." "$data_dir/"
+fi
+
 scripts=()
 for s in "$@"; do scripts+=("$(cd "$(dirname "$s")" && pwd)/$(basename "$s")"); done
 if [ ${#scripts[@]} -eq 0 ]; then

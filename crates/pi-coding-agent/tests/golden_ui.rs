@@ -43,3 +43,12 @@ mod sessions;
 fn golden_sessions() {
     harness::run("sessions.json", sessions::build);
 }
+#[path = "support/mod.rs"]
+mod support;
+#[path = "golden/screens.rs"]
+mod screens;
+
+#[test]
+fn golden_screens() {
+    harness::run("screens.json", screens::build);
+}

@@ -38,6 +38,12 @@ pub struct Case {
 }
 
 static LOCK: Mutex<()> = Mutex::new(());
+static CURRENT_THEME: Mutex<String> = Mutex::new(String::new());
+
+/// The theme the current case is rendered with (for builders that configure it themselves).
+pub fn current_theme() -> String {
+    CURRENT_THEME.lock().clone()
+}
 static ENV: Once = Once::new();
 
 /// Serializes the golden tests (they share the global theme and capabilities) and pins the
@@ -139,6 +145,7 @@ pub fn run(file: &str, build: impl Fn(&str, &Value) -> Option<Built>) {
             continue;
         }
         for (theme_name, expected_per_width) in &case.out {
+            *CURRENT_THEME.lock() = theme_name.clone();
             use_theme(theme_name);
             if case.caps.is_some() {
                 set_caps(case.caps.as_ref());

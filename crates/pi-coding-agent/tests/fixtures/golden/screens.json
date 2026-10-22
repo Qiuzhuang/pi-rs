@@ -1,0 +1,1267 @@
+{
+ "cases": [
+  {
+   "name": "startup/80x24",
+   "kind": "screen",
+   "input": {
+    "columns": 80,
+    "rows": 24,
+    "settings": {}
+   },
+   "widths": [
+    80
+   ],
+   "out": {
+    "dark": [
+     [
+      "",
+      "",
+      "\u001b[38;2;108;118;123m────────────────────────────────────────────────────────────────────────────────\u001b[39m",
+      "\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007                                                                               ",
+      "\u001b[38;2;108;118;123m────────────────────────────────────────────────────────────────────────────────\u001b[39m",
+      "\u001b[38;2;126;136;142m/tmp/pi-golden-screens/project\u001b[39m",
+      "\u001b[38;2;126;136;142m#%/128k (auto)\u001b[39m\u001b[38;2;126;136;142m                                                   (faux) faux-1\u001b[39m",
+      "\u0000terminal",
+      "",
+      " ▀▀█  v1.3.0",
+      " █▀ █ escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash ·",
+      " ctrl+o more",
+      " Press ctrl+o to show full startup help and loaded resources.",
+      "",
+      " Pi can explain its own features and look up its docs. Ask it how to use or",
+      " extend Pi.",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "────────────────────────────────────────────────────────────────────────────────",
+      "",
+      "────────────────────────────────────────────────────────────────────────────────",
+      "/tmp/pi-golden-screens/project",
+      "#%/128k (auto)                                                   (faux) faux-1"
+     ]
+    ],
+    "light": [
+     [
+      "",
+      "",
+      "\u001b[38;2;194;200;202m────────────────────────────────────────────────────────────────────────────────\u001b[39m",
+      "\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007                                                                               ",
+      "\u001b[38;2;194;200;202m────────────────────────────────────────────────────────────────────────────────\u001b[39m",
+      "\u001b[38;2;135;144;149m/tmp/pi-golden-screens/project\u001b[39m",
+      "\u001b[38;2;135;144;149m#%/128k (auto)\u001b[39m\u001b[38;2;135;144;149m                                                   (faux) faux-1\u001b[39m",
+      "\u0000terminal",
+      "",
+      " ▀▀█  v1.3.0",
+      " █▀ █ escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash ·",
+      " ctrl+o more",
+      " Press ctrl+o to show full startup help and loaded resources.",
+      "",
+      " Pi can explain its own features and look up its docs. Ask it how to use or",
+      " extend Pi.",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "────────────────────────────────────────────────────────────────────────────────",
+      "",
+      "────────────────────────────────────────────────────────────────────────────────",
+      "/tmp/pi-golden-screens/project",
+      "#%/128k (auto)                                                   (faux) faux-1"
+     ]
+    ]
+   }
+  },
+  {
+   "name": "startup/120x30-quiet",
+   "kind": "screen",
+   "input": {
+    "columns": 120,
+    "rows": 30,
+    "settings": {
+     "quietStartup": true
+    }
+   },
+   "widths": [
+    120
+   ],
+   "out": {
+    "dark": [
+     [
+      "",
+      "",
+      "\u001b[38;2;108;118;123m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\u001b[39m",
+      "\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007                                                                                                                       ",
+      "\u001b[38;2;108;118;123m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\u001b[39m",
+      "\u001b[38;2;126;136;142m/tmp/pi-golden-screens/project\u001b[39m",
+      "\u001b[38;2;126;136;142m#%/128k (auto)\u001b[39m\u001b[38;2;126;136;142m                                                                                           (faux) faux-1\u001b[39m",
+      "\u0000terminal",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+      "",
+      "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+      "/tmp/pi-golden-screens/project",
+      "#%/128k (auto)                                                                                           (faux) faux-1"
+     ]
+    ],
+    "light": [
+     [
+      "",
+      "",
+      "\u001b[38;2;194;200;202m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\u001b[39m",
+      "\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007                                                                                                                       ",
+      "\u001b[38;2;194;200;202m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\u001b[39m",
+      "\u001b[38;2;135;144;149m/tmp/pi-golden-screens/project\u001b[39m",
+      "\u001b[38;2;135;144;149m#%/128k (auto)\u001b[39m\u001b[38;2;135;144;149m                                                                                           (faux) faux-1\u001b[39m",
+      "\u0000terminal",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+      "",
+      "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+      "/tmp/pi-golden-screens/project",
+      "#%/128k (auto)                                                                                           (faux) faux-1"
+     ]
+    ]
+   }
+  },
+  {
+   "name": "reply/80x30",
+   "kind": "screen",
+   "input": {
+    "columns": 80,
+    "rows": 30,
+    "settings": {
+     "quietStartup": true
+    },
+    "steps": [
+     {
+      "responses": [
+       {
+        "role": "assistant",
+        "content": [
+         {
+          "type": "thinking",
+          "thinking": "Let me look at the files."
+         },
+         {
+          "type": "toolCall",
+          "id": "call_ls",
+          "name": "ls",
+          "arguments": {
+           "path": "."
+          }
+         }
+        ],
+        "api": "faux",
+        "provider": "faux",
+        "model": "faux-1",
+        "usage": {
+         "input": 0,
+         "output": 0,
+         "cacheRead": 0,
+         "cacheWrite": 0,
+         "totalTokens": 0,
+         "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+         }
+        },
+        "stopReason": "toolUse",
+        "timestamp": 0
+       },
+       {
+        "role": "assistant",
+        "content": [
+         {
+          "type": "text",
+          "text": "The project has two files:\n\n| File | Purpose |\n|---|---|\n| `README.md` | docs |\n| `main.ts` | entry point |"
+         }
+        ],
+        "api": "faux",
+        "provider": "faux",
+        "model": "faux-1",
+        "usage": {
+         "input": 0,
+         "output": 0,
+         "cacheRead": 0,
+         "cacheWrite": 0,
+         "totalTokens": 0,
+         "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+         }
+        },
+        "stopReason": "stop",
+        "timestamp": 0
+       }
+      ]
+     },
+     {
+      "type": "list the files"
+     },
+     {
+      "type": "\r"
+     },
+     {
+      "wait": "entry point"
+     },
+     {
+      "idle": true
+     }
+    ]
+   },
+   "widths": [
+    80
+   ],
+   "out": {
+    "dark": [
+     [
+      "\u001b]133;A\u0007\u001b[48;2;33;59;73m                                                                                \u001b[49m",
+      "",
+      "\u001b[38;2;108;118;123m────────────────────────────────────────────────────────────────────────────────\u001b[39m",
+      "\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007                                                                               ",
+      "\u001b[38;2;108;118;123m────────────────────────────────────────────────────────────────────────────────\u001b[39m",
+      "\u001b[38;2;126;136;142m/tmp/pi-golden-screens/project\u001b[39m",
+      "\u001b[38;2;126;136;142m↑# ↓38 #%/128k (auto)\u001b[39m\u001b[38;2;126;136;142m                                         (faux) faux-1\u001b[39m",
+      "\u0000terminal",
+      "",
+      " list the files",
+      "",
+      "",
+      " Let me look at the files.",
+      "",
+      "",
+      " ls .",
+      "",
+      " main.ts",
+      " README.md",
+      "",
+      "",
+      " The project has two files:",
+      "",
+      " ┌───────────┬─────────────┐",
+      " │ File      │ Purpose     │",
+      " ├───────────┼─────────────┤",
+      " │ README.md │ docs        │",
+      " ├───────────┼─────────────┤",
+      " │ main.ts   │ entry point │",
+      " └───────────┴─────────────┘",
+      "",
+      "",
+      "",
+      "────────────────────────────────────────────────────────────────────────────────",
+      "",
+      "────────────────────────────────────────────────────────────────────────────────",
+      "/tmp/pi-golden-screens/project",
+      "↑# ↓38 #%/128k (auto)                                         (faux) faux-1"
+     ]
+    ],
+    "light": [
+     [
+      "\u001b]133;A\u0007\u001b[48;2;223;231;236m                                                                                \u001b[49m",
+      "",
+      "\u001b[38;2;194;200;202m────────────────────────────────────────────────────────────────────────────────\u001b[39m",
+      "\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007                                                                               ",
+      "\u001b[38;2;194;200;202m────────────────────────────────────────────────────────────────────────────────\u001b[39m",
+      "\u001b[38;2;135;144;149m/tmp/pi-golden-screens/project\u001b[39m",
+      "\u001b[38;2;135;144;149m↑# ↓38 #%/128k (auto)\u001b[39m\u001b[38;2;135;144;149m                                         (faux) faux-1\u001b[39m",
+      "\u0000terminal",
+      "",
+      " list the files",
+      "",
+      "",
+      " Let me look at the files.",
+      "",
+      "",
+      " ls .",
+      "",
+      " main.ts",
+      " README.md",
+      "",
+      "",
+      " The project has two files:",
+      "",
+      " ┌───────────┬─────────────┐",
+      " │ File      │ Purpose     │",
+      " ├───────────┼─────────────┤",
+      " │ README.md │ docs        │",
+      " ├───────────┼─────────────┤",
+      " │ main.ts   │ entry point │",
+      " └───────────┴─────────────┘",
+      "",
+      "",
+      "",
+      "────────────────────────────────────────────────────────────────────────────────",
+      "",
+      "────────────────────────────────────────────────────────────────────────────────",
+      "/tmp/pi-golden-screens/project",
+      "↑# ↓38 #%/128k (auto)                                         (faux) faux-1"
+     ]
+    ]
+   }
+  },
+  {
+   "name": "reply/120x40",
+   "kind": "screen",
+   "input": {
+    "columns": 120,
+    "rows": 40,
+    "settings": {},
+    "steps": [
+     {
+      "responses": [
+       {
+        "role": "assistant",
+        "content": [
+         {
+          "type": "thinking",
+          "thinking": "Let me look at the files."
+         },
+         {
+          "type": "toolCall",
+          "id": "call_ls",
+          "name": "ls",
+          "arguments": {
+           "path": "."
+          }
+         }
+        ],
+        "api": "faux",
+        "provider": "faux",
+        "model": "faux-1",
+        "usage": {
+         "input": 0,
+         "output": 0,
+         "cacheRead": 0,
+         "cacheWrite": 0,
+         "totalTokens": 0,
+         "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+         }
+        },
+        "stopReason": "toolUse",
+        "timestamp": 0
+       },
+       {
+        "role": "assistant",
+        "content": [
+         {
+          "type": "text",
+          "text": "The project has two files:\n\n| File | Purpose |\n|---|---|\n| `README.md` | docs |\n| `main.ts` | entry point |"
+         }
+        ],
+        "api": "faux",
+        "provider": "faux",
+        "model": "faux-1",
+        "usage": {
+         "input": 0,
+         "output": 0,
+         "cacheRead": 0,
+         "cacheWrite": 0,
+         "totalTokens": 0,
+         "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+         }
+        },
+        "stopReason": "stop",
+        "timestamp": 0
+       }
+      ]
+     },
+     {
+      "type": "list the files"
+     },
+     {
+      "type": "\r"
+     },
+     {
+      "wait": "entry point"
+     },
+     {
+      "idle": true
+     }
+    ]
+   },
+   "widths": [
+    120
+   ],
+   "out": {
+    "dark": [
+     [
+      "",
+      "",
+      "\u001b[38;2;108;118;123m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\u001b[39m",
+      "\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007                                                                                                                       ",
+      "\u001b[38;2;108;118;123m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\u001b[39m",
+      "\u001b[38;2;126;136;142m/tmp/pi-golden-screens/project\u001b[39m",
+      "\u001b[38;2;126;136;142m↑# ↓38 #%/128k (auto)\u001b[39m\u001b[38;2;126;136;142m                                                                                 (faux) faux-1\u001b[39m",
+      "\u0000terminal",
+      "",
+      " ▀▀█  v1.3.0",
+      " █▀ █ escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash · ctrl+o more",
+      " Press ctrl+o to show full startup help and loaded resources.",
+      "",
+      " Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.",
+      "",
+      "",
+      " list the files",
+      "",
+      "",
+      " Let me look at the files.",
+      "",
+      "",
+      " ls .",
+      "",
+      " main.ts",
+      " README.md",
+      "",
+      "",
+      " The project has two files:",
+      "",
+      " ┌───────────┬─────────────┐",
+      " │ File      │ Purpose     │",
+      " ├───────────┼─────────────┤",
+      " │ README.md │ docs        │",
+      " ├───────────┼─────────────┤",
+      " │ main.ts   │ entry point │",
+      " └───────────┴─────────────┘",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+      "",
+      "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+      "/tmp/pi-golden-screens/project",
+      "↑# ↓38 #%/128k (auto)                                                                                 (faux) faux-1"
+     ]
+    ],
+    "light": [
+     [
+      "",
+      "",
+      "\u001b[38;2;194;200;202m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\u001b[39m",
+      "\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007                                                                                                                       ",
+      "\u001b[38;2;194;200;202m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\u001b[39m",
+      "\u001b[38;2;135;144;149m/tmp/pi-golden-screens/project\u001b[39m",
+      "\u001b[38;2;135;144;149m↑# ↓38 #%/128k (auto)\u001b[39m\u001b[38;2;135;144;149m                                                                                 (faux) faux-1\u001b[39m",
+      "\u0000terminal",
+      "",
+      " ▀▀█  v1.3.0",
+      " █▀ █ escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash · ctrl+o more",
+      " Press ctrl+o to show full startup help and loaded resources.",
+      "",
+      " Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.",
+      "",
+      "",
+      " list the files",
+      "",
+      "",
+      " Let me look at the files.",
+      "",
+      "",
+      " ls .",
+      "",
+      " main.ts",
+      " README.md",
+      "",
+      "",
+      " The project has two files:",
+      "",
+      " ┌───────────┬─────────────┐",
+      " │ File      │ Purpose     │",
+      " ├───────────┼─────────────┤",
+      " │ README.md │ docs        │",
+      " ├───────────┼─────────────┤",
+      " │ main.ts   │ entry point │",
+      " └───────────┴─────────────┘",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+      "",
+      "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+      "/tmp/pi-golden-screens/project",
+      "↑# ↓38 #%/128k (auto)                                                                                 (faux) faux-1"
+     ]
+    ]
+   }
+  },
+  {
+   "name": "startup/expanded-help",
+   "kind": "screen",
+   "input": {
+    "columns": 100,
+    "rows": 40,
+    "settings": {},
+    "steps": [
+     {
+      "type": "\u000f"
+     },
+     {
+      "wait": "to queue follow-up"
+     }
+    ]
+   },
+   "widths": [
+    100
+   ],
+   "out": {
+    "dark": [
+     [
+      "",
+      "",
+      "\u001b[38;2;108;118;123m────────────────────────────────────────────────────────────────────────────────────────────────────\u001b[39m",
+      "\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007                                                                                                   ",
+      "\u001b[38;2;108;118;123m────────────────────────────────────────────────────────────────────────────────────────────────────\u001b[39m",
+      "\u001b[38;2;126;136;142m/tmp/pi-golden-screens/project\u001b[39m",
+      "\u001b[38;2;126;136;142m#%/128k (auto)\u001b[39m\u001b[38;2;126;136;142m                                                                       (faux) faux-1\u001b[39m",
+      "\u0000terminal",
+      "",
+      " ▀▀█  v1.3.0",
+      " █▀ █ escape to interrupt",
+      " ctrl+c to clear",
+      " ctrl+c twice to exit",
+      " ctrl+d to exit (empty)",
+      " ctrl+z to suspend",
+      " ctrl+k to delete to end",
+      " shift+tab to cycle thinking level",
+      " ctrl+p/shift+ctrl+p to cycle models",
+      " ctrl+l to select model",
+      " ctrl+o to expand tools",
+      " ctrl+t to expand thinking",
+      " ctrl+g for external editor",
+      " / for commands",
+      " ! to run bash",
+      " !! to run bash (no context)",
+      " alt+enter to queue follow-up",
+      " alt+up to edit all queued messages",
+      " ctrl+v to paste files on macOS, images, or text",
+      " drop files to attach",
+      "",
+      " Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.",
+      "",
+      "",
+      " Tool output: expanded",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "────────────────────────────────────────────────────────────────────────────────────────────────────",
+      "",
+      "────────────────────────────────────────────────────────────────────────────────────────────────────",
+      "/tmp/pi-golden-screens/project",
+      "#%/128k (auto)                                                                       (faux) faux-1"
+     ]
+    ],
+    "light": [
+     [
+      "",
+      "",
+      "\u001b[38;2;194;200;202m────────────────────────────────────────────────────────────────────────────────────────────────────\u001b[39m",
+      "\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007                                                                                                   ",
+      "\u001b[38;2;194;200;202m────────────────────────────────────────────────────────────────────────────────────────────────────\u001b[39m",
+      "\u001b[38;2;135;144;149m/tmp/pi-golden-screens/project\u001b[39m",
+      "\u001b[38;2;135;144;149m#%/128k (auto)\u001b[39m\u001b[38;2;135;144;149m                                                                       (faux) faux-1\u001b[39m",
+      "\u0000terminal",
+      "",
+      " ▀▀█  v1.3.0",
+      " █▀ █ escape to interrupt",
+      " ctrl+c to clear",
+      " ctrl+c twice to exit",
+      " ctrl+d to exit (empty)",
+      " ctrl+z to suspend",
+      " ctrl+k to delete to end",
+      " shift+tab to cycle thinking level",
+      " ctrl+p/shift+ctrl+p to cycle models",
+      " ctrl+l to select model",
+      " ctrl+o to expand tools",
+      " ctrl+t to expand thinking",
+      " ctrl+g for external editor",
+      " / for commands",
+      " ! to run bash",
+      " !! to run bash (no context)",
+      " alt+enter to queue follow-up",
+      " alt+up to edit all queued messages",
+      " ctrl+v to paste files on macOS, images, or text",
+      " drop files to attach",
+      "",
+      " Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.",
+      "",
+      "",
+      " Tool output: expanded",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "────────────────────────────────────────────────────────────────────────────────────────────────────",
+      "",
+      "────────────────────────────────────────────────────────────────────────────────────────────────────",
+      "/tmp/pi-golden-screens/project",
+      "#%/128k (auto)                                                                       (faux) faux-1"
+     ]
+    ]
+   }
+  },
+  {
+   "name": "error-reply/80x24",
+   "kind": "screen",
+   "input": {
+    "columns": 80,
+    "rows": 24,
+    "settings": {
+     "quietStartup": true
+    },
+    "steps": [
+     {
+      "responses": [
+       {
+        "role": "assistant",
+        "content": [],
+        "api": "faux",
+        "provider": "faux",
+        "model": "faux-1",
+        "usage": {
+         "input": 0,
+         "output": 0,
+         "cacheRead": 0,
+         "cacheWrite": 0,
+         "totalTokens": 0,
+         "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+         }
+        },
+        "stopReason": "error",
+        "errorMessage": "529 overloaded_error: Overloaded",
+        "timestamp": 0
+       }
+      ]
+     },
+     {
+      "type": "hello"
+     },
+     {
+      "type": "\r"
+     },
+     {
+      "wait": "Overloaded"
+     },
+     {
+      "idle": true
+     }
+    ]
+   },
+   "widths": [
+    80
+   ],
+   "out": {
+    "dark": [
+     [
+      "\u001b]133;A\u0007\u001b[48;2;33;59;73m                                                                                \u001b[49m",
+      "",
+      "\u001b[38;2;108;118;123m────────────────────────────────────────────────────────────────────────────────\u001b[39m",
+      "\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007                                                                               ",
+      "\u001b[38;2;108;118;123m────────────────────────────────────────────────────────────────────────────────\u001b[39m",
+      "\u001b[38;2;126;136;142m/tmp/pi-golden-screens/project\u001b[39m",
+      "\u001b[38;2;126;136;142m↑# #%/128k (auto)\u001b[39m\u001b[38;2;126;136;142m                                             (faux) faux-1\u001b[39m",
+      "\u0000terminal",
+      "",
+      " hello",
+      "",
+      "",
+      " Error: 529 overloaded_error: Overloaded",
+      "",
+      " Error: No more faux responses queued",
+      " If this looks like a pi bug, /bug sends a report to the developers.",
+      "",
+      " Error: Retry failed after 1 attempts: No more faux responses queued",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "────────────────────────────────────────────────────────────────────────────────",
+      "",
+      "────────────────────────────────────────────────────────────────────────────────",
+      "/tmp/pi-golden-screens/project",
+      "↑# #%/128k (auto)                                             (faux) faux-1"
+     ]
+    ],
+    "light": [
+     [
+      "\u001b]133;A\u0007\u001b[48;2;223;231;236m                                                                                \u001b[49m",
+      "",
+      "\u001b[38;2;194;200;202m────────────────────────────────────────────────────────────────────────────────\u001b[39m",
+      "\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007                                                                               ",
+      "\u001b[38;2;194;200;202m────────────────────────────────────────────────────────────────────────────────\u001b[39m",
+      "\u001b[38;2;135;144;149m/tmp/pi-golden-screens/project\u001b[39m",
+      "\u001b[38;2;135;144;149m↑# #%/128k (auto)\u001b[39m\u001b[38;2;135;144;149m                                             (faux) faux-1\u001b[39m",
+      "\u0000terminal",
+      "",
+      " hello",
+      "",
+      "",
+      " Error: 529 overloaded_error: Overloaded",
+      "",
+      " Error: No more faux responses queued",
+      " If this looks like a pi bug, /bug sends a report to the developers.",
+      "",
+      " Error: Retry failed after 1 attempts: No more faux responses queued",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "────────────────────────────────────────────────────────────────────────────────",
+      "",
+      "────────────────────────────────────────────────────────────────────────────────",
+      "/tmp/pi-golden-screens/project",
+      "↑# #%/128k (auto)                                             (faux) faux-1"
+     ]
+    ]
+   }
+  },
+  {
+   "name": "slash-autocomplete/80x24",
+   "kind": "screen",
+   "input": {
+    "columns": 80,
+    "rows": 24,
+    "settings": {
+     "quietStartup": true
+    },
+    "steps": [
+     {
+      "type": "/"
+     },
+     {
+      "type": "m"
+     },
+     {
+      "wait": "model"
+     }
+    ]
+   },
+   "widths": [
+    80
+   ],
+   "out": {
+    "dark": [
+     [
+      "",
+      "",
+      "\u001b[38;2;108;118;123m────────────────────────────────────────────────────────────────────────────────\u001b[39m",
+      "/m\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007                                                                             ",
+      "\u001b[38;2;108;118;123m────────────────────────────────────────────────────────────────────────────────\u001b[39m",
+      "\u001b[38;2;167;152;215m→ model          <provider/model> — Select model (opens selector UI)\u001b[39m            ",
+      "  scoped-models\u001b[38;2;157;165;169m  Enable/disable models for Ctrl+P cycling\u001b[39m                       ",
+      "  import\u001b[38;2;157;165;169m         Import and resume a session from a JSONL file\u001b[39m                  ",
+      "  name\u001b[38;2;157;165;169m           Set session display name\u001b[39m                                       ",
+      "  compact\u001b[38;2;157;165;169m        Manually compact the session context\u001b[39m                           ",
+      "\u001b[38;2;157;165;169m  (1/6)\u001b[39m                                                                         ",
+      "\u001b[38;2;126;136;142m/tmp/pi-golden-screens/project\u001b[39m",
+      "\u001b[38;2;126;136;142m#%/128k (auto)\u001b[39m\u001b[38;2;126;136;142m                                                   (faux) faux-1\u001b[39m",
+      "\u0000terminal",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "────────────────────────────────────────────────────────────────────────────────",
+      "/m",
+      "────────────────────────────────────────────────────────────────────────────────",
+      "→ model          <provider/model> — Select model (opens selector UI)",
+      "  scoped-models  Enable/disable models for Ctrl+P cycling",
+      "  import         Import and resume a session from a JSONL file",
+      "  name           Set session display name",
+      "  compact        Manually compact the session context",
+      "  (1/6)",
+      "/tmp/pi-golden-screens/project",
+      "#%/128k (auto)                                                   (faux) faux-1"
+     ]
+    ],
+    "light": [
+     [
+      "",
+      "",
+      "\u001b[38;2;194;200;202m────────────────────────────────────────────────────────────────────────────────\u001b[39m",
+      "/m\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007                                                                             ",
+      "\u001b[38;2;194;200;202m────────────────────────────────────────────────────────────────────────────────\u001b[39m",
+      "\u001b[38;2;116;89;180m→ model          <provider/model> — Select model (opens selector UI)\u001b[39m            ",
+      "  scoped-models\u001b[38;2;103;113;118m  Enable/disable models for Ctrl+P cycling\u001b[39m                       ",
+      "  import\u001b[38;2;103;113;118m         Import and resume a session from a JSONL file\u001b[39m                  ",
+      "  name\u001b[38;2;103;113;118m           Set session display name\u001b[39m                                       ",
+      "  compact\u001b[38;2;103;113;118m        Manually compact the session context\u001b[39m                           ",
+      "\u001b[38;2;103;113;118m  (1/6)\u001b[39m                                                                         ",
+      "\u001b[38;2;135;144;149m/tmp/pi-golden-screens/project\u001b[39m",
+      "\u001b[38;2;135;144;149m#%/128k (auto)\u001b[39m\u001b[38;2;135;144;149m                                                   (faux) faux-1\u001b[39m",
+      "\u0000terminal",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "────────────────────────────────────────────────────────────────────────────────",
+      "/m",
+      "────────────────────────────────────────────────────────────────────────────────",
+      "→ model          <provider/model> — Select model (opens selector UI)",
+      "  scoped-models  Enable/disable models for Ctrl+P cycling",
+      "  import         Import and resume a session from a JSONL file",
+      "  name           Set session display name",
+      "  compact        Manually compact the session context",
+      "  (1/6)",
+      "/tmp/pi-golden-screens/project",
+      "#%/128k (auto)                                                   (faux) faux-1"
+     ]
+    ]
+   }
+  },
+  {
+   "name": "bash-command/80x24",
+   "kind": "screen",
+   "input": {
+    "columns": 80,
+    "rows": 24,
+    "settings": {
+     "quietStartup": true
+    },
+    "steps": [
+     {
+      "type": "!"
+     },
+     {
+      "type": "e"
+     },
+     {
+      "type": "c"
+     },
+     {
+      "type": "h"
+     },
+     {
+      "type": "o"
+     },
+     {
+      "type": " "
+     },
+     {
+      "type": "h"
+     },
+     {
+      "type": "i"
+     },
+     {
+      "type": "\r"
+     },
+     {
+      "wait": "$ echo hi"
+     },
+     {
+      "idle": true
+     }
+    ]
+   },
+   "widths": [
+    80
+   ],
+   "out": {
+    "dark": [
+     [
+      "",
+      "",
+      "\u001b[38;2;108;118;123m────────────────────────────────────────────────────────────────────────────────\u001b[39m",
+      "\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007                                                                               ",
+      "\u001b[38;2;108;118;123m────────────────────────────────────────────────────────────────────────────────\u001b[39m",
+      "\u001b[38;2;126;136;142m/tmp/pi-golden-screens/project\u001b[39m",
+      "\u001b[38;2;126;136;142m#%/128k (auto)\u001b[39m\u001b[38;2;126;136;142m                                                   (faux) faux-1\u001b[39m",
+      "\u0000terminal",
+      "",
+      "────────────────────────────────────────────────────────────────────────────────",
+      " $ echo hi",
+      "",
+      " hi",
+      "",
+      "────────────────────────────────────────────────────────────────────────────────",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "────────────────────────────────────────────────────────────────────────────────",
+      "",
+      "────────────────────────────────────────────────────────────────────────────────",
+      "/tmp/pi-golden-screens/project",
+      "#%/128k (auto)                                                   (faux) faux-1"
+     ]
+    ],
+    "light": [
+     [
+      "",
+      "",
+      "\u001b[38;2;194;200;202m────────────────────────────────────────────────────────────────────────────────\u001b[39m",
+      "\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007                                                                               ",
+      "\u001b[38;2;194;200;202m────────────────────────────────────────────────────────────────────────────────\u001b[39m",
+      "\u001b[38;2;135;144;149m/tmp/pi-golden-screens/project\u001b[39m",
+      "\u001b[38;2;135;144;149m#%/128k (auto)\u001b[39m\u001b[38;2;135;144;149m                                                   (faux) faux-1\u001b[39m",
+      "\u0000terminal",
+      "",
+      "────────────────────────────────────────────────────────────────────────────────",
+      " $ echo hi",
+      "",
+      " hi",
+      "",
+      "────────────────────────────────────────────────────────────────────────────────",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "────────────────────────────────────────────────────────────────────────────────",
+      "",
+      "────────────────────────────────────────────────────────────────────────────────",
+      "/tmp/pi-golden-screens/project",
+      "#%/128k (auto)                                                   (faux) faux-1"
+     ]
+    ]
+   }
+  },
+  {
+   "name": "tools-expanded/100x40",
+   "kind": "screen",
+   "input": {
+    "columns": 100,
+    "rows": 40,
+    "settings": {
+     "quietStartup": true
+    },
+    "steps": [
+     {
+      "responses": [
+       {
+        "role": "assistant",
+        "content": [
+         {
+          "type": "thinking",
+          "thinking": "Let me look at the files."
+         },
+         {
+          "type": "toolCall",
+          "id": "call_ls",
+          "name": "ls",
+          "arguments": {
+           "path": "."
+          }
+         }
+        ],
+        "api": "faux",
+        "provider": "faux",
+        "model": "faux-1",
+        "usage": {
+         "input": 0,
+         "output": 0,
+         "cacheRead": 0,
+         "cacheWrite": 0,
+         "totalTokens": 0,
+         "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+         }
+        },
+        "stopReason": "toolUse",
+        "timestamp": 0
+       },
+       {
+        "role": "assistant",
+        "content": [
+         {
+          "type": "text",
+          "text": "The project has two files:\n\n| File | Purpose |\n|---|---|\n| `README.md` | docs |\n| `main.ts` | entry point |"
+         }
+        ],
+        "api": "faux",
+        "provider": "faux",
+        "model": "faux-1",
+        "usage": {
+         "input": 0,
+         "output": 0,
+         "cacheRead": 0,
+         "cacheWrite": 0,
+         "totalTokens": 0,
+         "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+         }
+        },
+        "stopReason": "stop",
+        "timestamp": 0
+       }
+      ]
+     },
+     {
+      "type": "list the files"
+     },
+     {
+      "type": "\r"
+     },
+     {
+      "wait": "entry point"
+     },
+     {
+      "idle": true
+     },
+     {
+      "type": "\u000f"
+     }
+    ]
+   },
+   "widths": [
+    100
+   ],
+   "out": {
+    "dark": [
+     [
+      "\u001b]133;A\u0007\u001b[48;2;33;59;73m                                                                                                    \u001b[49m",
+      "",
+      "\u001b[38;2;108;118;123m────────────────────────────────────────────────────────────────────────────────────────────────────\u001b[39m",
+      "\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007                                                                                                   ",
+      "\u001b[38;2;108;118;123m────────────────────────────────────────────────────────────────────────────────────────────────────\u001b[39m",
+      "\u001b[38;2;126;136;142m/tmp/pi-golden-screens/project\u001b[39m",
+      "\u001b[38;2;126;136;142m↑# ↓38 #%/128k (auto)\u001b[39m\u001b[38;2;126;136;142m                                                             (faux) faux-1\u001b[39m",
+      "\u0000terminal",
+      "",
+      " list the files",
+      "",
+      "",
+      " Let me look at the files.",
+      "",
+      "",
+      " ls .",
+      "",
+      " main.ts",
+      " README.md",
+      "",
+      "",
+      " The project has two files:",
+      "",
+      " ┌───────────┬─────────────┐",
+      " │ File      │ Purpose     │",
+      " ├───────────┼─────────────┤",
+      " │ README.md │ docs        │",
+      " ├───────────┼─────────────┤",
+      " │ main.ts   │ entry point │",
+      " └───────────┴─────────────┘",
+      "",
+      " Tool output: expanded",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "────────────────────────────────────────────────────────────────────────────────────────────────────",
+      "",
+      "────────────────────────────────────────────────────────────────────────────────────────────────────",
+      "/tmp/pi-golden-screens/project",
+      "↑# ↓38 #%/128k (auto)                                                             (faux) faux-1"
+     ]
+    ],
+    "light": [
+     [
+      "\u001b]133;A\u0007\u001b[48;2;223;231;236m                                                                                                    \u001b[49m",
+      "",
+      "\u001b[38;2;194;200;202m────────────────────────────────────────────────────────────────────────────────────────────────────\u001b[39m",
+      "\u001b_pi:c\u0007\u001b_pi:fc\u0007 \u001b_pi:/fc\u0007                                                                                                   ",
+      "\u001b[38;2;194;200;202m────────────────────────────────────────────────────────────────────────────────────────────────────\u001b[39m",
+      "\u001b[38;2;135;144;149m/tmp/pi-golden-screens/project\u001b[39m",
+      "\u001b[38;2;135;144;149m↑# ↓38 #%/128k (auto)\u001b[39m\u001b[38;2;135;144;149m                                                             (faux) faux-1\u001b[39m",
+      "\u0000terminal",
+      "",
+      " list the files",
+      "",
+      "",
+      " Let me look at the files.",
+      "",
+      "",
+      " ls .",
+      "",
+      " main.ts",
+      " README.md",
+      "",
+      "",
+      " The project has two files:",
+      "",
+      " ┌───────────┬─────────────┐",
+      " │ File      │ Purpose     │",
+      " ├───────────┼─────────────┤",
+      " │ README.md │ docs        │",
+      " ├───────────┼─────────────┤",
+      " │ main.ts   │ entry point │",
+      " └───────────┴─────────────┘",
+      "",
+      " Tool output: expanded",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "────────────────────────────────────────────────────────────────────────────────────────────────────",
+      "",
+      "────────────────────────────────────────────────────────────────────────────────────────────────────",
+      "/tmp/pi-golden-screens/project",
+      "↑# ↓38 #%/128k (auto)                                                             (faux) faux-1"
+     ]
+    ]
+   }
+  }
+ ]
+}

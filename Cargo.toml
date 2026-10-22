@@ -46,6 +46,7 @@ bytes = "1"
 unicode-width = "0.2"
 unicode-segmentation = "1"
 icu_segmenter = "2"
+icu_collator = "~2.3"
 fancy-regex = "0.14"
 libc = "0.2"
 boa_engine = { version = "0.22", features = ["annex-b"] }

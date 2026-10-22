@@ -2763,3 +2763,154 @@ async fn rejects_an_rpc_prompt_while_manual_compaction_is_in_progress() {
     assert!(harness.events_of_type("agent_settled").is_empty());
     harness.cleanup();
 }
+
+// #7193: extension event-bus lifecycle.
+mod event_bus_lifecycle {
+    use super::*;
+    use pi_coding_agent::core::agent_session::ExtensionBindings;
+    use pi_coding_agent::core::event_bus::{EventBus, EventBusController, create_event_bus};
+    use pi_coding_agent::core::extensions::loader::{create_extension_runtime, load_extension_from_factory};
+    use pi_coding_agent::core::extensions::types::{ExtensionFactory, LoadExtensionsResult};
+    use pi_coding_agent::core::resource_loader::{
+        ResourceExtensionPaths, ResourceLoader, ResourceLoaderGetAgentsFilesResult,
+        ResourceLoaderGetAppendSystemPromptSourcesResult, ResourceLoaderGetPromptsResult,
+        ResourceLoaderGetSkillsResult, ResourceLoaderGetSystemPromptSourceResult,
+        ResourceLoaderGetThemesResult, ResourceLoaderReloadOptions,
+    };
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct ReloadingLoader {
+        factory: ExtensionFactory,
+        event_bus: Arc<dyn EventBusController>,
+        result: Mutex<Option<LoadExtensionsResult>>,
+    }
+
+    impl ReloadingLoader {
+        async fn load_extensions(&self) -> LoadExtensionsResult {
+            let runtime = create_extension_runtime();
+            let cwd = std::env::current_dir().unwrap().to_string_lossy().into_owned();
+            let bus: Arc<dyn EventBus> = self.event_bus.clone();
+            let extension = load_extension_from_factory(&self.factory, &cwd, bus, runtime.clone(), None)
+                .await
+                .unwrap();
+            LoadExtensionsResult {
+                extensions: vec![extension],
+                errors: Vec::new(),
+                warnings: None,
+                runtime,
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ResourceLoader for ReloadingLoader {
+        fn get_extensions(&self) -> LoadExtensionsResult {
+            self.result.lock().clone().unwrap()
+        }
+        fn get_skills(&self) -> ResourceLoaderGetSkillsResult {
+            ResourceLoaderGetSkillsResult::default()
+        }
+        fn get_prompts(&self) -> ResourceLoaderGetPromptsResult {
+            ResourceLoaderGetPromptsResult::default()
+        }
+        fn get_themes(&self) -> ResourceLoaderGetThemesResult {
+            ResourceLoaderGetThemesResult::default()
+        }
+        fn get_agents_files(&self) -> ResourceLoaderGetAgentsFilesResult {
+            ResourceLoaderGetAgentsFilesResult {
+                agents_files: Vec::new(),
+            }
+        }
+        fn get_system_prompt(&self) -> Option<String> {
+            None
+        }
+        fn get_system_prompt_source(&self) -> Option<ResourceLoaderGetSystemPromptSourceResult> {
+            None
+        }
+        fn get_append_system_prompt(&self) -> Vec<String> {
+            Vec::new()
+        }
+        fn get_append_system_prompt_sources(&self) -> Vec<ResourceLoaderGetAppendSystemPromptSourcesResult> {
+            Vec::new()
+        }
+        fn extend_resources(&self, _paths: &ResourceExtensionPaths) {}
+        async fn reload(&self, _options: Option<&ResourceLoaderReloadOptions>) -> anyhow::Result<()> {
+            let result = self.load_extensions().await;
+            *self.result.lock() = Some(result);
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn removes_extension_owned_event_bus_listeners_on_reload_and_dispose() {
+        let event_bus = create_event_bus();
+        let extension_calls = Arc::new(AtomicUsize::new(0));
+        let host_calls = Arc::new(AtomicUsize::new(0));
+        let first_api = Arc::new(Mutex::new(None::<ExtensionAPIRef>));
+        let (ec, fa) = (extension_calls.clone(), first_api.clone());
+        let factory: ExtensionFactory = Arc::new(move |pi: ExtensionAPIRef| {
+            let ec = ec.clone();
+            let fa = fa.clone();
+            Box::pin(async move {
+                fa.lock().get_or_insert_with(|| pi.clone());
+                pi.events().on(
+                    "reload:test",
+                    Arc::new(move |_| {
+                        ec.fetch_add(1, Ordering::SeqCst);
+                    }),
+                );
+                Ok(())
+            })
+        });
+        let hc = host_calls.clone();
+        event_bus.on(
+            "reload:test",
+            Arc::new(move |_| {
+                hc.fetch_add(1, Ordering::SeqCst);
+            }),
+        );
+        let loader = Arc::new(ReloadingLoader {
+            factory,
+            event_bus: event_bus.clone(),
+            result: Mutex::new(None),
+        });
+        loader.reload(None).await.unwrap();
+        let harness = create_harness(HarnessOptions {
+            resource_loader: Some(loader),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        harness
+            .session
+            .bind_extensions(&ExtensionBindings {
+                shutdown_handler: Some(Arc::new(|| {})),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        let emit = || async {
+            let extension_before = extension_calls.load(Ordering::SeqCst);
+            let host_before = host_calls.load(Ordering::SeqCst);
+            event_bus.emit("reload:test", Value::Null);
+            tokio::task::yield_now().await;
+            (
+                extension_calls.load(Ordering::SeqCst) - extension_before,
+                host_calls.load(Ordering::SeqCst) - host_before,
+            )
+        };
+
+        assert_eq!(emit().await, (1, 1));
+        harness.session.reload(None).await.unwrap();
+        let stale = first_api.lock().clone().unwrap().get_commands().unwrap_err();
+        assert!(stale.to_string().contains("stale after session replacement or reload"), "{stale}");
+        assert_eq!(emit().await, (1, 1));
+        harness.session.reload(None).await.unwrap();
+        assert_eq!(emit().await, (1, 1));
+
+        harness.session.dispose();
+        assert_eq!(emit().await, (0, 1));
+        harness.cleanup();
+    }
+}

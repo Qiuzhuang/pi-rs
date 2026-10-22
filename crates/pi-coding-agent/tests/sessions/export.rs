@@ -32,7 +32,9 @@ async fn export_from_file_embeds_session_data_and_assets() {
         .unwrap();
     assert_eq!(written, out);
     let html = std::fs::read_to_string(&out).unwrap();
-    assert!(!html.contains("{{CSS}}") && !html.contains("{{JS}}") && !html.contains("{{HIGHLIGHT_JS}}"));
+    // The vendored highlight.js contains `$&`, which `String.prototype.replace` expands to the
+    // placeholder text (TS exports carry it too), so only the template slot is checked.
+    assert!(!html.contains("{{CSS}}") && !html.contains("{{JS}}") && !html.contains("<script>{{HIGHLIGHT_JS}}</script>"));
     assert!(html.contains("--exportPageBg:"));
     let data = session_data(&html);
     assert_eq!(data["header"]["type"], "session");

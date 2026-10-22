@@ -786,7 +786,7 @@ impl RpcModeState {
 
     /// Handle one input line (a command or an `extension_ui_response`).
     async fn handle_input_line(self: &Arc<Self>, line: String) {
-        let parsed: Value = match serde_json::from_str(&line) {
+        let parsed: Value = match crate::utils::js_json::js_json_parse(&line) {
             Ok(value) => value,
             Err(parse_error) => {
                 self.output(&RpcResponse::error(None, "parse", format!("Failed to parse command: {parse_error}")));
@@ -921,6 +921,7 @@ pub async fn run_rpc_session<R: AsyncRead + Unpin>(
     let signal = next_signal(io.handle_signals);
     tokio::pin!(signal);
 
+    let mut input_ended = false;
     let exit = loop {
         tokio::select! {
             line = reader.next_line() => match line {
@@ -929,7 +930,10 @@ pub async fn run_rpc_session<R: AsyncRead + Unpin>(
                     in_flight.push(Box::pin(async move { state.handle_input_line(line).await }));
                 }
                 // Input ended (or failed): shut down.
-                _ => break RpcModeExit { exit_code: 0, sigterm: false },
+                _ => {
+                    input_ended = true;
+                    break RpcModeExit { exit_code: 0, sigterm: false };
+                }
             },
             Some(()) = in_flight.next(), if !in_flight.is_empty() => {}
             _ = state.shutdown_check.notified() => {
@@ -944,10 +948,30 @@ pub async fn run_rpc_session<R: AsyncRead + Unpin>(
         }
     };
 
-    drop(in_flight);
     state.subscriptions.lock().clear();
     runtime_host.set_rebind_session(None);
-    runtime_host.dispose().await?;
+    if input_ended {
+        // TS `shutdown()` on stdin end: commands already dispatched keep running (their responses
+        // are still written) while the runtime is disposed; whatever is unfinished when disposal
+        // completes ends with the process. TS starts each handler synchronously when its line
+        // arrives, so first let every dispatched command run until it waits.
+        while let Some(Some(())) = futures::FutureExt::now_or_never(in_flight.next()) {}
+        let dispose = runtime_host.dispose();
+        tokio::pin!(dispose);
+        loop {
+            tokio::select! {
+                result = &mut dispose => {
+                    result?;
+                    break;
+                }
+                Some(()) = in_flight.next(), if !in_flight.is_empty() => {}
+            }
+        }
+        drop(in_flight);
+    } else {
+        drop(in_flight);
+        runtime_host.dispose().await?;
+    }
     Ok(exit)
 }
 

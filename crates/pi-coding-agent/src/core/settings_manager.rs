@@ -803,7 +803,7 @@ impl SettingsManager {
     }
 
     fn parse_settings_object(content: &str) -> anyhow::Result<JsonMap> {
-        let parsed: Value = serde_json::from_str(&strip_bom(content))?;
+        let parsed: Value = crate::utils::js_json::js_json_parse(&strip_bom(content)).map_err(anyhow::Error::msg)?;
         match parsed {
             Value::Object(map) => Ok(map),
             other => anyhow::bail!(

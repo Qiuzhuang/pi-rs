@@ -292,7 +292,7 @@ impl ModelConfig {
 
     /// Parse models.json content (the part of `load` after reading the file).
     pub fn from_content(content: &str, path: &str) -> ModelConfig {
-        let parsed: Value = match serde_json::from_str(&strip_json_comments(&strip_bom(content))) {
+        let parsed: Value = match crate::utils::js_json::js_json_parse(&strip_json_comments(&strip_bom(content))) {
             Ok(parsed) => parsed,
             Err(error) => {
                 return ModelConfig::new(

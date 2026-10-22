@@ -774,7 +774,7 @@ fn parse_storage_data(content: Option<&str>) -> anyhow::Result<RawAuthData> {
     match content {
         None | Some("") => Ok(RawAuthData::new()),
         Some(content) => {
-            let parsed: Value = serde_json::from_str(&strip_bom(content))?;
+            let parsed: Value = crate::utils::js_json::js_json_parse(&strip_bom(content)).map_err(anyhow::Error::msg)?;
             match parsed {
                 Value::Object(map) => Ok(map.into_iter().collect()),
                 Value::Null => Ok(RawAuthData::new()),

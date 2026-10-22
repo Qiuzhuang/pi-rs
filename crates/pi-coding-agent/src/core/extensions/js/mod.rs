@@ -364,25 +364,25 @@ impl JsExtensionHost {
     /// Start a new JS runtime with pi's virtual modules.
     pub async fn new(cwd: &str) -> anyhow::Result<JsExtensionHost> {
         let mut virtual_modules = HashMap::new();
-        virtual_modules.insert(BRIDGE_SPECIFIER.to_string(), VirtualModule::Esm(BRIDGE_JS.to_string()));
-        virtual_modules.insert("pi-rs:marked".to_string(), VirtualModule::Esm(MARKED_JS.to_string()));
+        virtual_modules.insert(BRIDGE_SPECIFIER.to_string(), VirtualModule::EsmJs(BRIDGE_JS.to_string()));
+        virtual_modules.insert("pi-rs:marked".to_string(), VirtualModule::EsmJs(MARKED_JS.to_string()));
         for (specifier, source) in TYPEBOX_MODULES {
-            virtual_modules.insert(specifier.to_string(), VirtualModule::Esm(source.to_string()));
+            virtual_modules.insert(specifier.to_string(), VirtualModule::EsmJs(source.to_string()));
         }
-        virtual_modules.insert("@earendil-works/pi-tui".to_string(), VirtualModule::Esm(PI_TUI_JS.to_string()));
-        virtual_modules.insert("@earendil-works/pi-ai".to_string(), VirtualModule::Esm(PI_AI_JS.to_string()));
-        virtual_modules.insert("pi-rs:ai-core".to_string(), VirtualModule::Esm(PI_AI_CORE_JS.to_string()));
-        virtual_modules.insert("pi-rs:ai-faux".to_string(), VirtualModule::Esm(PI_AI_FAUX_JS.to_string()));
-        virtual_modules.insert("pi-rs:ai-rust".to_string(), VirtualModule::Esm(PI_AI_RUST_JS.to_string()));
-        virtual_modules.insert("@earendil-works/pi-ai/models".to_string(), VirtualModule::Esm(PI_AI_MODELS_JS.to_string()));
+        virtual_modules.insert("@earendil-works/pi-tui".to_string(), VirtualModule::EsmJs(PI_TUI_JS.to_string()));
+        virtual_modules.insert("@earendil-works/pi-ai".to_string(), VirtualModule::EsmJs(PI_AI_JS.to_string()));
+        virtual_modules.insert("pi-rs:ai-core".to_string(), VirtualModule::EsmJs(PI_AI_CORE_JS.to_string()));
+        virtual_modules.insert("pi-rs:ai-faux".to_string(), VirtualModule::EsmJs(PI_AI_FAUX_JS.to_string()));
+        virtual_modules.insert("pi-rs:ai-rust".to_string(), VirtualModule::EsmJs(PI_AI_RUST_JS.to_string()));
+        virtual_modules.insert("@earendil-works/pi-ai/models".to_string(), VirtualModule::EsmJs(PI_AI_MODELS_JS.to_string()));
         virtual_modules
-            .insert("@earendil-works/pi-ai/providers/all".to_string(), VirtualModule::Esm(PI_AI_PROVIDERS_ALL_JS.to_string()));
+            .insert("@earendil-works/pi-ai/providers/all".to_string(), VirtualModule::EsmJs(PI_AI_PROVIDERS_ALL_JS.to_string()));
         // Types only (OAuth declaration compatibility entry point).
-        virtual_modules.insert("@earendil-works/pi-ai/oauth".to_string(), VirtualModule::Esm("export {};".to_string()));
+        virtual_modules.insert("@earendil-works/pi-ai/oauth".to_string(), VirtualModule::EsmJs("export {};".to_string()));
         virtual_modules
-            .insert("@earendil-works/pi-agent-core".to_string(), VirtualModule::Esm(PI_AGENT_CORE_JS.to_string()));
+            .insert("@earendil-works/pi-agent-core".to_string(), VirtualModule::EsmJs(PI_AGENT_CORE_JS.to_string()));
         virtual_modules
-            .insert("@earendil-works/pi-coding-agent".to_string(), VirtualModule::Esm(PI_CODING_AGENT_JS.to_string()));
+            .insert("@earendil-works/pi-coding-agent".to_string(), VirtualModule::EsmJs(PI_CODING_AGENT_JS.to_string()));
         let mut aliases = HashMap::new();
         for (from, to) in [
             ("@sinclair/typebox", "typebox"),
@@ -482,8 +482,9 @@ impl JsExtensionHost {
             Ok(())
         }));
         *bridge.session_cleanup.lock() = Some(Box::new(unregister));
-        // pi-ai defines the stream class used by host-backed streams.
-        rt.import("@earendil-works/pi-ai").await.map_err(js_error)?;
+        // pi-ai's glue defines the stream class used by host-backed streams. The entry point itself
+        // also re-exports TypeBox's `Type`, which loads only when an extension imports pi-ai or TypeBox.
+        rt.import("pi-rs:ai-rust").await.map_err(js_error)?;
         Ok(JsExtensionHost { bridge })
     }
 

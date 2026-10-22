@@ -7,7 +7,13 @@
 // `createModels()`. Tool-argument validation and partial-JSON parsing use the Rust pi-ai crate.
 
 import { call } from "pi-rs:bridge";
-import { Type } from "typebox";
+import { createRequire } from "module";
+
+// TypeBox (the largest module behind pi-ai) loads on first use: `StringEnum` is its only user here.
+// `require` returns the same module instance an `import` of "typebox" gets.
+const requireModule = createRequire(import.meta.url);
+let typeboxType;
+const lazyType = () => (typeboxType ??= requireModule("typebox").Type);
 
 const ai = (fn, ...args) => {
 	const value = call("ai", { fn, args });
@@ -1028,7 +1034,7 @@ export function withClientIdentity(models, identity) {
 
 /** String enum schema compatible with providers that don't support anyOf/const patterns. */
 export function StringEnum(values, options) {
-	return Type.Unsafe({
+	return lazyType().Unsafe({
 		type: "string",
 		enum: values,
 		...(options?.description && { description: options.description }),

@@ -83,6 +83,131 @@ debug = "line-tables-only"
 [profile.dev.package."*"]
 debug = false
 
+# The embedded JavaScript engine parses and compiles every extension module (and pi's bundled
+# glue, TypeBox and marked) when an extension loads; unoptimized, with debug assertions, it is
+# several times slower, which dominates debug builds and tests. Optimize just the engine, its hot
+# dependencies and the TypeScript stripper (release semantics, so behavior is identical).
+[profile.dev.package.boa_engine]
+opt-level = 2
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.boa_parser]
+opt-level = 2
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.boa_ast]
+opt-level = 2
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.boa_interner]
+opt-level = 2
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.boa_gc]
+opt-level = 2
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.boa_string]
+opt-level = 2
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.regress]
+opt-level = 2
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.icu_properties]
+opt-level = 2
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.icu_collections]
+opt-level = 2
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.hashbrown]
+opt-level = 2
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.indexmap]
+opt-level = 2
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package."rustc-hash"]
+opt-level = 2
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package."fast-float2"]
+opt-level = 2
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package."num-bigint"]
+opt-level = 2
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package."thin-vec"]
+opt-level = 2
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.small_btree]
+opt-level = 2
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package."ryu-js"]
+opt-level = 2
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.dashmap]
+opt-level = 2
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package."intrusive-collections"]
+opt-level = 2
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.arrayvec]
+opt-level = 2
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.oxc_allocator]
+opt-level = 2
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.oxc_ast]
+opt-level = 2
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.oxc_span]
+opt-level = 2
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.oxc_syntax]
+opt-level = 2
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.oxc_ecmascript]
+opt-level = 2
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.oxc_parser]
+opt-level = 2
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.oxc_semantic]
+opt-level = 2
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.oxc_transformer]
+opt-level = 2
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.oxc_traverse]
+opt-level = 2
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.oxc_codegen]
+opt-level = 2
+debug-assertions = false
+overflow-checks = false
+
 [profile.test]
 debug = "line-tables-only"
 incremental = false

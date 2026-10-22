@@ -30,6 +30,9 @@ pub type ExitHandler = Arc<dyn Fn(i32) + Send + Sync>;
 pub enum VirtualModule {
     /// ES module source text (TypeScript syntax is accepted and stripped).
     Esm(String),
+    /// Plain JavaScript ES module source, parsed as is (no TypeScript stripping pass). Use it
+    /// for prebuilt bundles and glue: it skips a full parse and print of the source.
+    EsmJs(String),
     /// CommonJS source text (`module.exports = ...`).
     CommonJs(String),
     /// A JSON value exported as `default`.

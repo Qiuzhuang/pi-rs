@@ -446,6 +446,11 @@ impl Loader {
                         Module::parse(Source::from_bytes(out.code.as_bytes()).with_path(&path), None, ctx)
                             .map_err(|e| error::from_boa(e, ctx))?
                     }
+                    VirtualModule::EsmJs(src) => {
+                        let path = PathBuf::from(format!("virtual:{spec}"));
+                        Module::parse(Source::from_bytes(src.as_bytes()).with_path(&path), None, ctx)
+                            .map_err(|e| error::from_boa(e, ctx))?
+                    }
                     _ => {
                         let value = self.require_resolved(ctx, resolved).map_err(|e| error::from_boa(e, ctx))?;
                         synthetic_from_value(ctx, value, None, true).map_err(|e| error::from_boa(e, ctx))?
@@ -491,7 +496,7 @@ impl Loader {
                     return Err(JsNativeError::error().with_message(format!("Cannot find module '{spec}'")).into());
                 };
                 match vm {
-                    VirtualModule::Esm(_) => self.require_esm(ctx, resolved),
+                    VirtualModule::Esm(_) | VirtualModule::EsmJs(_) => self.require_esm(ctx, resolved),
                     VirtualModule::CommonJs(src) => {
                         let path = PathBuf::from(format!("virtual:{spec}"));
                         self.run_cjs(ctx, &key, &path, &src)

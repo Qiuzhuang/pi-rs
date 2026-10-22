@@ -8,3 +8,4 @@ mod support;
 
 mod anthropic;
 mod openai_completions;
+mod openai_responses;

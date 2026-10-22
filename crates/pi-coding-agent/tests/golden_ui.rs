@@ -52,3 +52,10 @@ mod screens;
 fn golden_screens() {
     harness::run("screens.json", screens::build);
 }
+#[path = "golden/tui.rs"]
+mod tui;
+
+#[test]
+fn golden_tui() {
+    harness::run("tui.json", tui::build);
+}

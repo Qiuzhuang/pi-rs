@@ -67,6 +67,12 @@ pub fn lock() -> MutexGuard<'static, ()> {
             }
         }
     });
+    // Interactive mode loads every highlight.js grammar right after startup; render with all of them.
+    static LANGUAGES: Once = Once::new();
+    LANGUAGES.call_once(|| {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(pi_coding_agent::utils::syntax_highlight::load_all_highlight_languages()).unwrap();
+    });
     // Interactive mode installs the app keybindings globally; key hints read them from there.
     pi_tui::keybindings::set_keybindings(
         pi_coding_agent::core::keybindings::KeybindingsManager::new(None, None).tui_manager(),
@@ -146,10 +152,9 @@ pub fn run(file: &str, build: impl Fn(&str, &Value) -> Option<Built>) {
         }
         for (theme_name, expected_per_width) in &case.out {
             *CURRENT_THEME.lock() = theme_name.clone();
-            use_theme(theme_name);
-            if case.caps.is_some() {
-                set_caps(case.caps.as_ref());
-            }
+            // The theme's color mode follows the capabilities set before it is created.
+            set_caps(case.caps.as_ref());
+            init_theme(Some(theme_name), Some(false));
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 let Some(built) = build(&case.kind, &case.input) else {
                     return Err(format!("unknown kind {}", case.kind));

@@ -34,14 +34,18 @@ const { KeybindingsManager } = await ref("coding-agent/src/core/keybindings.ts")
 
 // Interactive mode installs the app keybindings globally; key hints read them from there.
 tui.setKeybindings(new KeybindingsManager({}));
+// Interactive mode loads every highlight.js grammar right after startup; render with all of them.
+const { loadAllHighlightLanguages } = await ref("coding-agent/src/utils/syntax-highlight.ts");
+await loadAllHighlightLanguages();
 
 /** Fixed terminal capabilities: truecolor, no inline images, no hyperlinks unless a case asks. */
 export function setCaps(overrides = {}) {
 	tui.setCapabilities({ images: null, trueColor: true, hyperlinks: false, ...overrides });
 }
 
-export function useTheme(name) {
-	setCaps();
+/** Select a theme; the theme's color mode follows the capabilities set before it is created. */
+export function useTheme(name, caps) {
+	setCaps(caps);
 	themeModule.initTheme(name, false);
 }
 
@@ -83,8 +87,7 @@ export class Golden {
 	}
 
 	#prepare(themeName, options) {
-		useTheme(themeName);
-		if (options.caps) setCaps(options.caps);
+		useTheme(themeName, options.caps);
 	}
 
 	#render(built, widths) {

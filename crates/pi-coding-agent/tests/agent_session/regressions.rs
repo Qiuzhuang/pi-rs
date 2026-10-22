@@ -2875,7 +2875,10 @@ mod event_bus_lifecycle {
             result: Mutex::new(None),
         });
         loader.reload(None).await.unwrap();
+        // `reload()` resets the global api registry.
+        let _exclusive = exclusive_api_registry().await;
         let harness = create_harness(HarnessOptions {
+            exclusive_api_registry: true,
             resource_loader: Some(loader),
             ..Default::default()
         })

@@ -620,9 +620,12 @@ async fn allows_before_agent_start_handlers_to_inject_custom_messages_and_modify
 
 #[tokio::test]
 async fn bind_extensions_emits_session_start_and_reload_emits_session_shutdown_then_session_start() {
+    // `reload()` resets the global api registry.
+    let _exclusive = exclusive_api_registry().await;
     let lifecycle = Arc::new(Mutex::new(Vec::<String>::new()));
     let l = lifecycle.clone();
     let harness = create_harness(HarnessOptions {
+        exclusive_api_registry: true,
         extension_factories: vec![ext(move |pi| {
             let l1 = l.clone();
             on_event::<SessionStartEvent, _, _>(&*pi, move |event, _ctx| {

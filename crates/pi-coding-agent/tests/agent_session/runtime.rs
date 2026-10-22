@@ -40,6 +40,13 @@ struct RuntimeTest {
     runtime: Arc<AgentSessionRuntime>,
     faux: FauxProviderRegistration,
     temp_dir: String,
+    /// Api-registry guard (see `support::shared_api_registry`).
+    _registry_guard: RegistryGuard,
+}
+
+enum RegistryGuard {
+    Shared(#[allow(dead_code)] tokio::sync::OwnedRwLockReadGuard<()>),
+    Exclusive(#[allow(dead_code)] Option<tokio::sync::OwnedRwLockWriteGuard<()>>),
 }
 
 impl RuntimeTest {
@@ -197,6 +204,7 @@ async fn create_runtime_for_test(
     bootstrap_model: bool,
     in_memory: bool,
 ) -> RuntimeTest {
+    let registry_guard = RegistryGuard::Shared(shared_api_registry().await);
     let temp_dir = cwd.unwrap_or_else(|| temp_dir("pi-runtime-suite"));
     let faux = register_faux();
     let model_runtime = model_runtime_for(&faux).await;
@@ -228,6 +236,7 @@ async fn create_runtime_for_test(
         runtime,
         faux,
         temp_dir,
+        _registry_guard: registry_guard,
     }
 }
 
@@ -859,6 +868,7 @@ mod replaced_session_context {
     }
 
     async fn create(setup: Setup, responses: &[&str]) -> RuntimeTest {
+        let registry_guard = RegistryGuard::Shared(shared_api_registry().await);
         let temp_dir = temp_dir("pi-2860");
         let faux = register_faux();
         faux.set_responses(responses.iter().map(|r| text(r)).collect());
@@ -890,6 +900,7 @@ mod replaced_session_context {
             runtime,
             faux,
             temp_dir,
+            _registry_guard: registry_guard,
         }
     }
 
@@ -1115,6 +1126,8 @@ async fn applies_updated_top_level_prompt_settings_on_reload_after_startup() {
     std::fs::create_dir_all(&prompts_dir).unwrap();
     std::fs::write(format!("{prompts_dir}/test.md"), "Echo test prompt\n").unwrap();
 
+    // `reload()` resets the global api registry.
+    let registry_guard = RegistryGuard::Exclusive(exclusive_api_registry().await);
     let faux = register_faux();
     let model_runtime = model_runtime_for(&faux).await;
     let provider = faux.get_model().provider.clone();
@@ -1196,6 +1209,7 @@ async fn applies_updated_top_level_prompt_settings_on_reload_after_startup() {
         runtime,
         faux,
         temp_dir,
+        _registry_guard: registry_guard,
     };
     let names = |runtime: &AgentSessionRuntime| -> Vec<String> {
         runtime.session().prompt_templates().into_iter().map(|p| p.name).collect()

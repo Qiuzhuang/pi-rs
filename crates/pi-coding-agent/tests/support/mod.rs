@@ -53,6 +53,38 @@ pub use pi_ai::providers::faux::{
     faux_tool_call,
 };
 
+// ---------------------------------------------------------------------------
+// Global api-registry isolation
+// ---------------------------------------------------------------------------
+
+/// `AgentSession::reload()` calls `reset_api_providers()` (as TS does), which clears every faux
+/// registration in the process-global api registry. Vitest isolates test files; Rust tests share
+/// one process, so faux-backed tests hold a shared guard while they run and tests that reload take
+/// the exclusive one.
+static API_REGISTRY_LOCK: std::sync::LazyLock<Arc<tokio::sync::RwLock<()>>> =
+    std::sync::LazyLock::new(|| Arc::new(tokio::sync::RwLock::new(())));
+
+/// Shared guard for tests whose faux providers live in the global api registry.
+pub async fn shared_api_registry() -> tokio::sync::OwnedRwLockReadGuard<()> {
+    API_REGISTRY_LOCK.clone().read_owned().await
+}
+
+/// Exclusive guard for tests that reset the global api registry (`session.reload()`). Polls
+/// instead of queueing, so waiting never blocks new shared guards (a test may hold several), and
+/// gives up after a minute so a leaked harness cannot hang the suite.
+pub async fn exclusive_api_registry() -> Option<tokio::sync::OwnedRwLockWriteGuard<()>> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    loop {
+        if let Ok(guard) = API_REGISTRY_LOCK.clone().try_write_owned() {
+            return Some(guard);
+        }
+        if std::time::Instant::now() >= deadline {
+            return None;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+}
+
 /// Text of a message's content (text blocks joined by `\n`).
 pub fn get_message_text(message: &AgentMessage) -> String {
     match message {
@@ -230,6 +262,8 @@ pub struct HarnessOptions {
     pub with_configured_auth: Option<bool>,
     /// Session to continue, for example to test a resume. Default: a new in-memory session.
     pub session_manager: Option<Arc<SessionManager>>,
+    /// Do not take the shared api-registry guard: the test holds [`exclusive_api_registry`].
+    pub exclusive_api_registry: bool,
 }
 
 /// A session wired to the faux provider.
@@ -243,6 +277,8 @@ pub struct Harness {
     pub models: Vec<Model>,
     pub events: Arc<Mutex<Vec<AgentSessionEvent>>>,
     pub temp_dir: std::path::PathBuf,
+    /// Shared api-registry guard, released by [`Harness::cleanup`] or on drop.
+    pub registry_guard: Mutex<Option<tokio::sync::OwnedRwLockReadGuard<()>>>,
 }
 
 impl Harness {
@@ -330,6 +366,7 @@ impl Harness {
         self.session.dispose();
         self.faux.unregister();
         let _ = std::fs::remove_dir_all(&self.temp_dir);
+        self.registry_guard.lock().take();
     }
 }
 
@@ -367,6 +404,11 @@ pub fn provider_models(faux: &FauxProviderRegistration) -> Vec<ProviderModelConf
 
 /// Build a session on the faux provider (TS `createHarness`).
 pub async fn create_harness(options: HarnessOptions) -> anyhow::Result<Harness> {
+    let registry_guard = if options.exclusive_api_registry {
+        None
+    } else {
+        Some(shared_api_registry().await)
+    };
     let temp_dir = create_temp_dir();
     let cwd = temp_dir.to_string_lossy().into_owned();
     let faux = register_faux_provider(RegisterFauxProviderOptions {
@@ -533,5 +575,6 @@ pub async fn create_harness(options: HarnessOptions) -> anyhow::Result<Harness> 
         models,
         events,
         temp_dir,
+        registry_guard: Mutex::new(registry_guard),
     })
 }

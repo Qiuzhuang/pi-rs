@@ -314,3 +314,156 @@ mod session_discovery_symlink {
         assert_eq!(sessions.iter().map(|s| s.0.as_str()).collect::<Vec<_>>(), vec!["regular"]);
     }
 }
+
+// ---------------------------------------------------------------------------
+// resource-loader-theme.test.ts: theme color mode follows the settings (#9973) and themes are
+// validated strictly on load and reload. These set `PI_TRUE_COLOR` and the process-wide terminal
+// capability overrides, so they hold ENV_LOCK.
+// ---------------------------------------------------------------------------
+
+mod resource_loader_theme {
+    use super::*;
+    use pi_coding_agent::core::resource_loader::{DefaultResourceLoader, DefaultResourceLoaderOptions, ResourceLoader};
+    use pi_coding_agent::core::settings_manager::SettingsManager;
+    use pi_coding_agent::modes::interactive::theme::theme::set_theme_json_validator;
+    use pi_coding_agent::modes::interactive::theme::theme_schema::validate_theme_json;
+    use pi_coding_agent::modes::interactive::theme::theme_tokens::ThemeBg;
+    use pi_tui::terminal_image::{CapabilityOverrides, reset_capabilities_cache, set_capability_overrides};
+    use std::path::{Path, PathBuf};
+
+    const DARK_THEME: &str = include_str!("../src/modes/interactive/theme/dark.json");
+
+    struct Fixture {
+        _temp: tempfile::TempDir,
+        agent_dir: PathBuf,
+        cwd: PathBuf,
+        theme_path: PathBuf,
+        theme_json: Value,
+    }
+
+    fn fixture() -> Fixture {
+        let validator: pi_coding_agent::modes::interactive::theme::theme::ThemeJsonValidator =
+            Arc::new(|label, json| validate_theme_json(&label, json));
+        set_theme_json_validator(&validator);
+        let temp = tempfile::tempdir().unwrap();
+        let agent_dir = temp.path().join("agent");
+        let cwd = temp.path().join("project");
+        std::fs::create_dir_all(&agent_dir).unwrap();
+        std::fs::create_dir_all(&cwd).unwrap();
+        let mut theme_json: Value = serde_json::from_str(DARK_THEME).unwrap();
+        theme_json["name"] = json!("capability-test");
+        theme_json["colors"]["userMessageBg"] = json!("#3c3544");
+        let theme_path = temp.path().join("capability-test.json");
+        std::fs::write(&theme_path, theme_json.to_string()).unwrap();
+        Fixture { _temp: temp, agent_dir, cwd, theme_path, theme_json }
+    }
+
+    fn loader(fixture: &Fixture, settings_manager: Arc<SettingsManager>) -> DefaultResourceLoader {
+        DefaultResourceLoader::new(&DefaultResourceLoaderOptions {
+            cwd: fixture.cwd.to_string_lossy().into_owned(),
+            agent_dir: fixture.agent_dir.to_string_lossy().into_owned(),
+            settings_manager: Some(settings_manager),
+            additional_theme_paths: Some(vec![fixture.theme_path.to_string_lossy().into_owned()]),
+            no_extensions: Some(true),
+            no_skills: Some(true),
+            no_prompt_templates: Some(true),
+            no_context_files: Some(true),
+            ..Default::default()
+        })
+    }
+
+    fn user_message_bg(loader: &DefaultResourceLoader) -> Option<String> {
+        loader
+            .get_themes()
+            .themes
+            .iter()
+            .find(|theme| theme.name().as_deref() == Some("capability-test"))
+            .map(|theme| theme.bg(&ThemeBg::UserMessageBg, "x"))
+    }
+
+    fn reset_capabilities(true_color: Option<&str>) {
+        match true_color {
+            Some(value) => unsafe { std::env::set_var("PI_TRUE_COLOR", value) },
+            None => unsafe { std::env::remove_var("PI_TRUE_COLOR") },
+        }
+        set_capability_overrides(CapabilityOverrides::default());
+        reset_capabilities_cache();
+    }
+
+    // Regression test for #9973.
+    #[tokio::test]
+    async fn uses_the_true_color_setting_over_the_environment() {
+        let _guard = ENV_LOCK.lock();
+        let saved = std::env::var("PI_TRUE_COLOR").ok();
+        for (environment_override, setting, expected) in
+            [("0", true, "\x1b[48;2;60;53;68mx\x1b[49m"), ("1", false, "\x1b[48;5;59mx\x1b[49m")]
+        {
+            let fixture = fixture();
+            reset_capabilities(Some(environment_override));
+            let settings = SettingsManager::in_memory_json(
+                json!({ "terminal": { "trueColor": setting } }).as_object().unwrap().clone(),
+                None,
+            );
+            let loader = loader(&fixture, settings);
+            loader.reload(None).await.unwrap();
+            assert_eq!(user_message_bg(&loader).as_deref(), Some(expected), "trueColor {setting}");
+        }
+        reset_capabilities(saved.as_deref());
+    }
+
+    #[tokio::test]
+    async fn returns_to_automatic_detection_after_an_explicit_setting_is_removed() {
+        let _guard = ENV_LOCK.lock();
+        let saved = std::env::var("PI_TRUE_COLOR").ok();
+        reset_capabilities(Some("1"));
+        let fixture = fixture();
+        let settings_path = fixture.agent_dir.join("settings.json");
+        std::fs::write(&settings_path, json!({ "terminal": { "trueColor": false } }).to_string()).unwrap();
+        let settings = SettingsManager::create(
+            &fixture.cwd.to_string_lossy(),
+            Some(&fixture.agent_dir.to_string_lossy()),
+            None,
+        );
+        let loader = loader(&fixture, settings.clone());
+        loader.reload(None).await.unwrap();
+        set_capability_overrides(settings.get_terminal_capability_overrides());
+
+        std::fs::write(&settings_path, "{}").unwrap();
+        loader.reload(None).await.unwrap();
+        let bg = user_message_bg(&loader);
+        reset_capabilities(saved.as_deref());
+        assert_eq!(bg.as_deref(), Some("\x1b[48;2;60;53;68mx\x1b[49m"));
+    }
+
+    #[tokio::test]
+    async fn applies_strict_validation_on_initial_load_and_reload() {
+        let _guard = ENV_LOCK.lock();
+        let mut fixture = fixture();
+        let loader = loader(&fixture, SettingsManager::in_memory(None, None));
+        let write = |path: &Path, value: &Value| std::fs::write(path, value.to_string()).unwrap();
+
+        fixture.theme_json["unsupported"] = json!(true);
+        write(&fixture.theme_path, &fixture.theme_json);
+        loader.reload(None).await.unwrap();
+        let initial = loader.get_themes().diagnostics;
+        assert_eq!(initial.len(), 1, "{initial:?}");
+        let diagnostic = serde_json::to_value(&initial[0]).unwrap();
+        assert_eq!(diagnostic["type"], "warning");
+        assert_eq!(diagnostic["path"], json!(fixture.theme_path.to_string_lossy()));
+        assert!(diagnostic["message"].as_str().unwrap().contains("/unsupported"), "{diagnostic}");
+
+        fixture.theme_json.as_object_mut().unwrap().remove("unsupported");
+        write(&fixture.theme_path, &fixture.theme_json);
+        loader.reload(None).await.unwrap();
+        assert!(loader.get_themes().diagnostics.is_empty());
+        assert!(loader.get_themes().themes.iter().any(|t| t.name().as_deref() == Some("capability-test")));
+
+        fixture.theme_json["unsupported"] = json!(true);
+        write(&fixture.theme_path, &fixture.theme_json);
+        loader.reload(None).await.unwrap();
+        assert_eq!(
+            serde_json::to_value(loader.get_themes().diagnostics).unwrap(),
+            serde_json::to_value(&initial).unwrap()
+        );
+    }
+}

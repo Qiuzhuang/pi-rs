@@ -195,35 +195,34 @@ impl<'a> SchemaValidator<'a> {
                         !properties.is_some_and(|p| p.contains_key(*key)) && !patterns.iter().any(|r| r.is_match(key))
                     })
                     .collect();
-                match additional {
-                    Value::Bool(false) => {
-                        if !extra_keys.is_empty() {
-                            ok = false;
-                            sink.add(
-                                "additionalProperties",
-                                &format!("{schema_path}/additionalProperties"),
-                                instance_path,
-                                Vec::new(),
-                                "must not have additional properties".to_string(),
-                            );
+                // Like TypeBox: each extra property is checked against the `additionalProperties`
+                // schema (`false` reports "schema is false" at the property), then one
+                // `additionalProperties` error at the object lists the properties that failed.
+                if matches!(additional, Value::Bool(false) | Value::Object(_)) {
+                    let mut failed = false;
+                    for key in extra_keys {
+                        let child_path = format!("{instance_path}/{}", escape_pointer(key));
+                        if !self.validate(
+                            additional,
+                            &object[key.as_str()],
+                            &format!("{schema_path}/additionalProperties"),
+                            &child_path,
+                            sink,
+                            depth + 1,
+                        ) {
+                            failed = true;
                         }
                     }
-                    Value::Object(_) => {
-                        for key in extra_keys {
-                            let child_path = format!("{instance_path}/{}", escape_pointer(key));
-                            if !self.validate(
-                                additional,
-                                &object[key.as_str()],
-                                &format!("{schema_path}/additionalProperties"),
-                                &child_path,
-                                sink,
-                                depth + 1,
-                            ) {
-                                ok = false;
-                            }
-                        }
+                    if failed {
+                        ok = false;
+                        sink.add(
+                            "additionalProperties",
+                            schema_path,
+                            instance_path,
+                            Vec::new(),
+                            "must not have additional properties".to_string(),
+                        );
                     }
-                    _ => {}
                 }
             }
             if let Some(Value::Object(dependent)) = schema_obj.get("dependentRequired") {
@@ -1052,5 +1051,44 @@ mod tests {
         let err = validate_tool_arguments(&tool, &call).unwrap_err().0;
         assert!(err.starts_with("Validation failed for tool \"read\":\n  - path: must have required properties path\n  - limit: must be >= 1"), "{err}");
         assert!(err.ends_with("Received arguments:\n{\n  \"limit\": 0\n}"));
+    }
+
+    // Expected errors are the output of TypeBox 1.3.27 `Compile(schema).Errors(value)`.
+    #[test]
+    fn reports_additional_properties_like_typebox() {
+        let schema = json!({
+            "type": "object",
+            "properties": { "name": { "type": "string" }, "nested": { "type": "object", "properties": {}, "additionalProperties": false } },
+            "additionalProperties": false
+        });
+        let errors: Vec<(String, String, String, String)> = SchemaValidator::new(&schema)
+            .errors(&json!({ "name": "x", "unsupported": true, "nested": { "a": 1 } }))
+            .into_iter()
+            .map(|e| (e.keyword, e.schema_path, e.instance_path, e.message))
+            .collect();
+        let expected = [
+            ("boolean", "#/additionalProperties", "/unsupported", "schema is false"),
+            ("additionalProperties", "#", "", "must not have additional properties"),
+            ("boolean", "#/properties/nested/additionalProperties", "/nested/a", "schema is false"),
+            ("additionalProperties", "#/properties/nested", "/nested", "must not have additional properties"),
+        ];
+        assert_eq!(
+            errors,
+            expected.iter().map(|(a, b, c, d)| (a.to_string(), b.to_string(), c.to_string(), d.to_string())).collect::<Vec<_>>()
+        );
+
+        let schema = json!({ "type": "object", "properties": { "name": { "type": "string" } }, "additionalProperties": { "type": "number" } });
+        let errors: Vec<(String, String, String)> = SchemaValidator::new(&schema)
+            .errors(&json!({ "name": "x", "extra": "s" }))
+            .into_iter()
+            .map(|e| (e.keyword, e.schema_path, e.instance_path))
+            .collect();
+        assert_eq!(
+            errors,
+            vec![
+                ("type".to_string(), "#/additionalProperties".to_string(), "/extra".to_string()),
+                ("additionalProperties".to_string(), "#".to_string(), String::new()),
+            ]
+        );
     }
 }

@@ -833,3 +833,94 @@ async fn applies_skills_and_system_prompt_overrides() {
         Some("Custom system prompt")
     );
 }
+
+// ---------------------------------------------------------------------------
+// suite/regressions/2781-skill-collision-precedence.test.ts: user and project skills override
+// package skills of the same name.
+// ---------------------------------------------------------------------------
+
+fn create_package_with_skill(dirs: &Dirs, name: &str, description: &str) -> String {
+    let pkg_dir = node_join(&[&dirs.temp_dir, &format!("fake-package-{name}")]);
+    write(
+        &node_join(&[&pkg_dir, "package.json"]),
+        &serde_json::to_string_pretty(&serde_json::json!({
+            "name": format!("fake-pkg-{name}"), "version": "1.0.0", "pi": { "skills": [format!("skills/{name}")] }
+        }))
+        .unwrap(),
+    );
+    write(
+        &node_join(&[&pkg_dir, "skills", name, "SKILL.md"]),
+        &format!("---\nname: {name}\ndescription: {description}\n---\nPackage skill content"),
+    );
+    pkg_dir
+}
+
+fn create_skill(root: &str, name: &str, description: &str, label: &str) -> String {
+    let path = node_join(&[root, "skills", name, "SKILL.md"]);
+    write(&path, &format!("---\nname: {name}\ndescription: {description}\n---\n{label} skill content"));
+    path
+}
+
+fn create_user_settings_with_package(dirs: &Dirs, pkg_dir: &str) {
+    write(
+        &node_join(&[&dirs.agent_dir, "settings.json"]),
+        &serde_json::to_string_pretty(&serde_json::json!({ "packages": [pkg_dir] })).unwrap(),
+    );
+}
+
+async fn web_fetch_skill(dirs: &Dirs) -> (Skill, Vec<ResourceDiagnostic>) {
+    let loader = dirs.loader();
+    loader.reload(None).await.unwrap();
+    let result = loader.get_skills();
+    let skill = result.skills.into_iter().find(|s| s.name == "web-fetch").expect("web-fetch skill");
+    (skill, result.diagnostics)
+}
+
+#[tokio::test]
+async fn user_auto_discovered_skill_overrides_package_skill_with_same_name() {
+    let dirs = Dirs::new();
+    let pkg_dir = create_package_with_skill(&dirs, "web-fetch", "Package web-fetch skill");
+    let user_skill = create_skill(&dirs.agent_dir, "web-fetch", "User web-fetch override", "User");
+    create_user_settings_with_package(&dirs, &pkg_dir);
+    let (skill, _) = web_fetch_skill(&dirs).await;
+    assert_eq!(skill.file_path, user_skill);
+    assert_eq!(skill.description, "User web-fetch override");
+}
+
+#[tokio::test]
+async fn project_auto_discovered_skill_overrides_package_skill_with_same_name() {
+    let dirs = Dirs::new();
+    let pkg_dir = create_package_with_skill(&dirs, "web-fetch", "Package web-fetch skill");
+    let project_skill = create_skill(&node_join(&[&dirs.cwd, ".pi"]), "web-fetch", "Project web-fetch override", "Project");
+    create_user_settings_with_package(&dirs, &pkg_dir);
+    let (skill, _) = web_fetch_skill(&dirs).await;
+    assert_eq!(skill.file_path, project_skill);
+    assert_eq!(skill.description, "Project web-fetch override");
+}
+
+#[tokio::test]
+async fn project_skill_overrides_user_skill_which_overrides_package_skill() {
+    let dirs = Dirs::new();
+    let pkg_dir = create_package_with_skill(&dirs, "web-fetch", "Package web-fetch skill");
+    create_skill(&dirs.agent_dir, "web-fetch", "User web-fetch override", "User");
+    let project_skill = create_skill(&node_join(&[&dirs.cwd, ".pi"]), "web-fetch", "Project web-fetch override", "Project");
+    create_user_settings_with_package(&dirs, &pkg_dir);
+    let (skill, _) = web_fetch_skill(&dirs).await;
+    assert_eq!(skill.file_path, project_skill);
+    assert_eq!(skill.description, "Project web-fetch override");
+}
+
+#[tokio::test]
+async fn collision_diagnostics_report_the_package_skill_as_loser_when_the_user_skill_wins() {
+    let dirs = Dirs::new();
+    let pkg_dir = create_package_with_skill(&dirs, "web-fetch", "Package web-fetch skill");
+    create_skill(&dirs.agent_dir, "web-fetch", "User web-fetch override", "User");
+    create_user_settings_with_package(&dirs, &pkg_dir);
+    let (_, diagnostics) = web_fetch_skill(&dirs).await;
+    let collision = diagnostics
+        .iter()
+        .map(|d| serde_json::to_value(d).unwrap())
+        .find(|d| d["type"] == "collision" && d["collision"]["name"] == "web-fetch")
+        .expect("collision diagnostic");
+    assert!(collision["collision"]["loserPath"].as_str().unwrap().contains("fake-package"), "{collision}");
+}

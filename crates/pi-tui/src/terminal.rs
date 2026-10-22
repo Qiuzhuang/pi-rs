@@ -588,9 +588,12 @@ mod process {
             let handler = self.lock().input_handler.clone();
             if let Some(handler) = handler {
                 for sequence in sequences {
-                    // Native Shift+Enter detection requires platform helpers (macOS/Windows);
-                    // the modifier is never reported as pressed here.
-                    let input = normalize_native_shift_enter_input(&sequence, false, false);
+                    // Apple Terminal (and Windows consoles) send "\r" for Shift+Enter too; ask
+                    // the system whether Shift is held.
+                    let should_detect = sequence == "\r" && (is_apple_terminal_session() || cfg!(windows));
+                    let shift = should_detect
+                        && crate::native_platform::is_native_modifier_pressed(crate::native_platform::ModifierKey::Shift);
+                    let input = normalize_native_shift_enter_input(&sequence, should_detect, shift);
                     handler(input);
                 }
             }

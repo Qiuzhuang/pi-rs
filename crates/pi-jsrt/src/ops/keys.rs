@@ -166,6 +166,11 @@ impl EcSecret {
     fn from_bytes(curve: Curve, d: &[u8]) -> KResult<Self> {
         let bad = || err("Error", "Invalid private key", Some("ERR_CRYPTO_INVALID_KEYTYPE"));
         Ok(curve_dispatch!(curve, m => {
+            // OpenSSH stores the scalar as an mpint (a leading zero byte when the high bit is set).
+            let mut d = d;
+            while d.len() > curve.field_len() && d[0] == 0 {
+                d = &d[1..];
+            }
             let mut padded = vec![0u8; curve.field_len().saturating_sub(d.len())];
             padded.extend_from_slice(d);
             let key = m::SecretKey::from_slice(&padded).map_err(|_| bad())?;

@@ -303,3 +303,128 @@ export default out;
         })
     );
 }
+
+/// ssh2: an ssh2 `Server` and `Client` in the same runtime, over node:net. Covers curve25519,
+/// ECDH P-256/P-521 and DH group14 key exchange, AES-GCM/CTR/CBC and chacha20-poly1305 (its
+/// Poly1305 runs as WebAssembly), HMAC, zlib compression through Node's internal zlib handle,
+/// Ed25519/RSA/ECDSA host keys and password auth. Output compared with Node 22.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn ssh2_client_and_server() {
+    let Some(dir) = npm_dir() else { return };
+    let v = run(&dir, r#"
+import ssh2 from "ssh2";
+import crypto from "node:crypto";
+const { Server, Client, utils } = ssh2;
+const results = {};
+async function session(hostKey, algorithms, label) {
+  const server = new Server({ hostKeys: [hostKey], algorithms }, (client) => {
+    client.on("authentication", (ctx) => {
+      if (ctx.method === "password" && ctx.username === "pi" && ctx.password === "secret") ctx.accept();
+      else if (ctx.method === "publickey" && ctx.username === "pi") ctx.accept();
+      else ctx.reject(["password", "publickey"]);
+    });
+    client.on("ready", () => {
+      client.on("session", (accept) => {
+        const s = accept();
+        s.once("exec", (accept, reject, info) => {
+          const stream = accept();
+          stream.write(`ran: ${info.command}`);
+          stream.exit(0);
+          stream.end();
+        });
+      });
+    });
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const port = server.address().port;
+  const out = await new Promise((resolve, reject) => {
+    const conn = new Client();
+    let negotiated;
+    conn.on("handshake", (n) => { negotiated = n; });
+    conn.on("ready", () => {
+      conn.exec("uptime", (err, stream) => {
+        if (err) return reject(err);
+        let data = "";
+        stream.on("data", (d) => { data += d; });
+        stream.on("close", (code) => { conn.end(); resolve({ data, code, kex: negotiated.kex, cipher: negotiated.cs.cipher, mac: negotiated.cs.mac, hostKey: negotiated.serverHostKey, compress: negotiated.cs.compress }); });
+      });
+    });
+    conn.on("error", reject);
+    conn.connect({ host: "127.0.0.1", port, username: "pi", password: "secret", algorithms });
+  });
+  await new Promise((r) => server.close(r));
+  results[label] = out;
+}
+const ed = utils.generateKeyPairSync("ed25519").private;
+const rsa = utils.generateKeyPairSync("rsa", { bits: 2048 }).private;
+const ecdsa = utils.generateKeyPairSync("ecdsa", { bits: 256 }).private;
+await session(ed, { kex: ["curve25519-sha256"], cipher: ["aes128-gcm@openssh.com"] }, "ed25519-gcm");
+await session(rsa, { kex: ["ecdh-sha2-nistp256"], cipher: ["aes256-ctr"], hmac: ["hmac-sha2-256"], serverHostKey: ["rsa-sha2-256"] }, "rsa-ctr");
+await session(ecdsa, { kex: ["diffie-hellman-group14-sha256"], cipher: ["aes128-cbc"], hmac: ["hmac-sha1"], compress: ["zlib@openssh.com", "zlib"] }, "ecdsa-dh-zlib");
+await session(ed, { kex: ["ecdh-sha2-nistp521"], cipher: ["chacha20-poly1305@openssh.com"] }, "chacha");
+results.parsed = utils.parseKey(rsa).type;
+export default results;
+"#).await;
+    let session = |kex: &str, cipher: &str, mac: &str, host_key: &str, compress: &str| {
+        json!({"data": "ran: uptime", "code": 0, "kex": kex, "cipher": cipher, "mac": mac, "hostKey": host_key, "compress": compress})
+    };
+    assert_eq!(
+        v,
+        json!({
+            "ed25519-gcm": session("curve25519-sha256", "aes128-gcm@openssh.com", "", "ssh-ed25519", "none"),
+            "rsa-ctr": session("ecdh-sha2-nistp256", "aes256-ctr", "hmac-sha2-256", "rsa-sha2-256", "none"),
+            "ecdsa-dh-zlib": session("diffie-hellman-group14-sha256", "aes128-cbc", "hmac-sha1", "ecdsa-sha2-nistp256", "zlib@openssh.com"),
+            "chacha": session("ecdh-sha2-nistp521", "chacha20-poly1305@openssh.com", "", "ssh-ed25519", "none"),
+            "parsed": "ssh-rsa",
+        })
+    );
+}
+
+/// undici: `request`, `fetch` and a `Pool` against a local node:http server. undici parses
+/// HTTP with llhttp compiled to WebAssembly. Output compared with Node 22.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn undici_request_fetch_pool() {
+    let Some(dir) = npm_dir() else { return };
+    let v = run(&dir, r#"
+import { request, fetch, Agent, Pool } from "undici";
+import http from "node:http";
+const server = http.createServer((req, res) => {
+  let body = "";
+  req.on("data", (d) => (body += d));
+  req.on("end", () => {
+    if (req.url === "/chunked") {
+      res.writeHead(200, { "content-type": "text/plain" });
+      res.write("part1-");
+      setTimeout(() => res.end("part2"), 10);
+      return;
+    }
+    res.writeHead(201, { "content-type": "application/json", "x-test": "yes" });
+    res.end(JSON.stringify({ method: req.method, url: req.url, body, ua: req.headers["user-agent"] ?? null }));
+  });
+});
+await new Promise((r) => server.listen(0, "127.0.0.1", r));
+const base = `http://127.0.0.1:${server.address().port}`;
+const out = {};
+const r1 = await request(`${base}/req?x=1`, { method: "POST", body: "hello", headers: { "content-type": "text/plain" } });
+out.request = { status: r1.statusCode, header: r1.headers["x-test"], body: await r1.body.json() };
+const r2 = await fetch(`${base}/fetch`, { method: "PUT", body: JSON.stringify({ a: 1 }) });
+out.fetch = { status: r2.status, ok: r2.ok, body: await r2.json() };
+const r3 = await request(`${base}/chunked`);
+out.chunked = await r3.body.text();
+const pool = new Pool(base, { connections: 2 });
+const many = await Promise.all([1, 2, 3, 4].map(async (i) => (await (await pool.request({ path: `/p${i}`, method: "GET" })).body.json()).url));
+out.pool = many;
+await pool.close();
+server.close();
+export default out;
+"#).await;
+    assert_eq!(
+        v,
+        json!({
+            "request": {"status": 201, "header": "yes", "body": {"method": "POST", "url": "/req?x=1", "body": "hello", "ua": null}},
+            "fetch": {"status": 201, "ok": true, "body": {"method": "PUT", "url": "/fetch", "body": "{\"a\":1}", "ua": "undici"}},
+            "chunked": "part1-part2",
+            "pool": ["/p1", "/p2", "/p3", "/p4"],
+        })
+    );
+}

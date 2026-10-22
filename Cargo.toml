@@ -269,6 +269,39 @@ overflow-checks = false
 opt-level = 3
 debug-assertions = false
 overflow-checks = false
+# pi-jsrt's WebAssembly runs on the wasmi interpreter (undici's HTTP parser, ssh2's poly1305).
+[profile.dev.package.wasmi]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.wasmi_core]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.wasmi_ir]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.wasmi_collections]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.wasmparser]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.miniz_oxide]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.brotli]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.brotli-decompressor]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
 
 [profile.test]
 debug = "line-tables-only"

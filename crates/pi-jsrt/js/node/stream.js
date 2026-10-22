@@ -56,6 +56,13 @@ class Readable extends Stream {
   get readableFlowing() {
     return this._readableState.flowing;
   }
+  get readableDidRead() {
+    return Boolean(this._readableState.dataEmitted);
+  }
+  get readableAborted() {
+    const st = this._readableState;
+    return Boolean((st.destroyed || this.errored) && !st.endEmitted);
+  }
   set readableFlowing(v) {
     this._readableState.flowing = v;
   }
@@ -131,6 +138,7 @@ class Readable extends Stream {
       while (st.buffer.length && st.flowing) {
         const chunk = st.buffer.shift();
         st.length -= chunkLength(chunk, st.objectMode);
+        st.dataEmitted = true;
         this.emit("data", chunk);
       }
     } else if (st.buffer.length && st.readableListening) {
@@ -202,6 +210,7 @@ class Readable extends Stream {
       st.buffer = rest.length ? [rest] : [];
       st.length = rest.length;
     }
+    st.dataEmitted = true;
     if (st.ended && st.buffer.length === 0) this._scheduleFlow();
     else if (!st.ended && !st.reading && st.length < st.highWaterMark) {
       st.reading = true;
@@ -671,6 +680,18 @@ function eos(stream, options, callback) {
     callback = options;
     options = {};
   }
+  if (typeof stream?.on !== "function") {
+    // A web stream (ReadableStream/WritableStream): settle with its closed promise.
+    const closed = stream?._state?.closedPromise ?? stream?.closed;
+    let active = true;
+    Promise.resolve(closed).then(
+      () => active && callback.call(stream),
+      (err) => active && callback.call(stream, err),
+    );
+    return () => {
+      active = false;
+    };
+  }
   let called = false;
   const done = (err) => {
     if (called) return;
@@ -754,7 +775,36 @@ Stream.addAbortSignal = (signal, stream) => {
   signal.addEventListener("abort", () => stream.destroy(signal.reason), { once: true });
   return stream;
 };
-Stream.getDefaultHighWaterMark = (objectMode) => (objectMode ? 16 : 65536);
+let defaultHighWaterMark = 65536;
+Stream.getDefaultHighWaterMark = (objectMode) => (objectMode ? 16 : defaultHighWaterMark);
+Stream.setDefaultHighWaterMark = (objectMode, value) => {
+  if (!objectMode) defaultHighWaterMark = value;
+};
+Stream.isDisturbed = (s) => Boolean(s && (s[Symbol.for("nodejs.stream.disturbed")] ?? (s.readableDidRead || s.readableAborted || s.locked)));
+Stream.isDestroyed = (s) => Boolean(s?.destroyed);
+Stream.isWritable = (s) => Boolean(s && s.writable && !s.destroyed && !s.writableEnded);
+Stream.destroy = (s, err) => s?.destroy?.(err);
+Stream.duplexPair = (options) => {
+  const a = new Duplex(options);
+  const b = new Duplex(options);
+  const wire = (from, to) => {
+    from._write = (chunk, encoding, cb) => {
+      to.push(chunk);
+      cb();
+    };
+    from._final = (cb) => {
+      to.push(null);
+      cb();
+    };
+    from._read = () => {};
+  };
+  wire(a, b);
+  wire(b, a);
+  return [a, b];
+};
+Stream._isArrayBufferView = ArrayBuffer.isView;
+Stream._isUint8Array = (v) => v instanceof Uint8Array;
+Stream._uint8ArrayToBuffer = (u8) => internal.Buffer.from(u8.buffer, u8.byteOffset, u8.byteLength);
 
 internal.stream = Stream;
 internal.defineBuiltin("stream", () => Stream);

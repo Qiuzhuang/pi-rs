@@ -708,9 +708,22 @@ internal.defineBuiltin("worker_threads", () => ({
       throw new Error("worker_threads.Worker is not supported in pi-jsrt");
     }
   },
-  MessageChannel: class MessageChannel {},
-  MessagePort: class MessagePort extends EventEmitter {},
-  BroadcastChannel: class BroadcastChannel extends EventEmitter {},
+  get MessageChannel() {
+    return globalThis.MessageChannel;
+  },
+  get MessagePort() {
+    return globalThis.MessagePort;
+  },
+  get BroadcastChannel() {
+    return globalThis.BroadcastChannel;
+  },
+  markAsUntransferable() {},
+  markAsUncloneable() {},
+  isMarkedAsUntransferable: () => false,
+  receiveMessageOnPort: () => undefined,
+  getEnvironmentData: () => undefined,
+  setEnvironmentData() {},
+  SHARE_ENV: Symbol.for("nodejs.worker_threads.SHARE_ENV"),
 }));
 
 internal.defineBuiltin("console", () => globalThis.console);

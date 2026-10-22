@@ -18,6 +18,7 @@ pub(crate) mod fs;
 pub(crate) mod keys;
 pub(crate) mod net;
 pub(crate) mod process;
+pub(crate) mod wasm;
 pub(crate) mod zlib;
 
 /// Glue scripts installed in every runtime.
@@ -146,6 +147,24 @@ const LAZY_GLUE: &[LazyGlue] = &[
         globals: &[],
     },
     LazyGlue {
+        file: "web/messaging.js",
+        src: include_str!("../../js/web/messaging.js"),
+        builtins: &[],
+        globals: &["MessageEvent", "MessagePort", "MessageChannel", "BroadcastChannel", "Navigator", "navigator"],
+    },
+    LazyGlue {
+        file: "web/compression.js",
+        src: include_str!("../../js/web/compression.js"),
+        builtins: &[],
+        globals: &["CompressionStream", "DecompressionStream"],
+    },
+    LazyGlue {
+        file: "web/wasm.js",
+        src: include_str!("../../js/web/wasm.js"),
+        builtins: &[],
+        globals: &["WebAssembly"],
+    },
+    LazyGlue {
         file: "web/fetch.js",
         src: include_str!("../../js/web/fetch.js"),
         builtins: &[],
@@ -225,6 +244,7 @@ pub(crate) fn bootstrap(ctx: &mut Context) -> JsResult<()> {
         define_ops(ctx, &ops, cipher::OPS)?;
         define_ops(ctx, &ops, crypto::KDF_OPS)?;
         define_ops(ctx, &ops, keys::OPS)?;
+        define_ops(ctx, &ops, wasm::OPS)?;
     }
     let config = process::config_object(ctx)?;
     if node && let Some(cfg) = config.as_object() {
@@ -252,6 +272,7 @@ pub(crate) fn teardown(ctx: &mut Context) {
     child_process::teardown(ctx);
     net::teardown(ctx);
     fs::teardown(ctx);
+    wasm::teardown(ctx);
 }
 
 /// Read bytes from a string (UTF-8), ArrayBuffer, typed array or DataView.

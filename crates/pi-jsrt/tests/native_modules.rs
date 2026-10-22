@@ -318,3 +318,65 @@ async fn webcrypto_subtle() {
         })
     );
 }
+
+/// `WebAssembly`: a module (compiled with wabt from a WAT test file) with imported functions
+/// and globals, a defined memory shared with JS, growth (old buffer detached), tables, globals,
+/// i64 <-> BigInt, multi-value, traps, JS exceptions through wasm, re-entrancy, link and compile
+/// errors. Output compared with Node 22.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn webassembly_api() {
+    let v = run(r#"
+const bytes = Buffer.from("AGFzbQEAAAABJQdgAX8Bf2ADf358AX9gAn5+AX5gAn9/AX9gAAF/YAAAYAACf38CIgMDZW52A2xvZwABA2VudgdyZWVudGVyAAADZW52AWcDfwADDAsAAgADAAQDBQMABgQEAXAAAgUEAQEBCgYGAX8BQQULB3YOBm1lbW9yeQIAB2NvdW50ZXIDAQV0YWJsZQEABmRvdWJsZQACBWFkZDY0AAMHY2FsbExvZwAEA3N1bQAFBGdyb3cABgRidW1wAAcMY2FsbEluZGlyZWN0AAgEdHJhcAAJA2RpdgAKBW91dGVyAAsEcGFpcgAMCQgBAEEACwICAwqPAQsHACAAQQJsCwcAIAAgAXwLGAAgAEKBgICAgICAEEQAAAAAAAD4PxAACykBAn8CQANAIAIgAU8NASADIAAgAmotAABqIQMgAkEBaiECDAALCyADCwYAIABAAAsLACMBIwBqJAEjAQsJACABIAARAAALAwAACwcAIAAgAW0LCgAgABABQegHagsGAEEBQQILCxABAEEQCwpoZWxsbyB3YXNt", "base64");
+const out = {};
+out.valid = [WebAssembly.validate(bytes), WebAssembly.validate(new Uint8Array([0, 97, 115, 109, 2, 0, 0, 0]))];
+const module = await WebAssembly.compile(bytes);
+out.imports = WebAssembly.Module.imports(module);
+out.exports = WebAssembly.Module.exports(module).map((e) => e.name + ":" + e.kind);
+const logged = [];
+let instance;
+const g = 7;
+({ instance } = await WebAssembly.instantiate(bytes, { env: {
+  log: (a, b, c) => { logged.push([a, typeof b, String(b), c]); return a + 1; },
+  reenter: (x) => instance.exports.double(x),
+  g,
+} }));
+const e = instance.exports;
+out.double = e.double(21);
+out.add64 = String(e.add64(2n ** 62n, 5n));
+out.callLog = e.callLog(41);
+out.logged = logged;
+const mem = e.memory;
+out.hello = new TextDecoder().decode(new Uint8Array(mem.buffer, 16, 10));
+new Uint8Array(mem.buffer).set([1, 2, 3, 250], 100);
+out.sum = e.sum(100, 4);
+const before = mem.buffer;
+out.grow = [e.grow(2), mem.buffer.byteLength, before.byteLength, mem.buffer === mem.buffer, e.memory === mem];
+out.growJs = [mem.grow(1), mem.buffer.byteLength];
+out.growFail = e.grow(100);
+out.bump = [e.bump(), e.bump(), e.counter.value];
+e.counter.value = 1;
+out.counter = e.counter.value;
+out.table = [e.table.length, e.table.get(0) === e.double, e.callIndirect(0, 5)];
+const err = (f) => { try { f(); return "no error"; } catch (x) { return [x.constructor.name, x instanceof WebAssembly.RuntimeError, x.message]; } };
+out.trap = err(() => e.trap());
+out.div0 = err(() => e.div(1, 0));
+out.indirectOOB = err(() => e.callIndirect(5, 1));
+out.outer = e.outer(4);
+out.pair = e.pair();
+const thrower = new WebAssembly.Instance(module, { env: { log: () => { throw new Error("from js"); }, reenter: () => 0, g: 1 } });
+out.jsThrow = err(() => thrower.exports.callLog(1));
+out.link = err(() => new WebAssembly.Instance(module, { env: { log: 5, reenter: () => 0, g: 1 } }))[0];
+out.compileErr = err(() => new WebAssembly.Module(new Uint8Array([1, 2, 3])))[0];
+const m2 = new WebAssembly.Memory({ initial: 1, maximum: 3 });
+new Uint8Array(m2.buffer)[0] = 42;
+out.memory = [m2.buffer.byteLength, m2.grow(2), m2.buffer.byteLength, new Uint8Array(m2.buffer)[0]];
+const gl = new WebAssembly.Global({ value: "i64", mutable: true }, 5n);
+gl.value = 6n;
+out.global = String(gl.value);
+out.tag = Object.prototype.toString.call(WebAssembly);
+export default out;
+"#)
+    .await;
+    let expected: Value = serde_json::from_str(r#"{"valid":[true,false],"imports":[{"module":"env","name":"log","kind":"function"},{"module":"env","name":"reenter","kind":"function"},{"module":"env","name":"g","kind":"global"}],"exports":["memory:memory","counter:global","table:table","double:function","add64:function","callLog:function","sum:function","grow:function","bump:function","callIndirect:function","trap:function","div:function","outer:function","pair:function"],"double":42,"add64":"4611686018427387909","callLog":42,"logged":[[41,"bigint","9007199254740993",1.5]],"hello":"hello wasm","sum":256,"grow":[1,196608,0,true,true],"growJs":[3,262144],"growFail":-1,"bump":[12,19,19],"counter":1,"table":[2,true,10],"trap":["RuntimeError",true,"unreachable"],"div0":["RuntimeError",true,"divide by zero"],"indirectOOB":["RuntimeError",true,"table index is out of bounds"],"outer":1008,"pair":[1,2],"jsThrow":["Error",false,"from js"],"link":"LinkError","compileErr":"CompileError","memory":[65536,1,196608,42],"global":"6","tag":"[object WebAssembly]"}"#).unwrap();
+    assert_eq!(v, expected);
+}

@@ -743,10 +743,17 @@ fn synthetic_from_value(ctx: &mut Context, value: JsValue, path: Option<PathBuf>
     let mut names = vec![js_string!("default")];
     let mut default = value.clone();
     if let Some(obj) = value.as_object() {
+        // Like Node's CJS export detection, element indices of arrays and typed arrays (a
+        // module exporting a 50 KB Buffer) are not named exports.
+        let indexed = obj.is_array() || boa_engine::object::builtins::JsTypedArray::from_object(obj.clone()).is_ok();
         for k in object_keys(ctx, &obj)? {
-            if k != js_string!("default") {
-                names.push(k);
+            if k == js_string!("default") {
+                continue;
             }
+            if indexed && k.to_std_string_lossy().bytes().all(|b| b.is_ascii_digit()) {
+                continue;
+            }
+            names.push(k);
         }
         if cjs_interop && obj.get(js_string!("__esModule"), ctx)?.to_boolean() && obj.has_property(js_string!("default"), ctx)? {
             default = obj.get(js_string!("default"), ctx)?;

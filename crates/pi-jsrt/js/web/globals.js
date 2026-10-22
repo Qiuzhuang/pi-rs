@@ -200,6 +200,14 @@ internal.hidden(globalThis, "structuredClone", structuredClone);
     toJSON() {
       return { timeOrigin: this.timeOrigin };
     },
+    // Resource timing (undici reports fetches here) and Node extras; no observers exist.
+    markResourceTiming(timingInfo, requestedUrl, initiatorType, global, cacheMode, bodyInfo, responseStatus) {
+      return { name: String(requestedUrl), entryType: "resource", initiatorType, startTime: timingInfo?.startTime ?? 0, duration: 0, responseStatus };
+    },
+    clearResourceTimings() {},
+    setResourceTimingBufferSize() {},
+    eventLoopUtilization: () => ({ idle: 0, active: 0, utilization: 0 }),
+    timerify: (fn) => fn,
   };
   internal.performance = performance;
   internal.hidden(globalThis, "performance", performance);

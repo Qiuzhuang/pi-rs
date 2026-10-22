@@ -189,8 +189,8 @@ pub fn run(file: &str, build: impl Fn(&str, &Value) -> Option<Built>) {
                 }
             };
             for (i, width) in case.widths.iter().enumerate() {
-                let expected = &expected_per_width[i];
-                let got = &actual[i];
+                let expected = &normalize(&expected_per_width[i]);
+                let got = &normalize(&actual[i]);
                 if expected != got {
                     failures.push(describe_diff(&case.name, theme_name, *width, expected, got));
                 }
@@ -204,6 +204,13 @@ pub fn run(file: &str, build: impl Fn(&str, &Value) -> Option<Built>) {
         let shown: Vec<_> = failures.into_iter().take(40).collect();
         panic!("{file}: {total} golden mismatches (of {ran} case/theme runs)\n\n{}", shown.join("\n"));
     }
+}
+
+/// Mask values that are random by design on both sides: kitty image ids.
+fn normalize(lines: &[String]) -> Vec<String> {
+    static KITTY_ID: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"(\x1b_G[^;\x1b]*?),i=\d+").unwrap());
+    lines.iter().map(|l| KITTY_ID.replace_all(l, "$1,i=#").into_owned()).collect()
 }
 
 fn describe_diff(name: &str, theme_name: &str, width: usize, expected: &[String], got: &[String]) -> String {

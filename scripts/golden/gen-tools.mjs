@@ -119,6 +119,56 @@ g.add(
 	buildTool,
 	{ caps: { hyperlinks: true } },
 );
+const PNG_4x2 =
+	"iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEUlEQVR42mNk+M9QzwAEjDAGACCDAv8cI7IoAAAAAElFTkSuQmCC";
+for (const images of ["kitty", "iterm2"]) {
+	g.add(
+		`read/image-${images}`,
+		"tool_execution",
+		{
+			toolName: "read",
+			args: { path: "logo.png" },
+			definition: "builtin",
+			steps: [
+				"argsComplete",
+				{
+					result: {
+						content: [
+							{ type: "text", text: "Read image file [image/png]" },
+							{ type: "image", data: PNG_4x2, mimeType: "image/png" },
+						],
+						isError: false,
+					},
+				},
+			],
+			options: { imageWidthCells: 20 },
+		},
+		buildTool,
+		{ caps: { images, hyperlinks: true } },
+	);
+}
+g.add(
+	"read/image-hidden",
+	"tool_execution",
+	{
+		toolName: "read",
+		args: { path: "logo.png" },
+		definition: "builtin",
+		steps: [{ result: { content: [{ type: "image", data: PNG_4x2, mimeType: "image/png" }], isError: false } }],
+		options: { showImages: false },
+	},
+	buildTool,
+	{ caps: { images: "kitty" } },
+);
+for (const [toolName, args, steps] of [
+	["write", { path: "src/new file.ts", content: "export const x = 1;\n" }, ["argsComplete"]],
+	["edit", { path: "/home/golden/project/src/a.ts", edits: [{ oldText: "a", newText: "b" }] }, []],
+	["ls", { path: "src" }, []],
+]) {
+	g.add(`${toolName}/hyperlinks`, "tool_execution", { toolName, args, definition: "builtin", steps }, buildTool, {
+		caps: { hyperlinks: true },
+	});
+}
 tool("outputpad-0", "read", { path: "src/config.ts" }, ["argsComplete", ok(TS_FILE), "expand"], { options: { outputPad: 0 } });
 
 // --- bash ---------------------------------------------------------------------------------------

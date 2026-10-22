@@ -40,6 +40,28 @@ crc32fast.workspace = true
 ruzstd.workspace = true
 miniz_oxide = "0.8"
 brotli = "9"
+hmac.workspace = true
+rsa = { workspace = true, features = ["hazmat"] }
+aes = "0.8"
+des = "0.8"
+cipher = "0.4"
+ghash = "0.5"
+chacha20 = "0.9"
+poly1305 = "0.8"
+universal-hash = "0.5"
+p256 = { version = "0.13", features = ["ecdsa", "ecdh", "pkcs8", "pem"] }
+p384 = { version = "0.13", features = ["ecdsa", "ecdh", "pkcs8", "pem"] }
+p521 = { version = "0.13", features = ["ecdsa", "ecdh", "pkcs8", "pem"] }
+ed25519-dalek = "2"
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }
+scrypt = { version = "0.11", default-features = false }
+hkdf = "0.12"
+pkcs8 = { version = "0.10", features = ["pem", "encryption", "std"] }
+spki = { version = "0.7", features = ["pem", "std"] }
+sec1 = { version = "0.7", features = ["pem", "std", "der"] }
+pkcs1 = { version = "0.7", features = ["pem", "std"] }
+der = { version = "0.7", features = ["oid", "std"] }
 
 [dev-dependencies]
 tempfile = "3"

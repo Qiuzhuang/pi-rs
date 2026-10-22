@@ -10,10 +10,12 @@ use boa_engine::{Context, JsObject, JsResult, JsValue, js_string};
 use crate::engine::{self, define_ops, js_str, run_glue, state};
 
 pub(crate) mod child_process;
+pub(crate) mod cipher;
 pub(crate) mod crypto;
 pub(crate) mod encoding;
 pub(crate) mod fetch;
 pub(crate) mod fs;
+pub(crate) mod keys;
 pub(crate) mod net;
 pub(crate) mod process;
 pub(crate) mod zlib;
@@ -86,6 +88,12 @@ const LAZY_GLUE: &[LazyGlue] = &[
         src: include_str!("../../js/node/crypto.js"),
         builtins: &["crypto"],
         globals: &[],
+    },
+    LazyGlue {
+        file: "node/webcrypto.js",
+        src: include_str!("../../js/node/webcrypto.js"),
+        builtins: &[],
+        globals: &["CryptoKey"],
     },
     LazyGlue {
         file: "node/misc.js",
@@ -214,6 +222,9 @@ pub(crate) fn bootstrap(ctx: &mut Context) -> JsResult<()> {
         define_ops(ctx, &ops, fetch::OPS)?;
         define_ops(ctx, &ops, net::OPS)?;
         define_ops(ctx, &ops, zlib::OPS)?;
+        define_ops(ctx, &ops, cipher::OPS)?;
+        define_ops(ctx, &ops, crypto::KDF_OPS)?;
+        define_ops(ctx, &ops, keys::OPS)?;
     }
     let config = process::config_object(ctx)?;
     if node && let Some(cfg) = config.as_object() {
@@ -382,8 +393,9 @@ pub(crate) fn array(ctx: &mut Context, items: Vec<JsValue>) -> JsValue {
     boa_engine::object::builtins::JsArray::from_iter(items, ctx).into()
 }
 
-/// Rust state owned by a JS object (dropped when the object is collected).
-pub(crate) struct NativeCell<T: 'static>(pub std::cell::RefCell<T>);
+/// Rust state owned by a JS object (dropped when the object is collected). Boxed: Boa limits
+/// the alignment of object data.
+pub(crate) struct NativeCell<T: 'static>(pub std::cell::RefCell<Box<T>>);
 
 impl<T: 'static> boa_engine::gc::Finalize for NativeCell<T> {}
 // SAFETY: the cell holds no GC-managed values.
@@ -394,7 +406,7 @@ impl<T: 'static> boa_engine::JsData for NativeCell<T> {}
 
 /// Wrap Rust state in an opaque JS object.
 pub(crate) fn native_object<T: 'static>(value: T) -> JsValue {
-    JsObject::from_proto_and_data(None, NativeCell(std::cell::RefCell::new(value))).into()
+    JsObject::from_proto_and_data(None, NativeCell(std::cell::RefCell::new(Box::new(value)))).into()
 }
 
 /// Borrow the Rust state of an object made by [`native_object`].

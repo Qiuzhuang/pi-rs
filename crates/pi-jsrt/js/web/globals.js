@@ -220,6 +220,15 @@ internal.hidden(globalThis, "structuredClone", structuredClone);
       return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
     },
   };
+  // The rest of SubtleCrypto lives in node/webcrypto.js (loaded on first use; Node
+  // compatibility only), which replaces these forwarders.
+  for (const name of ["generateKey", "importKey", "exportKey", "encrypt", "decrypt", "sign", "verify", "deriveBits", "deriveKey", "wrapKey", "unwrapKey"]) {
+    subtle[name] = async (...args) => {
+      if (!internal.subtleImpl && internal.hasBuiltin?.("crypto")) internal.loadGlue("node/webcrypto.js");
+      if (!internal.subtleImpl) throw new internal.DOMException(`crypto.subtle.${name} is not available`, "NotSupportedError");
+      return internal.subtleImpl[name](...args);
+    };
+  }
   const crypto = {
     randomUUID: () => ops.randomUUID(),
     getRandomValues: (array) => ops.fillRandom(array),

@@ -249,3 +249,57 @@ export default {{
         })
     );
 }
+
+/// jose (WebCrypto only since v6): JWS with HMAC/RSA/RSA-PSS/ECDSA/EdDSA keys (generate, JWK,
+/// SPKI and PKCS#8 round trips), JWE with dir, ECDH-ES+A256KW, RSA-OAEP-256 and PBES2.
+/// Output compared with Node 22.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn jose_jwt_sign_verify_encrypt() {
+    let Some(dir) = npm_dir() else { return };
+    let v = run(&dir, r#"
+import * as jose from "jose";
+const out = {};
+const secret = new TextEncoder().encode("a-string-secret-at-least-256-bits-long");
+const hs = await new jose.SignJWT({ sub: "user", admin: true }).setProtectedHeader({ alg: "HS256" }).setIssuedAt(1700000000).setIssuer("pi").sign(secret);
+out.hs = hs;
+const { payload } = await jose.jwtVerify(hs, secret, { issuer: "pi" });
+out.hsPayload = payload;
+for (const alg of ["RS256", "PS256", "ES256", "ES384", "ES512", "EdDSA"]) {
+  const { publicKey, privateKey } = await jose.generateKeyPair(alg, { extractable: true });
+  const jwt = await new jose.SignJWT({ alg }).setProtectedHeader({ alg }).sign(privateKey);
+  const v = await jose.jwtVerify(jwt, publicKey);
+  const jwk = await jose.exportJWK(publicKey);
+  const imported = await jose.importJWK(jwk, alg);
+  const v2 = await jose.jwtVerify(jwt, imported);
+  const spki = await jose.exportSPKI(publicKey);
+  const fromSpki = await jose.importSPKI(spki, alg);
+  await jose.jwtVerify(jwt, fromSpki);
+  const pkcs8 = await jose.exportPKCS8(privateKey);
+  await jose.importPKCS8(pkcs8, alg);
+  out[alg] = v.payload.alg === alg && v2.payload.alg === alg;
+}
+const encKey = await jose.generateSecret("A256GCM");
+const jwe = await new jose.CompactEncrypt(new TextEncoder().encode("secret text")).setProtectedHeader({ alg: "dir", enc: "A256GCM" }).encrypt(encKey);
+out.jwe = new TextDecoder().decode((await jose.compactDecrypt(jwe, encKey)).plaintext);
+const ecdhKey = await jose.generateKeyPair("ECDH-ES+A256KW", { extractable: true });
+const jwe2 = await new jose.CompactEncrypt(new TextEncoder().encode("ecdh")).setProtectedHeader({ alg: "ECDH-ES+A256KW", enc: "A128CBC-HS256" }).encrypt(ecdhKey.publicKey);
+out.jweEcdh = new TextDecoder().decode((await jose.compactDecrypt(jwe2, ecdhKey.privateKey)).plaintext);
+const rsaOaep = await jose.generateKeyPair("RSA-OAEP-256", { extractable: true });
+const jwe3 = await new jose.CompactEncrypt(new TextEncoder().encode("oaep")).setProtectedHeader({ alg: "RSA-OAEP-256", enc: "A256GCM" }).encrypt(rsaOaep.publicKey);
+out.jweOaep = new TextDecoder().decode((await jose.compactDecrypt(jwe3, rsaOaep.privateKey)).plaintext);
+const pbes = await new jose.CompactEncrypt(new TextEncoder().encode("pbes2")).setProtectedHeader({ alg: "PBES2-HS256+A128KW", enc: "A128GCM" }).encrypt(new TextEncoder().encode("password"));
+out.pbes2 = new TextDecoder().decode((await jose.compactDecrypt(pbes, new TextEncoder().encode("password"), { keyManagementAlgorithms: ["PBES2-HS256+A128KW"] })).plaintext);
+try { await jose.jwtVerify(hs, new TextEncoder().encode("wrong-secret-wrong-secret-wrong-secret")); } catch (e) { out.bad = e.code; }
+export default out;
+"#).await;
+    assert_eq!(
+        v,
+        json!({
+            "hs": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyIiwiYWRtaW4iOnRydWUsImlhdCI6MTcwMDAwMDAwMCwiaXNzIjoicGkifQ.zubOoTfVwrYjJ1srezMuy-igxDH7p19Xt7v3m--28m8",
+            "hsPayload": {"sub": "user", "admin": true, "iat": 1700000000, "iss": "pi"},
+            "RS256": true, "PS256": true, "ES256": true, "ES384": true, "ES512": true, "EdDSA": true,
+            "jwe": "secret text", "jweEcdh": "ecdh", "jweOaep": "oaep", "pbes2": "pbes2",
+            "bad": "ERR_JWS_SIGNATURE_VERIFICATION_FAILED",
+        })
+    );
+}

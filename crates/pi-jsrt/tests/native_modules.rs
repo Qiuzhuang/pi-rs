@@ -112,3 +112,209 @@ async fn zlib_streams_flush_and_internal_handle() {
     .await;
     assert_eq!(v, json!({ "same": true, "chunkMax": 1024, "partial": "partial data", "streamErr": "incorrect header check", "handle": true, "pieces": true }));
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn crypto_ciphers_kdfs_and_errors() {
+    let v = run(r#"
+        import crypto from "node:crypto";
+        const key = Buffer.from("0123456789abcdef");
+        const iv = Buffer.from("fedcba9876543210");
+        const enc = (alg, k, i, data, out = "hex") => { const c = crypto.createCipheriv(alg, k, i); return c.update(data, "utf8", out) + c.final(out); };
+        const dec = (alg, k, i, data) => { const d = crypto.createDecipheriv(alg, k, i); return d.update(data, "hex", "utf8") + d.final("utf8"); };
+        const cbc = enc("aes-128-cbc", key, iv, "hello world, this is a test");
+        const gcmKey = crypto.randomBytes(32), gcmIv = crypto.randomBytes(12);
+        const g = crypto.createCipheriv("aes-256-gcm", gcmKey, gcmIv);
+        g.setAAD(Buffer.from("aad"));
+        const gct = Buffer.concat([g.update("secret message"), g.final()]);
+        const tag = g.getAuthTag();
+        const gd = crypto.createDecipheriv("aes-256-gcm", gcmKey, gcmIv);
+        gd.setAAD(Buffer.from("aad")); gd.setAuthTag(tag);
+        const gplain = Buffer.concat([gd.update(gct), gd.final()]).toString();
+        const err = (f) => { try { f(); return "no error"; } catch (e) { return [e.name, e.code ?? null, e.message]; } };
+        const badTag = err(() => { const d = crypto.createDecipheriv("aes-256-gcm", gcmKey, gcmIv); d.setAuthTag(Buffer.alloc(16)); d.update(gct); d.final(); });
+        const cc = crypto.createCipheriv("chacha20-poly1305", gcmKey, gcmIv, { authTagLength: 16 });
+        const cct = Buffer.concat([cc.update("chacha"), cc.final()]);
+        const ccd = crypto.createDecipheriv("chacha20-poly1305", gcmKey, gcmIv, { authTagLength: 16 });
+        ccd.setAuthTag(cc.getAuthTag());
+        const ccplain = Buffer.concat([ccd.update(cct), ccd.final()]).toString();
+        const pbkdf2Async = await new Promise((r, j) => crypto.pbkdf2("pw", "salt", 1000, 16, "sha256", (e, k) => e ? j(e) : r(k.toString("hex"))));
+        const scryptAsync = await new Promise((r, j) => crypto.scrypt("pw", "salt", 16, (e, k) => e ? j(e) : r(k.toString("hex"))));
+        export default {
+            cbc, cbcBack: dec("aes-128-cbc", key, iv, cbc),
+            ctr: enc("aes-128-ctr", key, iv, "hello world, this is a test"),
+            gplain, ccplain, badTag,
+            unknown: err(() => crypto.createCipheriv("foo", key, iv)),
+            keylen: err(() => crypto.createCipheriv("aes-128-cbc", Buffer.alloc(15), iv)),
+            ivlen: err(() => crypto.createCipheriv("aes-128-cbc", key, Buffer.alloc(15))),
+            badDecrypt: err(() => dec("aes-128-cbc", key, iv, "00".repeat(16))),
+            hmacDigest: err(() => crypto.createHmac("foo", "k")),
+            hashDigest: err(() => crypto.createHash("foo")),
+            pbkdf2: crypto.pbkdf2Sync("pw", "salt", 1000, 16, "sha256").toString("hex"), pbkdf2Async,
+            scrypt: crypto.scryptSync("pw", "salt", 16).toString("hex"), scryptAsync,
+            hkdf: Buffer.from(crypto.hkdfSync("sha256", "key", "salt", "info", 16)).toString("hex"),
+            hmac: crypto.createHmac("sha512-256", "k").update("x").digest("hex").length,
+            info: crypto.getCipherInfo("aes-256-gcm"),
+            ciphers: ["aes-128-gcm", "aes-256-ctr", "chacha20-poly1305", "aes-128-cbc"].every((c) => crypto.getCiphers().includes(c)),
+            timing: err(() => crypto.timingSafeEqual(Buffer.alloc(1), Buffer.alloc(2))),
+            randomInt: [...Array(50)].every(() => { const n = crypto.randomInt(3, 7); return n >= 3 && n < 7; }),
+        };
+    "#)
+    .await;
+    let err = |name: &str, code: &str, msg: &str| json!([name, code, msg]);
+    assert_eq!(v["cbc"], json!("48a64c77eda317c2ece0b3eb1013593a9ddabef656d84916dd63e7bd9f8a76f4"));
+    assert_eq!(v["cbcBack"], json!("hello world, this is a test"));
+    assert_eq!(v["ctr"], json!("632eba1d99500866ca54a7faea6802543145854a8fc6adfb838b25"));
+    assert_eq!(v["gplain"], json!("secret message"));
+    assert_eq!(v["ccplain"], json!("chacha"));
+    assert_eq!(v["badTag"], json!(["Error", null, "Unsupported state or unable to authenticate data"]));
+    assert_eq!(v["unknown"], err("Error", "ERR_CRYPTO_UNKNOWN_CIPHER", "Unknown cipher"));
+    assert_eq!(v["keylen"], err("RangeError", "ERR_CRYPTO_INVALID_KEYLEN", "Invalid key length"));
+    assert_eq!(v["ivlen"], err("TypeError", "ERR_CRYPTO_INVALID_IV", "Invalid initialization vector"));
+    assert_eq!(v["badDecrypt"], err("Error", "ERR_OSSL_BAD_DECRYPT", "error:1C800064:Provider routines::bad decrypt"));
+    assert_eq!(v["hmacDigest"], err("TypeError", "ERR_CRYPTO_INVALID_DIGEST", "Invalid digest: foo"));
+    assert_eq!(v["hashDigest"], json!(["Error", null, "Digest method not supported"]));
+    assert_eq!(v["pbkdf2"], json!("0a38253555ce37f5c72a6b703f996814"));
+    assert_eq!(v["pbkdf2Async"], v["pbkdf2"]);
+    assert_eq!(v["scrypt"], json!("c0b515908e61334cae6d6003c00be60e"));
+    assert_eq!(v["scryptAsync"], v["scrypt"]);
+    assert_eq!(v["hkdf"], json!("9ca0d662557439e3b83365f2da4626d3"));
+    assert_eq!(v["hmac"], json!(64));
+    assert_eq!(v["info"], json!({"mode": "gcm", "name": "id-aes256-gcm", "nid": 901, "blockSize": 1, "ivLength": 12, "keyLength": 32}));
+    assert_eq!(v["ciphers"], json!(true));
+    assert_eq!(v["timing"], err("RangeError", "ERR_CRYPTO_TIMING_SAFE_EQUAL_LENGTH", "Input buffers must have the same byte length"));
+    assert_eq!(v["randomInt"], json!(true));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn crypto_keys_signatures_and_key_agreement() {
+    let v = run(r#"
+        import crypto from "node:crypto";
+        const out = {};
+        // ssh2's Ed25519 probe.
+        const edPem = "-----BEGIN PRIVATE KEY-----\r\nMC4CAQAwBQYDK2VwBCIEIHKj+sVa9WcD/q2DJUJaf43Kptc8xYuUQA4bOFj9vC8T\r\n-----END PRIVATE KEY-----";
+        const edSig = crypto.sign(null, Buffer.from("a"), edPem);
+        out.ed = [edSig.length, crypto.verify(null, Buffer.from("a"), edPem, edSig), crypto.createPrivateKey(edPem).asymmetricKeyType];
+        // RSA: generate, PEM round trip, sign/verify (PKCS#1 + PSS), encrypt/decrypt.
+        const { publicKey, privateKey } = crypto.generateKeyPairSync("rsa", { modulusLength: 1024, publicKeyEncoding: { type: "spki", format: "pem" }, privateKeyEncoding: { type: "pkcs8", format: "pem" } });
+        out.pem = [publicKey.startsWith("-----BEGIN PUBLIC KEY-----"), privateKey.startsWith("-----BEGIN PRIVATE KEY-----")];
+        const signer = crypto.createSign("RSA-SHA256");
+        signer.update("payload");
+        const sig = signer.sign(privateKey, "base64");
+        out.rsaVerify = crypto.createVerify("sha256").update("payload").verify(publicKey, sig, "base64");
+        const pss = crypto.sign("sha256", Buffer.from("x"), { key: privateKey, padding: crypto.constants.RSA_PKCS1_PSS_PADDING });
+        out.pss = crypto.verify("sha256", Buffer.from("x"), { key: publicKey, padding: crypto.constants.RSA_PKCS1_PSS_PADDING }, pss);
+        out.oaep = crypto.privateDecrypt(privateKey, crypto.publicEncrypt(publicKey, Buffer.from("secret"))).toString();
+        const ko = crypto.createPublicKey(privateKey);
+        out.details = [ko.type, ko.asymmetricKeyType, ko.asymmetricKeyDetails.modulusLength, String(ko.asymmetricKeyDetails.publicExponent)];
+        const jwk = crypto.createPrivateKey(privateKey).export({ format: "jwk" });
+        out.jwk = Object.keys(jwk);
+        out.jwkBack = crypto.createPrivateKey({ key: jwk, format: "jwk" }).export({ type: "pkcs8", format: "pem" }) === privateKey;
+        const pkcs1 = crypto.createPrivateKey(privateKey).export({ type: "pkcs1", format: "pem", cipher: "aes-256-cbc", passphrase: "pw" });
+        out.encrypted = [pkcs1.includes("Proc-Type: 4,ENCRYPTED"), crypto.createPrivateKey({ key: pkcs1, passphrase: "pw" }).equals(crypto.createPrivateKey(privateKey))];
+        try { crypto.createPrivateKey(pkcs1); } catch (e) { out.noPass = e.code; }
+        // EC: async generation, ECDSA DER + P1363, ECDH, diffieHellman.
+        const ec = await new Promise((r, j) => crypto.generateKeyPair("ec", { namedCurve: "P-384" }, (e, pub, priv) => e ? j(e) : r({ pub, priv })));
+        const der = crypto.sign("sha384", Buffer.from("m"), ec.priv);
+        const raw = crypto.sign("sha384", Buffer.from("m"), { key: ec.priv, dsaEncoding: "ieee-p1363" });
+        out.ecdsa = [crypto.verify("sha384", Buffer.from("m"), ec.pub, der), crypto.verify("sha384", Buffer.from("m"), { key: ec.pub, dsaEncoding: "ieee-p1363" }, raw), raw.length, ec.pub.asymmetricKeyDetails.namedCurve];
+        const a = crypto.createECDH("prime256v1"), b = crypto.createECDH("prime256v1");
+        a.generateKeys(); b.generateKeys();
+        out.ecdh = [a.computeSecret(b.getPublicKey()).equals(b.computeSecret(a.getPublicKey())), a.getPublicKey().length, a.getPublicKey(null, "compressed").length];
+        try { a.computeSecret(Buffer.alloc(65)); } catch (e) { out.ecdhBad = e.code; }
+        const x1 = crypto.generateKeyPairSync("x25519"), x2 = crypto.generateKeyPairSync("x25519");
+        out.x25519 = crypto.diffieHellman({ privateKey: x1.privateKey, publicKey: x2.publicKey }).equals(crypto.diffieHellman({ privateKey: x2.privateKey, publicKey: x1.publicKey }));
+        out.x25519Raw = crypto.createPublicKey({ key: x1.publicKey.export({ format: "der", type: "spki" }), format: "der", type: "spki" }).export({ format: "jwk" }).crv;
+        const d1 = crypto.getDiffieHellman("modp14"), d2 = crypto.getDiffieHellman("modp14");
+        d1.generateKeys(); d2.generateKeys();
+        out.dh = [d1.computeSecret(d2.getPublicKey()).equals(d2.computeSecret(d1.getPublicKey())), d1.getPrime().length, d1.getGenerator("hex")];
+        const secret = crypto.createSecretKey(Buffer.from("k"));
+        out.secret = [secret.type, secret.symmetricKeySize, secret.export().toString()];
+        try { secret.export({ format: "pem" }); } catch (e) { out.secretPem = e.code; }
+        try { crypto.sign("sha256", Buffer.from("x"), secret); } catch (e) { out.signSecret = [e.code, e.message]; }
+        try { crypto.createPrivateKey("garbage"); } catch (e) { out.garbage = e.code; }
+        export default out;
+    "#)
+    .await;
+    assert_eq!(
+        v,
+        json!({
+            "ed": [64, true, "ed25519"],
+            "pem": [true, true],
+            "rsaVerify": true, "pss": true, "oaep": "secret",
+            "details": ["public", "rsa", 1024, "65537"],
+            "jwk": ["kty", "n", "e", "d", "p", "q", "dp", "dq", "qi"],
+            "jwkBack": true,
+            "encrypted": [true, true], "noPass": "ERR_OSSL_CRYPTO_INTERRUPTED_OR_CANCELLED",
+            "ecdsa": [true, true, 96, "secp384r1"],
+            "ecdh": [true, 65, 33], "ecdhBad": "ERR_CRYPTO_ECDH_INVALID_PUBLIC_KEY",
+            "x25519": true, "x25519Raw": "X25519",
+            "dh": [true, 256, "02"],
+            "secret": ["secret", 1, "k"], "secretPem": "ERR_INVALID_ARG_VALUE",
+            "signSecret": ["ERR_CRYPTO_INVALID_KEY_OBJECT_TYPE", "Invalid key object type secret, expected private."],
+            "garbage": "ERR_OSSL_UNSUPPORTED",
+        })
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn webcrypto_subtle() {
+    let v = run(r#"
+        const { subtle } = globalThis.crypto;
+        const enc = new TextEncoder();
+        const out = {};
+        const hmac = await subtle.importKey("raw", enc.encode("key"), { name: "HMAC", hash: "SHA-256" }, true, ["sign", "verify"]);
+        const mac = await subtle.sign("HMAC", hmac, enc.encode("data"));
+        out.hmac = [Buffer.from(mac).toString("hex"), await subtle.verify("HMAC", hmac, mac, enc.encode("data")), hmac.algorithm.length, hmac instanceof CryptoKey];
+        const aes = await subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]);
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const ct = await subtle.encrypt({ name: "AES-GCM", iv }, aes, enc.encode("hello"));
+        out.aes = [ct.byteLength, new TextDecoder().decode(await subtle.decrypt({ name: "AES-GCM", iv }, aes, ct))];
+        try { await subtle.decrypt({ name: "AES-GCM", iv }, aes, new Uint8Array(ct.byteLength)); } catch (e) { out.aesBad = e.name; }
+        const ecdsa = await subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
+        const sig = await subtle.sign({ name: "ECDSA", hash: "SHA-256" }, ecdsa.privateKey, enc.encode("m"));
+        out.ecdsa = [sig.byteLength, await subtle.verify({ name: "ECDSA", hash: "SHA-256" }, ecdsa.publicKey, sig, enc.encode("m"))];
+        const jwk = await subtle.exportKey("jwk", ecdsa.publicKey);
+        const back = await subtle.importKey("jwk", jwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"]);
+        out.jwk = [jwk.kty, jwk.crv, await subtle.verify({ name: "ECDSA", hash: "SHA-256" }, back, sig, enc.encode("m"))];
+        const raw = await subtle.exportKey("raw", ecdsa.publicKey);
+        out.raw = raw.byteLength;
+        const ed = await subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
+        const edSig = await subtle.sign("Ed25519", ed.privateKey, enc.encode("m"));
+        out.ed = await subtle.verify("Ed25519", ed.publicKey, edSig, enc.encode("m"));
+        const a = await subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"]);
+        const b = await subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"]);
+        const s1 = await subtle.deriveBits({ name: "ECDH", public: b.publicKey }, a.privateKey, 256);
+        const s2 = await subtle.deriveBits({ name: "ECDH", public: a.publicKey }, b.privateKey, 256);
+        out.ecdh = Buffer.from(s1).equals(Buffer.from(s2));
+        const pw = await subtle.importKey("raw", enc.encode("pw"), "PBKDF2", false, ["deriveBits", "deriveKey"]);
+        const bits = await subtle.deriveBits({ name: "PBKDF2", salt: enc.encode("salt"), iterations: 1000, hash: "SHA-256" }, pw, 128);
+        out.pbkdf2 = Buffer.from(bits).toString("hex");
+        const derived = await subtle.deriveKey({ name: "PBKDF2", salt: enc.encode("salt"), iterations: 1000, hash: "SHA-256" }, pw, { name: "AES-GCM", length: 128 }, true, ["encrypt"]);
+        out.derived = Buffer.from(await subtle.exportKey("raw", derived)).toString("hex");
+        const rsa = await subtle.generateKey({ name: "RSASSA-PKCS1-v1_5", modulusLength: 1024, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["sign", "verify"]);
+        const rsig = await subtle.sign("RSASSA-PKCS1-v1_5", rsa.privateKey, enc.encode("m"));
+        out.rsa = [await subtle.verify("RSASSA-PKCS1-v1_5", rsa.publicKey, rsig, enc.encode("m")), rsa.publicKey.algorithm.modulusLength];
+        const spki = await subtle.exportKey("spki", rsa.publicKey);
+        out.spki = (await subtle.importKey("spki", spki, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, true, ["verify"])).type;
+        const kw = await subtle.generateKey({ name: "AES-KW", length: 128 }, true, ["wrapKey", "unwrapKey"]);
+        const wrapped = await subtle.wrapKey("raw", derived, kw, "AES-KW");
+        const unwrapped = await subtle.unwrapKey("raw", wrapped, kw, "AES-KW", "AES-GCM", true, ["decrypt"]);
+        out.kw = Buffer.from(await subtle.exportKey("raw", unwrapped)).toString("hex") === out.derived;
+        out.digest = Buffer.from(await subtle.digest("SHA-256", enc.encode("abc"))).toString("hex").slice(0, 16);
+        export default out;
+    "#)
+    .await;
+    assert_eq!(
+        v,
+        json!({
+            "hmac": ["5031fe3d989c6d1537a013fa6e739da23463fdaec3b70137d828e36ace221bd0", true, 24, true],
+            "aes": [21, "hello"], "aesBad": "OperationError",
+            "ecdsa": [64, true], "jwk": ["EC", "P-256", true], "raw": 65,
+            "ed": true, "ecdh": true,
+            "pbkdf2": "0a38253555ce37f5c72a6b703f996814",
+            "derived": "0a38253555ce37f5c72a6b703f996814",
+            "rsa": [true, 1024], "spki": "public", "kw": true,
+            "digest": "ba7816bf8f01cfea",
+        })
+    );
+}

@@ -1074,7 +1074,8 @@ pub async fn play_easter_egg3d(tui: Arc<Tui>, screen: &[String], egg: &EasterEgg
         &colors,
         Arc::new(move || {
             PLAYING.store(false, Ordering::SeqCst);
-            if let Some(handle) = overlay_for_done.lock().take() {
+            let handle_taken = overlay_for_done.lock().take();
+            if let Some(handle) = handle_taken {
                 handle.hide();
             }
         }),

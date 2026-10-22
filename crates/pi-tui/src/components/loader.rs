@@ -81,7 +81,8 @@ impl Loader {
     }
 
     pub fn stop(&self) {
-        if let Some(id) = self.lock().interval_id.take() {
+        let id = self.lock().interval_id.take();
+        if let Some(id) = id {
             self.event_loop.clear_timer(id);
         }
     }

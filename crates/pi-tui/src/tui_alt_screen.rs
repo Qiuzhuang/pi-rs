@@ -473,7 +473,8 @@ impl AltScreen {
     // ---- hooks used by Tui ---------------------------------------------------------
 
     pub(crate) fn mounted_roots(&self, tui: &Tui) -> Vec<ComponentRef> {
-        match self.st().layout_root.clone() {
+        let root = self.st().layout_root.clone();
+        match root {
             Some(root) => vec![root],
             None => tui.container.children(),
         }

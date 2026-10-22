@@ -1010,24 +1010,49 @@ impl Tui {
     }
 
     fn set_focus_internal(&self, component: Option<ComponentRef>, policy: FocusRestorePolicy) {
+        // Overlay `visible` callbacks and the component-tree walk of `is_component_mounted` call
+        // into user code, so they are evaluated before taking the state lock (never under it).
+        let (stack_snapshot, restore_snapshot) = {
+            let st = self.state();
+            (st.overlay_stack.clone(), st.focus_restore.clone())
+        };
+        let visibility: Vec<(EntryRef, bool)> =
+            stack_snapshot.iter().map(|e| (e.clone(), self.is_overlay_visible(e))).collect();
+        let blocked_by_mounted = match &restore_snapshot {
+            FocusRestore::Blocked { blocked_by, .. } => self.is_component_mounted(blocked_by),
+            _ => true,
+        };
+        let is_visible = |e: &EntryRef| -> bool {
+            match visibility.iter().find(|(v, _)| same_entry(v, e)) {
+                Some((_, visible)) => *visible,
+                // Pushed after the snapshot: fall back to the hidden flag (no user callback).
+                None => !e.lock().hidden,
+            }
+        };
         let (prev, next) = {
             let mut st = self.state();
             let previous_focus = st.focused.clone();
             let mut next_focus = component;
             let previous_focused_overlay = previous_focus.as_ref().and_then(|pf| {
-                st.overlay_stack.iter().find(|e| same_component(&e.component, pf) && self.is_overlay_visible(e)).cloned()
+                st.overlay_stack.iter().find(|e| same_component(&e.component, pf) && is_visible(e)).cloned()
             });
             let next_is_overlay = next_focus
                 .as_ref()
                 .is_some_and(|nf| st.overlay_stack.iter().any(|e| same_component(&e.component, nf)));
-            let restore_state = self.visible_focus_restore(&st);
+            let restore_state = Self::visible_focus_restore_with(&st, &is_visible);
             if let Some(nf) = next_focus.clone().filter(|_| !next_is_overlay) {
                 match &restore_state {
                     FocusRestore::Blocked { overlay, blocked_by, resume }
                         if previous_focus.as_ref().is_some_and(|p| same_component(blocked_by, p)) =>
                     {
                         let resume_is_target = matches!(resume, BlockedResume::FocusTarget(_));
-                        if resume_is_target || !self.is_component_mounted(blocked_by) {
+                        let mounted = match &restore_snapshot {
+                            FocusRestore::Blocked { blocked_by: snap, .. } if same_component(snap, blocked_by) => {
+                                blocked_by_mounted
+                            }
+                            _ => true,
+                        };
+                        if resume_is_target || !mounted {
                             next_focus = self.resolve_blocked_resume(&mut st, overlay, resume);
                         } else {
                             st.focus_restore = FocusRestore::Blocked {
@@ -1066,11 +1091,8 @@ impl Tui {
             let prev = st.focused.take();
             st.focused = next_focus.clone();
             if let Some(nf) = &next_focus {
-                let focused_overlay = st
-                    .overlay_stack
-                    .iter()
-                    .find(|e| same_component(&e.component, nf) && self.is_overlay_visible(e))
-                    .cloned();
+                let focused_overlay =
+                    st.overlay_stack.iter().find(|e| same_component(&e.component, nf) && is_visible(e)).cloned();
                 if let Some(fo) = focused_overlay {
                     st.focus_restore = FocusRestore::Eligible { overlay: fo };
                 }
@@ -1095,10 +1117,27 @@ impl Tui {
         }
     }
 
-    fn visible_focus_restore(&self, st: &TuiState) -> FocusRestore {
+    /// The focus-restore state, or `Inactive` when its overlay is gone or invisible. Takes the state
+    /// lock only for the snapshot: overlay `visible` callbacks run without it.
+    fn visible_focus_restore(&self) -> FocusRestore {
+        let (rs, in_stack) = {
+            let st = self.state();
+            let rs = st.focus_restore.clone();
+            let in_stack = rs.overlay().is_some_and(|o| st.overlay_stack.iter().any(|e| same_entry(e, o)));
+            (rs, in_stack)
+        };
+        if let Some(overlay) = rs.overlay() {
+            if !in_stack || !self.is_overlay_visible(overlay) {
+                return FocusRestore::Inactive;
+            }
+        }
+        rs
+    }
+
+    fn visible_focus_restore_with(st: &TuiState, is_visible: &dyn Fn(&EntryRef) -> bool) -> FocusRestore {
         let rs = st.focus_restore.clone();
         if let Some(overlay) = rs.overlay() {
-            if !st.overlay_stack.iter().any(|e| same_entry(e, overlay)) || !self.is_overlay_visible(overlay) {
+            if !st.overlay_stack.iter().any(|e| same_entry(e, overlay)) || !is_visible(overlay) {
                 return FocusRestore::Inactive;
             }
         }
@@ -1241,9 +1280,13 @@ impl Tui {
     }
 
     fn overlay_focus(&self, entry: &EntryRef) {
+        // The `visible` callback is user code: evaluate it without the state lock.
+        if !self.is_overlay_visible(entry) {
+            return;
+        }
         {
             let mut st = self.state();
-            if !st.overlay_stack.iter().any(|e| same_entry(e, entry)) || !self.is_overlay_visible(entry) {
+            if !st.overlay_stack.iter().any(|e| same_entry(e, entry)) {
                 return;
             }
             st.focus_order_counter += 1;
@@ -1782,10 +1825,7 @@ impl Tui {
         };
         let focus_is_overlay = focused.as_ref().is_some_and(|f| stack.iter().any(|o| same_component(&o.component, f)));
         if !focus_is_overlay {
-            let restore = {
-                let st = self.state();
-                self.visible_focus_restore(&st)
-            };
+            let restore = self.visible_focus_restore();
             match restore {
                 FocusRestore::Eligible { overlay } => self.set_focus(Some(overlay.component.clone())),
                 FocusRestore::Blocked { overlay, blocked_by, resume } => {

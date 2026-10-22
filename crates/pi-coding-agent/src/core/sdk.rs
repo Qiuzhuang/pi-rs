@@ -563,8 +563,11 @@ pub async fn create_agent_session(
         };
         // Compaction and summaries use their own routing ids; only session requests
         // replace the cache entry, so warming restarts from them.
+        // Upgrade outside the `if let`: a guard in the scrutinee would stay held across the
+        // warmer call below.
+        let current_agent = stream_agent_slot.read().as_ref().and_then(|w| w.upgrade());
         if session_id.as_deref() == Some(stream_session_manager.get_session_id().as_str())
-            && let Some(agent) = stream_agent_slot.read().as_ref().and_then(|w| w.upgrade())
+            && let Some(agent) = current_agent
         {
             let messages = agent.messages();
             let request_model = model.clone();

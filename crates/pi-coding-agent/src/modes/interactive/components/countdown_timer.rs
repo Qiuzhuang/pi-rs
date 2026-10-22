@@ -17,7 +17,8 @@ struct Inner {
 
 impl Inner {
     fn dispose(&self) {
-        if let Some(id) = self.interval_id.lock().take() {
+        let id = self.interval_id.lock().take();
+        if let Some(id) = id {
             self.event_loop.clear_timer(id);
         }
     }

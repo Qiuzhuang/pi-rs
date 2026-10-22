@@ -56,7 +56,8 @@ pub async fn select_config(options: &ConfigSelectorOptions) -> anyhow::Result<()
         {
             let weak = Arc::downgrade(&ui);
             Arc::new(move || {
-                if let Some(tx) = tx.lock().take() {
+                let tx_taken = tx.lock().take();
+                if let Some(tx) = tx_taken {
                     if let Some(ui) = weak.upgrade() {
                         ui.stop(TuiStopOptions::default());
                     }

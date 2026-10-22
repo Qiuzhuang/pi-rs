@@ -205,7 +205,9 @@ impl JobExecutor for Executor {
     async fn run_jobs_async(self: Rc<Self>, context: &RefCell<&mut Context>) -> JsResult<()> {
         let mut group = FuturesUnordered::new();
         loop {
-            for job in std::mem::take(&mut *self.async_jobs.borrow_mut()) {
+            // Take the queue first: the borrow must not span `job.call` (which may enqueue jobs).
+            let jobs = std::mem::take(&mut *self.async_jobs.borrow_mut());
+            for job in jobs {
                 group.push(job.call(context));
             }
             if self.is_empty() && group.is_empty() {
@@ -481,7 +483,8 @@ pub(crate) fn when_settled(ctx: &mut Context, value: JsResult<JsValue>, done: im
     // that does not own GC-traced values (callers pass reply channels / ids only).
     let on_ok = unsafe {
         NativeFunction::from_closure(move |_, args, ctx| {
-            if let Some(f) = s1.borrow_mut().take() {
+            let taken = s1.borrow_mut().take();
+            if let Some(f) = taken {
                 f(ctx, Ok(args.get_or_undefined(0).clone()));
             }
             Ok(JsValue::undefined())
@@ -489,7 +492,8 @@ pub(crate) fn when_settled(ctx: &mut Context, value: JsResult<JsValue>, done: im
     };
     let on_err = unsafe {
         NativeFunction::from_closure(move |_, args, ctx| {
-            if let Some(f) = s2.borrow_mut().take() {
+            let taken = s2.borrow_mut().take();
+            if let Some(f) = taken {
                 f(ctx, Err(args.get_or_undefined(0).clone()));
             }
             Ok(JsValue::undefined())

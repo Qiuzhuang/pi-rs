@@ -34,7 +34,8 @@ pub async fn select_session(
         let tx = tx.clone();
         let weak = Arc::downgrade(&ui);
         Arc::new(move |value: Option<String>| {
-            if let Some(tx) = tx.lock().take() {
+            let tx_taken = tx.lock().take();
+            if let Some(tx) = tx_taken {
                 if let Some(ui) = weak.upgrade() {
                     ui.stop(TuiStopOptions::default());
                 }

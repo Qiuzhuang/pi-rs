@@ -337,7 +337,8 @@ async fn input(context: &BugReportContext, title: &str, description: &str, initi
         let tx = tx.clone();
         let slot = overlay_slot.clone();
         Arc::new(move |value: Option<String>| {
-            if let Some(overlay) = slot.lock().take() {
+            let overlay_taken = slot.lock().take();
+            if let Some(overlay) = overlay_taken {
                 restore_editor(&ctx, &overlay);
             }
             if let Some(tx) = tx.lock().take() {
@@ -383,7 +384,8 @@ async fn choose(context: &BugReportContext, title: &str, options: &[&str], descr
         let tx = tx.clone();
         let slot = overlay_slot.clone();
         Arc::new(move |value: Option<String>| {
-            if let Some(overlay) = slot.lock().take() {
+            let overlay_taken = slot.lock().take();
+            if let Some(overlay) = overlay_taken {
                 restore_editor(&ctx, &overlay);
             }
             if let Some(tx) = tx.lock().take() {

@@ -118,7 +118,30 @@ fn check(failures: &mut Vec<String>, name: &str, expected: &Value, actual: &Valu
         } else {
             detail = format!("\n    ts: {expected}\n    rs: {actual}");
         }
-        failures.push(format!("{name}:{detail}"));
+        let mut paths = Vec::new();
+        diff_paths("", &expected, &actual, &mut paths, 12);
+        failures.push(format!("{name}:{detail}\n  differences:\n    {}", paths.join("\n    ")));
+    }
+}
+
+/// Paths where two JSON values differ (at most `limit`).
+fn diff_paths(path: &str, expected: &Value, actual: &Value, out: &mut Vec<String>, limit: usize) {
+    if out.len() >= limit || expected == actual {
+        return;
+    }
+    match (expected, actual) {
+        (Value::Object(e), Value::Object(a)) => {
+            for key in e.keys().chain(a.keys().filter(|k| !e.contains_key(*k))) {
+                let missing = Value::String("<missing>".into());
+                diff_paths(&format!("{path}.{key}"), e.get(key).unwrap_or(&missing), a.get(key).unwrap_or(&missing), out, limit);
+            }
+        }
+        (Value::Array(e), Value::Array(a)) if e.len() == a.len() => {
+            for (i, (x, y)) in e.iter().zip(a).enumerate() {
+                diff_paths(&format!("{path}[{i}]"), x, y, out, limit);
+            }
+        }
+        _ => out.push(format!("{path}: ts {expected} / rs {actual}")),
     }
 }
 
@@ -857,4 +880,83 @@ fn golden_keybindings() {
         check(&mut failures, &case.name, &case.out, &actual);
     }
     finish("keybindings", failures);
+}
+
+// -------------------------------------------------------------------------------------------------
+// models.json
+
+#[test]
+fn golden_models_json() {
+    let fixture = fixture();
+    let rt = runtime();
+    let mut failures = Vec::new();
+    for case in selected(&fixture, "model_config") {
+        let mut files = Map::new();
+        files.insert("models.json".into(), case.input["content"].clone());
+        let tree = Tree::new(Some(&Value::Object(files)));
+        let config = rt.block_on(crate::core::model_config::ModelConfig::load(Some(&tree.path("models.json"))));
+        let ids = config.get_provider_ids();
+        let providers: Map<String, Value> = ids
+            .iter()
+            .map(|id| {
+                let provider = config.get_provider(id).unwrap();
+                (
+                    id.clone(),
+                    json!({
+                        "baseUrl": u(provider.base_url.clone().map(Value::from)),
+                        "api": u(provider.api.clone().map(Value::from)),
+                        "models": provider.models.iter().flatten().map(|m| m.id.clone()).collect::<Vec<_>>(),
+                        "overrides": provider.model_overrides.iter().flat_map(|o| o.keys().cloned()).collect::<Vec<_>>(),
+                    }),
+                )
+            })
+            .collect();
+        let actual = json!({
+            "error": u(config.get_error().map(Value::from)),
+            "providerIds": ids,
+            "providers": providers,
+        });
+        check(&mut failures, &case.name, &case.out, &tree.relativize(actual));
+    }
+    finish("models.json", failures);
+}
+
+#[test]
+fn golden_provider_composition() {
+    let fixture = fixture();
+    let builtins: std::collections::HashMap<String, Arc<dyn pi_ai::models::Provider>> =
+        pi_ai::providers::all::builtin_providers().into_iter().map(|p| (p.id().to_string(), p)).collect();
+    let mut failures = Vec::new();
+    for case in selected(&fixture, "compose") {
+        let provider_id = case.input["providerId"].as_str().unwrap();
+        let config = Arc::new(crate::core::model_config::ModelConfig::from_content(
+            case.input["content"].as_str().unwrap(),
+            "models.json",
+        ));
+        let actual = match crate::core::provider_composer::compose_model_provider(
+            provider_id,
+            builtins.get(provider_id).cloned(),
+            config,
+            None,
+        ) {
+            Ok(provider) => json!({
+                "name": provider.name(),
+                "baseUrl": u(provider.base_url().map(Value::from)),
+                "models": provider.get_models().iter().map(|model| {
+                    let value = to_json(model);
+                    let mut out = Map::new();
+                    for key in ["id", "name", "api", "baseUrl", "reasoning", "input", "contextWindow", "maxTokens", "cost"] {
+                        out.insert(key.into(), value.get(key).cloned().unwrap_or(Value::Null));
+                    }
+                    for key in ["compat", "thinkingLevelMap", "samplingParams", "samplingParamsByThinkingLevel", "promptCache", "inputLimits"] {
+                        out.insert(key.into(), u(value.get(key).cloned().filter(|v| !v.is_null())));
+                    }
+                    Value::Object(out)
+                }).collect::<Vec<_>>(),
+            }),
+            Err(error) => json!({ "error": error.to_string() }),
+        };
+        check(&mut failures, &case.name, &case.out, &actual);
+    }
+    finish("provider composition", failures);
 }

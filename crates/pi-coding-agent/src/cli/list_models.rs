@@ -10,9 +10,9 @@ use pi_ai::types::Model;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
-/// JS `Number.prototype.toFixed(1)` for the positive values used here.
+/// JS `Number.prototype.toFixed(1)`.
 fn to_fixed_1(value: f64) -> String {
-    format!("{:.1}", (value * 10.0).round() / 10.0)
+    crate::core::tools::js_util::js_to_fixed(value, 1)
 }
 
 /// Format a number as human-readable (e.g., 200000 -> "200K", 1000000 -> "1M")
@@ -28,10 +28,7 @@ pub fn format_token_count(count: f64) -> String {
     format!("{count}")
 }
 
-/// JS `localeCompare` approximation (case-insensitive first, then by code point).
-fn locale_compare(a: &str, b: &str) -> std::cmp::Ordering {
-    a.to_lowercase().cmp(&b.to_lowercase()).then_with(|| b.cmp(a))
-}
+use crate::core::tools::js_util::locale_compare;
 
 fn pad_end(value: &str, width: usize) -> String {
     let len = value.chars().count();
@@ -120,5 +117,8 @@ mod tests {
         assert_eq!(format_token_count(128_500.0), "128.5K");
         assert_eq!(format_token_count(512.0), "512");
         assert_eq!(format_token_count(2_500_000.0), "2.5M");
+        // `toFixed` rounds the exact binary value: 1.45 is stored just below 1.45.
+        assert_eq!(format_token_count(1_450_000.0), "1.4M");
+        assert_eq!(format_token_count(8_250.0), "8.3K");
     }
 }

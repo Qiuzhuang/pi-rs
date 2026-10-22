@@ -154,7 +154,9 @@ fn read_trust_file(path: &str) -> anyhow::Result<TrustFile> {
 
     let parsed: Value = std::fs::read_to_string(path)
         .map_err(anyhow::Error::from)
-        .and_then(|content| Ok(serde_json::from_str(&strip_bom(&content))?))
+        .and_then(|content| {
+            crate::utils::js_json::js_json_parse(&strip_bom(&content)).map_err(anyhow::Error::msg)
+        })
         .map_err(|error| anyhow::anyhow!("Failed to read trust store {path}: {error}"))?;
 
     let Value::Object(entries) = parsed else {

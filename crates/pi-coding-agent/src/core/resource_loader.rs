@@ -285,7 +285,7 @@ pub trait ResourceLoader: Send + Sync {
 
 /// Print a yellow warning to stderr (`console.error(chalk.yellow(...))`).
 fn warn(message: &str) {
-    eprintln!("\x1b[33m{message}\x1b[39m");
+    eprintln!("{}", crate::utils::chalk::yellow(message));
 }
 
 fn resolve_prompt_input(input: Option<&str>, description: &str) -> Option<String> {

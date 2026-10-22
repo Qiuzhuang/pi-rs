@@ -9,7 +9,6 @@ use indexmap::{IndexMap, IndexSet};
 use pi_agent::types::ThinkingLevel;
 use pi_ai::types::Model;
 use serde::{Deserialize, Serialize};
-use std::cmp::Ordering;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
@@ -189,31 +188,7 @@ pub struct ModelReferenceTarget {
 
 pub type ResolvedOrAmbiguous = ModelReferenceResult;
 
-/// JS `localeCompare` approximation (ICU root collation for ASCII: punctuation < digits <
-/// letters, case-insensitive first, then lowercase before uppercase).
-fn locale_compare(a: &str, b: &str) -> Ordering {
-    const ORDER: &str = "\t\n\u{b}\u{c}\r _-,;:!?.'\"()[]{}@*/\\&#%`^+<=>|~$";
-    fn weight(c: char) -> u32 {
-        if let Some(index) = ORDER.find(c) {
-            return index as u32;
-        }
-        if c.is_ascii_digit() {
-            return 100 + (c as u32 - '0' as u32);
-        }
-        if c.is_ascii_alphabetic() {
-            return 200 + (c.to_ascii_lowercase() as u32 - 'a' as u32);
-        }
-        1000 + c.to_lowercase().next().unwrap_or(c) as u32
-    }
-    let primary = |s: &str| s.chars().map(weight).collect::<Vec<_>>();
-    primary(a)
-        .cmp(&primary(b))
-        .then_with(|| {
-            let case = |s: &str| s.chars().map(|c| u8::from(c.is_uppercase())).collect::<Vec<_>>();
-            case(a).cmp(&case(b))
-        })
-        .then_with(|| a.cmp(b))
-}
+use crate::core::tools::js_util::locale_compare;
 
 fn parse_thinking_level(value: &str) -> Option<ThinkingLevel> {
     ThinkingLevel::parse(value).filter(|level| level.as_str() == value)
@@ -473,10 +448,11 @@ fn select_fuzzy(matches: Vec<&Model>, usable: &dyn Fn(&str) -> bool) -> Option<R
 /// Prefer aliases (`claude-sonnet-4-5`) over dated versions (`claude-sonnet-4-5-20250929`), then the latest.
 fn best_fuzzy_match<'a>(matches: &[&'a Model]) -> Option<&'a Model> {
     let aliases: Vec<&Model> = matches.iter().copied().filter(|m| is_alias(&m.id)).collect();
-    let mut sorted: Vec<&Model> = if aliases.is_empty() { matches.to_vec() } else { aliases };
-    // Stable sort, descending by id.
-    sorted.sort_by(|a, b| locale_compare(&b.id, &a.id));
-    sorted.first().copied()
+    let candidates: Vec<&Model> = if aliases.is_empty() { matches.to_vec() } else { aliases };
+    // The first element of a stable descending sort by id: the first of the greatest ids.
+    candidates.into_iter().reduce(|best, model| {
+        if locale_compare(&model.id, &best.id) == std::cmp::Ordering::Greater { model } else { best }
+    })
 }
 
 fn is_alias(id: &str) -> bool {
@@ -678,10 +654,23 @@ fn match_segments(pattern: &[&str], path: &[&str]) -> bool {
     if segment.starts_with('.') && !first.starts_with('.') && first.chars().any(|c| matches!(c, '*' | '?' | '[')) {
         return false;
     }
-    match segment_regex(first) {
-        Some(re) if re.is_match(segment) => match_segments(rest, path_rest),
-        _ => false,
+    // Scope patterns are matched against every model of the catalog: compile each segment once.
+    thread_local! {
+        static SEGMENT_REGEXES: std::cell::RefCell<std::collections::HashMap<String, Option<regex::Regex>>> =
+            Default::default();
     }
+    let matched = SEGMENT_REGEXES.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if cache.len() > 256 {
+            cache.clear();
+        }
+        cache
+            .entry((*first).to_string())
+            .or_insert_with(|| segment_regex(first))
+            .as_ref()
+            .is_some_and(|re| re.is_match(segment))
+    });
+    matched && match_segments(rest, path_rest)
 }
 
 /// `minimatch(path, pattern, { nocase: true })`.
@@ -832,15 +821,7 @@ pub async fn resolve_model_scope_with_diagnostics(
     Ok(resolve_model_scope_from_models(patterns, &available))
 }
 
-/// Yellow terminal text (`chalk.yellow`).
-fn yellow(text: &str) -> String {
-    format!("\x1b[33m{text}\x1b[39m")
-}
-
-/// Dim terminal text (`chalk.dim`).
-fn dim(text: &str) -> String {
-    format!("\x1b[2m{text}\x1b[22m")
-}
+use crate::utils::chalk::{dim, yellow};
 
 pub async fn resolve_model_scope(
     patterns: &[String],

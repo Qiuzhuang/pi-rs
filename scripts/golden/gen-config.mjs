@@ -1193,6 +1193,92 @@ for (const patterns of scopePatterns) {
 }
 
 // ---------------------------------------------------------------------------------------------
+// models.json
+
+const { ModelConfig } = await ref("coding-agent/src/core/model-config.ts");
+const modelsJsonInputs = {
+	valid: JSON.stringify({
+		providers: {
+			ollama: {
+				baseUrl: "http://localhost:11434/v1",
+				api: "openai-completions",
+				apiKey: "ollama",
+				models: [{ id: "llama3", name: "Llama 3", contextWindow: 8192, reasoning: false, input: ["text", "image"] }],
+			},
+			anthropic: { modelOverrides: { "claude-opus-4-8": { name: "Opus", maxTokens: 1000 } }, headers: { "x-a": "b" } },
+			"1": { name: "numeric id" },
+		},
+	}),
+	comments: '{\n  // comment\n  "providers": { /* block */ "x": { "baseUrl": "https://x.dev" } },\n}',
+	bom: '\uFEFF{"providers": {}}',
+	syntax: '{"providers": {',
+	notObject: "[]",
+	missingProviders: "{}",
+	wrongTypes: JSON.stringify({ providers: { a: { baseUrl: 5, models: [{ name: "no id" }], authHeader: "yes" } } }),
+	emptyStrings: JSON.stringify({ providers: { a: { name: "", apiKey: "", models: [{ id: "" }] } } }),
+	badModalities: JSON.stringify({ providers: { a: { models: [{ id: "m", input: ["text", "video"], contextWindow: 0 }] } } }),
+	badOauth: JSON.stringify({ providers: { a: { oauth: "github", baseUrl: "https://r" } } }),
+	extraKeys: JSON.stringify({ $schema: "x", other: 1, providers: { a: { unknown: true } } }),
+};
+for (const [label, content] of Object.entries(modelsJsonInputs)) {
+	const root = makeTree({ "models.json": content });
+	const config = await ModelConfig.load(path.join(root, "models.json"));
+	add(`models-json/${label}`, "model_config", { content }, relativize({
+		error: u(config.getError()),
+		providerIds: config.getProviderIds(),
+		providers: Object.fromEntries(config.getProviderIds().map((id) => {
+			const provider = config.getProvider(id);
+			return [id, { baseUrl: u(provider.baseUrl), api: u(provider.api), models: (provider.models ?? []).map((m) => m.id), overrides: Object.keys(provider.modelOverrides ?? {}) }];
+		})),
+	}, root));
+}
+
+// Provider composition from models.json (no extensions).
+const { composeModelProvider } = await ref("coding-agent/src/core/provider-composer.ts");
+const { builtinProviders } = await ref("ai/src/providers/all.ts");
+const builtinById = new Map(builtinProviders().map((provider) => [provider.id, provider]));
+const projectModel = (m) => ({
+	id: m.id,
+	name: m.name,
+	api: m.api,
+	baseUrl: m.baseUrl,
+	reasoning: m.reasoning,
+	input: m.input,
+	contextWindow: m.contextWindow,
+	maxTokens: m.maxTokens,
+	cost: m.cost,
+	compat: u(m.compat),
+	thinkingLevelMap: u(m.thinkingLevelMap),
+	samplingParams: u(m.samplingParams),
+	samplingParamsByThinkingLevel: u(m.samplingParamsByThinkingLevel),
+	promptCache: u(m.promptCache),
+	inputLimits: u(m.inputLimits),
+});
+const composeInputs = [
+	["custom-provider", "ollama", { providers: { ollama: { baseUrl: "http://localhost:11434/v1", api: "openai-completions", apiKey: "x", compat: { supportsDeveloperRole: false }, models: [{ id: "llama3" }, { id: "qwen", name: "Qwen", reasoning: true, input: ["text", "image"], contextWindow: 32000, maxTokens: 4096, cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 }, compat: { supportsStore: false } }] } } }],
+	["custom-no-api", "local", { providers: { local: { baseUrl: "http://x", apiKey: "k", models: [{ id: "m" }] } } }],
+	["custom-no-base-url", "local", { providers: { local: { api: "openai-completions", apiKey: "k", models: [{ id: "m" }] } } }],
+	["empty-config", "anthropic", { providers: { anthropic: {} } }],
+	["oauth-without-base-url", "x", { providers: { x: { oauth: "radius" } } }],
+	["no-auth", "nothing", { providers: { nothing: { baseUrl: "http://x", api: "openai-completions", models: [{ id: "m" }] } } }],
+	["builtin-overrides", "anthropic", { providers: { anthropic: { modelOverrides: { "claude-opus-4-8": { name: "Opus Custom", maxTokens: 1000, cost: { input: 9 }, thinkingLevelMap: { minimal: null }, samplingParams: { top_k: 5 }, promptCache: { short: 300, long: 3600 } }, "missing-model": { name: "x" } } } } }],
+	["builtin-base-url-and-custom", "openai", { providers: { openai: { baseUrl: "https://proxy.example/v1", compat: { openRouterRouting: { order: ["a"] } }, models: [{ id: "gpt-5.5", name: "Replaced" }, { id: "brand-new", api: "openai-responses" }] } } }],
+	["builtin-headers-only", "groq", { providers: { groq: { headers: { "x-test": "1" } } } }],
+];
+for (const [label, providerId, json] of composeInputs) {
+	const root = makeTree({ "models.json": JSON.stringify(json) });
+	const config = await ModelConfig.load(path.join(root, "models.json"));
+	let out;
+	try {
+		const provider = composeModelProvider(providerId, builtinById.get(providerId), config, undefined);
+		out = { name: provider.name, baseUrl: u(provider.baseUrl), models: provider.getModels().map(projectModel) };
+	} catch (error) {
+		out = { error: error.message };
+	}
+	add(`compose/${label}`, "compose", { providerId, content: JSON.stringify(json) }, out);
+}
+
+// ---------------------------------------------------------------------------------------------
 // Keybindings
 
 const keybindingInputs = {

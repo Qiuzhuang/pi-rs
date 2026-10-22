@@ -689,3 +689,278 @@ async fn uses_the_message_estimate_when_no_assistant_has_reported_usage() {
 async fn does_not_compact_when_the_zero_usage_message_estimate_is_below_the_threshold() {
     assert!(zero_usage_check("short".into()).await.is_empty());
 }
+
+// #2835: tool allowlists filter extension tools.
+async fn allowlisted_session(dir: &str, allowed: Vec<String>) -> Arc<pi_coding_agent::core::agent_session::AgentSession> {
+    use pi_coding_agent::core::extensions::types::{ExtensionFactory, InlineExtension, SessionStartEvent, ToolDefinition};
+    use pi_coding_agent::core::resource_loader::{DefaultResourceLoader, DefaultResourceLoaderOptions, ResourceLoader};
+    let agent_dir = format!("{dir}/agent");
+    std::fs::create_dir_all(&agent_dir).unwrap();
+    let settings_manager = pi_coding_agent::core::settings_manager::SettingsManager::create(dir, Some(&agent_dir), None);
+    let factory: ExtensionFactory = Arc::new(|pi| {
+        Box::pin(async move {
+            let api = pi.clone();
+            on_event::<SessionStartEvent, _, _>(&*pi, move |_event, _ctx| {
+                let api = api.clone();
+                async move {
+                    let mut tool = ToolDefinition::new(
+                        "dynamic_tool",
+                        "Dynamic Tool",
+                        "Tool registered from session_start",
+                        json!({"type": "object", "properties": {}}),
+                        |_id, _p, _s, _u, _c| async { Ok(pi_agent::types::AgentToolResult::text("ok", Some(json!({})))) },
+                    );
+                    tool.prompt_snippet = Some("Run dynamic test behavior".into());
+                    api.register_tool(tool)?;
+                    Ok(None)
+                }
+            })?;
+            Ok(())
+        })
+    });
+    let resource_loader = Arc::new(DefaultResourceLoader::new(&DefaultResourceLoaderOptions {
+        cwd: dir.to_string(),
+        agent_dir: agent_dir.clone(),
+        settings_manager: Some(settings_manager.clone()),
+        extension_factories: Some(vec![InlineExtension::Factory(factory)]),
+        ..Default::default()
+    }));
+    resource_loader.reload(None).await.unwrap();
+    let session = pi_coding_agent::core::sdk::create_agent_session(Some(&pi_coding_agent::core::sdk::CreateAgentSessionOptions {
+        cwd: Some(dir.to_string()),
+        agent_dir: Some(agent_dir),
+        model: pi_ai::compat::get_model("anthropic", "claude-sonnet-4-5"),
+        settings_manager: Some(settings_manager),
+        session_manager: Some(pi_coding_agent::core::session_manager::SessionManager::in_memory(Some(dir), None, None).unwrap()),
+        resource_loader: Some(resource_loader as Arc<dyn ResourceLoader>),
+        tools: Some(allowed),
+        ..Default::default()
+    }))
+    .await
+    .unwrap()
+    .session;
+    session
+        .bind_extensions(&pi_coding_agent::core::agent_session::ExtensionBindings::default())
+        .await
+        .unwrap();
+    session
+}
+
+#[tokio::test]
+async fn allows_only_explicitly_listed_built_in_and_extension_tools() {
+    let dir = std::env::temp_dir().join(format!("pi-tools-filter-{}", uuid::Uuid::new_v4()));
+    let dir = dir.to_string_lossy().into_owned();
+    let session = allowlisted_session(&dir, vec!["read".into(), "dynamic_tool".into()]).await;
+
+    let mut all: Vec<String> = session.get_all_tools().into_iter().map(|t| t.name).collect();
+    all.sort();
+    assert_eq!(all, vec!["dynamic_tool", "read"]);
+    let mut active = session.get_active_tool_names();
+    active.sort();
+    assert_eq!(active, vec!["dynamic_tool", "read"]);
+    let prompt = session.system_prompt();
+    assert!(prompt.contains("- read: Read file contents"));
+    assert!(prompt.contains("- dynamic_tool: Run dynamic test behavior"));
+    assert!(!prompt.contains("- bash:"));
+    assert!(!prompt.contains("- edit:"));
+    session.dispose();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn disables_all_tools_when_the_allowlist_is_empty() {
+    let dir = std::env::temp_dir().join(format!("pi-tools-filter-{}", uuid::Uuid::new_v4()));
+    let dir = dir.to_string_lossy().into_owned();
+    let session = allowlisted_session(&dir, Vec::new()).await;
+
+    assert!(session.get_all_tools().is_empty());
+    assert!(session.get_active_tool_names().is_empty());
+    let prompt = session.system_prompt();
+    assert!(prompt.contains("<tools>\n(none)\n"), "{prompt}");
+    assert!(!prompt.contains("dynamic_tool"));
+    session.dispose();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// #5217: compaction reason on extension events.
+async fn compaction_reason_harness(recorded: Arc<Mutex<Vec<(String, Value, bool)>>>) -> Harness {
+    use pi_coding_agent::core::extensions::types::{SessionBeforeCompactEvent, SessionBeforeCompactResult, SessionCompactEvent};
+    let r = recorded.clone();
+    let harness = create_harness(HarnessOptions {
+        settings: Some(json!({"compaction": {"keepRecentTokens": 1}})),
+        extension_factories: vec![ext(move |pi| {
+            let r1 = r.clone();
+            on_event::<SessionBeforeCompactEvent, _, _>(&*pi, move |event, _ctx| {
+                let r = r1.clone();
+                async move {
+                    r.lock().push((
+                        "session_before_compact".into(),
+                        serde_json::to_value(event.reason)?,
+                        event.will_retry,
+                    ));
+                    Ok(Some(SessionBeforeCompactResult {
+                        cancel: None,
+                        compaction: Some(pi_coding_agent::core::compaction::CompactionResult {
+                            summary: "summary from extension".into(),
+                            first_kept_entry_id: event.preparation.first_kept_entry_id.clone(),
+                            tokens_before: event.preparation.tokens_before,
+                            estimated_tokens_after: None,
+                            usage: None,
+                            details: Some(json!({})),
+                        }),
+                    }))
+                }
+            })?;
+            let r2 = r.clone();
+            on_event::<SessionCompactEvent, _, _>(&*pi, move |event, _ctx| {
+                let r = r2.clone();
+                async move {
+                    r.lock()
+                        .push(("session_compact".into(), serde_json::to_value(event.reason)?, event.will_retry));
+                    Ok(None)
+                }
+            })?;
+            Ok(())
+        })],
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    harness.set_responses(vec![text("one"), text("two")]);
+    harness.session.prompt("first", None).await.unwrap();
+    harness.session.prompt("second", None).await.unwrap();
+    harness
+}
+
+fn reason_events(reason: &str, will_retry: bool) -> Vec<(String, Value, bool)> {
+    vec![
+        ("session_before_compact".into(), json!(reason), will_retry),
+        ("session_compact".into(), json!(reason), will_retry),
+    ]
+}
+
+#[tokio::test]
+async fn reports_manual_reason_for_compact() {
+    let recorded = Arc::new(Mutex::new(Vec::new()));
+    let harness = compaction_reason_harness(recorded.clone()).await;
+    harness.session.compact(None).await.unwrap();
+    assert_eq!(*recorded.lock(), reason_events("manual", false));
+    harness.cleanup();
+}
+
+#[tokio::test]
+async fn reports_threshold_reason_for_auto_compaction() {
+    let recorded = Arc::new(Mutex::new(Vec::new()));
+    let harness = compaction_reason_harness(recorded.clone()).await;
+    harness
+        .session
+        .run_auto_compaction_for_test(pi_coding_agent::core::extensions::types::CompactionReason::Threshold, false)
+        .await;
+    assert_eq!(*recorded.lock(), reason_events("threshold", false));
+    harness.cleanup();
+}
+
+#[tokio::test]
+async fn reports_overflow_reason_and_will_retry_for_overflow_recovery() {
+    let recorded = Arc::new(Mutex::new(Vec::new()));
+    let harness = compaction_reason_harness(recorded.clone()).await;
+    harness
+        .session
+        .run_auto_compaction_for_test(pi_coding_agent::core::extensions::types::CompactionReason::Overflow, true)
+        .await;
+    assert_eq!(*recorded.lock(), reason_events("overflow", true));
+    harness.cleanup();
+}
+
+// #1717/#2113: agent session event settlement.
+fn echo_tool() -> pi_agent::types::AgentToolRef {
+    FnAgentTool::new(
+        "echo",
+        "Echo",
+        "Echo text back",
+        json!({"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}),
+        |_id, params: Value, _s, _u| async move {
+            let text = params["text"].as_str().unwrap_or_default().to_string();
+            Ok(pi_agent::types::AgentToolResult::text(text.clone(), Some(json!({"text": text}))))
+        },
+    )
+    .into_ref()
+}
+
+fn branch_roles(manager: &pi_coding_agent::core::session_manager::SessionManager) -> Vec<String> {
+    manager
+        .get_branch(None)
+        .iter()
+        .filter_map(|e| match e {
+            SessionEntry::Message(m) => Some(m.message.role().to_string()),
+            _ => None,
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn keeps_persisted_message_order_when_extension_message_end_handlers_yield() {
+    let harness = create_harness(HarnessOptions {
+        tools: Some(vec![echo_tool()]),
+        extension_factories: vec![ext(|pi| {
+            on_event::<MessageEndEvent, _, _>(&*pi, |event, _ctx| async move {
+                if matches!(event.message, AgentMessage::Assistant(_)) {
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                }
+                Ok(None)
+            })?;
+            Ok(())
+        })],
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    harness.set_responses(vec![
+        message(
+            vec![tool_call("echo", json!({"text": "one"})), tool_call("echo", json!({"text": "two"}))],
+            Some(StopReason::ToolUse),
+        )
+        .into(),
+        text("done"),
+    ]);
+
+    harness.session.prompt("run tools", None).await.unwrap();
+
+    assert_eq!(
+        branch_roles(&harness.session_manager),
+        ["system", "user", "assistant", "toolResult", "toolResult", "assistant"]
+    );
+    harness.cleanup();
+}
+
+#[tokio::test]
+async fn runs_tool_call_handlers_after_the_assistant_tool_use_message_is_settled_in_the_session() {
+    let roles = Arc::new(Mutex::new(Vec::<Vec<String>>::new()));
+    let r = roles.clone();
+    let harness = create_harness(HarnessOptions {
+        tools: Some(vec![echo_tool()]),
+        extension_factories: vec![ext(move |pi| {
+            let r = r.clone();
+            on_event::<ToolCallEvent, _, _>(&*pi, move |_event, ctx| {
+                let r = r.clone();
+                async move {
+                    r.lock().push(branch_roles(&*ctx.session_manager()?));
+                    Ok(None)
+                }
+            })?;
+            Ok(())
+        })],
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    harness.set_responses(vec![tool_use("echo", json!({"text": "hello"})), text("done")]);
+
+    harness.session.prompt("run tool", None).await.unwrap();
+
+    assert_eq!(
+        *roles.lock(),
+        vec![vec!["system".to_string(), "user".into(), "assistant".into()]]
+    );
+    harness.cleanup();
+}

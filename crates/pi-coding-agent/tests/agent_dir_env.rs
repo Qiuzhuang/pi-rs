@@ -651,3 +651,244 @@ mod http_proxy_settings {
         assert_eq!(vars, (None, None));
     }
 }
+
+// ---------------------------------------------------------------------------
+// footer-data-provider.test.ts "reftable branch detection". A fake `git` on PATH stands in for
+// the mocked `child_process`: it logs `<cwd>|<args>` and answers `symbolic-ref` with the branch
+// file's content (failing when it is empty). The Rust provider polls the git metadata instead of
+// using `fs.watch`, so the "retries git watchers after an async fs.watch error" case has no
+// counterpart.
+// ---------------------------------------------------------------------------
+
+#[cfg(unix)]
+mod footer_reftable {
+    use super::ENV_LOCK;
+    use pi_coding_agent::core::footer_data_provider::FooterDataProvider;
+    use std::path::{Path, PathBuf};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::{Duration, Instant};
+
+    struct FakeGit {
+        temp: tempfile::TempDir,
+        log: PathBuf,
+        branch: PathBuf,
+        saved: Vec<(&'static str, Option<String>)>,
+    }
+
+    impl FakeGit {
+        /// Install the fake git; the caller holds ENV_LOCK for the fixture's lifetime.
+        fn install() -> Self {
+            use std::os::unix::fs::PermissionsExt;
+            let temp = tempfile::tempdir().unwrap();
+            let bin = temp.path().join("bin");
+            std::fs::create_dir_all(&bin).unwrap();
+            let log = temp.path().join("git.log");
+            let branch = temp.path().join("branch");
+            std::fs::write(&log, "").unwrap();
+            std::fs::write(&branch, "main\n").unwrap();
+            let script = "#!/bin/sh\n\
+                echo \"$(pwd -P)|$*\" >> \"$FAKE_GIT_LOG\"\n\
+                case \"$*\" in\n\
+                  *symbolic-ref*) b=''; read -r b < \"$FAKE_GIT_BRANCH\"; if [ -n \"$b\" ]; then echo \"$b\"; exit 0; fi; exit 1 ;;\n\
+                esac\n\
+                exit 1\n";
+            std::fs::write(bin.join("git"), script).unwrap();
+            std::fs::set_permissions(bin.join("git"), std::fs::Permissions::from_mode(0o755)).unwrap();
+            let saved = ["PATH", "FAKE_GIT_LOG", "FAKE_GIT_BRANCH"].map(|k| (k, std::env::var(k).ok())).to_vec();
+            let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
+            // SAFETY: the caller holds ENV_LOCK.
+            unsafe {
+                std::env::set_var("PATH", path);
+                std::env::set_var("FAKE_GIT_LOG", &log);
+                std::env::set_var("FAKE_GIT_BRANCH", &branch);
+            }
+            Self { temp, log, branch, saved }
+        }
+
+        fn root(&self) -> PathBuf {
+            std::fs::canonicalize(self.temp.path()).unwrap()
+        }
+
+        fn calls(&self) -> Vec<String> {
+            std::fs::read_to_string(&self.log).unwrap().lines().map(str::to_string).collect()
+        }
+
+        fn clear_calls(&self) {
+            std::fs::write(&self.log, "").unwrap();
+        }
+
+        fn set_branch(&self, branch: &str) {
+            std::fs::write(&self.branch, format!("{branch}\n")).unwrap();
+        }
+    }
+
+    impl Drop for FakeGit {
+        fn drop(&mut self) {
+            for (key, value) in &self.saved {
+                match value {
+                    Some(value) => unsafe { std::env::set_var(key, value) },
+                    None => unsafe { std::env::remove_var(key) },
+                }
+            }
+        }
+    }
+
+    fn create_plain_repo(root: &Path) -> PathBuf {
+        let repo = root.join("repo");
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+        std::fs::write(repo.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+        repo
+    }
+
+    fn create_plain_reftable_repo(root: &Path) -> PathBuf {
+        let repo = root.join("repo");
+        std::fs::create_dir_all(repo.join(".git/reftable")).unwrap();
+        std::fs::write(repo.join(".git/HEAD"), "ref: refs/heads/.invalid\n").unwrap();
+        repo
+    }
+
+    /// Returns (worktree dir, reftable dir).
+    fn create_reftable_worktree(root: &Path) -> (PathBuf, PathBuf) {
+        let common = root.join("repo/.git");
+        let git_dir = common.join("worktrees/src");
+        let worktree = root.join("worktree");
+        let reftable = common.join("reftable");
+        for dir in [&git_dir, &reftable, &worktree] {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+        std::fs::write(worktree.join(".git"), format!("gitdir: {}\n", git_dir.display())).unwrap();
+        std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/.invalid\n").unwrap();
+        std::fs::write(git_dir.join("commondir"), "../..\n").unwrap();
+        std::fs::write(reftable.join("tables.list"), "0\n").unwrap();
+        (worktree, reftable)
+    }
+
+    fn s(path: &Path) -> String {
+        path.to_string_lossy().into_owned()
+    }
+
+    fn wait_for(condition: impl Fn() -> bool, timeout: Duration) {
+        let start = Instant::now();
+        while !condition() {
+            assert!(start.elapsed() < timeout, "timed out waiting for condition");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    fn counter(provider: &FooterDataProvider) -> Arc<AtomicUsize> {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let sink = calls.clone();
+        let _ = provider.on_branch_change(Arc::new(move || {
+            sink.fetch_add(1, Ordering::SeqCst);
+        }));
+        calls
+    }
+
+    #[test]
+    fn uses_head_directly_in_a_regular_repo_from_a_nested_directory() {
+        let _guard = ENV_LOCK.lock();
+        let git = FakeGit::install();
+        let nested = create_plain_repo(&git.root()).join("src/nested");
+        std::fs::create_dir_all(&nested).unwrap();
+        let provider = FooterDataProvider::new(&s(&nested));
+        assert_eq!(provider.get_git_branch().as_deref(), Some("main"));
+        assert!(git.calls().is_empty());
+        provider.dispose();
+    }
+
+    #[test]
+    fn resolves_the_branch_via_git_when_head_is_invalid_in_a_reftable_repo() {
+        let _guard = ENV_LOCK.lock();
+        let git = FakeGit::install();
+        let repo = create_plain_reftable_repo(&git.root());
+        let provider = FooterDataProvider::new(&s(&repo));
+        assert_eq!(provider.get_git_branch().as_deref(), Some("main"));
+        assert_eq!(git.calls(), vec![format!("{}|--no-optional-locks symbolic-ref --quiet --short HEAD", s(&repo))]);
+        provider.dispose();
+    }
+
+    #[test]
+    fn resolves_the_branch_via_git_in_a_reftable_backed_worktree() {
+        let _guard = ENV_LOCK.lock();
+        let git = FakeGit::install();
+        let (worktree, _) = create_reftable_worktree(&git.root());
+        let provider = FooterDataProvider::new(&s(&worktree));
+        assert_eq!(provider.get_git_branch().as_deref(), Some("main"));
+        provider.dispose();
+    }
+
+    #[test]
+    fn treats_an_unresolved_invalid_reftable_head_as_detached() {
+        let _guard = ENV_LOCK.lock();
+        let git = FakeGit::install();
+        git.set_branch("");
+        let repo = create_plain_reftable_repo(&git.root());
+        let provider = FooterDataProvider::new(&s(&repo));
+        assert_eq!(provider.get_git_branch().as_deref(), Some("detached"));
+        provider.dispose();
+    }
+
+    #[test]
+    fn does_not_notify_listeners_when_reftable_updates_keep_the_same_branch() {
+        let _guard = ENV_LOCK.lock();
+        let git = FakeGit::install();
+        let (worktree, reftable) = create_reftable_worktree(&git.root());
+        let provider = FooterDataProvider::new(&s(&worktree));
+        assert_eq!(provider.get_git_branch().as_deref(), Some("main"));
+        git.clear_calls();
+        let notifications = counter(&provider);
+
+        std::thread::sleep(Duration::from_millis(150));
+        std::fs::write(reftable.join("tables.list"), "1\n").unwrap();
+        wait_for(|| git.calls().len() == 1, Duration::from_secs(10));
+        std::thread::sleep(Duration::from_millis(200));
+        assert_eq!(git.calls().len(), 1);
+        assert_eq!(provider.get_git_branch().as_deref(), Some("main"));
+        assert_eq!(notifications.load(Ordering::SeqCst), 0);
+        provider.dispose();
+    }
+
+    #[test]
+    fn debounces_rapid_reftable_updates_into_a_single_refresh() {
+        let _guard = ENV_LOCK.lock();
+        let git = FakeGit::install();
+        let (worktree, reftable) = create_reftable_worktree(&git.root());
+        let provider = FooterDataProvider::new(&s(&worktree));
+        assert_eq!(provider.get_git_branch().as_deref(), Some("main"));
+        git.clear_calls();
+
+        std::thread::sleep(Duration::from_millis(150));
+        let started = Instant::now();
+        for i in 1..=3 {
+            std::fs::write(reftable.join("tables.list"), format!("{i}\n")).unwrap();
+            std::thread::sleep(Duration::from_millis(60));
+        }
+        // Nothing runs before the 500 ms debounce has elapsed.
+        std::thread::sleep(Duration::from_millis(250).saturating_sub(started.elapsed()));
+        assert!(git.calls().is_empty());
+        wait_for(|| git.calls().len() == 1, Duration::from_secs(10));
+        std::thread::sleep(Duration::from_millis(650));
+        assert_eq!(git.calls().len(), 1);
+        provider.dispose();
+    }
+
+    #[test]
+    fn updates_the_cached_branch_when_the_reftable_directory_changes() {
+        let _guard = ENV_LOCK.lock();
+        let git = FakeGit::install();
+        let (worktree, reftable) = create_reftable_worktree(&git.root());
+        let provider = FooterDataProvider::new(&s(&worktree));
+        assert_eq!(provider.get_git_branch().as_deref(), Some("main"));
+        git.clear_calls();
+        git.set_branch("foo");
+        let notifications = counter(&provider);
+
+        std::thread::sleep(Duration::from_millis(150));
+        std::fs::write(reftable.join("tables.list"), "1\n").unwrap();
+        wait_for(|| provider.get_git_branch().as_deref() == Some("foo"), Duration::from_secs(10));
+        assert_eq!(git.calls().len(), 1);
+        assert_eq!(notifications.load(Ordering::SeqCst), 1);
+        provider.dispose();
+    }
+}

@@ -346,8 +346,11 @@ fn read_json(path: &Path) -> Option<Value> {
     serde_json::from_str(crate::utils::text::strip_bom(&text).as_str()).ok()
 }
 
-fn dependency_entries(manifest: &Value) -> Vec<(String, String, bool)> {
-    let mut deps: Vec<(String, String, bool)> = Vec::new();
+/// `(name, spec, optional)`.
+type DepEntry = (String, String, bool);
+
+fn dependency_entries(manifest: &Value) -> Vec<DepEntry> {
+    let mut deps: Vec<DepEntry> = Vec::new();
     let bundled: HashSet<String> = manifest
         .get("bundleDependencies")
         .or_else(|| manifest.get("bundledDependencies"))
@@ -497,10 +500,10 @@ impl NpmRegistryClient {
         let tags = packument.get("dist-tags").and_then(Value::as_object);
         let spec = spec.trim();
         let tag_name = if spec.is_empty() { "latest" } else { spec };
-        if let Some(version) = tags.and_then(|t| t.get(tag_name)).and_then(Value::as_str) {
-            if versions.contains_key(version) {
-                return Ok(version.to_string());
-            }
+        if let Some(version) = tags.and_then(|t| t.get(tag_name)).and_then(Value::as_str)
+            && versions.contains_key(version)
+        {
+            return Ok(version.to_string());
         }
         if let Some(exact) = node_semver::parse_version(spec) {
             if let Some(key) = versions.keys().find(|key| {
@@ -685,7 +688,7 @@ impl NpmRegistryClient {
         let mut tree: HashMap<PathBuf, TreeNode> = HashMap::new();
         let mut replaced: Vec<PathBuf> = Vec::new();
         let mut visited: HashSet<PathBuf> = HashSet::new();
-        let mut queue: VecDeque<(PathBuf, Vec<(String, String, bool)>)> = VecDeque::new();
+        let mut queue: VecDeque<(PathBuf, Vec<DepEntry>)> = VecDeque::new();
         let mut direct: HashMap<String, String> = HashMap::new();
         let mut prefetched_tarballs: HashMap<String, Vec<u8>> = HashMap::new();
         queue.push_back((root.to_path_buf(), root_deps));

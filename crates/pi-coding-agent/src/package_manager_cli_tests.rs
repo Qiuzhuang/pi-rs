@@ -1,6 +1,8 @@
 //! Tests ported from `packages/coding-agent/test/package-command-paths.test.ts` (the package
 //! command paths that do not need the full `main()` or network).
 
+#![allow(clippy::await_holding_lock)]
+
 use super::*;
 use crate::config::ENV_AGENT_DIR;
 

@@ -5,6 +5,9 @@
 //! The TS tests spy on private `runCommand`/`runCommandCapture`/`runCommandSync`; here a
 //! [`MockRunner`] implements [`PackageCommandRunner`] and records every call.
 
+// Tests run on current-thread runtimes; the env lock is held across awaits on purpose.
+#![allow(clippy::await_holding_lock)]
+
 use super::*;
 use crate::core::settings_manager::SettingsManager;
 use serde_json::json;

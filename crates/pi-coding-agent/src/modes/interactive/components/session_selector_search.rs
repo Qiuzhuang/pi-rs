@@ -87,7 +87,7 @@ pub struct ParsedSearchQueryTokens {
 pub struct ParsedSearchQuery {
     pub mode: ParsedSearchQueryMode,
     pub tokens: Vec<ParsedSearchQueryTokens>,
-    pub regex: Option<regex::Regex>,
+    pub regex: Option<fancy_regex::Regex>,
     /// If set, parsing failed and we should treat query as non-matching.
     pub error: Option<String>,
 }
@@ -157,13 +157,19 @@ pub fn parse_search_query(query: &str) -> ParsedSearchQuery {
                 error: Some("Empty regex".to_string()),
             };
         }
-        return match regex::RegexBuilder::new(pattern).case_insensitive(true).build() {
+        // `new RegExp(pattern, "i")`: JavaScript syntax (look-around, backreferences) via fancy-regex.
+        let translated = format!("(?i)(?:{})", crate::utils::syntax_highlight::js_regex::translate(pattern));
+        let compiled = fancy_regex::RegexBuilder::new(&translated)
+            .backtrack_limit(2_000_000)
+            .build()
+            .map_err(|err| format!("Invalid regular expression: /{pattern}/i: {err}"));
+        return match compiled {
             Ok(re) => ParsedSearchQuery { mode: ParsedSearchQueryMode::Regex, tokens: Vec::new(), regex: Some(re), error: None },
             Err(err) => ParsedSearchQuery {
                 mode: ParsedSearchQueryMode::Regex,
                 tokens: Vec::new(),
                 regex: None,
-                error: Some(err.to_string()),
+                error: Some(err),
             },
         };
     }
@@ -227,7 +233,7 @@ pub fn match_session(session: &SessionInfo, parsed: &ParsedSearchQuery) -> Match
         let Some(re) = &parsed.regex else {
             return MatchResult { matches: false, score: 0.0 };
         };
-        return match re.find(&text) {
+        return match re.find(&text).ok().flatten() {
             None => MatchResult { matches: false, score: 0.0 },
             // JS string indices are UTF-16 code units.
             Some(m) => MatchResult { matches: true, score: utf16_len(&text[..m.start()]) as f64 * 0.1 },
@@ -306,4 +312,47 @@ pub fn filter_and_sort_sessions(
         b.0.modified.cmp(&a.0.modified)
     });
     scored.into_iter().map(|(s, _)| s).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn session(text: &str) -> SessionInfo {
+        SessionInfo {
+            path: "/s.jsonl".into(),
+            id: "id1".into(),
+            cwd: "/cwd".into(),
+            name: None,
+            parent_session_path: None,
+            created: chrono::DateTime::default(),
+            modified: chrono::DateTime::default(),
+            message_count: 1,
+            first_message: text.into(),
+            all_messages_text: text.into(),
+        }
+    }
+
+    #[test]
+    fn regex_mode_supports_javascript_lookaround_and_backreferences() {
+        let lookahead = parse_search_query("re:foo(?!bar)");
+        assert!(lookahead.error.is_none());
+        assert!(match_session(&session("FOObaz"), &lookahead).matches);
+        assert!(!match_session(&session("foobar"), &lookahead).matches);
+
+        let lookbehind = parse_search_query("re:(?<=v)\\d+");
+        assert!(match_session(&session("release v12"), &lookbehind).matches);
+        assert!(!match_session(&session("release 12"), &lookbehind).matches);
+
+        let backreference = parse_search_query("re:(\\w)\\1");
+        assert!(match_session(&session("hello"), &backreference).matches);
+        assert!(!match_session(&session("helo"), &backreference).matches);
+    }
+
+    #[test]
+    fn invalid_regex_reports_an_error() {
+        let parsed = parse_search_query("re:(unclosed");
+        assert_eq!(parsed.mode, ParsedSearchQueryMode::Regex);
+        assert!(parsed.error.unwrap().starts_with("Invalid regular expression: /(unclosed/i: "));
+    }
 }

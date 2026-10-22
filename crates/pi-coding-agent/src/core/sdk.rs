@@ -426,6 +426,7 @@ pub async fn create_agent_session(
                         model,
                         usage,
                         note,
+                        extra: serde_json::Map::new(),
                     })
             }),
             get_branch: Arc::new(move |from| warmer_sm_branch.get_branch(from.as_deref())),

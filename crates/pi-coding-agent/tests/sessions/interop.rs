@@ -141,14 +141,16 @@ fn rust_written_entries_use_the_ts_layout() {
 }
 
 #[test]
-fn unknown_entry_types_are_preserved_but_not_part_of_the_tree() {
+fn unknown_entry_types_are_preserved_and_part_of_the_tree() {
     let dir = tmp();
     let src = dir.path().join("future.jsonl");
     let future = r###"{"type":"future_thing","id":"zz","parentId":null,"timestamp":"2025-06-01T10:00:00.000Z","payload":[1,2]}"###;
     std::fs::write(&src, format!("{}\n{future}\n{}\n", TS_SESSION[0], TS_SESSION[1])).unwrap();
     let sm = SessionManager::open(&path_str(&src), None, None).unwrap();
-    assert_eq!(sm.get_entries().len(), 1);
-    assert!(matches!(sm.get_entries()[0], SessionEntry::ModelChange(_)));
+    // Like TS, an entry of unknown type is a tree entry.
+    assert_eq!(sm.get_entries().len(), 2);
+    assert!(matches!(sm.get_entries()[0], SessionEntry::Unknown(_)));
+    assert!(matches!(sm.get_entries()[1], SessionEntry::ModelChange(_)));
 
     let forked = SessionManager::fork_from(&path_str(&src), &path_str(dir.path()), Some(&path_str(dir.path())), None)
         .unwrap();

@@ -159,6 +159,7 @@ fn reads_the_store_from_branch_entries() {
             id: String::new(),
             parent_id: None,
             timestamp: String::new(),
+            extra: serde_json::Map::new(),
         })
     };
     let branch = vec![

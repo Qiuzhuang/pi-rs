@@ -882,7 +882,7 @@ impl TreeState {
                 ]
                 .join(""),
             },
-            SessionEntry::Usage(_) => String::new(),
+            SessionEntry::Usage(_) | SessionEntry::Unknown(_) => String::new(),
         };
         if is_selected { t.bold(&result) } else { result }
     }
@@ -948,7 +948,7 @@ fn get_searchable_text(flat: &TreeEntry) -> String {
             parts.push("label".into());
             parts.push(e.label.clone().unwrap_or_default());
         }
-        SessionEntry::Usage(_) => {}
+        SessionEntry::Usage(_) | SessionEntry::Unknown(_) => {}
     }
     parts.join(" ")
 }

@@ -219,3 +219,26 @@ pub fn json_matches(actual: &Value, expected: &Value) -> bool {
 pub fn assert_json_matches(actual: &Value, expected: Value) {
     assert!(json_matches(actual, &expected), "expected match\n  actual: {actual:#}\nexpected: {expected:#}");
 }
+
+/// Capture the provider payload and cancel the request from the payload hook, so a real base URL
+/// (whose host the adapter inspects) is never contacted.
+pub async fn capture_payload_offline(
+    run: impl FnOnce(StreamOptions) -> AssistantMessageEventStream,
+    options: StreamOptions,
+) -> Value {
+    let signal = tokio_util::sync::CancellationToken::new();
+    let cancel = signal.clone();
+    let captured = Arc::new(Mutex::new(None::<Value>));
+    let sink = captured.clone();
+    let options = StreamOptions {
+        signal: Some(signal),
+        on_payload: Some(Arc::new(move |payload: Value, _model: Model| {
+            sink.lock().get_or_insert(payload);
+            cancel.cancel();
+            Box::pin(async { None })
+        })),
+        ..options
+    };
+    let message = run(options).result().await;
+    captured.lock().take().unwrap_or_else(|| panic!("payload captured: {:?}", message.error_message))
+}

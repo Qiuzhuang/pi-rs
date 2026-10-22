@@ -375,3 +375,22 @@ mod user_bash_fail_closed {
         run_case(|| Ok(None), None);
     }
 }
+
+#[test]
+fn queue_modes_pass_unrecognized_values_through_like_ts() {
+    // TS forwards `command.mode` unchecked and `get_state` reports the agent's raw mode.
+    local(async {
+        let harness = create_harness(HarnessOptions::default()).await.unwrap();
+        let mut rpc = RpcTest::start(runtime_for(&harness));
+        rpc.send(json!({ "id": "m", "type": "set_steering_mode", "mode": "bogus" })).await;
+        let set = rpc.wait_for(|l| l["id"] == "m").await;
+        assert_eq!(set["success"], true);
+        rpc.send(json!({ "id": "s", "type": "get_state" })).await;
+        let state = rpc.wait_for(|l| l["id"] == "s").await;
+        assert_eq!(state["data"]["steeringMode"], "bogus");
+        assert_eq!(state["data"]["followUpMode"], "one-at-a-time");
+        assert_eq!(harness.settings_manager.get_global_settings_json()["steeringMode"], "bogus");
+        rpc.finish().await;
+        harness.cleanup();
+    });
+}

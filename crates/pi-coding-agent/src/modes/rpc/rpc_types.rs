@@ -21,13 +21,10 @@ use crate::core::slash_commands::SlashCommandSource;
 use crate::core::source_info::SourceInfo;
 
 /// `"all" | "one-at-a-time"` queue delivery mode.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum RpcQueueMode {
-    #[serde(rename = "all")]
-    All,
-    #[serde(rename = "one-at-a-time")]
-    OneAtATime,
-}
+///
+/// TS passes the mode through unchecked (`session.setSteeringMode(command.mode)`), so other
+/// values are kept verbatim.
+pub type RpcQueueMode = pi_agent::types::QueueMode;
 
 // ============================================================================
 // RPC Commands (stdin)

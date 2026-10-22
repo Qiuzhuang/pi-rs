@@ -3589,11 +3589,18 @@
    "name": "settings/invalid-values",
    "kind": "settings",
    "input": {
-    "global": "{\"steeringMode\":\"bogus\",\"transport\":5,\"sessionShareDestination\":\"radius\",\"compaction\":{\"reserveTokens\":-1,\"keepRecentTokens\":1.5},\"httpIdleTimeoutMs\":\"abc\",\"websocketConnectTimeoutMs\":-5,\"quietStartup\":\"yes\",\"defaultProjectTrust\":\"never\",\"cacheWarming\":\"warm\",\"terminal\":{\"imageWidthCells\":\"wide\",\"images\":false,\"trueColor\":\"auto\",\"hyperlinks\":\"auto\"},\"fullscreenWheelScrollLines\":0,\"tuiMode\":\"fullscreen\",\"fullscreenScrollbar\":\"always\",\"treeFilterMode\":\"bogus\",\"outputPad\":1,\"markdown\":{\"mermaid\":\"final\"},\"theme\":\"./themes/custom.json\",\"showHardwareCursor\":false,\"enabledModels\":[],\"sessionDir\":\"\",\"shellPath\":\"\"}"
+    "global": "{\"steeringMode\":\"bogus\",\"followUpMode\":7,\"doubleEscapeAction\":\"sideways\",\"defaultThinkingLevel\":\"turbo\",\"modelThinkingLevels\":{\"anthropic/claude-opus-4-8\":\"ultra\",\"x/y\":null},\"transport\":5,\"sessionShareDestination\":\"radius\",\"compaction\":{\"reserveTokens\":-1,\"keepRecentTokens\":1.5},\"httpIdleTimeoutMs\":\"abc\",\"websocketConnectTimeoutMs\":-5,\"quietStartup\":\"yes\",\"defaultProjectTrust\":\"never\",\"cacheWarming\":\"warm\",\"terminal\":{\"imageWidthCells\":\"wide\",\"images\":false,\"trueColor\":\"auto\",\"hyperlinks\":\"auto\"},\"fullscreenWheelScrollLines\":0,\"tuiMode\":\"fullscreen\",\"fullscreenScrollbar\":\"always\",\"treeFilterMode\":\"bogus\",\"outputPad\":1,\"markdown\":{\"mermaid\":\"final\"},\"theme\":\"./themes/custom.json\",\"showHardwareCursor\":false,\"enabledModels\":[],\"sessionDir\":\"\",\"shellPath\":\"\"}"
    },
    "out": {
     "settings": {
      "steeringMode": "bogus",
+     "followUpMode": 7,
+     "doubleEscapeAction": "sideways",
+     "defaultThinkingLevel": "turbo",
+     "modelThinkingLevels": {
+      "anthropic/claude-opus-4-8": "ultra",
+      "x/y": null
+     },
      "transport": 5,
      "sessionShareDestination": "radius",
      "compaction": {
@@ -3627,6 +3634,13 @@
     },
     "globalSettings": {
      "steeringMode": "bogus",
+     "followUpMode": 7,
+     "doubleEscapeAction": "sideways",
+     "defaultThinkingLevel": "turbo",
+     "modelThinkingLevels": {
+      "anthropic/claude-opus-4-8": "ultra",
+      "x/y": null
+     },
      "transport": 5,
      "sessionShareDestination": "radius",
      "compaction": {
@@ -3673,7 +3687,7 @@
       "ok": "bogus"
      },
      "getFollowUpMode": {
-      "ok": "one-at-a-time"
+      "ok": 7
      },
      "getThemeSetting": {
       "ok": "./themes/custom.json"
@@ -3682,13 +3696,16 @@
       "ok": "<undefined>"
      },
      "getDefaultThinkingLevel": {
-      "ok": "<undefined>"
+      "ok": "turbo"
      },
      "getModelThinkingLevel": {
-      "ok": "<undefined>"
+      "ok": "ultra"
      },
      "getAllModelThinkingLevels": {
-      "ok": {}
+      "ok": {
+       "anthropic/claude-opus-4-8": "ultra",
+       "x/y": null
+      }
      },
      "getTransport": {
       "ok": 5
@@ -3826,7 +3843,7 @@
       "ok": "<undefined>"
      },
      "getDoubleEscapeAction": {
-      "ok": "tree"
+      "ok": "sideways"
      },
      "getTreeFilterMode": {
       "ok": "default"
@@ -3855,7 +3872,7 @@
     },
     "ops": [],
     "diagnostics": [],
-    "globalFile": "{\"steeringMode\":\"bogus\",\"transport\":5,\"sessionShareDestination\":\"radius\",\"compaction\":{\"reserveTokens\":-1,\"keepRecentTokens\":1.5},\"httpIdleTimeoutMs\":\"abc\",\"websocketConnectTimeoutMs\":-5,\"quietStartup\":\"yes\",\"defaultProjectTrust\":\"never\",\"cacheWarming\":\"warm\",\"terminal\":{\"imageWidthCells\":\"wide\",\"images\":false,\"trueColor\":\"auto\",\"hyperlinks\":\"auto\"},\"fullscreenWheelScrollLines\":0,\"tuiMode\":\"fullscreen\",\"fullscreenScrollbar\":\"always\",\"treeFilterMode\":\"bogus\",\"outputPad\":1,\"markdown\":{\"mermaid\":\"final\"},\"theme\":\"./themes/custom.json\",\"showHardwareCursor\":false,\"enabledModels\":[],\"sessionDir\":\"\",\"shellPath\":\"\"}",
+    "globalFile": "{\"steeringMode\":\"bogus\",\"followUpMode\":7,\"doubleEscapeAction\":\"sideways\",\"defaultThinkingLevel\":\"turbo\",\"modelThinkingLevels\":{\"anthropic/claude-opus-4-8\":\"ultra\",\"x/y\":null},\"transport\":5,\"sessionShareDestination\":\"radius\",\"compaction\":{\"reserveTokens\":-1,\"keepRecentTokens\":1.5},\"httpIdleTimeoutMs\":\"abc\",\"websocketConnectTimeoutMs\":-5,\"quietStartup\":\"yes\",\"defaultProjectTrust\":\"never\",\"cacheWarming\":\"warm\",\"terminal\":{\"imageWidthCells\":\"wide\",\"images\":false,\"trueColor\":\"auto\",\"hyperlinks\":\"auto\"},\"fullscreenWheelScrollLines\":0,\"tuiMode\":\"fullscreen\",\"fullscreenScrollbar\":\"always\",\"treeFilterMode\":\"bogus\",\"outputPad\":1,\"markdown\":{\"mermaid\":\"final\"},\"theme\":\"./themes/custom.json\",\"showHardwareCursor\":false,\"enabledModels\":[],\"sessionDir\":\"\",\"shellPath\":\"\"}",
     "projectFile": "<missing>"
    }
   },

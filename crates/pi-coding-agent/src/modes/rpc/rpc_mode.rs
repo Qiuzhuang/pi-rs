@@ -27,7 +27,7 @@ use tokio::sync::{Notify, oneshot};
 
 use crate::core::agent_session::{
     AgentSessionEvent, AgentSessionEventListener, AgentSessionExecuteBashOptions, AgentSessionFollowUpOptions,
-    AgentSessionRecordBashResultOptions, AgentSessionSteerOptions, AgentSessionSteeringMode, ExtensionBindings,
+    AgentSessionRecordBashResultOptions, AgentSessionSteerOptions, ExtensionBindings,
     PromptOptions, PromptOptionsStreamingBehavior,
 };
 use crate::core::agent_session_runtime::{
@@ -49,7 +49,7 @@ pub use crate::modes::rpc::rpc_types::RpcExtensionUIResponse;
 pub use crate::modes::rpc::rpc_types::RpcResponse;
 pub use crate::modes::rpc::rpc_types::RpcSessionState;
 use crate::modes::rpc::rpc_types::{
-    ExtensionUIRequestTag, RpcCommandKind, RpcExtensionUIRequestMethod, RpcExtensionUIResponseValue, RpcQueueMode,
+    ExtensionUIRequestTag, RpcCommandKind, RpcExtensionUIRequestMethod, RpcExtensionUIResponseValue,
     RpcSlashCommand,
 };
 
@@ -500,17 +500,13 @@ impl RpcModeState {
             // State
             // =================================================================
             RpcCommandKind::GetState => {
-                let queue_mode = |mode: AgentSessionSteeringMode| match mode {
-                    AgentSessionSteeringMode::All => RpcQueueMode::All,
-                    AgentSessionSteeringMode::OneAtATime => RpcQueueMode::OneAtATime,
-                };
                 let state = RpcSessionState {
                     model: session.model(),
                     thinking_level: session.thinking_level(),
                     is_streaming: session.is_streaming(),
                     is_compacting: session.is_compacting(),
-                    steering_mode: queue_mode(session.steering_mode()),
-                    follow_up_mode: queue_mode(session.follow_up_mode()),
+                    steering_mode: session.steering_mode(),
+                    follow_up_mode: session.follow_up_mode(),
                     session_file: session.session_file(),
                     session_id: session.session_id(),
                     session_name: session.session_name(),
@@ -569,18 +565,12 @@ impl RpcModeState {
             // Queue Modes
             // =================================================================
             RpcCommandKind::SetSteeringMode { mode } => {
-                session.set_steering_mode(match mode {
-                    RpcQueueMode::All => AgentSessionSteeringMode::All,
-                    RpcQueueMode::OneAtATime => AgentSessionSteeringMode::OneAtATime,
-                });
+                session.set_steering_mode(mode);
                 success(id, "set_steering_mode", None)
             }
 
             RpcCommandKind::SetFollowUpMode { mode } => {
-                session.set_follow_up_mode(match mode {
-                    RpcQueueMode::All => AgentSessionSteeringMode::All,
-                    RpcQueueMode::OneAtATime => AgentSessionSteeringMode::OneAtATime,
-                });
+                session.set_follow_up_mode(mode);
                 success(id, "set_follow_up_mode", None)
             }
 

@@ -639,26 +639,72 @@ pub enum QuietStartupValue {
 
 pub type QuietStartup = QuietStartupValue;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum TransportSettingValue {
-    #[serde(rename = "auto")]
-    Auto,
-    #[serde(rename = "sse")]
-    Sse,
-    #[serde(rename = "websocket")]
-    Websocket,
-    #[serde(rename = "websocket-cached")]
-    WebsocketCached,
-}
-
-impl TransportSettingValue {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Auto => "auto",
-            Self::Sse => "sse",
-            Self::Websocket => "websocket",
-            Self::WebsocketCached => "websocket-cached",
+/// Declares a string-literal union whose TS getter hands back unrecognized values verbatim
+/// (`return this.settings.x ?? default`): the known literals are variants and anything else is kept
+/// as raw JSON in `Other`, so it serializes back unchanged.
+macro_rules! open_string_enum {
+    ($(#[$meta:meta])* $vis:vis enum $name:ident { $($(#[$vmeta:meta])* $variant:ident => $literal:literal),+ $(,)? }) => {
+        $(#[$meta])*
+        #[derive(Debug, Clone, PartialEq, Eq)]
+        $vis enum $name {
+            $($(#[$vmeta])* $variant,)+
+            /// A value outside the union, kept as the raw JSON value.
+            Other(serde_json::Value),
         }
+
+        impl $name {
+            /// Map a JSON value, keeping unrecognized values verbatim.
+            pub fn from_value(value: serde_json::Value) -> Self {
+                match value.as_str() {
+                    $(Some($literal) => Self::$variant,)+
+                    _ => Self::Other(value),
+                }
+            }
+
+            /// The literal for a known variant.
+            pub fn known_str(&self) -> Option<&'static str> {
+                match self {
+                    $(Self::$variant => Some($literal),)+
+                    Self::Other(_) => None,
+                }
+            }
+
+            /// The JSON value TS holds for this setting.
+            pub fn to_value(&self) -> serde_json::Value {
+                match self {
+                    Self::Other(value) => value.clone(),
+                    known => serde_json::Value::String(known.known_str().unwrap_or_default().to_string()),
+                }
+            }
+
+            /// `String(value)` in JS (the literal, or the raw value's JS string form).
+            pub fn to_js_string(&self) -> String {
+                pi_agent::types::js_string(&self.to_value())
+            }
+        }
+
+        impl serde::Serialize for $name {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                self.to_value().serialize(serializer)
+            }
+        }
+
+        impl<'de> serde::Deserialize<'de> for $name {
+            fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                Ok(Self::from_value(serde_json::Value::deserialize(deserializer)?))
+            }
+        }
+    };
+}
+pub(crate) use open_string_enum;
+
+open_string_enum! {
+    /// `TransportSetting`; `getTransport()` returns whatever the settings hold.
+    pub enum TransportSettingValue {
+        Auto => "auto",
+        Sse => "sse",
+        Websocket => "websocket",
+        WebsocketCached => "websocket-cached",
     }
 }
 

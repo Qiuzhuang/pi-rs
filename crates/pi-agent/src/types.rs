@@ -83,15 +83,77 @@ pub enum ToolExecutionMode {
 }
 
 /// How many queued messages are injected at a queue drain point.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+///
+/// TS types this as `"all" | "one-at-a-time"` but stores whatever it is given (e.g. an
+/// unrecognized `steeringMode` from settings.json) and hands it back unchanged; such values are
+/// kept in [`QueueMode::Other`] and drain like `"one-at-a-time"` (TS only special-cases `"all"`).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum QueueMode {
     /// Drain every queued message.
-    #[serde(rename = "all")]
     All,
     /// Drain only the oldest queued message.
     #[default]
-    #[serde(rename = "one-at-a-time")]
     OneAtATime,
+    /// Any other value (raw JSON), drained like [`QueueMode::OneAtATime`].
+    Other(Value),
+}
+
+impl QueueMode {
+    /// Map a JSON value to a mode, keeping unrecognized values verbatim.
+    pub fn from_value(value: Value) -> Self {
+        match value.as_str() {
+            Some("all") => Self::All,
+            Some("one-at-a-time") => Self::OneAtATime,
+            _ => Self::Other(value),
+        }
+    }
+
+    /// Map a string to a mode, keeping unrecognized strings verbatim.
+    pub fn from_str_lossless(value: &str) -> Self {
+        Self::from_value(Value::String(value.to_string()))
+    }
+
+    /// The JSON value TS would hold for this mode.
+    pub fn to_value(&self) -> Value {
+        match self {
+            Self::All => Value::String("all".into()),
+            Self::OneAtATime => Value::String("one-at-a-time".into()),
+            Self::Other(value) => value.clone(),
+        }
+    }
+
+    /// `String(mode)` in JS: the mode name, or the raw value's JS string form.
+    pub fn to_js_string(&self) -> String {
+        js_string(&self.to_value())
+    }
+}
+
+/// `String(value)` for a JSON value, as JS computes it.
+pub fn js_string(value: &Value) -> String {
+    match value {
+        Value::String(s) => s.clone(),
+        Value::Null => "null".into(),
+        Value::Bool(b) => b.to_string(),
+        Value::Number(n) => n.to_string(),
+        Value::Array(items) => items
+            .iter()
+            .map(|item| if item.is_null() { String::new() } else { js_string(item) })
+            .collect::<Vec<_>>()
+            .join(","),
+        Value::Object(_) => "[object Object]".into(),
+    }
+}
+
+impl Serialize for QueueMode {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.to_value().serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for QueueMode {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Ok(Self::from_value(Value::deserialize(deserializer)?))
+    }
 }
 
 /// Recovery policy for an effect whose durable intent exists but whose outcome is unknown.

@@ -575,11 +575,11 @@ fn base_config() -> SettingsConfig {
         enable_skill_commands: true,
         steering_mode: SettingsConfigSteeringMode::OneAtATime,
         follow_up_mode: SettingsConfigSteeringMode::OneAtATime,
-        transport: pi_ai::types::Transport::Sse,
+        transport: pi_coding_agent::core::settings_manager::TransportSetting::Sse,
         session_share_destination: SessionShareDestinationValue::Auto,
         http_idle_timeout_ms: 300_000,
         cache_warming_mode: CacheWarmingModeValue::Off,
-        thinking_level: ThinkingLevel::High,
+        thinking_level: ThinkingLevel::High.into(),
         available_thinking_levels: Vec::new(),
         model_thinking_levels: Default::default(),
         current_theme: "dark".into(),
@@ -778,8 +778,8 @@ async fn settings_selector_keeps_the_configured_per_model_thinking_level_marked_
     let mut config = base_config();
     config.default_model = model_key.clone();
     config.available_default_models = vec![model.clone()];
-    config.thinking_level = ThinkingLevel::High;
-    config.model_thinking_levels.insert(model_key, ThinkingLevel::Medium);
+    config.thinking_level = ThinkingLevel::High.into();
+    config.model_thinking_levels.insert(model_key, ThinkingLevel::Medium.into());
     let list = SettingsSelectorComponent::new(&config, &noop_callbacks(Arc::default())).get_settings_list();
 
     list.select_item("model-thinking");

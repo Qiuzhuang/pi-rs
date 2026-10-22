@@ -40,46 +40,15 @@ use pi_tui::components::text::Text;
 use pi_tui::terminal_image::get_capabilities;
 use pi_tui::tui::{Component, ComponentRef, Container, MouseEvent, MouseResult};
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::{Arc, Weak};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum SettingsConfigSteeringMode {
-    #[serde(rename = "all")]
-    All,
-    #[serde(rename = "one-at-a-time")]
-    OneAtATime,
-}
+/// `"all" | "one-at-a-time"`; TS shows whatever the session holds, unrecognized values included.
+pub type SettingsConfigSteeringMode = pi_agent::types::QueueMode;
 
-impl SettingsConfigSteeringMode {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::All => "all",
-            Self::OneAtATime => "one-at-a-time",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum SettingsConfigDoubleEscapeAction {
-    #[serde(rename = "fork")]
-    Fork,
-    #[serde(rename = "tree")]
-    Tree,
-    #[serde(rename = "none")]
-    None,
-}
-
-impl SettingsConfigDoubleEscapeAction {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Fork => "fork",
-            Self::Tree => "tree",
-            Self::None => "none",
-        }
-    }
-}
+/// `"fork" | "tree" | "none"`; TS shows whatever the settings hold, unrecognized values included.
+pub type SettingsConfigDoubleEscapeAction = crate::core::settings_manager::SettingsManagerGetDoubleEscapeActionResult;
 
 #[derive(Debug, Clone)]
 pub struct SettingsConfig {
@@ -94,13 +63,13 @@ pub struct SettingsConfig {
     pub enable_skill_commands: bool,
     pub steering_mode: SettingsConfigSteeringMode,
     pub follow_up_mode: SettingsConfigSteeringMode,
-    pub transport: Transport,
+    pub transport: crate::core::settings_manager::TransportSetting,
     pub session_share_destination: SessionShareDestination,
     pub http_idle_timeout_ms: i64,
     pub cache_warming_mode: CacheWarmingMode,
-    pub thinking_level: ThinkingLevel,
+    pub thinking_level: crate::core::settings_manager::ThinkingLevelSetting,
     pub available_thinking_levels: Vec<ThinkingLevel>,
-    pub model_thinking_levels: IndexMap<String, ThinkingLevel>,
+    pub model_thinking_levels: IndexMap<String, crate::core::settings_manager::ThinkingLevelSetting>,
     pub current_theme: String,
     pub terminal_theme: TerminalTheme,
     pub available_themes: Vec<String>,
@@ -362,7 +331,9 @@ fn model_display_label(model: &Model) -> String {
     format!("{} [{}]", model.id, model.provider)
 }
 
-fn model_thinking_overrides_summary(overrides: &IndexMap<String, ThinkingLevel>) -> String {
+fn model_thinking_overrides_summary(
+    overrides: &IndexMap<String, crate::core::settings_manager::ThinkingLevelSetting>,
+) -> String {
     if overrides.is_empty() { "none".to_string() } else { format!("{} configured", overrides.len()) }
 }
 
@@ -813,7 +784,7 @@ impl SettingsSelectorComponent {
             let available = config.available_default_models.clone();
             let current_model_key = current_model_key.clone();
             let current_default_model_key = current_default_model_key.clone();
-            let global_thinking = config.thinking_level;
+            let global_thinking = config.thinking_level.to_js_string();
             let on_change = callbacks.on_model_thinking_level_change.clone();
             let on_remove = callbacks.on_model_thinking_level_remove.clone();
             Arc::new(move |_current: String, done: SubmenuDone| -> ComponentRef {
@@ -827,6 +798,7 @@ impl SettingsSelectorComponent {
                 let level_by_value = by_value.clone();
                 let level_levels = levels.clone();
                 let preselect_levels = levels.clone();
+                let global_thinking = global_thinking.clone();
                 let steps = vec![
                     SteppedSubmenuStep {
                         key: "model".into(),
@@ -858,7 +830,7 @@ impl SettingsSelectorComponent {
                                 .map(|model| {
                                     let key = model_setting_key(model);
                                     SelectItem {
-                                        description: overrides.get(&key).map(|l| l.as_str().to_string()),
+                                        description: overrides.get(&key).map(|l| l.to_js_string()),
                                         value: key,
                                         label: model_item_label(model),
                                     }
@@ -899,7 +871,10 @@ impl SettingsSelectorComponent {
                             } else {
                                 vec![ThinkingLevel::Off]
                             };
-                            let active_level = level_levels.lock().get(&model_key).copied();
+                            // TS marks the level equal to the stored value and offers "clear" for
+                            // any stored value, recognized or not.
+                            let stored = level_levels.lock().get(&model_key).cloned();
+                            let active_level = stored.as_ref().and_then(|l| l.known_level());
                             let mut items: Vec<SelectItem> = levels
                                 .iter()
                                 .map(|&level| SelectItem {
@@ -912,18 +887,18 @@ impl SettingsSelectorComponent {
                                     description: Some(thinking_description(level).to_string()),
                                 })
                                 .collect();
-                            if active_level.is_some() {
+                            if stored.as_ref().is_some_and(|l| l.is_truthy()) {
                                 items.push(SelectItem {
                                     value: CLEAR_OVERRIDE_VALUE.into(),
                                     label: "  (clear override)".into(),
-                                    description: Some(format!("Revert to global default ({})", global_thinking.as_str())),
+                                    description: Some(format!("Revert to global default ({})", global_thinking)),
                                 });
                             }
                             items
                         }),
                         preselect: Some(Arc::new(move |ctx: IndexMap<String, String>| {
                             let model_key = ctx.get("model").cloned().unwrap_or_default();
-                            preselect_levels.lock().get(&model_key).map(|l| l.as_str().to_string())
+                            preselect_levels.lock().get(&model_key).map(|l| l.to_js_string())
                         })),
                         searchable: None,
                         layout: None,
@@ -946,7 +921,7 @@ impl SettingsSelectorComponent {
                             complete_levels.lock().shift_remove(&model_key);
                         } else if let Some(level) = ThinkingLevel::parse(&level) {
                             on_change(model.provider.clone(), model.id.clone(), level);
-                            complete_levels.lock().insert(model_key, level);
+                            complete_levels.lock().insert(model_key, level.into());
                         }
                     }),
                     Arc::new(move || {
@@ -985,7 +960,7 @@ impl SettingsSelectorComponent {
                 "steering-mode",
                 "Steering mode",
                 "Enter while streaming queues steering messages. 'one-at-a-time': deliver one, wait for response. 'all': deliver all at once.",
-                config.steering_mode.as_str().to_string(),
+                config.steering_mode.to_js_string(),
                 &["one-at-a-time", "all"],
             ),
             setting(
@@ -994,7 +969,7 @@ impl SettingsSelectorComponent {
                 &format!(
                     "{follow_up_key} queues follow-up messages until agent stops. 'one-at-a-time': deliver one, wait for response. 'all': deliver all at once."
                 ),
-                config.follow_up_mode.as_str().to_string(),
+                config.follow_up_mode.to_js_string(),
                 &["one-at-a-time", "all"],
             ),
             setting(
@@ -1085,7 +1060,7 @@ impl SettingsSelectorComponent {
                 "double-escape-action",
                 "Double-escape action",
                 "Action when pressing Escape twice with empty editor",
-                config.double_escape_action.as_str().to_string(),
+                config.double_escape_action.to_js_string(),
                 &["tree", "fork", "none"],
             ),
             setting(

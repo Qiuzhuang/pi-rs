@@ -322,6 +322,10 @@ await settingsCase("settings/scalar-json", { global: "42" });
 await settingsCase("settings/invalid-values", {
 	global: JSON.stringify({
 		steeringMode: "bogus",
+		followUpMode: 7,
+		doubleEscapeAction: "sideways",
+		defaultThinkingLevel: "turbo",
+		modelThinkingLevels: { "anthropic/claude-opus-4-8": "ultra", "x/y": null },
 		transport: 5,
 		sessionShareDestination: "radius",
 		compaction: { reserveTokens: -1, keepRecentTokens: 1.5 },

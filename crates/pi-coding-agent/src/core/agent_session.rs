@@ -65,7 +65,7 @@ use crate::core::session_manager::{
 };
 use crate::core::settings_manager::{
     DEFAULT_TOOL_NAMES, Settings, SettingsManager, SettingsManagerGetCompactionSettingsModel,
-    SettingsManagerGetSteeringModeResult, apply_tool_modifiers,
+    apply_tool_modifiers,
 };
 use crate::core::settings_schema::CacheWarmingMode;
 use crate::core::slash_commands::{SlashCommandInfo, SlashCommandSource};
@@ -573,22 +573,8 @@ pub struct AgentSessionRoutedModel {
     pub thinking_level: Option<ThinkingLevel>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum AgentSessionSteeringMode {
-    #[serde(rename = "all")]
-    All,
-    #[serde(rename = "one-at-a-time")]
-    OneAtATime,
-}
-
-impl AgentSessionSteeringMode {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::All => "all",
-            Self::OneAtATime => "one-at-a-time",
-        }
-    }
-}
+/// `"all" | "one-at-a-time"`, kept verbatim when settings hold another value (like TS).
+pub type AgentSessionSteeringMode = QueueMode;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -778,34 +764,6 @@ fn to_index_env(env: Option<&pi_ai::types::ProviderEnv>) -> Option<IndexMap<Stri
 
 fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
-}
-
-fn queue_mode(mode: AgentSessionSteeringMode) -> QueueMode {
-    match mode {
-        AgentSessionSteeringMode::All => QueueMode::All,
-        AgentSessionSteeringMode::OneAtATime => QueueMode::OneAtATime,
-    }
-}
-
-fn steering_mode_from_queue(mode: QueueMode) -> AgentSessionSteeringMode {
-    match mode {
-        QueueMode::All => AgentSessionSteeringMode::All,
-        QueueMode::OneAtATime => AgentSessionSteeringMode::OneAtATime,
-    }
-}
-
-fn settings_queue_mode(mode: SettingsManagerGetSteeringModeResult) -> QueueMode {
-    match mode {
-        SettingsManagerGetSteeringModeResult::All => QueueMode::All,
-        SettingsManagerGetSteeringModeResult::OneAtATime => QueueMode::OneAtATime,
-    }
-}
-
-fn to_settings_mode(mode: AgentSessionSteeringMode) -> SettingsManagerGetSteeringModeResult {
-    match mode {
-        AgentSessionSteeringMode::All => SettingsManagerGetSteeringModeResult::All,
-        AgentSessionSteeringMode::OneAtATime => SettingsManagerGetSteeringModeResult::OneAtATime,
-    }
 }
 
 fn user_content_text(content: &UserContent) -> String {
@@ -2955,12 +2913,12 @@ impl AgentSession {
 
     /// Current steering mode
     pub fn steering_mode(&self) -> AgentSessionSteeringMode {
-        steering_mode_from_queue(self.agent.steering_mode())
+        self.agent.steering_mode()
     }
 
     /// Current follow-up mode
     pub fn follow_up_mode(&self) -> AgentSessionSteeringMode {
-        steering_mode_from_queue(self.agent.follow_up_mode())
+        self.agent.follow_up_mode()
     }
 
     /// Current session file path, or undefined if sessions are disabled
@@ -4425,24 +4383,22 @@ impl AgentSession {
     // =========================================================================
 
     fn sync_queue_modes_from_settings(&self) {
-        self.agent
-            .set_steering_mode(settings_queue_mode(self.settings_manager.get_steering_mode()));
-        self.agent
-            .set_follow_up_mode(settings_queue_mode(self.settings_manager.get_follow_up_mode()));
+        self.agent.set_steering_mode(self.settings_manager.get_steering_mode());
+        self.agent.set_follow_up_mode(self.settings_manager.get_follow_up_mode());
     }
 
     /// Set steering message mode.
     /// Saves to settings.
     pub fn set_steering_mode(&self, mode: AgentSessionSteeringMode) {
-        self.agent.set_steering_mode(queue_mode(mode));
-        self.settings_manager.set_steering_mode(to_settings_mode(mode));
+        self.agent.set_steering_mode(mode.clone());
+        self.settings_manager.set_steering_mode(mode);
     }
 
     /// Set follow-up message mode.
     /// Saves to settings.
     pub fn set_follow_up_mode(&self, mode: AgentSessionSteeringMode) {
-        self.agent.set_follow_up_mode(queue_mode(mode));
-        self.settings_manager.set_follow_up_mode(to_settings_mode(mode));
+        self.agent.set_follow_up_mode(mode.clone());
+        self.settings_manager.set_follow_up_mode(mode);
     }
 
     // =========================================================================

@@ -19,6 +19,7 @@ use crate::utils::text::strip_bom;
 use indexmap::{IndexMap, IndexSet};
 use parking_lot::Mutex;
 use pi_agent::types::ThinkingLevel;
+use crate::core::settings_schema::open_string_enum;
 use pi_ai::types::ProviderId;
 use pi_tui::components::scroll_view::ScrollViewScrollbar;
 use pi_tui::terminal_image::{CapabilityOverrides, ImageProtocol};
@@ -474,28 +475,60 @@ impl SettingsStorage for InMemorySettingsStorage {
 // Result types
 // ============================================================================
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum SettingsManagerGetSteeringModeResult {
-    #[serde(rename = "all")]
-    All,
-    #[serde(rename = "one-at-a-time")]
-    OneAtATime,
+/// `"all" | "one-at-a-time"`; the getters hand back unrecognized values verbatim like TS
+/// (`this.settings.steeringMode || default`).
+pub type SettingsManagerGetSteeringModeResult = pi_agent::types::QueueMode;
+
+open_string_enum! {
+    /// A thinking level as stored in settings. TS returns the stored value unchecked
+    /// (`getDefaultThinkingLevel()`), so values outside `ThinkingLevel` are kept in `Other`.
+    pub enum ThinkingLevelSetting {
+        Off => "off",
+        Minimal => "minimal",
+        Low => "low",
+        Medium => "medium",
+        High => "high",
+        Xhigh => "xhigh",
+        Max => "max",
+    }
 }
 
-impl SettingsManagerGetSteeringModeResult {
-    pub fn as_str(&self) -> &'static str {
+impl ThinkingLevelSetting {
+    /// The level to hand to the session. Every TS consumer clamps the level to the model
+    /// (`clampThinkingLevel`), which maps an unknown level to the model's lowest supported level,
+    /// exactly what clamping `"off"` yields; so unknown values become `Off`.
+    pub fn effective_level(&self) -> ThinkingLevel {
         match self {
-            Self::All => "all",
-            Self::OneAtATime => "one-at-a-time",
+            Self::Off | Self::Other(_) => ThinkingLevel::Off,
+            Self::Minimal => ThinkingLevel::Minimal,
+            Self::Low => ThinkingLevel::Low,
+            Self::Medium => ThinkingLevel::Medium,
+            Self::High => ThinkingLevel::High,
+            Self::Xhigh => ThinkingLevel::Xhigh,
+            Self::Max => ThinkingLevel::Max,
         }
     }
 
-    fn parse(value: &str) -> Option<Self> {
-        match value {
-            "all" => Some(Self::All),
-            "one-at-a-time" => Some(Self::OneAtATime),
-            _ => None,
+    /// The known level, or `None` for a value outside `ThinkingLevel`.
+    pub fn known_level(&self) -> Option<ThinkingLevel> {
+        match self {
+            Self::Other(_) => None,
+            known => Some(known.effective_level()),
         }
+    }
+
+    /// JS truthiness of the stored value (`if (perModel)` in TS).
+    pub fn is_truthy(&self) -> bool {
+        match self {
+            Self::Other(value) => is_truthy(Some(value)),
+            _ => true,
+        }
+    }
+}
+
+impl From<ThinkingLevel> for ThinkingLevelSetting {
+    fn from(level: ThinkingLevel) -> Self {
+        Self::from_value(to_json(&level))
     }
 }
 
@@ -554,23 +587,12 @@ pub struct SettingsManagerGetProviderRetrySettingsResult {
     pub max_retry_delay_ms: i64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum SettingsManagerGetDoubleEscapeActionResult {
-    #[serde(rename = "fork")]
-    Fork,
-    #[serde(rename = "tree")]
-    Tree,
-    #[serde(rename = "none")]
-    None,
-}
-
-impl SettingsManagerGetDoubleEscapeActionResult {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Fork => "fork",
-            Self::Tree => "tree",
-            Self::None => "none",
-        }
+open_string_enum! {
+    /// `"fork" | "tree" | "none"`; `getDoubleEscapeAction()` returns the stored value unchecked.
+    pub enum SettingsManagerGetDoubleEscapeActionResult {
+        Fork => "fork",
+        Tree => "tree",
+        None => "none",
     }
 }
 
@@ -1223,24 +1245,28 @@ impl SettingsManager {
         self.enqueue_write(SettingsScope::Global, snapshot.0, snapshot.1, snapshot.2);
     }
 
+    /// `this.settings.<key> || "one-at-a-time"`: any truthy value is returned as is.
+    fn get_queue_mode(&self, key: &str) -> SettingsManagerGetSteeringModeResult {
+        self.with_settings(|s| match s.get(key) {
+            value @ Some(raw) if is_truthy(value) => SettingsManagerGetSteeringModeResult::from_value(raw.clone()),
+            _ => SettingsManagerGetSteeringModeResult::OneAtATime,
+        })
+    }
+
     pub fn get_steering_mode(&self) -> SettingsManagerGetSteeringModeResult {
-        self.get_string("steeringMode")
-            .and_then(|m| SettingsManagerGetSteeringModeResult::parse(&m))
-            .unwrap_or(SettingsManagerGetSteeringModeResult::OneAtATime)
+        self.get_queue_mode("steeringMode")
     }
 
     pub fn set_steering_mode(&self, mode: SettingsManagerGetSteeringModeResult) {
-        self.set_global_value("steeringMode", Some(Value::String(mode.as_str().to_string())));
+        self.set_global_value("steeringMode", Some(mode.to_value()));
     }
 
     pub fn get_follow_up_mode(&self) -> SettingsManagerGetSteeringModeResult {
-        self.get_string("followUpMode")
-            .and_then(|m| SettingsManagerGetSteeringModeResult::parse(&m))
-            .unwrap_or(SettingsManagerGetSteeringModeResult::OneAtATime)
+        self.get_queue_mode("followUpMode")
     }
 
     pub fn set_follow_up_mode(&self, mode: SettingsManagerGetSteeringModeResult) {
-        self.set_global_value("followUpMode", Some(Value::String(mode.as_str().to_string())));
+        self.set_global_value("followUpMode", Some(mode.to_value()));
     }
 
     pub fn get_theme_setting(&self) -> Option<String> {
@@ -1255,10 +1281,15 @@ impl SettingsManager {
         self.set_global_value("theme", Some(Value::String(theme.to_string())));
     }
 
+    /// The stored `defaultThinkingLevel`, unrecognized values included (TS returns it unchecked).
+    pub fn get_default_thinking_level_setting(&self) -> Option<ThinkingLevelSetting> {
+        self.with_settings(|s| present(s, "defaultThinkingLevel").cloned().map(ThinkingLevelSetting::from_value))
+    }
+
+    /// [`Self::get_default_thinking_level_setting`] as the level a session uses
+    /// (see [`ThinkingLevelSetting::effective_level`]).
     pub fn get_default_thinking_level(&self) -> Option<ThinkingLevel> {
-        self.with_settings(|s| {
-            present(s, "defaultThinkingLevel").and_then(|v| serde_json::from_value(v.clone()).ok())
-        })
+        self.get_default_thinking_level_setting().map(|l| l.effective_level())
     }
 
     pub fn set_default_thinking_level(&self, level: ThinkingLevel) {
@@ -1270,24 +1301,39 @@ impl SettingsManager {
         provider: &str,
         model_id: &str,
     ) -> Option<ThinkingLevel> {
+        self.get_model_thinking_level_setting(provider, model_id)
+            .map(|l| l.effective_level())
+    }
+
+    /// The stored per-model thinking level, unrecognized values included.
+    pub fn get_model_thinking_level_setting(&self, provider: &str, model_id: &str) -> Option<ThinkingLevelSetting> {
         let key = format!("{provider}/{model_id}");
         self.with_settings(|s| {
-            nested(s, "modelThinkingLevels", &key).and_then(|v| serde_json::from_value(v.clone()).ok())
+            nested_raw(s, "modelThinkingLevels", &key)
+                .cloned()
+                .map(ThinkingLevelSetting::from_value)
         })
     }
 
+    /// Per-model thinking levels as sessions use them (see
+    /// [`ThinkingLevelSetting::effective_level`]); null entries are skipped (`?? fallback`).
     pub fn get_all_model_thinking_levels(&self) -> IndexMap<String, ThinkingLevel> {
+        self.get_all_model_thinking_level_settings()
+            .into_iter()
+            .filter(|(_, v)| *v != ThinkingLevelSetting::Other(Value::Null))
+            .map(|(k, v)| (k, v.effective_level()))
+            .collect()
+    }
+
+    /// `{ ...this.settings.modelThinkingLevels }`: the stored values, unrecognized ones included.
+    pub fn get_all_model_thinking_level_settings(&self) -> IndexMap<String, ThinkingLevelSetting> {
         self.with_settings(|s| {
             present(s, "modelThinkingLevels")
                 .and_then(Value::as_object)
                 .map(|levels| {
                     levels
                         .iter()
-                        .filter_map(|(k, v)| {
-                            serde_json::from_value::<ThinkingLevel>(v.clone())
-                                .ok()
-                                .map(|level| (k.clone(), level))
-                        })
+                        .map(|(k, v)| (k.clone(), ThinkingLevelSetting::from_value(v.clone())))
                         .collect()
                 })
                 .unwrap_or_default()
@@ -1324,10 +1370,12 @@ impl SettingsManager {
         });
     }
 
+    /// `this.settings.transport ?? "auto"`: other values are returned as is.
     pub fn get_transport(&self) -> TransportSetting {
         self.with_settings(|s| {
             present(s, "transport")
-                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .cloned()
+                .map(TransportSetting::from_value)
                 .unwrap_or(TransportSetting::Auto)
         })
     }
@@ -1983,19 +2031,18 @@ impl SettingsManager {
         self.set_global_value("enabledModels", patterns.map(|p| to_json(&p.to_vec())));
     }
 
+    /// `this.settings.doubleEscapeAction ?? "tree"`: other values are returned as is.
     pub fn get_double_escape_action(&self) -> SettingsManagerGetDoubleEscapeActionResult {
-        match self.get_string("doubleEscapeAction").as_deref() {
-            Some("fork") => SettingsManagerGetDoubleEscapeActionResult::Fork,
-            Some("none") => SettingsManagerGetDoubleEscapeActionResult::None,
-            _ => SettingsManagerGetDoubleEscapeActionResult::Tree,
-        }
+        self.with_settings(|s| {
+            present(s, "doubleEscapeAction")
+                .cloned()
+                .map(SettingsManagerGetDoubleEscapeActionResult::from_value)
+                .unwrap_or(SettingsManagerGetDoubleEscapeActionResult::Tree)
+        })
     }
 
     pub fn set_double_escape_action(&self, action: SettingsManagerGetDoubleEscapeActionResult) {
-        self.set_global_value(
-            "doubleEscapeAction",
-            Some(Value::String(action.as_str().to_string())),
-        );
+        self.set_global_value("doubleEscapeAction", Some(action.to_value()));
     }
 
     pub fn get_tree_filter_mode(&self) -> FilterMode {

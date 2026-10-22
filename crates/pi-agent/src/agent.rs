@@ -191,14 +191,14 @@ impl PendingMessageQueue {
     fn peek(&self) -> Vec<AgentMessage> {
         match self.mode {
             QueueMode::All => self.messages.iter().cloned().collect(),
-            QueueMode::OneAtATime => self.messages.front().cloned().into_iter().collect(),
+            QueueMode::OneAtATime | QueueMode::Other(_) => self.messages.front().cloned().into_iter().collect(),
         }
     }
 
     fn drain(&mut self) -> Vec<AgentMessage> {
         match self.mode {
             QueueMode::All => self.messages.drain(..).collect(),
-            QueueMode::OneAtATime => self.messages.pop_front().into_iter().collect(),
+            QueueMode::OneAtATime | QueueMode::Other(_) => self.messages.pop_front().into_iter().collect(),
         }
     }
 
@@ -544,7 +544,7 @@ impl Agent {
 
     /// How queued steering messages are drained.
     pub fn steering_mode(&self) -> QueueMode {
-        self.inner.steering_queue.lock().mode
+        self.inner.steering_queue.lock().mode.clone()
     }
 
     pub fn set_steering_mode(&self, mode: QueueMode) {
@@ -553,7 +553,7 @@ impl Agent {
 
     /// How queued follow-up messages are drained.
     pub fn follow_up_mode(&self) -> QueueMode {
-        self.inner.follow_up_queue.lock().mode
+        self.inner.follow_up_queue.lock().mode.clone()
     }
 
     pub fn set_follow_up_mode(&self, mode: QueueMode) {

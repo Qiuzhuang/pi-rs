@@ -1211,3 +1211,44 @@ async fn in_memory_settings_survive_an_unrelated_setter_flush_and_reload() {
         json!({ "images": { "autoResize": false }, "compaction": { "enabled": false }, "theme": "dark" })
     );
 }
+
+#[test]
+fn enum_getters_hand_back_unrecognized_values_like_ts() {
+    let manager = in_memory(json!({
+        "steeringMode": "bogus",
+        "followUpMode": "",
+        "transport": 5,
+        "doubleEscapeAction": "sideways",
+        "defaultThinkingLevel": "turbo",
+        "modelThinkingLevels": {"a/b": "ultra", "c/d": null, "e/f": "high"}
+    }));
+    // `steeringMode || default`: truthy values verbatim, falsy ones fall back.
+    assert_eq!(manager.get_steering_mode(), SettingsManagerGetSteeringModeResult::Other(json!("bogus")));
+    assert_eq!(manager.get_steering_mode().to_js_string(), "bogus");
+    assert_eq!(manager.get_follow_up_mode(), SettingsManagerGetSteeringModeResult::OneAtATime);
+    // `transport ?? default` and `doubleEscapeAction ?? default`.
+    assert_eq!(serde_json::to_value(manager.get_transport()).unwrap(), json!(5));
+    assert_eq!(manager.get_double_escape_action(), SettingsManagerGetDoubleEscapeActionResult::Other(json!("sideways")));
+    // Thinking levels: raw value from the setting getters, lowest level for the session (clamping
+    // an unknown level and "off" yield the same level).
+    assert_eq!(manager.get_default_thinking_level_setting(), Some(ThinkingLevelSetting::Other(json!("turbo"))));
+    assert_eq!(manager.get_default_thinking_level(), Some(ThinkingLevel::Off));
+    assert_eq!(
+        manager.get_model_thinking_level_setting("a", "b").map(|l| l.to_js_string()),
+        Some("ultra".to_string())
+    );
+    assert_eq!(manager.get_model_thinking_level_setting("c", "d"), Some(ThinkingLevelSetting::Other(json!(null))));
+    assert!(!manager.get_model_thinking_level_setting("c", "d").unwrap().is_truthy());
+    assert_eq!(
+        serde_json::to_value(manager.get_all_model_thinking_level_settings()).unwrap(),
+        json!({"a/b": "ultra", "c/d": null, "e/f": "high"})
+    );
+    let effective = manager.get_all_model_thinking_levels();
+    assert_eq!(effective.get("a/b"), Some(&ThinkingLevel::Off));
+    assert_eq!(effective.get("c/d"), None);
+    assert_eq!(effective.get("e/f"), Some(&ThinkingLevel::High));
+
+    // Setters write the raw value back.
+    manager.set_steering_mode(SettingsManagerGetSteeringModeResult::Other(json!("custom")));
+    assert_eq!(manager.get_global_settings_json()["steeringMode"], "custom");
+}

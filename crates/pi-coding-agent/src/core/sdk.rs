@@ -20,14 +20,14 @@ use crate::core::model_runtime::CreateModelRuntimeOptions;
 use crate::core::resource_loader::{DefaultResourceLoader, DefaultResourceLoaderOptions};
 use crate::core::session_manager::{SessionEntry, UsageEntry, get_default_session_dir};
 use crate::core::settings_manager::{
-    DEFAULT_TOOL_NAMES, SettingsManagerGetSteeringModeResult, apply_tool_modifiers,
+    DEFAULT_TOOL_NAMES, apply_tool_modifiers,
     get_tool_list_error, is_tool_modifier_str,
 };
 use crate::core::timings::time;
 use crate::core::virtual_models::get_branch_selection;
 use crate::utils::paths::resolve_path;
 use pi_agent::agent::{Agent, AgentInitialState, AgentOptions, WeakAgent};
-use pi_agent::types::{AgentMessage, ConvertToLlmFn, QueueMode, StreamFn};
+use pi_agent::types::{AgentMessage, ConvertToLlmFn, StreamFn};
 use pi_ai::models::{ModelsRequestOptions, TransformHeadersFn, clamp_thinking_level};
 use pi_ai::types::{
     Context, Message, OnPayload, OnProviderStreamEvent, OnResponse, ProviderHeaders,
@@ -315,8 +315,10 @@ pub async fn create_agent_session(
     // If session has data, restore thinking level from it
     if thinking_level.is_none() && has_existing_session {
         thinking_level = Some(if has_thinking_entry {
+            // TS casts the stored string unchecked; an unknown level clamps to the model's lowest
+            // supported level below, which is what clamping "off" yields.
             serde_json::from_value(Value::String(existing_session.thinking_level.clone()))
-                .unwrap_or(DEFAULT_THINKING_LEVEL)
+                .unwrap_or(ThinkingLevel::Off)
         } else {
             settings_manager
                 .get_default_thinking_level()
@@ -327,9 +329,10 @@ pub async fn create_agent_session(
     // Fall back to per-model override, then global default
     if thinking_level.is_none()
         && let Some(model) = &model
-        && let Some(per_model) = settings_manager.get_model_thinking_level(&model.provider, &model.id)
+        && let Some(per_model) = settings_manager.get_model_thinking_level_setting(&model.provider, &model.id)
+        && per_model.is_truthy()
     {
-        thinking_level = Some(per_model);
+        thinking_level = Some(per_model.effective_level());
     }
     let mut thinking_level = thinking_level.unwrap_or_else(|| {
         settings_manager
@@ -624,8 +627,8 @@ pub async fn create_agent_session(
         on_response: Some(handle_provider_response),
         on_provider_stream_event: Some(handle_provider_stream_event),
         session_id: Some(session_manager.get_session_id()),
-        steering_mode: Some(queue_mode(settings_manager.get_steering_mode())),
-        follow_up_mode: Some(queue_mode(settings_manager.get_follow_up_mode())),
+        steering_mode: Some(settings_manager.get_steering_mode()),
+        follow_up_mode: Some(settings_manager.get_follow_up_mode()),
         transport: serde_json::to_value(settings_manager.get_transport())
             .ok()
             .and_then(|v| serde_json::from_value(v).ok()),
@@ -694,12 +697,6 @@ pub async fn create_agent_session(
     })
 }
 
-fn queue_mode(mode: SettingsManagerGetSteeringModeResult) -> QueueMode {
-    match mode {
-        SettingsManagerGetSteeringModeResult::All => QueueMode::All,
-        SettingsManagerGetSteeringModeResult::OneAtATime => QueueMode::OneAtATime,
-    }
-}
 
 const IMAGE_DISABLED_TEXT: &str = "Image reading is disabled.";
 

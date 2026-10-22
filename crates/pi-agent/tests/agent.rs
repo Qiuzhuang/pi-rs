@@ -828,7 +828,7 @@ async fn continue_processes_queued_follow_ups_after_an_assistant_turn() {
 async fn continue_keeps_steering_semantics(mode: QueueMode, expected_requests: usize) {
     let (stream_fn, requests) = user_texts_recorder();
     let agent = agent_with(AgentOptions {
-        steering_mode: Some(mode),
+        steering_mode: Some(mode.clone()),
         ..options_with(stream_fn)
     });
     agent.set_messages(vec![
@@ -857,6 +857,27 @@ async fn continue_keeps_one_at_a_time_steering_for_assistant_tail() {
 #[tokio::test]
 async fn continue_keeps_all_steering_for_assistant_tail() {
     continue_keeps_steering_semantics(QueueMode::All, 1).await;
+}
+
+#[tokio::test]
+async fn unrecognized_queue_mode_is_kept_and_drains_one_at_a_time() {
+    // TS stores any mode string and only special-cases "all".
+    let bogus = QueueMode::from_str_lossless("bogus");
+    assert_eq!(serde_json::to_value(&bogus).unwrap(), serde_json::json!("bogus"));
+    assert_eq!(serde_json::from_value::<QueueMode>(serde_json::json!("all")).unwrap(), QueueMode::All);
+    let (stream_fn, requests) = user_texts_recorder();
+    let agent = agent_with(AgentOptions {
+        steering_mode: Some(bogus.clone()),
+        ..options_with(stream_fn)
+    });
+    assert_eq!(agent.steering_mode(), bogus);
+    agent.set_messages(vec![user("Initial"), assistant_text("Initial response").into()]);
+    agent.steer(user("Steering 1"));
+    agent.steer(user("Steering 2"));
+    agent.continue_run().await.unwrap();
+    let requests = requests.lock();
+    assert_eq!(requests.len(), 2);
+    assert!(!requests[0].contains(&"Steering 2".to_string()));
 }
 
 fn tool_then_text_stream_fn(final_text: &'static str) -> (StreamFn, Arc<Mutex<usize>>) {
@@ -997,7 +1018,7 @@ async fn polls_steering_at_continuation_startup(mode: QueueMode, expected_reques
             messages: Some(vec![user("existing")]),
             ..Default::default()
         }),
-        steering_mode: Some(mode),
+        steering_mode: Some(mode.clone()),
         ..options_with(stream_fn)
     });
     agent.steer(user("first"));

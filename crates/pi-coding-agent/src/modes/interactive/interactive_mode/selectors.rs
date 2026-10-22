@@ -252,15 +252,17 @@ impl Inner {
                 auto_resize_images: settings.get_image_auto_resize(),
                 block_images: settings.get_block_images(),
                 enable_skill_commands: settings.get_enable_skill_commands(),
-                steering_mode: convert(&session.steering_mode()),
-                follow_up_mode: convert(&session.follow_up_mode()),
-                transport: convert(&settings.get_transport()),
+                steering_mode: session.steering_mode(),
+                follow_up_mode: session.follow_up_mode(),
+                transport: settings.get_transport(),
                 session_share_destination: settings.get_session_share_destination(),
                 http_idle_timeout_ms: settings.get_http_idle_timeout_ms().unwrap_or(0),
                 cache_warming_mode: settings.get_cache_warming_mode(),
-                thinking_level: settings.get_default_thinking_level().unwrap_or(DEFAULT_THINKING_LEVEL),
+                thinking_level: settings
+                    .get_default_thinking_level_setting()
+                    .unwrap_or_else(|| DEFAULT_THINKING_LEVEL.into()),
                 available_thinking_levels: THINKING_LEVEL_OPTIONS.to_vec(),
-                model_thinking_levels: settings.get_all_model_thinking_levels(),
+                model_thinking_levels: settings.get_all_model_thinking_level_settings(),
                 current_theme: this
                     .theme_controller
                     .get_theme_selection()
@@ -273,7 +275,7 @@ impl Inner {
                 show_cache_miss_notices: settings.get_show_cache_miss_notices(),
                 collapse_changelog: settings.get_collapse_changelog(),
                 enable_install_telemetry: settings.get_enable_install_telemetry(),
-                double_escape_action: convert(&settings.get_double_escape_action()),
+                double_escape_action: settings.get_double_escape_action(),
                 tree_filter_mode: settings.get_tree_filter_mode(),
                 show_hardware_cursor: settings.get_show_hardware_cursor(),
                 editor_padding_x: settings.get_editor_padding_x(),
@@ -573,7 +575,11 @@ impl Inner {
                 Arc::new(move |level| s1(level, false)),
                 this.cancel_handler(&done),
                 Some(Arc::new(move |level| s2(level, true))),
-                Some(this.settings_manager().get_default_thinking_level().unwrap_or(DEFAULT_THINKING_LEVEL)),
+                // TS passes the raw setting; an unrecognized value marks no level as the default.
+                match this.settings_manager().get_default_thinking_level_setting() {
+                    None => Some(DEFAULT_THINKING_LEVEL),
+                    Some(level) => level.known_level(),
+                },
             ));
             SelectorParts { component: selector.clone(), focus: selector, dispose: None }
         });

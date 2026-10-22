@@ -238,13 +238,13 @@ fn settings_getters(s: &SettingsManager) -> Value {
     put("getSessionDir", ok(s.get_session_dir().map(Value::from)));
     put("getDefaultProvider", ok(s.get_default_provider().map(Value::from)));
     put("getDefaultModel", ok(s.get_default_model().map(Value::from)));
-    put("getSteeringMode", ok(Some(json!(s.get_steering_mode().as_str()))));
-    put("getFollowUpMode", ok(Some(json!(s.get_follow_up_mode().as_str()))));
+    put("getSteeringMode", ok(Some(to_json(&s.get_steering_mode()))));
+    put("getFollowUpMode", ok(Some(to_json(&s.get_follow_up_mode()))));
     put("getThemeSetting", ok(s.get_theme_setting().map(Value::from)));
     put("getTheme", ok(s.get_theme().map(Value::from)));
-    put("getDefaultThinkingLevel", ok(s.get_default_thinking_level().map(|l| to_json(&l))));
-    put("getModelThinkingLevel", ok(s.get_model_thinking_level("anthropic", "claude-opus-4-8").map(|l| to_json(&l))));
-    put("getAllModelThinkingLevels", ok(Some(to_json(&s.get_all_model_thinking_levels()))));
+    put("getDefaultThinkingLevel", ok(s.get_default_thinking_level_setting().map(|l| to_json(&l))));
+    put("getModelThinkingLevel", ok(s.get_model_thinking_level_setting("anthropic", "claude-opus-4-8").map(|l| to_json(&l))));
+    put("getAllModelThinkingLevels", ok(Some(to_json(&s.get_all_model_thinking_level_settings()))));
     put("getTransport", ok(Some(to_json(&s.get_transport()))));
     put("getSessionShareDestination", ok(Some(to_json(&s.get_session_share_destination()))));
     put("getCompactionSettings", ok_or(s.get_compaction_settings(None), |v| Some(to_json(&v))));
@@ -317,7 +317,7 @@ fn settings_getters(s: &SettingsManager) -> Value {
     put("getBlockImages", ok(Some(json!(s.get_block_images()))));
     put("getEnabledModels", ok(s.get_enabled_models().map(|m| to_json(&m))));
     put("getDefaultTools", ok(s.get_default_tools().map(|t| to_json(&t))));
-    put("getDoubleEscapeAction", ok(Some(json!(s.get_double_escape_action().as_str()))));
+    put("getDoubleEscapeAction", ok(Some(to_json(&s.get_double_escape_action()))));
     put("getTreeFilterMode", ok(Some(to_json(&s.get_tree_filter_mode()))));
     put("getShowHardwareCursor", ok(Some(json!(s.get_show_hardware_cursor()))));
     put("getEditorPaddingX", ok(Some(json!(s.get_editor_padding_x()))));
@@ -454,15 +454,6 @@ fn golden_settings() {
         let mut expected = case.out.clone();
         for key in ["globalSettings", "projectSettings"] {
             expected[key] = js_object(&expected[key]);
-        }
-        // Typed getters: the Rust API returns enums, so a value outside the enum reads as the
-        // default where TS hands back the raw value.
-        for (getter, invalid, default) in
-            [("getSteeringMode", json!("bogus"), json!("one-at-a-time")), ("getTransport", json!(5), json!("auto"))]
-        {
-            if expected["getters"][getter]["ok"] == invalid {
-                expected["getters"][getter]["ok"] = default;
-            }
         }
         // Boolean getters return the raw value in TS (`setting ?? default`); callers test truthiness.
         if let Value::Object(getters) = &mut expected["getters"] {

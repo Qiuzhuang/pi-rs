@@ -306,6 +306,112 @@ async fn model_selector_keeps_the_current_model_marked_while_browsing() {
     harness.cleanup();
 }
 
+/// The model id on the highlighted (→) row.
+fn selected_model_id(rendered: &str) -> Option<String> {
+    let line = rendered.split('\n').find(|l| l.starts_with("→ "))?;
+    let rest = line.trim_start_matches('→').trim_start();
+    let id = rest.split(" [").next()?.trim_start_matches('✓').trim();
+    (!id.is_empty()).then(|| id.to_string())
+}
+
+/// Wait for the background catalog refresh; TS `vi.waitFor` gives it 1 s.
+async fn wait_for_catalog_refresh(selector: &ModelSelectorComponent) -> Duration {
+    let started = std::time::Instant::now();
+    loop {
+        if render_plain(selector, 120).contains("Model catalogs refreshed.") {
+            return started.elapsed();
+        }
+        assert!(started.elapsed() < Duration::from_secs(1), "the catalog refresh did not settle:\n{}", render_plain(selector, 120));
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+}
+
+// suite/regressions/7209-model-selector-filter-resets-selection.test.ts
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn model_selector_filter_moves_selection_to_the_first_row_in_the_all_tab() {
+    let _g = setup();
+    let harness = create_harness(HarnessOptions {
+        models: vec![
+            faux_model("alpha-1", "Alpha One"),
+            faux_model("alpha-2", "Alpha Two"),
+            faux_model("alpha-3", "Alpha Three"),
+            faux_model("beta-1", "Beta One"),
+        ],
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    let current = harness.get_model_by_id("alpha-1").unwrap();
+    let selector = ModelSelectorComponent::new(
+        fake_tui(),
+        Some(current),
+        harness.model_runtime.clone(),
+        &[],
+        Arc::new(|_| {}),
+        Arc::new(|| {}),
+        None,
+        None,
+        None,
+    );
+    let elapsed = wait_for_catalog_refresh(&selector).await;
+    eprintln!("model catalog refresh settled after {elapsed:?}");
+
+    // Current model (alpha-1) is sorted first, so selection starts on row 0.
+    assert_eq!(selected_model_id(&render_plain(&selector, 120)).as_deref(), Some("alpha-1"));
+    // Narrow to this provider's models, then move down two rows.
+    selector.handle_input(DOWN);
+    selector.handle_input(DOWN);
+    let moved = selected_model_id(&render_plain(&selector, 120));
+    assert_ne!(moved.as_deref(), Some("alpha-1"));
+
+    // Typing a query moves the selection back to the top row, not clamped at index 2.
+    for c in "alpha".chars() {
+        selector.handle_input(&c.to_string());
+    }
+    let rendered = render_plain(&selector, 120);
+    assert_eq!(selected_model_id(&rendered).as_deref(), Some("alpha-1"), "{rendered}");
+    assert!(!rendered.contains("beta-1"), "{rendered}");
+    selector.dispose();
+    harness.cleanup();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn model_selector_filter_moves_selection_to_the_first_row_in_the_scoped_tab() {
+    use pi_coding_agent::modes::interactive::components::model_selector::ScopedModelItem;
+    let _g = setup();
+    let harness = create_harness(HarnessOptions {
+        models: vec![faux_model("alpha-1", "Alpha One"), faux_model("alpha-2", "Alpha Two"), faux_model("alpha-3", "Alpha Three")],
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    let model = |id: &str| harness.get_model_by_id(id).unwrap();
+    // The scoped list is not in current-model-first order; the current model sits at index 2.
+    let scoped: Vec<ScopedModelItem> = ["alpha-2", "alpha-3", "alpha-1"]
+        .iter()
+        .map(|id| ScopedModelItem { model: model(id), thinking_level: None })
+        .collect();
+    let selector = ModelSelectorComponent::new(
+        fake_tui(),
+        Some(model("alpha-1")),
+        harness.model_runtime.clone(),
+        &scoped,
+        Arc::new(|_| {}),
+        Arc::new(|| {}),
+        None,
+        None,
+        None,
+    );
+    wait_for_catalog_refresh(&selector).await;
+    assert_eq!(selected_model_id(&render_plain(&selector, 120)).as_deref(), Some("alpha-1"));
+    for c in "alpha".chars() {
+        selector.handle_input(&c.to_string());
+    }
+    assert_eq!(selected_model_id(&render_plain(&selector, 120)).as_deref(), Some("alpha-2"));
+    selector.dispose();
+    harness.cleanup();
+}
+
 #[tokio::test]
 async fn model_selector_uses_the_configured_save_binding() {
     let _g = setup();

@@ -74,7 +74,8 @@ impl ModelsStore for InMemoryCodingAgentModelsStore {
     }
 }
 
-type ReloadFuture = Shared<BoxFuture<'static, Result<StoredModels, Arc<anyhow::Error>>>>;
+// Readers share the parsed file: each `read` clones only its provider's entry, not every provider's.
+type ReloadFuture = Shared<BoxFuture<'static, Result<Arc<StoredModels>, Arc<anyhow::Error>>>>;
 
 struct ModelsFileReload {
     id: u64,
@@ -85,7 +86,7 @@ struct ModelsFileReload {
 
 #[derive(Default)]
 struct ModelsFileReadState {
-    data: StoredModels,
+    data: Arc<StoredModels>,
     revision: Option<String>,
     reload: Option<ModelsFileReload>,
 }
@@ -145,7 +146,7 @@ impl FileModelsStore {
         }
     }
 
-    fn update_read_state(state: &SharedReadState, data: StoredModels, revision: Option<String>) {
+    fn update_read_state(state: &SharedReadState, data: Arc<StoredModels>, revision: Option<String>) {
         let mut state = state.lock();
         state.data = data;
         state.revision = revision;
@@ -159,7 +160,7 @@ impl FileModelsStore {
             storage
                 .with_lock_async(
                     move |content| async move {
-                        let data = parse(content.as_deref())?;
+                        let data = Arc::new(parse(content.as_deref())?);
                         FileModelsStore::update_read_state(
                             &read_state,
                             data.clone(),
@@ -176,7 +177,7 @@ impl FileModelsStore {
         .shared()
     }
 
-    async fn read_latest(&self, signal: Option<&CancellationToken>) -> anyhow::Result<StoredModels> {
+    async fn read_latest(&self, signal: Option<&CancellationToken>) -> anyhow::Result<Arc<StoredModels>> {
         throw_if_aborted(signal)?;
         let revision = get_file_revision(&self.path);
         let (id, promise) = {
@@ -257,7 +258,7 @@ impl ModelsStore for FileModelsStore {
                 signal,
             )
             .await?;
-        Self::update_read_state(&self.read_state, latest, None);
+        Self::update_read_state(&self.read_state, Arc::new(latest), None);
         Ok(())
     }
 
@@ -275,7 +276,7 @@ impl ModelsStore for FileModelsStore {
                 signal,
             )
             .await?;
-        Self::update_read_state(&self.read_state, latest, None);
+        Self::update_read_state(&self.read_state, Arc::new(latest), None);
         Ok(())
     }
 }

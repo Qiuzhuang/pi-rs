@@ -17,3 +17,4 @@ mod oauth;
 mod catalog;
 mod models;
 mod errors;
+mod misc;

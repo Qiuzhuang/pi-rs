@@ -1,8 +1,8 @@
-//! Ports of `test/keybindings-migration.test.ts`, `test/config-value-migration.test.ts` and
-//! `test/suite/regressions/5661-uppercase-header-values.test.ts`.
-//!
-//! `runMigrations` reads the agent directory from `PI_CODING_AGENT_DIR`, so the tests hold a lock
-//! while they set it. TS also asserts that migrations log nothing (`console.log` spy); the Rust
+//! Tests that read the agent directory from `PI_CODING_AGENT_DIR` (they hold a lock while they
+//! set it): ports of `test/keybindings-migration.test.ts`, `test/config-value-migration.test.ts`,
+//! `test/suite/regressions/5661-uppercase-header-values.test.ts` and
+//! `test/suite/regressions/7497-session-discovery-symlink.test.ts`.
+//! TS also asserts that migrations log nothing (`console.log` spy); the Rust
 //! migrations write to stdout, which an in-process test cannot capture, so that check is left out.
 
 use std::sync::Arc;
@@ -237,4 +237,80 @@ async fn keeps_uppercase_header_strings_as_literals_during_startup_migrations() 
     let ResolvedRequestAuth::Ok(auth) = auth else { panic!("auth should resolve") };
     assert_eq!(auth.api_key.as_deref(), Some("CUSTOM_API_KEY"));
     assert_eq!(auth.headers.unwrap().get("Authorization"), Some(&Some("BEARER".to_string())));
+}
+
+// ---------------------------------------------------------------------------
+// suite/regressions/7497-session-discovery-symlink.test.ts
+// ---------------------------------------------------------------------------
+
+#[cfg(unix)]
+mod session_discovery_symlink {
+    use super::*;
+    use pi_coding_agent::core::session_manager::SessionManager;
+    use std::os::unix::fs::symlink;
+    use std::path::Path;
+
+    fn write_session(root: &Path, dir: &Path, id: &str) {
+        std::fs::create_dir_all(dir).unwrap();
+        let header = json!({
+            "type": "session", "version": 3, "id": id, "timestamp": "2026-08-03T00:00:00.000Z",
+            "cwd": root.join("project").to_string_lossy(),
+        });
+        std::fs::write(dir.join(format!("{id}.jsonl")), format!("{header}\n")).unwrap();
+    }
+
+    async fn list_all(agent_dir: &Path) -> Vec<(String, String)> {
+        let dir = agent_dir.to_string_lossy().into_owned();
+        let _guard = ENV_LOCK.lock();
+        let saved = std::env::var(ENV_AGENT_DIR).ok();
+        unsafe { std::env::set_var(ENV_AGENT_DIR, &dir) };
+        let sessions = SessionManager::list_all(None, None, None).await;
+        match saved {
+            Some(saved) => unsafe { std::env::set_var(ENV_AGENT_DIR, saved) },
+            None => unsafe { std::env::remove_var(ENV_AGENT_DIR) },
+        }
+        sessions.unwrap().into_iter().map(|s| (s.id, s.path)).collect()
+    }
+
+    fn setup() -> (tempfile::TempDir, std::path::PathBuf) {
+        let temp = tempfile::tempdir().unwrap();
+        let sessions_dir = temp.path().join("agent").join("sessions");
+        std::fs::create_dir_all(&sessions_dir).unwrap();
+        (temp, sessions_dir)
+    }
+
+    #[tokio::test]
+    async fn discovers_a_session_through_a_directory_link_and_preserves_the_alias_path() {
+        let (temp, sessions_dir) = setup();
+        let target = temp.path().join("linked-sessions");
+        write_session(temp.path(), &target, "linked");
+        let alias = sessions_dir.join("--linked--");
+        symlink(&target, &alias).unwrap();
+        let sessions = list_all(&temp.path().join("agent")).await;
+        assert_eq!(sessions.iter().map(|s| s.0.as_str()).collect::<Vec<_>>(), vec!["linked"]);
+        assert_eq!(sessions[0].1, alias.join("linked.jsonl").to_string_lossy());
+    }
+
+    #[tokio::test]
+    async fn ignores_a_broken_directory_link_without_hiding_valid_sessions() {
+        let (temp, sessions_dir) = setup();
+        write_session(temp.path(), &sessions_dir.join("--regular--"), "regular");
+        let target = temp.path().join("removed-sessions");
+        std::fs::create_dir_all(&target).unwrap();
+        symlink(&target, sessions_dir.join("--broken--")).unwrap();
+        std::fs::remove_dir_all(&target).unwrap();
+        let sessions = list_all(&temp.path().join("agent")).await;
+        assert_eq!(sessions.iter().map(|s| s.0.as_str()).collect::<Vec<_>>(), vec!["regular"]);
+    }
+
+    #[tokio::test]
+    async fn ignores_links_to_files() {
+        let (temp, sessions_dir) = setup();
+        write_session(temp.path(), &sessions_dir.join("--regular--"), "regular");
+        let target = temp.path().join("not-a-directory");
+        std::fs::write(&target, "").unwrap();
+        symlink(&target, sessions_dir.join("--file--")).unwrap();
+        let sessions = list_all(&temp.path().join("agent")).await;
+        assert_eq!(sessions.iter().map(|s| s.0.as_str()).collect::<Vec<_>>(), vec!["regular"]);
+    }
 }

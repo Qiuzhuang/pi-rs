@@ -499,3 +499,25 @@ fn session_names_are_sanitized_and_clearable() {
     session.append_session_info("   ").unwrap();
     assert_eq!(session.get_session_name(), None);
 }
+
+// suite/regressions/8989-fork-compaction-label-boundary.test.ts
+#[test]
+fn preserves_compaction_context_when_a_fork_removes_the_boundary_label() {
+    let session = in_memory();
+    let old_id = session.append_message(user_msg("old")).unwrap();
+    // findCutPoint() can move a compaction boundary back to this context-invisible label.
+    let label_id = session.append_label_change(&old_id, Some("checkpoint")).unwrap();
+    let kept_id = session.append_message(user_msg("kept")).unwrap();
+    let compaction_id = session.append_compaction("summary", Some(&label_id), 100, None, None, None).unwrap();
+    let leaf_id = session.append_message(user_msg("after")).unwrap();
+
+    session.create_branched_session(&leaf_id).unwrap();
+
+    let compaction = serde_json::to_value(session.get_entry(&compaction_id).unwrap()).unwrap();
+    assert_eq!(compaction["firstKeptEntryId"], serde_json::json!(kept_id));
+    let messages: Vec<serde_json::Value> = session.build_session_context().messages.iter().map(mjson).collect();
+    assert_eq!(messages.len(), 3);
+    assert_eq!((messages[0]["role"].as_str(), messages[0]["summary"].as_str()), (Some("compactionSummary"), Some("summary")));
+    assert_eq!((messages[1]["role"].as_str(), messages[1]["content"].as_str()), (Some("user"), Some("kept")));
+    assert_eq!((messages[2]["role"].as_str(), messages[2]["content"].as_str()), (Some("user"), Some("after")));
+}

@@ -1148,3 +1148,66 @@ fn preserves_global_provider_retry_settings_not_overridden_by_the_project() {
     assert_eq!(retry.max_retries, Some(2));
     assert_eq!(retry.max_retry_delay_ms, 45000);
 }
+
+// suite/regressions/3616-settings-inmemory-reload.test.ts
+fn in_memory_initial() -> Arc<SettingsManager> {
+    in_memory(json!({
+        "defaultThinkingLevel": "high",
+        "images": { "autoResize": false },
+        "compaction": { "enabled": false },
+    }))
+}
+
+#[tokio::test]
+async fn in_memory_settings_survive_direct_reload() {
+    let settings = in_memory_initial();
+    settings.reload().await.unwrap();
+    assert_eq!(settings.get_default_thinking_level(), Some(ThinkingLevel::High));
+    assert!(!settings.get_image_auto_resize());
+    assert!(!settings.get_compaction_enabled());
+    assert_eq!(
+        Value::Object(settings.get_global_settings_json()),
+        json!({
+            "defaultThinkingLevel": "high",
+            "images": { "autoResize": false },
+            "compaction": { "enabled": false },
+        })
+    );
+}
+
+#[tokio::test]
+async fn in_memory_settings_survive_resource_loader_reload() {
+    use crate::core::resource_loader::{DefaultResourceLoader, DefaultResourceLoaderOptions, ResourceLoader};
+    let settings = in_memory_initial();
+    let dirs = Dirs::new();
+    let loader = DefaultResourceLoader::new(&DefaultResourceLoaderOptions {
+        cwd: dirs.project_dir.to_string_lossy().into_owned(),
+        agent_dir: dirs.agent_dir.to_string_lossy().into_owned(),
+        settings_manager: Some(settings.clone()),
+        no_extensions: Some(true),
+        no_skills: Some(true),
+        no_prompt_templates: Some(true),
+        no_themes: Some(true),
+        no_context_files: Some(true),
+        ..Default::default()
+    });
+    loader.reload(None).await.unwrap();
+    assert_eq!(settings.get_default_thinking_level(), Some(ThinkingLevel::High));
+    assert!(!settings.get_image_auto_resize());
+    assert!(!settings.get_compaction_enabled());
+}
+
+#[tokio::test]
+async fn in_memory_settings_survive_an_unrelated_setter_flush_and_reload() {
+    let settings = in_memory(json!({ "images": { "autoResize": false }, "compaction": { "enabled": false } }));
+    settings.set_theme("dark");
+    settings.flush().await.unwrap();
+    settings.reload().await.unwrap();
+    assert_eq!(settings.get_theme().as_deref(), Some("dark"));
+    assert!(!settings.get_image_auto_resize());
+    assert!(!settings.get_compaction_enabled());
+    assert_eq!(
+        Value::Object(settings.get_global_settings_json()),
+        json!({ "images": { "autoResize": false }, "compaction": { "enabled": false }, "theme": "dark" })
+    );
+}

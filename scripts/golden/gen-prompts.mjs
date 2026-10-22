@@ -354,6 +354,33 @@ const flags = [
 add("help/extension_flags", "help", { flags }, { text: captureHelp(flags) });
 
 // ---------------------------------------------------------------------------------------------
+// HTML export (the page is large: compare its SHA-256)
+
+const { exportFromFile } = await ref("coding-agent/src/core/export-html/index.ts");
+const { createHash } = await import("node:crypto");
+const os = await import("node:os");
+const sessionLines = [
+	{ type: "session", version: 3, id: "019a1b2c-3d4e-7f60-8a9b-0c1d2e3f4a5b", timestamp: "2026-01-15T12:00:00.000Z", cwd: CWD },
+	...entries.map((entry) => ({ ...entry, futureField: entry.id === "e1" ? { kept: true } : undefined })),
+	{ type: "future_kind", id: "fk", parentId: "bs", timestamp: "2026-01-15T12:00:00.000Z", payload: "<b>&</b>" },
+];
+for (const theme of ["dark", "light"]) {
+	const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-golden-export-"));
+	const input = path.join(tmp, "session.jsonl");
+	fs.writeFileSync(input, sessionLines.map((l) => `${JSON.stringify(l)}\n`).join(""));
+	// The export templates resolve under the package directory: use the reference's own.
+	delete process.env.PI_PACKAGE_DIR;
+	const output = await exportFromFile(input, { outputPath: path.join(tmp, "out.html"), themeName: theme });
+	process.env.PI_PACKAGE_DIR = PACKAGE_DIR;
+	const html = fs.readFileSync(output);
+	add(`export_html/${theme}`, "export_html", { lines: sessionLines, themeName: theme }, {
+		sha256: createHash("sha256").update(html).digest("hex"),
+		length: html.length,
+	});
+	fs.rmSync(tmp, { recursive: true, force: true });
+}
+
+// ---------------------------------------------------------------------------------------------
 
 fs.mkdirSync(OUT_DIR, { recursive: true });
 fs.writeFileSync(path.join(OUT_DIR, "prompts.json"), `${JSON.stringify({ cases }, null, 1)}\n`);

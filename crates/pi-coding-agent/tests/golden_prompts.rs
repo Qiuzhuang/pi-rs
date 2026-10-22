@@ -380,3 +380,33 @@ async fn golden_branch_summary_requests() {
     }
     finish(failures);
 }
+
+#[tokio::test]
+async fn golden_export_html() {
+    use pi_coding_agent::core::export_html::{ExportOptions, ExportSessionToHtmlOptions, export_from_file};
+    use sha2::{Digest, Sha256};
+    let fixture = fixture();
+    let mut failures = Vec::new();
+    for case in selected(&fixture, &["export_html"]) {
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("session.jsonl");
+        let lines: Vec<Value> = serde_json::from_value(case.input["lines"].clone()).unwrap();
+        let text: String = lines.iter().map(|l| format!("{}\n", serde_json::to_string(l).unwrap())).collect();
+        std::fs::write(&input, text).unwrap();
+        let output = dir.path().join("out.html");
+        let written = export_from_file(
+            input.to_str().unwrap(),
+            Some(ExportSessionToHtmlOptions::ExportOptions(ExportOptions {
+                output_path: Some(output.to_string_lossy().into_owned()),
+                theme_name: case.input["themeName"].as_str().map(str::to_string),
+                tool_renderer: None,
+            })),
+        )
+        .await
+        .unwrap();
+        let html = std::fs::read(written).unwrap();
+        let actual = json!({ "sha256": format!("{:x}", Sha256::digest(&html)), "length": html.len() });
+        check_json(&mut failures, &case.name, &case.out, &actual);
+    }
+    finish(failures);
+}

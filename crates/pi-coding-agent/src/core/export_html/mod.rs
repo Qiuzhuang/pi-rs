@@ -220,19 +220,38 @@ pub struct SessionData {
     pub rendered_tools: Option<IndexMap<String, RenderedToolHtml>>,
 }
 
-/// Replace the first occurrence of `pattern` (TS `String.prototype.replace` with a string
-/// pattern). The replacement is inserted literally.
+/// Replace the first occurrence of `pattern`, exactly like TS `String.prototype.replace` with a
+/// string pattern: `$$`, `$&`, `` $` `` and `$'` in the replacement are substitution patterns
+/// (`GetSubstitution`). The vendored highlight.js contains `$&`, so TS exports carry the
+/// substituted text; reproducing it keeps exports byte-identical.
 fn replace_first(haystack: &str, pattern: &str, replacement: &str) -> String {
-    match haystack.find(pattern) {
-        Some(index) => {
-            let mut out = String::with_capacity(haystack.len() + replacement.len());
-            out.push_str(&haystack[..index]);
-            out.push_str(replacement);
-            out.push_str(&haystack[index + pattern.len()..]);
-            out
+    let Some(index) = haystack.find(pattern) else {
+        return haystack.to_string();
+    };
+    let before = &haystack[..index];
+    let after = &haystack[index + pattern.len()..];
+    let mut out = String::with_capacity(haystack.len() + replacement.len());
+    out.push_str(before);
+    let mut rest = replacement;
+    while let Some(dollar) = rest.find('$') {
+        out.push_str(&rest[..dollar]);
+        let tail = &rest[dollar + 1..];
+        match tail.as_bytes().first() {
+            Some(b'$') => out.push('$'),
+            Some(b'&') => out.push_str(pattern),
+            Some(b'`') => out.push_str(before),
+            Some(b'\'') => out.push_str(after),
+            _ => {
+                out.push('$');
+                rest = tail;
+                continue;
+            }
         }
-        None => haystack.to_string(),
+        rest = &tail[1..];
     }
+    out.push_str(rest);
+    out.push_str(after);
+    out
 }
 
 /// Core HTML generation logic shared by both export functions.
@@ -469,8 +488,10 @@ mod tests {
     }
 
     #[test]
-    fn replace_first_is_literal_and_single() {
-        assert_eq!(replace_first("a{{X}}b{{X}}", "{{X}}", "$&"), "a$&b{{X}}");
+    fn replace_first_follows_js_substitution_patterns() {
+        assert_eq!(replace_first("a{{X}}b{{X}}", "{{X}}", "$&"), "a{{X}}b{{X}}");
+        assert_eq!(replace_first("a{{X}}b", "{{X}}", "[$$|$`|$'|$1|$<n>|$]"), "a[$|a|b|$1|$<n>|$]b");
+        assert_eq!(replace_first("abc", "{{X}}", "$&"), "abc");
     }
 
     #[test]

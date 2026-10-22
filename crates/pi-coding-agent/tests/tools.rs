@@ -1311,7 +1311,49 @@ mod ctx_cwd {
     use pi_coding_agent::core::tools::read::create_read_tool_definition;
     use pi_coding_agent::core::tools::write::create_write_tool_definition;
 
-    struct CwdHost(String);
+    struct CwdHost(String, Option<pi_ai::types::Model>);
+
+    /// The stale context's default actions, plus a current model.
+    struct ModelActions {
+        model: Option<pi_ai::types::Model>,
+        inner: Arc<dyn ExtensionContextActions>,
+    }
+
+    impl ExtensionContextActions for ModelActions {
+        fn get_model(&self) -> Option<pi_ai::types::Model> {
+            self.model.clone()
+        }
+        fn get_scoped_models(&self) -> Vec<pi_coding_agent::core::model_resolver::ScopedModel> {
+            self.inner.get_scoped_models()
+        }
+        fn is_idle(&self) -> bool {
+            self.inner.is_idle()
+        }
+        fn is_project_trusted(&self) -> bool {
+            self.inner.is_project_trusted()
+        }
+        fn get_signal(&self) -> Option<CancellationToken> {
+            self.inner.get_signal()
+        }
+        fn abort(&self) {
+            self.inner.abort()
+        }
+        fn has_pending_messages(&self) -> bool {
+            self.inner.has_pending_messages()
+        }
+        fn shutdown(&self) {
+            self.inner.shutdown()
+        }
+        fn get_context_usage(&self) -> Option<pi_coding_agent::core::extensions::types::ContextUsage> {
+            self.inner.get_context_usage()
+        }
+        fn compact(&self, options: pi_coding_agent::core::extensions::types::CompactOptions) {
+            self.inner.compact(options)
+        }
+        fn get_system_prompt(&self) -> String {
+            self.inner.get_system_prompt()
+        }
+    }
 
     impl ExtensionContextHost for CwdHost {
         fn assert_active(&self) -> anyhow::Result<()> {
@@ -1339,19 +1381,23 @@ mod ctx_cwd {
             None
         }
         fn actions(&self) -> Arc<dyn ExtensionContextActions> {
-            stale_extension_context(None).host().actions()
+            Arc::new(ModelActions { model: self.1.clone(), inner: stale_extension_context(None).host().actions() })
         }
     }
 
     fn fake_ctx(cwd: &Path) -> ExtensionToolContext {
+        fake_ctx_with_model(cwd, None)
+    }
+
+    pub(super) fn fake_ctx_with_model(cwd: &Path, model: Option<pi_ai::types::Model>) -> ExtensionToolContext {
         ExtensionToolContext {
-            ctx: ExtensionContext::new(Arc::new(CwdHost(cwd.to_string_lossy().into_owned()))),
+            ctx: ExtensionContext::new(Arc::new(CwdHost(cwd.to_string_lossy().into_owned(), model))),
             tool_call_id: "test".into(),
             signal: None,
         }
     }
 
-    async fn execute(tool: &ToolDefinition, id: &str, args: Value, cwd: &Path) -> AgentToolResult {
+    pub(super) async fn execute(tool: &ToolDefinition, id: &str, args: Value, cwd: &Path) -> AgentToolResult {
         (tool.execute)(id.to_string(), args, None, None, Some(fake_ctx(cwd))).await.unwrap()
     }
 
@@ -1429,5 +1475,145 @@ mod ctx_cwd {
         );
         let result = execute(&tool, "test-bash-ctx-cwd", json!({ "command": "pwd" }), dir.path()).await;
         assert!(text(&result).contains(&dir.path().to_string_lossy().into_owned()), "{}", text(&result));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// block-images.test.ts and image-resize-callers.test.ts. The image-resize-callers cases where
+// `resizeImage` is mocked to fail ("text-only output when auto-resize cannot produce a safe
+// image") are not ported: the resizer is not injectable. The model resize profile case checks the
+// resized dimensions instead of the mock's arguments.
+// ---------------------------------------------------------------------------
+
+mod images {
+    use super::*;
+    use pi_coding_agent::cli::file_processor::{ProcessFileOptions, process_file_arguments};
+    use pi_coding_agent::core::settings_manager::SettingsManager;
+    use pi_coding_agent::core::tools::read::create_read_tool_definition;
+
+    const TINY_PNG_BASE64: &str =
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==";
+
+    fn tiny_png() -> Vec<u8> {
+        use base64::Engine;
+        base64::engine::general_purpose::STANDARD.decode(TINY_PNG_BASE64).unwrap()
+    }
+
+    fn tiny_bmp_1x1_red_24bpp() -> Vec<u8> {
+        let mut buffer = vec![0u8; 58];
+        buffer[0..2].copy_from_slice(b"BM");
+        buffer[2..6].copy_from_slice(&58u32.to_le_bytes());
+        buffer[10..14].copy_from_slice(&54u32.to_le_bytes());
+        buffer[14..18].copy_from_slice(&40u32.to_le_bytes());
+        buffer[18..22].copy_from_slice(&1i32.to_le_bytes());
+        buffer[22..26].copy_from_slice(&1i32.to_le_bytes());
+        buffer[26..28].copy_from_slice(&1u16.to_le_bytes());
+        buffer[28..30].copy_from_slice(&24u16.to_le_bytes());
+        buffer[34..38].copy_from_slice(&4u32.to_le_bytes());
+        buffer[56] = 0xff;
+        buffer
+    }
+
+    fn settings(value: Value) -> Arc<SettingsManager> {
+        SettingsManager::in_memory_json(value.as_object().unwrap().clone(), None)
+    }
+
+    #[test]
+    fn block_images_defaults_to_false_and_round_trips() {
+        assert!(!settings(json!({})).get_block_images());
+        assert!(settings(json!({ "images": { "blockImages": true } })).get_block_images());
+        let manager = settings(json!({}));
+        manager.set_block_images(true);
+        assert!(manager.get_block_images());
+        manager.set_block_images(false);
+        assert!(!manager.get_block_images());
+        let both = settings(json!({ "images": { "autoResize": true, "blockImages": true } }));
+        assert!(both.get_image_auto_resize());
+        assert!(both.get_block_images());
+    }
+
+    #[tokio::test]
+    async fn read_tool_always_reads_images_and_text() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("test.png"), tiny_png()).unwrap();
+        fs::write(dir.path().join("test.txt"), "Hello, world!").unwrap();
+        let tool = create_read_tool(&dir.path().to_string_lossy(), None);
+        let image = run(&tool, json!({ "path": dir.path().join("test.png") })).await.unwrap();
+        assert!(image.content.iter().any(|c| c.as_text().is_none()));
+        let text = run(&tool, json!({ "path": dir.path().join("test.txt") })).await.unwrap();
+        assert_eq!(text.content.len(), 1);
+        assert!(text.content[0].as_text().unwrap().text.contains("Hello, world!"));
+    }
+
+    #[tokio::test]
+    async fn file_processor_always_processes_images_converts_bmp_and_reads_text() {
+        let dir = tempfile::tempdir().unwrap();
+        let png = dir.path().join("test.png");
+        let bmp = dir.path().join("test.bmp");
+        let txt = dir.path().join("test.txt");
+        fs::write(&png, tiny_png()).unwrap();
+        fs::write(&bmp, tiny_bmp_1x1_red_24bpp()).unwrap();
+        fs::write(&txt, "Hello, world!").unwrap();
+
+        let result = process_file_arguments(&[png.to_string_lossy().into_owned()], None).await.unwrap();
+        assert_eq!(result.images.len(), 1);
+
+        let result = process_file_arguments(&[bmp.to_string_lossy().into_owned()], None).await.unwrap();
+        assert_eq!(result.images.len(), 1);
+        assert_eq!(result.images[0].mime_type, "image/png");
+        assert!(result.text.contains("[Image converted from image/bmp to image/png.]"), "{}", result.text);
+
+        let result = process_file_arguments(&[txt.to_string_lossy().into_owned()], None).await.unwrap();
+        assert!(result.images.is_empty());
+        assert!(result.text.contains("Hello, world!"));
+    }
+
+    #[tokio::test]
+    async fn file_processor_can_defer_resizing_until_prompt_dispatch() {
+        let dir = tempfile::tempdir().unwrap();
+        let png = dir.path().join("test.png");
+        fs::write(&png, tiny_png()).unwrap();
+        let result = process_file_arguments(
+            &[png.to_string_lossy().into_owned()],
+            Some(&ProcessFileOptions { auto_resize_images: Some(false) }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.images.len(), 1);
+        // Not resized or re-encoded.
+        assert_eq!(result.images[0].data, TINY_PNG_BASE64);
+    }
+
+    #[tokio::test]
+    async fn passes_the_current_model_resize_profile_to_the_read_tool() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("wide.png");
+        image::RgbImage::from_pixel(2000, 100, image::Rgb([200, 30, 30])).save(&path).unwrap();
+        let model: pi_ai::types::Model = serde_json::from_value(json!({
+            "id": "vision-model", "name": "Vision model", "api": "test", "provider": "test",
+            "baseUrl": "https://example.com", "reasoning": false, "input": ["text", "image"],
+            "inputLimits": { "images": { "resize": { "maxWidth": 1234, "maxHeight": 1000, "maxBytes": 500000, "jpegQuality": 70 } } },
+            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }, "contextWindow": 1000, "maxTokens": 100
+        }))
+        .unwrap();
+        let tool = create_read_tool_definition(&dir.path().to_string_lossy(), None);
+        let result = (tool.execute)(
+            "test-read-model-profile".into(),
+            json!({ "path": path }),
+            None,
+            None,
+            Some(super::ctx_cwd::fake_ctx_with_model(dir.path(), Some(model))),
+        )
+        .await
+        .unwrap();
+        let image = result.content.iter().find_map(|c| match c {
+            pi_ai::types::UserContentBlock::Image(image) => Some(image.clone()),
+            _ => None,
+        });
+        let image = image.expect("image attachment");
+        use base64::Engine;
+        let bytes = base64::engine::general_purpose::STANDARD.decode(&image.data).unwrap();
+        let decoded = image::load_from_memory(&bytes).unwrap();
+        assert_eq!(decoded.width(), 1234, "resized to the model's maxWidth");
     }
 }

@@ -209,7 +209,12 @@ export function createLocalBashOperations(options) {
 				cwd,
 				shellPath: options?.shellPath ?? null,
 				options: {
-					onData: execOptions?.onData ?? null,
+					onData: execOptions?.onData
+						? (chunk) => {
+								const bytes = chunk && chunk.$bytes ? chunk.$bytes : chunk;
+								execOptions.onData(typeof Buffer !== "undefined" ? Buffer.from(bytes) : Uint8Array.from(bytes));
+							}
+						: null,
 					signal: tokenFor(execOptions?.signal) ?? null,
 					timeout: execOptions?.timeout ?? null,
 					env: execOptions?.env ?? null,

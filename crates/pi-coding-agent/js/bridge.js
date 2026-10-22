@@ -811,8 +811,7 @@ export function releaseContext(id) {
 // ---------------------------------------------------------------------------
 
 /** Import an extension module and return its factory (jiti `{ default: true }` semantics). */
-export async function loadFactory(path) {
-	const mod = await import(path);
+export function factoryFromModule(mod) {
 	const factory = mod && typeof mod === "object" && "default" in mod ? mod.default : mod;
 	return typeof factory === "function" ? ref(factory) : null;
 }
@@ -857,6 +856,23 @@ export async function invokeHandler(handler, event, ctxId, kind, signalId) {
 			if (result?.messages) return result;
 			const same = snapshot.length === event.messages.length && snapshot.every((m, i) => m === event.messages[i]);
 			return same ? (result ?? null) : { ...(result ?? {}), messages: event.messages };
+		}
+		case "turn_end":
+		case "agent_before_settle": {
+			const before = JSON.stringify(event.entries);
+			let result;
+			try {
+				result = await handler(event, ctx);
+			} catch (error) {
+				if (JSON.stringify(event.entries) === before) throw error;
+				// Shared mutations made before the throw are kept (TS mutates the shared array).
+				return {
+					entries: event.entries,
+					$error: { message: String(error?.message ?? error), stack: error?.stack ?? null },
+				};
+			}
+			if (result?.entries !== undefined || JSON.stringify(event.entries) === before) return result ?? null;
+			return { ...(result ?? {}), entries: event.entries };
 		}
 		case "user_bash": {
 			const result = await handler(event, ctx);

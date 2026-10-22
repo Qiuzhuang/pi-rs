@@ -1678,7 +1678,8 @@ pub struct CustomMessageEntryDraft {
 #[serde(rename_all = "camelCase")]
 pub struct ContextEditEntryDraft {
     pub target_id: String,
-    pub replacement: ContextEditEntryReplacement,
+    /// `None` (null) omits the target entry from the context.
+    pub replacement: Option<ContextEditEntryReplacement>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

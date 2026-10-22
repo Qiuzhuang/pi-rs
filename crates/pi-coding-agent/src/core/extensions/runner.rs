@@ -171,6 +171,20 @@ pub fn error_parts(err: &anyhow::Error) -> (String, Option<String>) {
     (err.to_string(), None)
 }
 
+/// A JS handler that threw after mutating shared event state returns the mutation together with
+/// the error (`$error`), so the mutation is kept like in TS.
+fn split_bridge_error(result: ExtensionEventResult) -> (ExtensionEventResult, Option<(String, Option<String>)>) {
+    match result {
+        ExtensionEventResult::Json(Value::Object(mut map)) if map.contains_key("$error") => {
+            let error = map.remove("$error").unwrap_or(Value::Null);
+            let message = error.get("message").and_then(Value::as_str).unwrap_or_default().to_string();
+            let stack = error.get("stack").and_then(Value::as_str).map(str::to_string);
+            (ExtensionEventResult::Json(Value::Object(map)), Some((message, stack)))
+        }
+        other => (other, None),
+    }
+}
+
 /// Base of a boundary event: `turn_end` or `agent_before_settle` without `entries`, `continue`
 /// and `context`.
 #[derive(Debug, Clone)]
@@ -1072,7 +1086,18 @@ impl ExtensionRunner {
             for handler in event_handlers(handlers) {
                 let event = base_event.build(entries.clone(), should_continue, context.clone());
                 match handler(event, ctx.clone()).await.and_then(|r| match r {
-                    Some(r) => BoundaryResult::from_result(r),
+                    Some(r) => {
+                        let (r, error) = split_bridge_error(r);
+                        if let Some((message, stack)) = error {
+                            self.emit_error(&ExtensionError {
+                                extension_path: path.clone(),
+                                event: base_event.type_name().into(),
+                                error: message,
+                                stack,
+                            });
+                        }
+                        BoundaryResult::from_result(r)
+                    }
                     None => Ok(None),
                 }) {
                     Ok(Some(result)) => {

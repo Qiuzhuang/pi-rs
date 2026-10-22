@@ -280,6 +280,19 @@ pub(crate) fn tokio_spawn(fut: impl std::future::Future<Output = ()> + Send + 's
     }
 }
 
+/// Tokio runtime for the async host functions of extension runtimes. A shared host outlives the
+/// tokio runtime that happened to create it (a CLI `block_on`, a test), so it gets its own.
+fn extension_io_runtime() -> anyhow::Result<tokio::runtime::Handle> {
+    static RUNTIME: std::sync::OnceLock<std::io::Result<tokio::runtime::Runtime>> = std::sync::OnceLock::new();
+    let rt = RUNTIME.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread().worker_threads(2).thread_name("pi-ext-io").enable_all().build()
+    });
+    match rt {
+        Ok(rt) => Ok(rt.handle().clone()),
+        Err(e) => Err(anyhow::anyhow!("failed to start the extension I/O runtime: {e}")),
+    }
+}
+
 /// Loads JavaScript / TypeScript extensions in the embedded runtime.
 pub struct JsExtensionHost {
     bridge: Arc<Bridge>,
@@ -367,6 +380,7 @@ impl JsExtensionHost {
             virtual_modules,
             aliases,
             thread_name: "pi-extensions".to_string(),
+            tokio: Some(extension_io_runtime()?),
             ..Default::default()
         };
         let rt = JsRuntime::new(options).map_err(js_error)?;
@@ -441,7 +455,10 @@ impl JsExtensionHost {
         let rt = self.bridge.rt.clone();
         // jiti `moduleCache: false`: every import of an extension evaluates it again.
         rt.clear_module_cache().await.map_err(js_error)?;
-        let marker = self.bridge.glue_call("loadFactory", vec![json!(path)]).await?;
+        // Imported as a top-level module rather than through `import()` from the glue module:
+        // Boa caches dynamic imports per referrer and would reject the re-evaluated module.
+        let namespace = rt.import(path).await.map_err(js_error)?;
+        let marker = self.bridge.glue_call("factoryFromModule", vec![namespace.to_value()]).await?;
         let Some(factory) = self.bridge.handle(&marker) else {
             return Ok(None);
         };

@@ -1056,9 +1056,13 @@ fn discover_extensions_in_dir(dir: &str) -> Vec<String> {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return Vec::new();
     };
+    // Node's readdir (libuv scandir) returns entries sorted by name.
+    let Ok(mut entries) = entries.collect::<Result<Vec<_>, _>>() else {
+        return Vec::new();
+    };
+    entries.sort_by_key(|entry| entry.file_name());
     let mut discovered = Vec::new();
     for entry in entries {
-        let Ok(entry) = entry else { return Vec::new() };
         let name = entry.file_name().to_string_lossy().into_owned();
         let entry_path = node_join(&[dir, &name]);
         let Ok(file_type) = entry.file_type() else { continue };

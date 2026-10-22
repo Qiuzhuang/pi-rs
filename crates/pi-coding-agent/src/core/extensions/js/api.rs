@@ -200,26 +200,26 @@ fn pi_op(bridge: &Arc<Bridge>, _rt: &JsRuntime, op: &str, payload: Value) -> any
         "pi.registerFlag" => {
             let name = str_arg(&payload, "name");
             let options = &payload["options"];
-            let flag_type = match options["type"].as_str() {
-                Some("boolean") => FlagType::Boolean,
-                Some("string") => FlagType::String,
-                other => anyhow::bail!("Invalid type for flag \"{name}\": {}", other.unwrap_or("undefined")),
-            };
-            let default = match &options["default"] {
+            // TS only checks `typeof default === type`; a flag without a known type parses as
+            // a string option on the command line.
+            let declared = options["type"].as_str().unwrap_or("undefined");
+            let flag_type = if declared == "boolean" { FlagType::Boolean } else { FlagType::String };
+            let got = match &options["default"] {
                 Value::Null => None,
+                Value::Bool(_) => Some("boolean"),
+                Value::String(_) => Some("string"),
+                Value::Number(_) => Some("number"),
+                Value::Array(_) | Value::Object(_) => Some("object"),
+            };
+            if let Some(got) = got
+                && got != declared
+            {
+                anyhow::bail!("Invalid default for flag \"{name}\": expected {declared}, got {got}");
+            }
+            let default = match &options["default"] {
                 Value::Bool(b) => Some(FlagValue::Bool(*b)),
                 Value::String(s) => Some(FlagValue::String(s.clone())),
-                other => {
-                    let got = match other {
-                        Value::Number(_) => "number",
-                        Value::Array(_) | Value::Object(_) => "object",
-                        _ => "undefined",
-                    };
-                    anyhow::bail!(
-                        "Invalid default for flag \"{name}\": expected {}, got {got}",
-                        options["type"].as_str().unwrap_or_default()
-                    );
-                }
+                _ => None,
             };
             api.register_flag(
                 &name,

@@ -271,7 +271,11 @@ pub struct ModelRuntime {
     credential_operations: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     /// Serializes `refresh()` calls. TS runs them interleaved on one thread; here a refresh that
     /// rebuilds providers must not run concurrently with another one's availability pass.
-    refresh_lock: tokio::sync::Mutex<()>,
+    refresh_lock: Arc<tokio::sync::Mutex<()>>,
+    /// A background offline refresh is queued but has not started its pass yet. Further requests
+    /// coalesce into it. TS starts `void this.refresh()` immediately at registration; the queued pass
+    /// takes the refresh lock at request time so it runs before refreshes requested after it.
+    background_refresh_pending: Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// Request prepared by `prepare_request`.
@@ -321,7 +325,8 @@ impl ModelRuntime {
             }),
             default_builtins,
             credential_operations: Mutex::new(HashMap::new()),
-            refresh_lock: tokio::sync::Mutex::new(()),
+            refresh_lock: Arc::new(tokio::sync::Mutex::new(())),
+            background_refresh_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         });
         runtime.rebuild_providers();
         runtime
@@ -1362,7 +1367,23 @@ impl ModelRuntime {
 
     pub async fn refresh(&self, options: Option<ModelsRefreshOptions>) -> anyhow::Result<ModelsRefreshResult> {
         let options = options.unwrap_or_default();
-        let _refresh_guard = self.refresh_lock.lock().await;
+        let lock = self.refresh_lock.clone();
+        let guard = match options.signal.clone() {
+            Some(signal) => tokio::select! {
+                guard = lock.lock_owned() => guard,
+                _ = signal.cancelled() => return Ok(ModelsRefreshResult { aborted: true, errors: Default::default() }),
+            },
+            None => lock.lock_owned().await,
+        };
+        self.refresh_locked(options, guard).await
+    }
+
+    /// `refresh()` body; runs while holding the refresh lock.
+    async fn refresh_locked(
+        &self,
+        options: ModelsRefreshOptions,
+        _refresh_guard: tokio::sync::OwnedMutexGuard<()>,
+    ) -> anyhow::Result<ModelsRefreshResult> {
         let config = ModelConfig::load(self.models_path.as_deref()).await;
         self.state.lock().config = config;
         self.configure_radius_providers();
@@ -1413,16 +1434,29 @@ impl ModelRuntime {
     }
 
     fn spawn_offline_refresh(&self) {
-        if let Some(this) = self.weak.upgrade() {
-            spawn_detached(
-                async move {
-                    let _ = this
-                        .refresh(Some(ModelsRefreshOptions { allow_network: Some(false), ..Default::default() }))
-                        .await;
-                }
-                .boxed(),
-            );
+        use std::sync::atomic::Ordering;
+        let Some(this) = self.weak.upgrade() else { return };
+        if tokio::runtime::Handle::try_current().is_err() {
+            return;
         }
+        if self.background_refresh_pending.swap(true, Ordering::SeqCst) {
+            // A queued pass has not started yet and will observe this change.
+            return;
+        }
+        let held = self.refresh_lock.clone().try_lock_owned().ok();
+        spawn_detached(
+            async move {
+                let guard = match held {
+                    Some(guard) => guard,
+                    None => this.refresh_lock.clone().lock_owned().await,
+                };
+                this.background_refresh_pending.store(false, Ordering::SeqCst);
+                let _ = this
+                    .refresh_locked(ModelsRefreshOptions { allow_network: Some(false), ..Default::default() }, guard)
+                    .await;
+            }
+            .boxed(),
+        );
     }
 
     pub fn register_native_provider(&self, provider: Arc<dyn Provider>) -> anyhow::Result<()> {

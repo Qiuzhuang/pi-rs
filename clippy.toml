@@ -1,0 +1,6 @@
+# The port mirrors TypeScript APIs whose options are function-typed fields; their Rust types
+# (`Option<Arc<dyn Fn(String, Option<String>) -> BoxFuture<...> + Send + Sync>>`) are long but
+# read directly as the TS signature. One-use aliases for each would add indirection without
+# clarity, so the complexity threshold is raised above the default 250; recurring shapes still
+# get named aliases.
+type-complexity-threshold = 500

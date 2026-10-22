@@ -28,6 +28,9 @@ const DOWNLOAD_VALUE: &str = "\0download";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all_fields = "camelCase")]
+// Mirrors a TS union; boxing the large variants would add indirection to every
+// construction and match across the crate for little memory saved.
+#[allow(clippy::large_enum_variant)]
 pub enum LlamaManagerAction {
     #[serde(rename = "model")]
     Model { model: LlamaModelInfo },

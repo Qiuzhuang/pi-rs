@@ -380,10 +380,7 @@ pub fn node_relative(from: &str, to: &str) -> String {
     {
         common += 1;
     }
-    let mut parts: Vec<&str> = Vec::new();
-    for _ in common..from_parts.len() {
-        parts.push("..");
-    }
+    let mut parts: Vec<&str> = vec![".."; from_parts.len().saturating_sub(common)];
     parts.extend_from_slice(&to_parts[common..]);
     parts.join(std::path::MAIN_SEPARATOR_STR)
 }

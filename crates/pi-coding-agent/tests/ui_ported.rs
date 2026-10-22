@@ -3,6 +3,10 @@
 //! `auth-url-copy.test.ts` (fake clipboard), `first-time-setup.test.ts`,
 //! `first-time-setup-fork.test.ts` and the config-selector cases of `package-command-paths.test.ts`.
 
+// Tests serialize the process-wide fake clock and clipboard with a guard held across awaits;
+// each test runs on its own current-thread runtime, so the guard cannot block an executor.
+#![allow(clippy::await_holding_lock)]
+
 use std::sync::Arc;
 
 use parking_lot::{Mutex, MutexGuard};

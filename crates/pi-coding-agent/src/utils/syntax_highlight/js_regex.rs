@@ -22,11 +22,9 @@ pub fn count_capture_groups(source: &str) -> usize {
             '[' if !in_class => in_class = true,
             ']' if in_class => in_class = false,
             '(' if !in_class => {
-                if chars.get(i + 1) != Some(&'?') {
-                    count += 1;
-                } else if chars.get(i + 2) == Some(&'<')
-                    && !matches!(chars.get(i + 3), Some('=') | Some('!'))
-                {
+                // A plain group, or a named group `(?<name>` (not a lookbehind `(?<=`/`(?<!`).
+                let named = chars.get(i + 2) == Some(&'<') && !matches!(chars.get(i + 3), Some('=') | Some('!'));
+                if chars.get(i + 1) != Some(&'?') || named {
                     count += 1;
                 }
             }

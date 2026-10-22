@@ -117,6 +117,8 @@ pub struct MapAuthContext {
 }
 
 impl MapAuthContext {
+    // Tests only ever use it as the `Arc<dyn AuthContext>` the APIs take.
+    #[allow(clippy::new_ret_no_self)]
     pub fn new(pairs: &[(&str, &str)]) -> Arc<dyn AuthContext> {
         Arc::new(MapAuthContext {
             env: pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),

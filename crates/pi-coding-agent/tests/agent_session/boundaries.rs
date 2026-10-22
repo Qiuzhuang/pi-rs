@@ -1203,7 +1203,7 @@ async fn omits_a_recoverable_projected_replacement_by_its_source_entry_id() {
             SessionEntry::ContextEdit(edit) if edit.target_id == partial_id => Some(edit),
             _ => None,
         })
-        .last()
+        .next_back()
         .unwrap();
     assert!(last_edit.replacement.is_none());
     assert!(
@@ -1274,7 +1274,7 @@ async fn recovers_an_explicit_overflow_error_after_a_retained_boundary_replaceme
             SessionEntry::ContextEdit(edit) if edit.target_id == overflow_id => Some(edit),
             _ => None,
         })
-        .last()
+        .next_back()
         .unwrap();
     assert!(last_edit.replacement.is_none());
     harness.cleanup();

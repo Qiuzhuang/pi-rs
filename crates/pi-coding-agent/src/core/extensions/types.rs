@@ -230,6 +230,9 @@ pub type CustomComponentFactory = Arc<
 
 /// Overlay options of `ui.custom()`: static or computed on every layout.
 #[derive(Clone)]
+// Mirrors a TS union; boxing the large variants would add indirection to every
+// construction and match across the crate for little memory saved.
+#[allow(clippy::large_enum_variant)]
 pub enum OverlayOptionsSource {
     Static(OverlayOptions),
     Dynamic(Arc<dyn Fn() -> OverlayOptions + Send + Sync>),
@@ -2275,6 +2278,9 @@ macro_rules! extension_events {
         /// [`ExtensionAPI::on_project_trust`] because they take a [`ProjectTrustContext`].
         #[derive(Debug, Clone, Serialize, Deserialize)]
         #[serde(tag = "type")]
+        // Mirrors a TS union; boxing the large variants would add indirection to every
+        // construction and match across the crate for little memory saved.
+        #[allow(clippy::large_enum_variant)]
         pub enum ExtensionEvent {
             $( #[serde(rename = $name)] $variant($event), )*
         }
@@ -2635,6 +2641,9 @@ pub struct FlagOptions {
 
 /// Argument of `registerProvider()`: a native pi-ai provider or a legacy provider config.
 #[derive(Clone)]
+// Mirrors a TS union; boxing the large variants would add indirection to every
+// construction and match across the crate for little memory saved.
+#[allow(clippy::large_enum_variant)]
 pub enum ProviderRegistration {
     Native(Arc<dyn Provider>),
     Config {
@@ -2998,6 +3007,9 @@ pub struct ProviderClassifierModelConfig {
 
 /// Configuration for a model within a provider, discriminated by `type` (absent = `"chat"`).
 #[derive(Debug, Clone)]
+// Mirrors a TS union; boxing the large variants would add indirection to every
+// construction and match across the crate for little memory saved.
+#[allow(clippy::large_enum_variant)]
 pub enum ProviderModelConfig {
     Chat(ProviderChatModelConfig),
     Image(ProviderImageModelConfig),

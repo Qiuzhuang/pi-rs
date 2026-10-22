@@ -379,6 +379,9 @@ mod tests {
         }
     }
 
+    /// Answers a mocked clipboard command with its output (`None` = failure).
+    type Responder = Arc<dyn Fn(&str, &[String]) -> Option<Vec<u8>> + Send + Sync>;
+
     struct Fixture {
         host: ClipboardHost,
         calls: Arc<Mutex<Vec<Call>>>,
@@ -386,7 +389,7 @@ mod tests {
         osc52: Arc<Mutex<Vec<String>>>,
         native: Arc<MockNative>,
         native_enabled: Arc<Mutex<bool>>,
-        responder: Arc<Mutex<Arc<dyn Fn(&str, &[String]) -> Option<Vec<u8>> + Send + Sync>>>,
+        responder: Arc<Mutex<Responder>>,
     }
 
     fn fixture(platform: &str, env: &[(&str, &str)]) -> Fixture {
@@ -400,8 +403,7 @@ mod tests {
             writable: true,
         });
         let native_enabled = Arc::new(Mutex::new(true));
-        let responder: Arc<Mutex<Arc<dyn Fn(&str, &[String]) -> Option<Vec<u8>> + Send + Sync>>> =
-            Arc::new(Mutex::new(Arc::new(|_, _| Some(Vec::new()))));
+        let responder: Arc<Mutex<Responder>> = Arc::new(Mutex::new(Arc::new(|_, _| Some(Vec::new()))));
         let host = ClipboardHost {
             platform: platform.to_string(),
             env: env.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),

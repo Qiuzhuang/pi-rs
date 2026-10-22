@@ -188,6 +188,9 @@ fn split_bridge_error(result: ExtensionEventResult) -> (ExtensionEventResult, Op
 /// Base of a boundary event: `turn_end` or `agent_before_settle` without `entries`, `continue`
 /// and `context`.
 #[derive(Debug, Clone)]
+// Mirrors a TS union; boxing the large variants would add indirection to every
+// construction and match across the crate for little memory saved.
+#[allow(clippy::large_enum_variant)]
 pub enum BoundaryBaseEvent {
     TurnEnd {
         turn_index: u64,

@@ -1979,7 +1979,8 @@ impl McpExtension {
         let this = self.this.clone();
         let server = server.clone();
         let ctx = ctx.clone();
-        let _ = self.track(async move {
+        // Detached: the tracked task runs on its own; the handle is not needed.
+        drop(self.track(async move {
             let message = operation.await;
             let Some(this) = this.upgrade() else {
                 return;
@@ -1993,7 +1994,7 @@ impl McpExtension {
             server.lock().message = message;
             this.ensure_discovery_active(&ctx);
             this.emit_change();
-        });
+        }));
     }
 
     async fn run_action(

@@ -1844,7 +1844,9 @@ impl AltScreen {
 
     fn copy_selection_to_clipboard(&self, tui: &Tui) {
         if let Some(text) = self.active_selection_text() {
-            let _ = self.copy_text_to_clipboard(tui, text);
+            // `void this.copySelectionToClipboard()`: the copy already runs on the event loop;
+            // the handle only reports its outcome.
+            drop(self.copy_text_to_clipboard(tui, text));
         }
     }
 
@@ -1967,7 +1969,7 @@ impl AltScreen {
                 continue;
             }
             let line_width = visible_width(&line) as i64;
-            ranges.sort_by(|a, b| b.start_col.cmp(&a.start_col));
+            ranges.sort_by_key(|range| std::cmp::Reverse(range.start_col));
             for range in ranges {
                 let start_col = range.start_col.min(line_width);
                 let end_col = range.end_col.min(line_width);

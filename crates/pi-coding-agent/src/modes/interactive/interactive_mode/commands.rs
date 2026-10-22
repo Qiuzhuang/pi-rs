@@ -438,7 +438,7 @@ impl Inner {
         // Handle bash command (! for normal, !! for excluded from context)
         if text.starts_with('!') {
             let excluded = text.starts_with("!!");
-            let command = if excluded { text[2..].trim() } else { text[1..].trim() }.to_string();
+            let command = text.strip_prefix(if excluded { "!!" } else { "!" }).unwrap_or(&text).trim().to_string();
             if !command.is_empty() {
                 if self.session().is_bash_running() {
                     self.show_warning("A bash command is already running. Press Esc to cancel it first.");

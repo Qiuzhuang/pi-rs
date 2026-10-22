@@ -27,7 +27,7 @@ fn run_fixture_if_requested() {
     );
     tui.start();
     if mode == "stop" {
-        tui.stop(TuiStopOptions { preserve_screen: true, ..Default::default() });
+        tui.stop(TuiStopOptions { preserve_screen: true });
     }
     std::process::exit(0);
 }

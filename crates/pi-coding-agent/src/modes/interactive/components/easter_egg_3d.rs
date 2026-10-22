@@ -309,13 +309,7 @@ fn normalize(v: [f64; 3]) -> [f64; 3] {
 }
 
 fn clamp01(value: f64) -> f64 {
-    if value < 0.0 {
-        0.0
-    } else if value > 1.0 {
-        1.0
-    } else {
-        value
-    }
+    value.clamp(0.0, 1.0)
 }
 
 /// Quintic smoothstep.
@@ -763,8 +757,8 @@ impl BlockRaster {
                 let mut direction_a = m[a] * sx + m[3 + a] * sy - m[6 + a] * camera_distance;
                 let mut direction_u = m[u] * sx + m[3 + u] * sy - m[6 + u] * camera_distance;
                 let mut direction_v = m[v] * sx + m[3 + v] * sy - m[6 + v] * camera_distance;
-                let mut index = dot_y as usize * dot_width + face.min_x as usize;
-                for _dot_x in face.min_x..=face.max_x {
+                let row_start = dot_y as usize * dot_width + face.min_x as usize;
+                for index in (row_start..).take((face.max_x - face.min_x + 1).max(0) as usize) {
                     let t = (face.plane - origin_a) / direction_a;
                     if t > 0.0 && (t as f32) < self.depth[index] {
                         let hit_u = origin_u + t * direction_u;
@@ -777,7 +771,6 @@ impl BlockRaster {
                     direction_a += step_a;
                     direction_u += step_u;
                     direction_v += step_v;
-                    index += 1;
                 }
             }
         }
@@ -1716,7 +1709,7 @@ impl EasterEgg3dAnimation {
                         tui.request_render(false);
                     }
                 }
-            })
+            }))
             .ok();
 
         Self { inner }

@@ -728,7 +728,6 @@ pub fn load_skills(options: &LoadSkillsOptions) -> LoadSkillsResult {
             }
         }
     }
-    drop(add_skills);
 
     let mut diagnostics = all_diagnostics;
     diagnostics.extend(collision_diagnostics);

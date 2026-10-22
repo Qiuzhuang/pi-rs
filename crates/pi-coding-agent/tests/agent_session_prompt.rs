@@ -243,11 +243,7 @@ async fn preserves_image_attachments_in_the_provider_context() {
         .prompt(
             "describe",
             Some(&PromptOptions {
-                images: Some(vec![ImageContent {
-                    data: "ZmFrZQ==".into(),
-                    mime_type: "image/png".into(),
-                    ..Default::default()
-                }]),
+                images: Some(vec![ImageContent { data: "ZmFrZQ==".into(), mime_type: "image/png".into() }]),
                 ..Default::default()
             }),
         )

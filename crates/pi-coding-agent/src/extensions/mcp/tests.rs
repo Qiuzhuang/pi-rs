@@ -923,10 +923,11 @@ fn fake_server(options: FakeServerOptions) -> (InMemoryTransport, InMemoryTransp
                 json!({ "content": [{ "type": "text", "text": "ok" }] }),
             ),
         };
-        let _ = responder.send(response, McpTransportSendOptions::default());
+        // In-memory sends and starts happen at the call; the futures only carry the result.
+        drop(responder.send(response, McpTransportSendOptions::default()));
     });
     let server_start = server.clone();
-    let _ = server_start.start();
+    drop(server_start.start());
     (client, server)
 }
 
@@ -1193,7 +1194,8 @@ async fn connections_close_a_connection_that_is_still_initializing_before_close_
             let _ = sender.send(());
         }
     });
-    let _ = server.start();
+    // The in-memory start happens at the call; the future only carries the result.
+    drop(server.start());
     let closed = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let flag = closed.clone();
     let _ = client.events().on_close(move || flag.store(true, Ordering::SeqCst));

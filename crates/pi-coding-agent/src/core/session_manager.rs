@@ -621,6 +621,9 @@ impl SessionEntry {
 
 /// Raw file entry (includes header)
 #[derive(Debug, Clone, PartialEq)]
+// Mirrors a TS union; boxing the large variants would add indirection to every
+// construction and match across the crate for little memory saved.
+#[allow(clippy::large_enum_variant)]
 pub enum FileEntry {
     /// `{"type":"session", ...}` header.
     Session(SessionHeader),
@@ -1786,6 +1789,9 @@ async fn list_sessions_from_dir(
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
+// Mirrors a TS union; boxing the large variants would add indirection to every
+// construction and match across the crate for little memory saved.
+#[allow(clippy::large_enum_variant)]
 pub enum SessionManagerAppendMessageMessage {
     SystemMessage(SystemMessage),
     UserMessage(UserMessage),

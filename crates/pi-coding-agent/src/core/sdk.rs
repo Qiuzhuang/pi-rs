@@ -102,7 +102,7 @@ pub struct CreateAgentSessionOptions {
     ///
     /// - "all": start with no tools enabled
     /// - "builtin": disable the default built-in tools (read, bash, edit, write)
-    /// but keep extension/custom tools enabled
+    ///   but keep extension/custom tools enabled
     pub no_tools: Option<CreateAgentSessionOptionsNoTools>,
     /// Optional allowlist of tool names or patterns, where `*` matches any characters.
     ///
@@ -775,11 +775,7 @@ mod tests {
     use pi_ai::types::{ImageContent, ToolResultMessage, UserMessage};
 
     fn image() -> UserContentBlock {
-        UserContentBlock::Image(ImageContent {
-            data: "AAAA".into(),
-            mime_type: "image/png".into(),
-            ..Default::default()
-        })
+        UserContentBlock::Image(ImageContent { data: "AAAA".into(), mime_type: "image/png".into() })
     }
 
     #[test]

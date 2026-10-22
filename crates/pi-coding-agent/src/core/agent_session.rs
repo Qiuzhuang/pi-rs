@@ -3546,11 +3546,7 @@ impl AgentSession {
             .await?;
             match processed {
                 ProcessImageResult::ProcessImageResultVariant1(ok) if ok.ok => {
-                    normalized.push(ImageContent {
-                        data: ok.data,
-                        mime_type: ok.mime_type,
-                        ..image.clone()
-                    });
+                    normalized.push(ImageContent { data: ok.data, mime_type: ok.mime_type });
                     hints.extend(ok.hints);
                 }
                 ProcessImageResult::ProcessImageResultVariant2(failed) => {
@@ -3567,6 +3563,7 @@ impl AgentSession {
     /// - Expands file-based prompt templates by default
     /// - During streaming, queues via steer() or followUp() based on streamingBehavior option
     /// - Validates model and API key before sending (when not streaming)
+    ///
     /// @throws Error if streaming and no streamingBehavior specified
     /// @throws Error if no model selected or no API key available (when not streaming)
     pub async fn prompt(&self, text: &str, options: Option<&PromptOptions>) -> anyhow::Result<()> {

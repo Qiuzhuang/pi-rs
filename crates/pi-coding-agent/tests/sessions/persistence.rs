@@ -225,7 +225,7 @@ async fn scopes_current_folder_apis_by_cwd_while_listing_all_flat_sessions() {
     let session_b = create_persisted_session(&project_b, &d, "from B");
 
     let current_a = SessionManager::list(&project_a, Some(&d), None, None).await.unwrap();
-    assert_eq!(current_a.iter().map(|s| s.path.clone()).collect::<Vec<_>>(), [session_a.clone()]);
+    assert_eq!(current_a.iter().map(|s| s.path.clone()).collect::<Vec<_>>(), std::slice::from_ref(&session_a));
     assert_eq!(current_a[0].first_message, "from A");
     assert_eq!(current_a[0].all_messages_text, "from A reply to from A");
     assert_eq!(current_a[0].message_count, 2);

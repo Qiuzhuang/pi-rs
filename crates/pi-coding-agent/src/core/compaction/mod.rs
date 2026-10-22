@@ -1,6 +1,7 @@
 //! Port of `packages/coding-agent/src/core/compaction/index.ts`.
 
 pub mod branch_summarization;
+#[allow(clippy::module_inception)] // mirrors the TS file layout (`compaction/compaction.ts`)
 pub mod compaction;
 pub mod utils;
 

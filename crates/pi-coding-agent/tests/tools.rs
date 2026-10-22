@@ -810,6 +810,8 @@ async fn bash_aborts_running_commands() {
 #[tokio::test]
 async fn bash_includes_full_output_path_for_timeout_and_abort() {
     let dir = tempfile::tempdir().unwrap();
+    let showing_lines = regex::Regex::new(r"\[Showing lines \d+-\d+ of \d+\. Full output: ").unwrap();
+    let full_output = regex::Regex::new(r"Full output: ([^\]\n]+)").unwrap();
     for (error, expected) in [("timeout:5", "Command timed out after 5 seconds"), ("aborted", "Command aborted")] {
         let bash = bash_with_ops(
             dir.path(),
@@ -822,9 +824,9 @@ async fn bash_includes_full_output_path_for_timeout_and_abort() {
         );
         let message = run(&bash, json!({ "command": "chatty-fail" })).await.unwrap_err().to_string();
         assert!(message.contains(expected));
-        assert!(regex::Regex::new(r"\[Showing lines \d+-\d+ of \d+\. Full output: ").unwrap().is_match(&message));
+        assert!(showing_lines.is_match(&message));
         assert!(!message.contains("Full output: undefined"));
-        let path = regex::Regex::new(r"Full output: ([^\]\n]+)").unwrap().captures(&message).unwrap()[1].to_string();
+        let path = full_output.captures(&message).unwrap()[1].to_string();
         let full = fs::read_to_string(&path).unwrap();
         assert!(full.contains("1\n2\n3"));
         assert!(full.contains("2998\n2999\n3000"));

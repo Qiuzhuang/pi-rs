@@ -222,8 +222,9 @@ impl ArminState {
                 self.current_grid = create_empty_grid();
                 for (x, drop) in drops.iter_mut().enumerate() {
                     // Draw settled pixels
-                    for row in (DISPLAY_HEIGHT - drop.settled.min(DISPLAY_HEIGHT))..DISPLAY_HEIGHT {
-                        self.current_grid[row][x] = final_grid[row][x];
+                    let settled_from = DISPLAY_HEIGHT - drop.settled.min(DISPLAY_HEIGHT);
+                    for (current, target) in self.current_grid[settled_from..].iter_mut().zip(&final_grid[settled_from..]) {
+                        current[x] = target[x];
                     }
 
                     // Check if this column is done
@@ -271,9 +272,8 @@ impl ArminState {
                 let from = top.max(0);
                 let to = bottom.min(DISPLAY_HEIGHT as i64 - 1);
                 if from <= to {
-                    for row in from as usize..=to as usize {
-                        self.current_grid[row] = final_grid[row].clone();
-                    }
+                    let rows = from as usize..=to as usize;
+                    self.current_grid[rows.clone()].clone_from_slice(&final_grid[rows]);
                 }
                 *expansion += 1;
                 *expansion > DISPLAY_HEIGHT as i64
@@ -386,7 +386,7 @@ impl ArminComponent {
                             break;
                         }
                     }
-                })
+                }))
                 .ok();
         }
 

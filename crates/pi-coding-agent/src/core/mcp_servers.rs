@@ -50,10 +50,10 @@ fn resolve_exposure_alias_name(value: &str) -> Option<&'static str> {
 }
 
 /// - `codemode`: tools are callable from codemode scripts but neither declared to the model nor
-/// listed in the codemode description, which lists only the server's namespace. Scripts find them
-/// with `searchTools()`. `codemode-deferred` is accepted as an alias.
+///   listed in the codemode description, which lists only the server's namespace. Scripts find them
+///   with `searchTools()`. `codemode-deferred` is accepted as an alias.
 /// - `deferred`: not declared to the model until the `tool_search` tool loads them; the model then
-/// calls them directly. Does not need codemode.
+///   calls them directly. Does not need codemode.
 /// - `direct`: tools are declared to the model like any other tool (and callable from codemode).
 /// - `hidden`: tools are registered but unreachable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

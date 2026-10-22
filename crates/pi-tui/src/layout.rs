@@ -14,8 +14,7 @@ use crate::utils::{extract_ansi_code, get_active_background_ansi, get_grapheme_c
 /// Strip leading OSC 133 zone markers (`A`, `B`, `C`).
 pub(crate) fn strip_osc133_zone_prefix(line: &str) -> &str {
     let mut rest = line;
-    loop {
-        let Some(after) = rest.strip_prefix("\x1b]133;") else { break };
+    while let Some(after) = rest.strip_prefix("\x1b]133;") {
         let mut chars = after.chars();
         match chars.next() {
             Some('A' | 'B' | 'C') => {}
@@ -560,6 +559,6 @@ pub fn get_scroll_views_at(frame: &LayoutFrame, x: i64, y: i64) -> Vec<Arc<Scrol
         }
     }
     visit(&frame.root, 0, x, y, &mut result);
-    result.sort_by(|a, b| b.1.cmp(&a.1));
+    result.sort_by_key(|entry| std::cmp::Reverse(entry.1));
     result.into_iter().map(|(s, _)| s).collect()
 }

@@ -40,6 +40,9 @@ impl ModelPriceSource for RuntimePrices {
 }
 
 /// An item of the transcript as rendered from session entries.
+// Mirrors a TS union; boxing the large variants would add indirection to every
+// construction and match across the crate for little memory saved.
+#[allow(clippy::large_enum_variant)]
 pub(crate) enum RenderItem {
     Message(AgentMessage),
     Custom(CustomEntry),

@@ -26,6 +26,9 @@ pub struct JsonMessageUpdateEvent {
 /// Session event shape emitted by the JSON and RPC stdout protocols.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
+// Mirrors a TS union; boxing the large variants would add indirection to every
+// construction and match across the crate for little memory saved.
+#[allow(clippy::large_enum_variant)]
 pub enum JsonAgentSessionEvent {
     JsonMessageUpdateEvent(JsonMessageUpdateEvent),
     AgentSessionEvent(AgentSessionEvent),

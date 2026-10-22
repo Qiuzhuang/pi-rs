@@ -5,6 +5,10 @@
 //! TS also asserts that migrations log nothing (`console.log` spy); the Rust
 //! migrations write to stdout, which an in-process test cannot capture, so that check is left out.
 
+// Tests serialize environment mutation with ENV_LOCK held across awaits; each test runs on its
+// own current-thread runtime, so the guard cannot block an executor.
+#![allow(clippy::await_holding_lock)]
+
 use std::sync::Arc;
 
 use pi_coding_agent::config::ENV_AGENT_DIR;

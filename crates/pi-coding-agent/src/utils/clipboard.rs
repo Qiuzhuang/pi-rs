@@ -221,7 +221,22 @@ pub async fn read_clipboard_file_paths() -> anyhow::Result<Option<Vec<String>>> 
     }
 }
 
+type CopyOverride = Arc<dyn Fn(String) -> futures::future::BoxFuture<'static, anyhow::Result<()>> + Send + Sync>;
+
+static COPY_OVERRIDE: parking_lot::RwLock<Option<CopyOverride>> = parking_lot::RwLock::new(None);
+
+/// Route [`copy_to_clipboard`] to `copy` instead of the system clipboard, or restore it with `None`.
+/// The equivalent of the TS tests' `vi.mock("../src/utils/clipboard.ts")`.
+#[doc(hidden)]
+pub fn set_copy_to_clipboard_override(copy: Option<CopyOverride>) {
+    *COPY_OVERRIDE.write() = copy;
+}
+
 pub async fn copy_to_clipboard(text: &str) -> anyhow::Result<()> {
+    let copy = COPY_OVERRIDE.read().clone();
+    if let Some(copy) = copy {
+        return copy(text.to_string()).await;
+    }
     copy_to_clipboard_with(&ClipboardHost::process(), text).await
 }
 

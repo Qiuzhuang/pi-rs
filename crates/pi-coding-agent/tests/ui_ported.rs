@@ -456,3 +456,298 @@ fn shows_the_read_line_range_in_compact_reads_before_the_expand_hint() {
         assert!(collapsed.find(":120-329").unwrap() < collapsed.find("to expand").unwrap(), "{collapsed}");
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// auth-url-copy.test.ts
+// ---------------------------------------------------------------------------------------------
+
+mod auth_url_copy {
+    use super::*;
+    use pi_coding_agent::extensions::mcp::ui::{McpManagerView, McpUi};
+    use pi_coding_agent::modes::interactive::components::login_dialog::LoginDialogComponent;
+    use pi_coding_agent::utils::clipboard::set_copy_to_clipboard_override;
+    use pi_coding_agent::utils::open_browser::set_open_browser_override;
+    use std::time::{Duration, Instant};
+    use tokio_util::sync::CancellationToken;
+
+    const CTRL_X: &str = "\x18";
+
+    fn url() -> String {
+        format!("https://auth.example.invalid/authorize?{}", "x".repeat(300))
+    }
+
+    /// TS `vi.mock` of the clipboard and browser modules; restored on drop.
+    struct Mocks {
+        copied: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl Mocks {
+        fn install() -> Mocks {
+            let copied: Arc<Mutex<Vec<String>>> = Arc::default();
+            let sink = copied.clone();
+            set_copy_to_clipboard_override(Some(Arc::new(move |text: String| {
+                sink.lock().push(text);
+                Box::pin(async { Ok(()) })
+            })));
+            set_open_browser_override(Some(Arc::new(|_| {})));
+            Mocks { copied }
+        }
+    }
+
+    impl Drop for Mocks {
+        fn drop(&mut self) {
+            set_copy_to_clipboard_override(None);
+            set_open_browser_override(None);
+        }
+    }
+
+    fn rendered(component: &dyn Component) -> String {
+        plain(component, 80)
+    }
+
+    async fn wait_for(component: &dyn Component, text: &str) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !rendered(component).contains(text) {
+            assert!(Instant::now() < deadline, "timed out waiting for {text}:\n{}", rendered(component));
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn login_dialog_copies_the_auth_url_instead_of_typing_into_the_code_input() {
+        let _g = setup();
+        let mocks = Mocks::install();
+        let dialog = Arc::new(LoginDialogComponent::new(fake_tui(), "test", Arc::new(|_, _| {}), None, None));
+        dialog.show_auth(&url(), None);
+        let pending = dialog.clone();
+        tokio::spawn(async move {
+            let _ = pending.show_manual_input("Paste the code:").await;
+        });
+        wait_for(dialog.as_ref(), "Paste the code:").await;
+        assert!(rendered(dialog.as_ref()).contains("ctrl+x to copy"));
+
+        dialog.handle_input(CTRL_X);
+        wait_for(dialog.as_ref(), "Copied URL to clipboard").await;
+        assert_eq!(mocks.copied.lock().clone(), vec![url()]);
+    }
+
+    #[tokio::test]
+    async fn login_dialog_ignores_the_copy_key_without_an_auth_url() {
+        let _g = setup();
+        let mocks = Mocks::install();
+        let dialog = LoginDialogComponent::new(fake_tui(), "test", Arc::new(|_, _| {}), None, None);
+        dialog.show_device_code(pi_ai::auth::extension_oauth_types::OAuthDeviceCodeInfo {
+            user_code: "ABCD".into(),
+            verification_uri: "https://example.invalid/device".into(),
+            interval_seconds: None,
+            expires_in_seconds: None,
+        });
+        dialog.handle_input(CTRL_X);
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(mocks.copied.lock().is_empty());
+    }
+
+    #[tokio::test]
+    async fn mcp_sign_in_screen_copies_the_authorization_url() {
+        let _g = setup();
+        let mocks = Mocks::install();
+        let view = McpManagerView::new(fake_tui(), theme(), Arc::new(KeybindingsManager::new(None, None)));
+        let pending = view.clone();
+        tokio::spawn(async move {
+            let _ = pending.redirect_url("Sign in to issues", &url(), CancellationToken::new()).await;
+        });
+        wait_for(view.as_ref(), "ctrl+x to copy").await;
+
+        view.handle_input(CTRL_X);
+        wait_for(view.as_ref(), "Copied URL to clipboard").await;
+        assert_eq!(mocks.copied.lock().clone(), vec![url()]);
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// first-time-setup.test.ts (analytics settings)
+// ---------------------------------------------------------------------------------------------
+
+mod analytics_settings {
+    use pi_coding_agent::core::settings_manager::SettingsManager;
+
+    #[test]
+    fn defaults_to_disabled_with_no_tracking_identifier() {
+        let manager = SettingsManager::in_memory(None, None);
+        assert!(!manager.get_enable_analytics());
+        assert_eq!(manager.get_tracking_id(), None);
+    }
+
+    #[test]
+    fn generates_a_tracking_identifier_on_opt_in() {
+        let manager = SettingsManager::in_memory(None, None);
+        manager.set_enable_analytics(true);
+        assert!(manager.get_enable_analytics());
+        let id = manager.get_tracking_id().unwrap();
+        assert!(regex::Regex::new(r"^[0-9a-f-]{36}$").unwrap().is_match(&id), "{id}");
+    }
+
+    #[test]
+    fn does_not_generate_a_tracking_identifier_on_opt_out() {
+        let manager = SettingsManager::in_memory(None, None);
+        manager.set_enable_analytics(false);
+        assert!(!manager.get_enable_analytics());
+        assert_eq!(manager.get_tracking_id(), None);
+    }
+
+    #[test]
+    fn keeps_the_tracking_identifier_when_toggling_analytics() {
+        let manager = SettingsManager::in_memory(None, None);
+        manager.set_enable_analytics(true);
+        let tracking_id = manager.get_tracking_id();
+        manager.set_enable_analytics(false);
+        manager.set_enable_analytics(true);
+        assert_eq!(manager.get_tracking_id(), tracking_id);
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// package-command-paths.test.ts (config selector cases)
+// ---------------------------------------------------------------------------------------------
+
+mod config_selector {
+    use super::*;
+    use indexmap::IndexMap;
+    use pi_coding_agent::core::package_manager::{
+        DefaultPackageManager, PackageManager, PackageManagerOptions, ResolvedPaths,
+    };
+    use pi_coding_agent::core::settings_manager::{
+        InMemorySettingsStorage, SettingsManager, SettingsManagerCreateOptions, SettingsScope, SettingsStorage,
+    };
+    use pi_coding_agent::modes::interactive::components::config_selector::{
+        ConfigSelectorComponent, ConfigWriteScope,
+    };
+
+    struct Dirs {
+        _temp: tempfile::TempDir,
+        project: String,
+        agent: String,
+        root: String,
+    }
+
+    fn dirs() -> Dirs {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().to_string_lossy().into_owned();
+        let project = temp.path().join("project");
+        let agent = temp.path().join("agent");
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::create_dir_all(&agent).unwrap();
+        Dirs {
+            project: project.to_string_lossy().into_owned(),
+            agent: agent.to_string_lossy().into_owned(),
+            root,
+            _temp: temp,
+        }
+    }
+
+    fn settings(global: Value) -> Arc<SettingsManager> {
+        let storage = Arc::new(InMemorySettingsStorage::new());
+        let content = global.to_string();
+        storage.with_lock(SettingsScope::Global, &mut |_| Ok(Some(content.clone()))).unwrap();
+        SettingsManager::from_storage(
+            storage as Arc<dyn SettingsStorage>,
+            Some(&SettingsManagerCreateOptions { project_trusted: Some(true) }),
+        )
+    }
+
+    fn selector(paths: &ResolvedPaths, settings: &Arc<SettingsManager>, d: &Dirs, scope: ConfigWriteScope) -> ConfigSelectorComponent {
+        let mut scoped = IndexMap::new();
+        scoped.insert(ConfigWriteScope::Global, paths.clone());
+        scoped.insert(ConfigWriteScope::Project, paths.clone());
+        ConfigSelectorComponent::new(
+            &scoped,
+            settings.clone(),
+            &d.project,
+            &d.agent,
+            Arc::new(|| {}),
+            Arc::new(|| {}),
+            Arc::new(|| {}),
+            Some(24),
+            Some(&scope),
+            None,
+        )
+    }
+
+    async fn builtin_paths(settings: &Arc<SettingsManager>, d: &Dirs, builtins: &[&str]) -> ResolvedPaths {
+        DefaultPackageManager::new(&PackageManagerOptions {
+            cwd: d.project.clone(),
+            agent_dir: d.agent.clone(),
+            settings_manager: settings.clone(),
+            builtin_extensions: Some(builtins.iter().map(|s| s.to_string()).collect()),
+        })
+        .resolve(None)
+        .await
+        .unwrap()
+    }
+
+    #[test]
+    fn cycles_project_package_overrides_in_config_local_mode() {
+        let _g = setup();
+        let d = dirs();
+        let settings = settings(json!({ "packages": ["npm:pi-tools"] }));
+        let package_root = format!("{}/pkg", d.root);
+        let paths: ResolvedPaths = serde_json::from_value(json!({
+            "extensions": [{
+                "path": format!("{package_root}/extensions/bar.ts"),
+                "enabled": true,
+                "metadata": { "source": "npm:pi-tools", "scope": "user", "origin": "package", "baseDir": package_root },
+            }],
+            "skills": [], "prompts": [], "themes": [],
+        }))
+        .unwrap();
+        let selector = selector(&paths, &settings, &d, ConfigWriteScope::Project);
+        let packages = || settings.get_project_settings_json().get("packages").cloned().unwrap_or(json!([]));
+
+        selector.get_resource_list().handle_input(" ");
+        assert_eq!(
+            packages(),
+            json!([{ "source": "npm:pi-tools", "autoload": false, "extensions": ["-extensions/bar.ts"] }])
+        );
+        selector.get_resource_list().handle_input(" ");
+        assert_eq!(
+            packages(),
+            json!([{ "source": "npm:pi-tools", "autoload": false, "extensions": ["+extensions/bar.ts"] }])
+        );
+        selector.get_resource_list().handle_input(" ");
+        assert_eq!(packages(), json!([]));
+    }
+
+    #[tokio::test]
+    async fn toggles_built_in_extensions_in_config_global_mode() {
+        let _g = setup();
+        let d = dirs();
+        let settings = settings(json!({}));
+        let paths = builtin_paths(&settings, &d, &["llama.cpp", "mcp"]).await;
+        let selector = selector(&paths, &settings, &d, ConfigWriteScope::Global);
+        let list = selector.get_resource_list();
+        let rendered = list.render(80).join("\n");
+        assert!(rendered.contains("Built-in") && rendered.contains("llama.cpp"), "{rendered}");
+        let extensions = || settings.get_global_settings_json().get("extensions").cloned().unwrap_or(json!([]));
+        list.handle_input(" ");
+        assert_eq!(extensions(), json!(["-builtin:llama.cpp"]));
+        list.handle_input(" ");
+        assert_eq!(extensions(), json!(["+builtin:llama.cpp"]));
+    }
+
+    #[tokio::test]
+    async fn cycles_project_built_in_extension_overrides_in_config_local_mode() {
+        let _g = setup();
+        let d = dirs();
+        let settings = settings(json!({ "extensions": ["-builtin:mcp"] }));
+        let paths = builtin_paths(&settings, &d, &["mcp"]).await;
+        let selector = selector(&paths, &settings, &d, ConfigWriteScope::Project);
+        let list = selector.get_resource_list();
+        let extensions = || settings.get_project_settings_json().get("extensions").cloned().unwrap_or(json!([]));
+        list.handle_input(" ");
+        assert_eq!(extensions(), json!(["+builtin:mcp"]));
+        list.handle_input(" ");
+        assert_eq!(extensions(), json!(["-builtin:mcp"]));
+        list.handle_input(" ");
+        assert_eq!(extensions(), json!([]));
+    }
+}

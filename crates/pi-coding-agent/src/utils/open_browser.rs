@@ -7,7 +7,23 @@ use std::process::{Command, Stdio};
 /// This intentionally never invokes a shell. On Windows, do not use
 /// `cmd /c start`: cmd.exe re-parses metacharacters (&, |, ^, ...) before
 /// `start` runs, which would make attacker-controlled URLs injectable.
+type OpenOverride = std::sync::Arc<dyn Fn(&str) + Send + Sync>;
+
+static OPEN_OVERRIDE: parking_lot::RwLock<Option<OpenOverride>> = parking_lot::RwLock::new(None);
+
+/// Route [`open_browser`] to `open` instead of the platform launcher, or restore it with `None`.
+/// The equivalent of the TS tests' `vi.mock("../src/utils/open-browser.ts")`.
+#[doc(hidden)]
+pub fn set_open_browser_override(open: Option<OpenOverride>) {
+    *OPEN_OVERRIDE.write() = open;
+}
+
 pub fn open_browser(target: &str) {
+    let open = OPEN_OVERRIDE.read().clone();
+    if let Some(open) = open {
+        open(target);
+        return;
+    }
     let (cmd, args): (&str, Vec<&str>) = if cfg!(target_os = "macos") {
         ("open", vec![target])
     } else if cfg!(windows) {

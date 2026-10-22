@@ -359,8 +359,23 @@ pub struct ToolTimerState {
     pub interval: Option<IntervalHandle>,
 }
 
+type ClockFn = Arc<dyn Fn() -> i64 + Send + Sync>;
+
+static TOOL_TIMER_CLOCK: parking_lot::RwLock<Option<ClockFn>> = parking_lot::RwLock::new(None);
+
+/// Replace the clock (epoch milliseconds) that tool timers read, or restore the system clock with
+/// `None`. The equivalent of the TS tests' `vi.useFakeTimers()` / `vi.setSystemTime()`.
+#[doc(hidden)]
+pub fn set_tool_timer_clock(clock: Option<ClockFn>) {
+    *TOOL_TIMER_CLOCK.write() = clock;
+}
+
 fn now_ms() -> i64 {
-    chrono::Utc::now().timestamp_millis()
+    let clock = TOOL_TIMER_CLOCK.read().clone();
+    match clock {
+        Some(clock) => clock(),
+        None => chrono::Utc::now().timestamp_millis(),
+    }
 }
 
 /// Start the row's clock once execution starts. Call from `renderCall`.

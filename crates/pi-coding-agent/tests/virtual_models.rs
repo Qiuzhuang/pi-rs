@@ -333,3 +333,243 @@ async fn branch_selection_looks_up_only_the_last_model_change() {
     );
     assert!(lookups.lock().is_empty());
 }
+
+#[tokio::test]
+async fn does_not_forward_caller_credentials_to_a_routed_model_of_another_provider() {
+    let setup = create_runtime().await;
+    type Seen = Vec<(Option<String>, Option<pi_ai::types::ProviderHeaders>)>;
+    let seen: Arc<Mutex<Seen>> = Arc::default();
+    let step = |seen: Arc<Mutex<Seen>>| {
+        FauxResponseStep::factory(move |_, options, _, _| {
+            seen.lock().push((options.api_key.clone(), options.headers.clone()));
+            faux_text_message("hello")
+        })
+    };
+    setup.faux.set_responses(vec![step(seen.clone()), step(seen.clone())]);
+    let context = Context { system_prompt: None, messages: vec![user("hi")], tools: None };
+    let options = || {
+        Some(ModelsRequestOptions::from(StreamOptions {
+            api_key: Some("caller-key".into()),
+            headers: Some([("x-caller".to_string(), Some("1".to_string()))].into_iter().collect()),
+            ..Default::default()
+        }))
+    };
+    setup
+        .runtime
+        .register_virtual_model(&VirtualModelDefinition { provider: "faux".into(), id: "auto".into(), ..setup.definition.clone() })
+        .unwrap();
+
+    setup.runtime.complete_simple(setup.virtual_model.clone(), context.clone(), options()).await;
+    let faux_auto = setup.runtime.get_model("faux", "auto").unwrap();
+    setup.runtime.complete_simple(faux_auto, context, options()).await;
+
+    // The router provider's credentials stay with it; the faux provider's own virtual model keeps them.
+    let seen = seen.lock();
+    assert_eq!(seen.len(), 2);
+    assert_ne!(seen[0].0.as_deref(), Some("caller-key"));
+    assert!(seen[0].1.as_ref().is_none_or(|h| !h.contains_key("x-caller")));
+    assert_eq!(seen[1].0.as_deref(), Some("caller-key"));
+    assert_eq!(seen[1].1.as_ref().and_then(|h| h.get("x-caller").cloned()), Some(Some("1".to_string())));
+}
+
+// ---------------------------------------------------------------------------
+// createAgentSession with virtual models
+// ---------------------------------------------------------------------------
+
+mod support;
+
+use pi_coding_agent::core::agent_session::AgentSession;
+use pi_coding_agent::core::sdk::{CreateAgentSessionOptions, CreateAgentSessionResult, create_agent_session};
+use pi_coding_agent::core::session_manager::SessionManager;
+
+async fn open_session(
+    runtime: &Arc<ModelRuntime>,
+    dir: &std::path::Path,
+    session_manager: Arc<SessionManager>,
+    model: Option<Model>,
+) -> CreateAgentSessionResult {
+    let dir = dir.to_string_lossy().into_owned();
+    create_agent_session(Some(&CreateAgentSessionOptions {
+        cwd: Some(dir.clone()),
+        agent_dir: Some(dir),
+        model_runtime: Some(runtime.clone()),
+        session_manager: Some(session_manager),
+        resource_loader: Some(support::TestResourceLoader::new(None)),
+        model,
+        ..Default::default()
+    }))
+    .await
+    .unwrap()
+}
+
+/// Resume a transcript where the virtual model was selected and the large model answered.
+async fn resume(runtime: &Arc<ModelRuntime>, dir: &std::path::Path, model: Option<Model>) -> (Arc<AgentSession>, Arc<SessionManager>) {
+    let session_manager = SessionManager::in_memory(Some(&dir.to_string_lossy()), None, None).unwrap();
+    session_manager.append_model_change("router", "auto").unwrap();
+    session_manager.append_message(UserMessage::new("hi", 1)).unwrap();
+    session_manager.append_message(assistant_from(&runtime.get_model("faux", "large").unwrap(), "hello")).unwrap();
+    let result = open_session(runtime, dir, session_manager.clone(), model).await;
+    (result.session, session_manager)
+}
+
+#[tokio::test]
+async fn restores_the_virtual_selection_instead_of_the_physical_model_that_answered() {
+    let setup = create_runtime().await;
+    let dir = tempfile::tempdir().unwrap();
+    let (session, _) = resume(&setup.runtime, dir.path(), None).await;
+    let model = session.model().unwrap();
+    assert_eq!((model.provider.as_str(), model.id.as_str()), ("router", "auto"));
+    let routed = session.routed_model().unwrap().model;
+    assert_eq!((routed.provider.as_str(), routed.id.as_str()), ("faux", "large"));
+    session.dispose();
+}
+
+#[tokio::test]
+async fn restores_a_virtual_selection_registered_right_before_the_session_opens() {
+    let setup = create_runtime().await;
+    let dir = tempfile::tempdir().unwrap();
+    // Extensions register while the session is created, without waiting for the availability refresh.
+    setup
+        .runtime
+        .register_virtual_model(&VirtualModelDefinition { provider: "late".into(), ..setup.definition.clone() })
+        .unwrap();
+    let session_manager = SessionManager::in_memory(Some(&dir.path().to_string_lossy()), None, None).unwrap();
+    session_manager.append_model_change("late", "auto").unwrap();
+    session_manager.append_message(UserMessage::new("hi", 1)).unwrap();
+    session_manager.append_message(assistant_from(&setup.runtime.get_model("faux", "large").unwrap(), "hello")).unwrap();
+
+    let result = open_session(&setup.runtime, dir.path(), session_manager, None).await;
+    assert_eq!(result.model_fallback_message, None);
+    let model = result.session.model().unwrap();
+    assert_eq!((model.provider.as_str(), model.id.as_str()), ("late", "auto"));
+    result.session.dispose();
+}
+
+#[tokio::test]
+async fn falls_back_to_the_physical_model_when_the_virtual_model_is_not_registered() {
+    let setup = create_runtime().await;
+    let dir = tempfile::tempdir().unwrap();
+    setup.runtime.unregister_virtual_model("router", "auto");
+    let (session, _) = resume(&setup.runtime, dir.path(), None).await;
+    let model = session.model().unwrap();
+    assert_eq!((model.provider.as_str(), model.id.as_str()), ("faux", "large"));
+    assert!(session.routed_model().is_none());
+    session.dispose();
+}
+
+#[tokio::test]
+async fn falls_back_to_the_last_physical_response_when_the_transcript_ends_with_a_routing_failure() {
+    let setup = create_runtime().await;
+    let dir = tempfile::tempdir().unwrap();
+    let session_manager = SessionManager::in_memory(Some(&dir.path().to_string_lossy()), None, None).unwrap();
+    session_manager.append_model_change("router", "auto").unwrap();
+    session_manager.append_message(UserMessage::new("hi", 1)).unwrap();
+    session_manager.append_message(assistant_from(&setup.runtime.get_model("faux", "large").unwrap(), "hello")).unwrap();
+    session_manager.append_message(UserMessage::new("again", 2)).unwrap();
+    session_manager
+        .append_message(AssistantMessage {
+            stop_reason: StopReason::Error,
+            error_message: Some("router failed".into()),
+            ..assistant_from(&setup.virtual_model, "")
+        })
+        .unwrap();
+    setup.runtime.unregister_virtual_model("router", "auto");
+
+    let result = open_session(&setup.runtime, dir.path(), session_manager, None).await;
+    let model = result.session.model().unwrap();
+    assert_eq!((model.provider.as_str(), model.id.as_str()), ("faux", "large"));
+    assert_eq!(result.model_fallback_message, None);
+    result.session.dispose();
+}
+
+#[tokio::test]
+async fn resumes_the_selection_made_before_tree_navigation_left_its_model_change_on_another_branch() {
+    let setup = create_runtime().await;
+    let dir = tempfile::tempdir().unwrap();
+    setup.faux.set_responses((0..6).map(|_| FauxResponseStep::from(faux_text_message("ok"))).collect());
+    let large = setup.runtime.get_model("faux", "large").unwrap();
+    for (before, after) in [(setup.virtual_model.clone(), large.clone()), (large.clone(), setup.virtual_model.clone())] {
+        let session_manager = SessionManager::in_memory(Some(&dir.path().to_string_lossy()), None, None).unwrap();
+        let session = open_session(&setup.runtime, dir.path(), session_manager.clone(), Some(before)).await.session;
+        session.prompt("one", None).await.unwrap();
+        let first_answer = session_manager.get_leaf_id().unwrap();
+        session.set_model(after.clone(), None).await.unwrap();
+        session.prompt("two", None).await.unwrap();
+        // Navigating back to before the switch keeps `after` selected, but its model_change is on the old branch.
+        session.navigate_tree(&first_answer, None).await.unwrap();
+        session.prompt("three", None).await.unwrap();
+        session.dispose();
+
+        let resumed = open_session(&setup.runtime, dir.path(), session_manager, None).await.session;
+        let model = resumed.model().unwrap();
+        assert_eq!((model.provider.as_str(), model.id.as_str()), (after.provider.as_str(), after.id.as_str()));
+        resumed.dispose();
+    }
+}
+
+fn model_changes(session_manager: &SessionManager) -> Vec<(String, String)> {
+    session_manager
+        .get_branch(None)
+        .into_iter()
+        .filter_map(|entry| {
+            let value = serde_json::to_value(&entry).unwrap();
+            (value["type"] == "model_change").then(|| {
+                (value["provider"].as_str().unwrap().to_string(), value["modelId"].as_str().unwrap().to_string())
+            })
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn does_not_record_a_physical_selection_on_every_prompt_while_requests_are_redirected() {
+    let setup = create_runtime().await;
+    let dir = tempfile::tempdir().unwrap();
+    setup.faux.set_responses(vec![faux_text_message("ok").into(), faux_text_message("ok").into()]);
+    let small = setup.runtime.get_model("faux", "small").unwrap();
+    let session_manager = SessionManager::in_memory(Some(&dir.path().to_string_lossy()), None, None).unwrap();
+    let session = open_session(&setup.runtime, dir.path(), session_manager.clone(), setup.runtime.get_model("faux", "large"))
+        .await
+        .session;
+    let agent = session.agent();
+    let prepare_request = agent.prepare_request().expect("session installs prepareRequest");
+    agent.set_prepare_request(Some(Arc::new(move |request, signal| {
+        let prepare_request = prepare_request.clone();
+        let small = small.clone();
+        async move {
+            let mut update = prepare_request(request, signal).await?.unwrap_or_default();
+            update.model = Some(small);
+            Ok(Some(update))
+        }
+        .boxed()
+    })));
+    let initial = model_changes(&session_manager).len();
+
+    session.prompt("one", None).await.unwrap();
+    session.prompt("two", None).await.unwrap();
+
+    let models: Vec<String> = session
+        .messages()
+        .iter()
+        .filter_map(|m| match m {
+            pi_agent::types::AgentMessage::Assistant(a) => Some(a.model.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(models, vec!["small", "small"]);
+    assert_eq!(model_changes(&session_manager).len(), initial);
+    session.dispose();
+}
+
+#[tokio::test]
+async fn records_an_explicit_model_override_on_resume_with_the_next_prompt() {
+    let setup = create_runtime().await;
+    let dir = tempfile::tempdir().unwrap();
+    setup.faux.set_responses(vec![faux_text_message("ok").into()]);
+    let (session, session_manager) = resume(&setup.runtime, dir.path(), setup.runtime.get_model("faux", "small")).await;
+    // Opening the session does not write to it.
+    assert_eq!(model_changes(&session_manager).last().cloned(), Some(("router".to_string(), "auto".to_string())));
+
+    session.prompt("again", None).await.unwrap();
+    assert_eq!(model_changes(&session_manager).last().cloned(), Some(("faux".to_string(), "small".to_string())));
+    session.dispose();
+}

@@ -7,8 +7,13 @@ fn main() {
         .enable_all()
         .build()
         .expect("failed to build tokio runtime");
-    if let Err(err) = runtime.block_on(pi_coding_agent::main(&args, None)) {
+    let result = runtime.block_on(pi_coding_agent::main(&args, None));
+    if let Err(err) = result {
         eprintln!("{err:#}");
-        std::process::exit(1);
+        pi_coding_agent::utils::process_exit::exit(1);
     }
+    // Like Node, exit with `process.exitCode` once main() has finished. Background tasks
+    // (watchers, servers started by extensions) must not keep the process alive.
+    let code = pi_coding_agent::utils::process_exit::exit_code().unwrap_or(0);
+    pi_coding_agent::utils::process_exit::exit(code);
 }

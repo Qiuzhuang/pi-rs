@@ -1,0 +1,212 @@
+{
+ "highlight": [
+  {
+   "lang": "typescript",
+   "code": "import { x } from './y';\ninterface A<T> { a: T; b?: string }\nexport async function f(a: number): Promise<void> {\n  const re = /foo+/gi; // comment\n  return `t ${a + 1}`;\n}\nconst el = <div className=\"x\">{a}</div>;\n",
+   "value": "<span class=\"hljs-keyword\">import</span> { x } <span class=\"hljs-keyword\">from</span> <span class=\"hljs-string\">&#x27;./y&#x27;</span>;\n<span class=\"hljs-keyword\">interface</span> A&lt;T&gt; { a: T; b?: <span class=\"hljs-built_in\">string</span> }\n<span class=\"hljs-keyword\">export</span> <span class=\"hljs-keyword\">async</span> <span class=\"hljs-function\"><span class=\"hljs-keyword\">function</span> <span class=\"hljs-title\">f</span>(<span class=\"hljs-params\">a: <span class=\"hljs-built_in\">number</span></span>): <span class=\"hljs-title\">Promise</span>&lt;<span class=\"hljs-title\">void</span>&gt; </span>{\n  <span class=\"hljs-keyword\">const</span> re = <span class=\"hljs-regexp\">/foo+/gi</span>; <span class=\"hljs-comment\">// comment</span>\n  <span class=\"hljs-keyword\">return</span> <span class=\"hljs-string\">`t <span class=\"hljs-subst\">${a + <span class=\"hljs-number\">1</span>}</span>`</span>;\n}\n<span class=\"hljs-keyword\">const</span> el = <span class=\"xml\"><span class=\"hljs-tag\">&lt;<span class=\"hljs-name\">div</span> <span class=\"hljs-attr\">className</span>=<span class=\"hljs-string\">&quot;x&quot;</span>&gt;</span>{a}<span class=\"hljs-tag\">&lt;/<span class=\"hljs-name\">div</span>&gt;</span></span>;\n"
+  },
+  {
+   "lang": "javascript",
+   "code": "class A extends B {\n  constructor() { super(); this.x = 0x1F; }\n  get y() { return [1, 2.5e3, 'str', \"d\"]; }\n}\n/** @param {string} a */\nfunction g(a) { if (a) { throw new Error('x'); } }\nlet h = (x) => x * 2;\nconst jsx = <Foo bar={1}><span>hi</span></Foo>;\n",
+   "value": "<span class=\"hljs-class\"><span class=\"hljs-keyword\">class</span> <span class=\"hljs-title\">A</span> <span class=\"hljs-keyword\">extends</span> <span class=\"hljs-title\">B</span> </span>{\n  <span class=\"hljs-function\"><span class=\"hljs-title\">constructor</span>(<span class=\"hljs-params\"></span>)</span> { <span class=\"hljs-built_in\">super</span>(); <span class=\"hljs-built_in\">this</span>.x = <span class=\"hljs-number\">0x1F</span>; }\n  <span class=\"hljs-keyword\">get</span> <span class=\"hljs-title\">y</span>() { <span class=\"hljs-keyword\">return</span> [<span class=\"hljs-number\">1</span>, <span class=\"hljs-number\">2.5e3</span>, <span class=\"hljs-string\">&#x27;str&#x27;</span>, <span class=\"hljs-string\">&quot;d&quot;</span>]; }\n}\n<span class=\"hljs-comment\">/** <span class=\"hljs-doctag\">@param <span class=\"hljs-type\">{string}</span> </span>a */</span>\n<span class=\"hljs-function\"><span class=\"hljs-keyword\">function</span> <span class=\"hljs-title\">g</span>(<span class=\"hljs-params\">a</span>) </span>{ <span class=\"hljs-keyword\">if</span> (a) { <span class=\"hljs-keyword\">throw</span> <span class=\"hljs-keyword\">new</span> <span class=\"hljs-built_in\">Error</span>(<span class=\"hljs-string\">&#x27;x&#x27;</span>); } }\n<span class=\"hljs-keyword\">let</span> h = <span class=\"hljs-function\">(<span class=\"hljs-params\">x</span>) =&gt;</span> x * <span class=\"hljs-number\">2</span>;\n<span class=\"hljs-keyword\">const</span> jsx = <span class=\"xml\"><span class=\"hljs-tag\">&lt;<span class=\"hljs-name\">Foo</span> <span class=\"hljs-attr\">bar</span>=<span class=\"hljs-string\">{1}</span>&gt;</span><span class=\"hljs-tag\">&lt;<span class=\"hljs-name\">span</span>&gt;</span>hi<span class=\"hljs-tag\">&lt;/<span class=\"hljs-name\">span</span>&gt;</span><span class=\"hljs-tag\">&lt;/<span class=\"hljs-name\">Foo</span>&gt;</span></span>;\n"
+  },
+  {
+   "lang": "python",
+   "code": "@decorator\ndef f(a: int, *args, **kw) -> str:\n    \"\"\"Docstring\n\n    more\n    \"\"\"\n    x = f'val {a!r}' + b'bytes' + r'\\d'\n    return None if a else True\nclass C(Base):\n    pass\n# comment\nprint(0o17, 1_000, 3.14j)\n",
+   "value": "<span class=\"hljs-meta\">@decorator</span>\n<span class=\"hljs-function\"><span class=\"hljs-keyword\">def</span> <span class=\"hljs-title\">f</span>(<span class=\"hljs-params\">a: <span class=\"hljs-built_in\">int</span>, *args, **kw</span>) -&gt; <span class=\"hljs-built_in\">str</span>:</span>\n    <span class=\"hljs-string\">&quot;&quot;&quot;Docstring\n\n    more\n    &quot;&quot;&quot;</span>\n    x = <span class=\"hljs-string\">f&#x27;val <span class=\"hljs-subst\">{a!r}</span>&#x27;</span> + <span class=\"hljs-string\">b&#x27;bytes&#x27;</span> + <span class=\"hljs-string\">r&#x27;\\d&#x27;</span>\n    <span class=\"hljs-keyword\">return</span> <span class=\"hljs-literal\">None</span> <span class=\"hljs-keyword\">if</span> a <span class=\"hljs-keyword\">else</span> <span class=\"hljs-literal\">True</span>\n<span class=\"hljs-class\"><span class=\"hljs-keyword\">class</span> <span class=\"hljs-title\">C</span>(<span class=\"hljs-params\">Base</span>):</span>\n    <span class=\"hljs-keyword\">pass</span>\n<span class=\"hljs-comment\"># comment</span>\n<span class=\"hljs-built_in\">print</span>(<span class=\"hljs-number\">0o17</span>, <span class=\"hljs-number\">1_000</span>, <span class=\"hljs-number\">3.14j</span>)\n"
+  },
+  {
+   "lang": "rust",
+   "code": "#[derive(Debug)]\npub struct S<'a> { x: &'a str }\nimpl<'a> S<'a> {\n    fn new(x: &'a str) -> Self { Self { x } }\n}\nfn main() {\n    let v: Vec<u8> = vec![1, 2];\n    println!(\"{}\", r#\"raw\"#);\n    match v.len() { 0 => (), _ => unreachable!() }\n}\n// c\n/* block */\n",
+   "value": "<span class=\"hljs-meta\">#[derive(Debug)]</span>\n<span class=\"hljs-keyword\">pub</span> <span class=\"hljs-class\"><span class=\"hljs-keyword\">struct</span> <span class=\"hljs-title\">S</span></span>&lt;<span class=\"hljs-symbol\">&#x27;a</span>&gt; { x: &amp;<span class=\"hljs-symbol\">&#x27;a</span> <span class=\"hljs-built_in\">str</span> }\n<span class=\"hljs-keyword\">impl</span>&lt;<span class=\"hljs-symbol\">&#x27;a</span>&gt; S&lt;<span class=\"hljs-symbol\">&#x27;a</span>&gt; {\n    <span class=\"hljs-function\"><span class=\"hljs-keyword\">fn</span> <span class=\"hljs-title\">new</span></span>(x: &amp;<span class=\"hljs-symbol\">&#x27;a</span> <span class=\"hljs-built_in\">str</span>) -&gt; <span class=\"hljs-keyword\">Self</span> { <span class=\"hljs-keyword\">Self</span> { x } }\n}\n<span class=\"hljs-function\"><span class=\"hljs-keyword\">fn</span> <span class=\"hljs-title\">main</span></span>() {\n    <span class=\"hljs-keyword\">let</span> v: <span class=\"hljs-built_in\">Vec</span>&lt;<span class=\"hljs-built_in\">u8</span>&gt; = <span class=\"hljs-built_in\">vec!</span>[<span class=\"hljs-number\">1</span>, <span class=\"hljs-number\">2</span>];\n    <span class=\"hljs-built_in\">println!</span>(<span class=\"hljs-string\">&quot;{}&quot;</span>, <span class=\"hljs-string\">r#&quot;raw&quot;#</span>);\n    <span class=\"hljs-keyword\">match</span> v.len() { <span class=\"hljs-number\">0</span> =&gt; (), _ =&gt; <span class=\"hljs-built_in\">unreachable!</span>() }\n}\n<span class=\"hljs-comment\">// c</span>\n<span class=\"hljs-comment\">/* block */</span>\n"
+  },
+  {
+   "lang": "go",
+   "code": "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tx := []int{1, 2}\n\tfor i, v := range x {\n\t\tfmt.Println(i, v, `raw`)\n\t}\n\tvar c chan<- string\n\t_ = c\n}\n",
+   "value": "<span class=\"hljs-keyword\">package</span> main\n\n<span class=\"hljs-keyword\">import</span> <span class=\"hljs-string\">&quot;fmt&quot;</span>\n\n<span class=\"hljs-function\"><span class=\"hljs-keyword\">func</span> <span class=\"hljs-title\">main</span><span class=\"hljs-params\">()</span></span> {\n\tx := []<span class=\"hljs-keyword\">int</span>{<span class=\"hljs-number\">1</span>, <span class=\"hljs-number\">2</span>}\n\t<span class=\"hljs-keyword\">for</span> i, v := <span class=\"hljs-keyword\">range</span> x {\n\t\tfmt.Println(i, v, <span class=\"hljs-string\">`raw`</span>)\n\t}\n\t<span class=\"hljs-keyword\">var</span> c <span class=\"hljs-keyword\">chan</span>&lt;- <span class=\"hljs-keyword\">string</span>\n\t_ = c\n}\n"
+  },
+  {
+   "lang": "java",
+   "code": "package a.b;\nimport java.util.*;\n@Override\npublic class Foo<T> implements Bar {\n  private static final int X = 0b101;\n  public void run(String[] args) throws Exception {\n    System.out.println(\"hi\" + 'c' + 1.5f);\n  }\n}\n",
+   "value": "<span class=\"hljs-keyword\">package</span> a.b;\n<span class=\"hljs-keyword\">import</span> java.util.*;\n<span class=\"hljs-meta\">@Override</span>\n<span class=\"hljs-keyword\">public</span> <span class=\"hljs-class\"><span class=\"hljs-keyword\">class</span> <span class=\"hljs-title\">Foo</span>&lt;<span class=\"hljs-title\">T</span>&gt; <span class=\"hljs-keyword\">implements</span> <span class=\"hljs-title\">Bar</span> </span>{\n  <span class=\"hljs-keyword\">private</span> <span class=\"hljs-keyword\">static</span> <span class=\"hljs-keyword\">final</span> <span class=\"hljs-keyword\">int</span> X = <span class=\"hljs-number\">0b101</span>;\n  <span class=\"hljs-function\"><span class=\"hljs-keyword\">public</span> <span class=\"hljs-keyword\">void</span> <span class=\"hljs-title\">run</span><span class=\"hljs-params\">(String[] args)</span> <span class=\"hljs-keyword\">throws</span> Exception </span>{\n    System.out.println(<span class=\"hljs-string\">&quot;hi&quot;</span> + <span class=\"hljs-string\">&#x27;c&#x27;</span> + <span class=\"hljs-number\">1.5f</span>);\n  }\n}\n"
+  },
+  {
+   "lang": "c",
+   "code": "#include <stdio.h>\n#define MAX(a,b) ((a)>(b)?(a):(b))\nint main(int argc, char **argv) {\n  unsigned long x = 0xFFul;\n  printf(\"%d\\n\", argc); /* c */\n  return 0;\n}\n",
+   "value": "<span class=\"hljs-meta\">#<span class=\"hljs-meta-keyword\">include</span> <span class=\"hljs-meta-string\">&lt;stdio.h&gt;</span></span>\n<span class=\"hljs-meta\">#<span class=\"hljs-meta-keyword\">define</span> MAX(a,b) ((a)&gt;(b)?(a):(b))</span>\n<span class=\"hljs-function\"><span class=\"hljs-keyword\">int</span> <span class=\"hljs-title\">main</span><span class=\"hljs-params\">(<span class=\"hljs-keyword\">int</span> argc, <span class=\"hljs-keyword\">char</span> **argv)</span> </span>{\n  <span class=\"hljs-keyword\">unsigned</span> <span class=\"hljs-keyword\">long</span> x = <span class=\"hljs-number\">0xFF</span>ul;\n  <span class=\"hljs-built_in\">printf</span>(<span class=\"hljs-string\">&quot;%d\\n&quot;</span>, argc); <span class=\"hljs-comment\">/* c */</span>\n  <span class=\"hljs-keyword\">return</span> <span class=\"hljs-number\">0</span>;\n}\n"
+  },
+  {
+   "lang": "cpp",
+   "code": "#include <vector>\ntemplate <typename T>\nclass V : public std::vector<T> {\npublic:\n  auto size() const noexcept -> std::size_t override { return 0; }\n};\nint main() { std::string s = R\"(raw)\"; nullptr; }\n",
+   "value": "<span class=\"hljs-meta\">#<span class=\"hljs-meta-keyword\">include</span> <span class=\"hljs-meta-string\">&lt;vector&gt;</span></span>\n<span class=\"hljs-keyword\">template</span> &lt;<span class=\"hljs-keyword\">typename</span> T&gt;\n<span class=\"hljs-class\"><span class=\"hljs-keyword\">class</span> <span class=\"hljs-title\">V</span> :</span> <span class=\"hljs-keyword\">public</span> std::vector&lt;T&gt; {\n<span class=\"hljs-keyword\">public</span>:\n  <span class=\"hljs-function\"><span class=\"hljs-keyword\">auto</span> <span class=\"hljs-title\">size</span><span class=\"hljs-params\">()</span> <span class=\"hljs-keyword\">const</span> <span class=\"hljs-keyword\">noexcept</span> -&gt; std::<span class=\"hljs-keyword\">size_t</span> <span class=\"hljs-keyword\">override</span> </span>{ <span class=\"hljs-keyword\">return</span> <span class=\"hljs-number\">0</span>; }\n};\n<span class=\"hljs-function\"><span class=\"hljs-keyword\">int</span> <span class=\"hljs-title\">main</span><span class=\"hljs-params\">()</span> </span>{ std::string s = <span class=\"hljs-string\">R&quot;(raw)&quot;</span>; <span class=\"hljs-literal\">nullptr</span>; }\n"
+  },
+  {
+   "lang": "bash",
+   "code": "#!/bin/bash\nset -euo pipefail\nfor f in *.txt; do\n  echo \"file: $f ${HOME}\" | grep -v x > /dev/null 2>&1\ndone\nif [[ -z \"$1\" ]]; then exit 1; fi\nfoo() { local a=$(( 1 + 2 )); }\n# comment\n",
+   "value": "<span class=\"hljs-meta\">#!/bin/bash</span>\n<span class=\"hljs-built_in\">set</span> -euo pipefail\n<span class=\"hljs-keyword\">for</span> f <span class=\"hljs-keyword\">in</span> *.txt; <span class=\"hljs-keyword\">do</span>\n  <span class=\"hljs-built_in\">echo</span> <span class=\"hljs-string\">&quot;file: <span class=\"hljs-variable\">$f</span> <span class=\"hljs-variable\">${HOME}</span>&quot;</span> | grep -v x &gt; /dev/null 2&gt;&amp;1\n<span class=\"hljs-keyword\">done</span>\n<span class=\"hljs-keyword\">if</span> [[ -z <span class=\"hljs-string\">&quot;<span class=\"hljs-variable\">$1</span>&quot;</span> ]]; <span class=\"hljs-keyword\">then</span> <span class=\"hljs-built_in\">exit</span> 1; <span class=\"hljs-keyword\">fi</span>\n<span class=\"hljs-function\"><span class=\"hljs-title\">foo</span></span>() { <span class=\"hljs-built_in\">local</span> a=$(( <span class=\"hljs-number\">1</span> + <span class=\"hljs-number\">2</span> )); }\n<span class=\"hljs-comment\"># comment</span>\n"
+  },
+  {
+   "lang": "json",
+   "code": "{\n  \"a\": 1,\n  \"b\": [true, false, null],\n  \"c\": {\"d\": \"e\"}\n}\n",
+   "value": "{\n  <span class=\"hljs-attr\">&quot;a&quot;</span>: <span class=\"hljs-number\">1</span>,\n  <span class=\"hljs-attr\">&quot;b&quot;</span>: [<span class=\"hljs-literal\">true</span>, <span class=\"hljs-literal\">false</span>, <span class=\"hljs-literal\">null</span>],\n  <span class=\"hljs-attr\">&quot;c&quot;</span>: {<span class=\"hljs-attr\">&quot;d&quot;</span>: <span class=\"hljs-string\">&quot;e&quot;</span>}\n}\n"
+  },
+  {
+   "lang": "ruby",
+   "code": "class Foo < Bar\n  def initialize(a, b = 2)\n    @a = a\n    puts \"#{a} and #{b}\" if a\n  end\nend\n:sym\n%w[a b]\n# c\n=begin\nblock\n=end\n",
+   "value": "<span class=\"hljs-class\"><span class=\"hljs-keyword\">class</span> <span class=\"hljs-title\">Foo</span> &lt; Bar</span>\n  <span class=\"hljs-function\"><span class=\"hljs-keyword\">def</span> <span class=\"hljs-title\">initialize</span><span class=\"hljs-params\">(a, b = <span class=\"hljs-number\">2</span>)</span></span>\n    <span class=\"hljs-variable\">@a</span> = a\n    puts <span class=\"hljs-string\">&quot;<span class=\"hljs-subst\">#{a}</span> and <span class=\"hljs-subst\">#{b}</span>&quot;</span> <span class=\"hljs-keyword\">if</span> a\n  <span class=\"hljs-keyword\">end</span>\n<span class=\"hljs-keyword\">end</span>\n<span class=\"hljs-symbol\">:sym</span>\n<span class=\"hljs-string\">%w[a b]</span>\n<span class=\"hljs-comment\"># c</span>\n<span class=\"hljs-comment\">=begin\nblock\n=end</span>\n"
+  },
+  {
+   "lang": "php",
+   "code": "<?php\nnamespace App;\nclass A {\n  public function f($x): ?int { return $x ?? null; }\n}\necho \"Hello $name\";\n?>\n<div><?= $y ?></div>\n",
+   "value": "<span class=\"hljs-meta\">&lt;?php</span>\n<span class=\"hljs-keyword\">namespace</span> <span class=\"hljs-title\">App</span>;\n<span class=\"hljs-class\"><span class=\"hljs-keyword\">class</span> <span class=\"hljs-title\">A</span> </span>{\n  <span class=\"hljs-keyword\">public</span> <span class=\"hljs-function\"><span class=\"hljs-keyword\">function</span> <span class=\"hljs-title\">f</span>(<span class=\"hljs-params\"><span class=\"hljs-variable\">$x</span></span>): ?<span class=\"hljs-title\">int</span> </span>{ <span class=\"hljs-keyword\">return</span> <span class=\"hljs-variable\">$x</span> ?? <span class=\"hljs-literal\">null</span>; }\n}\n<span class=\"hljs-keyword\">echo</span> <span class=\"hljs-string\">&quot;Hello <span class=\"hljs-subst\">$name</span>&quot;</span>;\n<span class=\"hljs-meta\">?&gt;</span>\n&lt;div&gt;<span class=\"hljs-meta\">&lt;?=</span> <span class=\"hljs-variable\">$y</span> <span class=\"hljs-meta\">?&gt;</span>&lt;/div&gt;\n"
+  },
+  {
+   "lang": "csharp",
+   "code": "using System;\nnamespace N {\n  public class C<T> where T : class {\n    public async Task<int> M(string s) { var x = $\"{s}\"; return await Task.FromResult(1); }\n  }\n}\n",
+   "value": "<span class=\"hljs-keyword\">using</span> System;\n<span class=\"hljs-keyword\">namespace</span> <span class=\"hljs-title\">N</span> {\n  <span class=\"hljs-keyword\">public</span> <span class=\"hljs-keyword\">class</span> <span class=\"hljs-title\">C</span>&lt;<span class=\"hljs-title\">T</span>&gt; <span class=\"hljs-keyword\">where</span> <span class=\"hljs-title\">T</span> : <span class=\"hljs-keyword\">class</span> {\n    <span class=\"hljs-function\"><span class=\"hljs-keyword\">public</span> <span class=\"hljs-keyword\">async</span> Task&lt;<span class=\"hljs-built_in\">int</span>&gt; <span class=\"hljs-title\">M</span>(<span class=\"hljs-params\"><span class=\"hljs-built_in\">string</span> s</span>)</span> { <span class=\"hljs-keyword\">var</span> x = <span class=\"hljs-string\">$&quot;<span class=\"hljs-subst\">{s}</span>&quot;</span>; <span class=\"hljs-keyword\">return</span> <span class=\"hljs-keyword\">await</span> Task.FromResult(<span class=\"hljs-number\">1</span>); }\n  }\n}\n"
+  },
+  {
+   "lang": "kotlin",
+   "code": "data class P(val x: Int)\nfun main() {\n  val s = \"x=${'$'}{p.x}\"\n  when (x) { is Int -> println(1) else -> {} }\n}\n",
+   "value": "<span class=\"hljs-keyword\">data</span> <span class=\"hljs-class\"><span class=\"hljs-keyword\">class</span> <span class=\"hljs-title\">P</span></span>(<span class=\"hljs-keyword\">val</span> x: <span class=\"hljs-built_in\">Int</span>)\n<span class=\"hljs-function\"><span class=\"hljs-keyword\">fun</span> <span class=\"hljs-title\">main</span><span class=\"hljs-params\">()</span></span> {\n  <span class=\"hljs-keyword\">val</span> s = <span class=\"hljs-string\">&quot;x=<span class=\"hljs-subst\">${<span class=\"hljs-string\">&#x27;$&#x27;</span>}</span>{p.x}&quot;</span>\n  <span class=\"hljs-keyword\">when</span> (x) { <span class=\"hljs-keyword\">is</span> <span class=\"hljs-built_in\">Int</span> -&gt; println(<span class=\"hljs-number\">1</span>) <span class=\"hljs-keyword\">else</span> -&gt; {} }\n}\n"
+  },
+  {
+   "lang": "swift",
+   "code": "import UIKit\nstruct S: Codable { var x: Int? }\nfunc f(_ a: Int) -> String { return \"\\(a)\" }\nlet c = { (x: Int) in x * 2 }\n",
+   "value": "<span class=\"hljs-keyword\">import</span> UIKit\n<span class=\"hljs-class\"><span class=\"hljs-keyword\">struct</span> <span class=\"hljs-title\">S</span>: <span class=\"hljs-title\">Codable</span> </span>{ <span class=\"hljs-keyword\">var</span> x: <span class=\"hljs-type\">Int</span>? }\n<span class=\"hljs-function\"><span class=\"hljs-keyword\">func</span> <span class=\"hljs-title\">f</span>(<span class=\"hljs-keyword\">_</span> <span class=\"hljs-params\">a</span>: <span class=\"hljs-type\">Int</span>)</span> -&gt; <span class=\"hljs-type\">String</span> { <span class=\"hljs-keyword\">return</span> <span class=\"hljs-string\">&quot;<span class=\"hljs-subst\">\\(a)</span>&quot;</span> }\n<span class=\"hljs-keyword\">let</span> c <span class=\"hljs-operator\">=</span> { (x: <span class=\"hljs-type\">Int</span>) <span class=\"hljs-keyword\">in</span> x <span class=\"hljs-operator\">*</span> <span class=\"hljs-number\">2</span> }\n"
+  },
+  {
+   "lang": "lua",
+   "code": "local function f(a, ...)\n  for i = 1, #a do print(a[i]) end\n  return {x = 1, [\"y\"] = 2}\nend\n-- comment\n--[[ block ]]\n",
+   "value": "<span class=\"hljs-keyword\">local</span> <span class=\"hljs-function\"><span class=\"hljs-keyword\">function</span> <span class=\"hljs-title\">f</span><span class=\"hljs-params\">(a, ...)</span></span>\n  <span class=\"hljs-keyword\">for</span> i = <span class=\"hljs-number\">1</span>, #a <span class=\"hljs-keyword\">do</span> <span class=\"hljs-built_in\">print</span>(a[i]) <span class=\"hljs-keyword\">end</span>\n  <span class=\"hljs-keyword\">return</span> {x = <span class=\"hljs-number\">1</span>, [<span class=\"hljs-string\">&quot;y&quot;</span>] = <span class=\"hljs-number\">2</span>}\n<span class=\"hljs-keyword\">end</span>\n<span class=\"hljs-comment\">-- comment</span>\n<span class=\"hljs-comment\">--[[ block ]]</span>\n"
+  },
+  {
+   "lang": "xml",
+   "code": "<?xml version=\"1.0\"?>\n<!DOCTYPE html>\n<root attr=\"v\">\n  <child/>\n  <!-- comment -->\n  <![CDATA[ x ]]>\n</root>\n",
+   "value": "<span class=\"hljs-meta\">&lt;?xml version=&quot;1.0&quot;?&gt;</span>\n<span class=\"hljs-meta\">&lt;!DOCTYPE <span class=\"hljs-meta-keyword\">html</span>&gt;</span>\n<span class=\"hljs-tag\">&lt;<span class=\"hljs-name\">root</span> <span class=\"hljs-attr\">attr</span>=<span class=\"hljs-string\">&quot;v&quot;</span>&gt;</span>\n  <span class=\"hljs-tag\">&lt;<span class=\"hljs-name\">child</span>/&gt;</span>\n  <span class=\"hljs-comment\">&lt;!-- comment --&gt;</span>\n  &lt;![CDATA[ x ]]&gt;\n<span class=\"hljs-tag\">&lt;/<span class=\"hljs-name\">root</span>&gt;</span>\n"
+  },
+  {
+   "lang": "html",
+   "code": "<html><head><style>body { color: red; }</style><script>let x = 1;</script></head><body class=\"a\">&amp;</body></html>\n",
+   "value": "<span class=\"hljs-tag\">&lt;<span class=\"hljs-name\">html</span>&gt;</span><span class=\"hljs-tag\">&lt;<span class=\"hljs-name\">head</span>&gt;</span><span class=\"hljs-tag\">&lt;<span class=\"hljs-name\">style</span>&gt;</span><span class=\"css\"><span class=\"hljs-selector-tag\">body</span> { <span class=\"hljs-attribute\">color</span>: red; }</span><span class=\"hljs-tag\">&lt;/<span class=\"hljs-name\">style</span>&gt;</span><span class=\"hljs-tag\">&lt;<span class=\"hljs-name\">script</span>&gt;</span><span class=\"javascript\"><span class=\"hljs-keyword\">let</span> x = <span class=\"hljs-number\">1</span>;</span><span class=\"hljs-tag\">&lt;/<span class=\"hljs-name\">script</span>&gt;</span><span class=\"hljs-tag\">&lt;/<span class=\"hljs-name\">head</span>&gt;</span><span class=\"hljs-tag\">&lt;<span class=\"hljs-name\">body</span> <span class=\"hljs-attr\">class</span>=<span class=\"hljs-string\">&quot;a&quot;</span>&gt;</span><span class=\"hljs-symbol\">&amp;amp;</span><span class=\"hljs-tag\">&lt;/<span class=\"hljs-name\">body</span>&gt;</span><span class=\"hljs-tag\">&lt;/<span class=\"hljs-name\">html</span>&gt;</span>\n"
+  },
+  {
+   "lang": "css",
+   "code": "@media (max-width: 600px) {\n  .a > #b:hover::before { color: #fff; margin: 0 1px !important; }\n}\n",
+   "value": "<span class=\"hljs-keyword\">@media</span> (<span class=\"hljs-attribute\">max-width</span>: <span class=\"hljs-number\">600px</span>) {\n  <span class=\"hljs-selector-class\">.a</span> &gt; <span class=\"hljs-selector-id\">#b</span><span class=\"hljs-selector-pseudo\">:hover</span><span class=\"hljs-selector-pseudo\">::before</span> { <span class=\"hljs-attribute\">color</span>: <span class=\"hljs-number\">#fff</span>; <span class=\"hljs-attribute\">margin</span>: <span class=\"hljs-number\">0</span> <span class=\"hljs-number\">1px</span> <span class=\"hljs-meta\">!important</span>; }\n}\n"
+  },
+  {
+   "lang": "yaml",
+   "code": "key: value\nlist:\n  - 1\n  - \"str\"\nanchor: &a\n  x: true\n# comment\n",
+   "value": "<span class=\"hljs-attr\">key:</span> <span class=\"hljs-string\">value</span>\n<span class=\"hljs-attr\">list:</span>\n  <span class=\"hljs-bullet\">-</span> <span class=\"hljs-number\">1</span>\n  <span class=\"hljs-bullet\">-</span> <span class=\"hljs-string\">&quot;str&quot;</span>\n<span class=\"hljs-attr\">anchor:</span> <span class=\"hljs-meta\">&amp;a</span>\n  <span class=\"hljs-attr\">x:</span> <span class=\"hljs-literal\">true</span>\n<span class=\"hljs-comment\"># comment</span>\n"
+  },
+  {
+   "lang": "diff",
+   "code": "--- a/file\n+++ b/file\n@@ -1,2 +1,2 @@\n-old\n+new\n context\n",
+   "value": "<span class=\"hljs-comment\">--- a/file</span>\n<span class=\"hljs-comment\">+++ b/file</span>\n<span class=\"hljs-meta\">@@ -1,2 +1,2 @@</span>\n<span class=\"hljs-deletion\">-old</span>\n<span class=\"hljs-addition\">+new</span>\n context\n"
+  },
+  {
+   "lang": "markdown",
+   "code": "# Title\n\nSome *em* and **strong** and `code`.\n\n```js\nlet x = 1;\n```\n\n- item\n[link](http://x)\n",
+   "value": "<span class=\"hljs-section\"># Title</span>\n\nSome <span class=\"hljs-emphasis\">*em*</span> and <span class=\"hljs-strong\">**strong**</span> and <span class=\"hljs-code\">`code`</span>.\n\n<span class=\"hljs-code\">```js\nlet x = 1;\n```</span>\n\n<span class=\"hljs-bullet\">-</span> item\n[<span class=\"hljs-string\">link</span>](<span class=\"hljs-link\">http://x</span>)\n"
+  },
+  {
+   "lang": "sql",
+   "code": "SELECT a, COUNT(*) FROM t WHERE b = 'x' AND c > 10 GROUP BY a; -- c\n",
+   "value": "<span class=\"hljs-keyword\">SELECT</span> a, <span class=\"hljs-built_in\">COUNT</span>(<span class=\"hljs-operator\">*</span>) <span class=\"hljs-keyword\">FROM</span> t <span class=\"hljs-keyword\">WHERE</span> b <span class=\"hljs-operator\">=</span> <span class=\"hljs-string\">&#x27;x&#x27;</span> <span class=\"hljs-keyword\">AND</span> c <span class=\"hljs-operator\">&gt;</span> <span class=\"hljs-number\">10</span> <span class=\"hljs-keyword\">GROUP</span> <span class=\"hljs-keyword\">BY</span> a; <span class=\"hljs-comment\">-- c</span>\n"
+  },
+  {
+   "lang": "scala",
+   "code": "object Main extends App {\n  case class P(x: Int)\n  val s = s\"x=${1}\"\n  def f[A](a: A): A = a\n}\n",
+   "value": "<span class=\"hljs-class\"><span class=\"hljs-keyword\">object</span> <span class=\"hljs-title\">Main</span> <span class=\"hljs-keyword\">extends</span> <span class=\"hljs-title\">App</span> </span>{\n  <span class=\"hljs-keyword\">case</span> <span class=\"hljs-class\"><span class=\"hljs-keyword\">class</span> <span class=\"hljs-title\">P</span>(<span class=\"hljs-params\">x: <span class=\"hljs-type\">Int</span></span>)</span>\n  <span class=\"hljs-keyword\">val</span> s = <span class=\"hljs-string\">s&quot;x=<span class=\"hljs-subst\">${1}</span>&quot;</span>\n  <span class=\"hljs-function\"><span class=\"hljs-keyword\">def</span> <span class=\"hljs-title\">f</span></span>[<span class=\"hljs-type\">A</span>](a: <span class=\"hljs-type\">A</span>): <span class=\"hljs-type\">A</span> = a\n}\n"
+  },
+  {
+   "lang": "dart",
+   "code": "void main() async {\n  final x = <int>[1, 2];\n  print('v: ${x.length}');\n}\n",
+   "value": "<span class=\"hljs-keyword\">void</span> main() <span class=\"hljs-keyword\">async</span> {\n  <span class=\"hljs-keyword\">final</span> x = &lt;<span class=\"hljs-built_in\">int</span>&gt;[<span class=\"hljs-number\">1</span>, <span class=\"hljs-number\">2</span>];\n  <span class=\"hljs-built_in\">print</span>(<span class=\"hljs-string\">&#x27;v: <span class=\"hljs-subst\">${x.length}</span>&#x27;</span>);\n}\n"
+  },
+  {
+   "lang": "perl",
+   "code": "use strict;\nmy $x = qw(a b);\nsub f { my ($a) = @_; return $a =~ s/x/y/gr; }\nprint \"$x\\n\";\n",
+   "value": "<span class=\"hljs-keyword\">use</span> strict;\n<span class=\"hljs-keyword\">my</span> $x = <span class=\"hljs-string\">qw(a b)</span>;\n<span class=\"hljs-function\"><span class=\"hljs-keyword\">sub</span> <span class=\"hljs-title\">f</span> </span>{ <span class=\"hljs-keyword\">my</span> ($a) = @_; <span class=\"hljs-keyword\">return</span> $a =~ <span class=\"hljs-regexp\">s/x/y/gr</span>; }\n<span class=\"hljs-keyword\">print</span> <span class=\"hljs-string\">&quot;$x\\n&quot;</span>;\n"
+  },
+  {
+   "lang": "nix",
+   "code": "{ pkgs ? import <nixpkgs> {} }:\nlet x = \"a${b}\"; in pkgs.mkShell { buildInputs = [ pkgs.git ]; }\n",
+   "value": "{ pkgs ? <span class=\"hljs-built_in\">import</span> &lt;nixpkgs&gt; {} }:\n<span class=\"hljs-keyword\">let</span> <span class=\"hljs-attr\">x</span> = <span class=\"hljs-string\">&quot;a<span class=\"hljs-subst\">${b}</span>&quot;</span>; <span class=\"hljs-keyword\">in</span> pkgs.mkShell { <span class=\"hljs-attr\">buildInputs</span> = [ pkgs.git ]; }\n"
+  },
+  {
+   "lang": "groovy",
+   "code": "def f(String s) { println \"${s}\" }\nclass A { int x = 1 }\n",
+   "value": "<span class=\"hljs-keyword\">def</span> f(String s) { println <span class=\"hljs-string\">&quot;${s}&quot;</span> }\n<span class=\"hljs-class\"><span class=\"hljs-keyword\">class</span> <span class=\"hljs-title\">A</span> {</span> <span class=\"hljs-keyword\">int</span> x = <span class=\"hljs-number\">1</span> }\n"
+  },
+  {
+   "lang": "r",
+   "code": "f <- function(x, ...) {\n  if (is.null(x)) return(NA)\n  x %>% filter(y > 1)\n}\n# c\n",
+   "value": "f &lt;- <span class=\"hljs-keyword\">function</span>(x, ...) {\n  <span class=\"hljs-keyword\">if</span> (<span class=\"hljs-built_in\">is.null</span>(x)) <span class=\"hljs-built_in\">return</span>(<span class=\"hljs-literal\">NA</span>)\n  x %&gt;% filter(y &gt; <span class=\"hljs-number\">1</span>)\n}\n<span class=\"hljs-comment\"># c</span>\n"
+  },
+  {
+   "lang": "dockerfile",
+   "code": "FROM node:18\nRUN npm ci && npm run build\nCMD [\"node\", \"x.js\"]\n",
+   "value": "<span class=\"hljs-keyword\">FROM</span> node:<span class=\"hljs-number\">18</span>\n<span class=\"hljs-keyword\">RUN</span><span class=\"bash\"> npm ci &amp;&amp; npm run build</span>\n<span class=\"hljs-keyword\">CMD</span><span class=\"bash\"> [<span class=\"hljs-string\">&quot;node&quot;</span>, <span class=\"hljs-string\">&quot;x.js&quot;</span>]</span>\n"
+  },
+  {
+   "lang": "shell",
+   "code": "$ ls -la\ntotal 0\n$ echo hi\nhi\n",
+   "value": "<span class=\"hljs-meta\">$</span><span class=\"bash\"> ls -la</span>\ntotal 0\n<span class=\"hljs-meta\">$</span><span class=\"bash\"> <span class=\"hljs-built_in\">echo</span> hi</span>\nhi\n"
+  },
+  {
+   "lang": "makefile",
+   "code": "all: build\n\nbuild:\n\t$(CC) -o $@ $<\n",
+   "value": "<span class=\"hljs-section\">all: build</span>\n\n<span class=\"hljs-section\">build:</span>\n\t<span class=\"hljs-variable\">$(CC)</span> -o <span class=\"hljs-variable\">$@</span> <span class=\"hljs-variable\">$&lt;</span>\n"
+  },
+  {
+   "lang": "mathematica",
+   "code": "f[x_] := Sin[x]^2 + Plot[foo, {x, 0, 1}]\n",
+   "value": "<span class=\"hljs-variable\">f</span><span class=\"hljs-punctuation\">[</span><span class=\"hljs-type\">x_</span><span class=\"hljs-punctuation\">]</span> <span class=\"hljs-operator\">:=</span> <span class=\"hljs-built_in\">Sin</span><span class=\"hljs-punctuation\">[</span><span class=\"hljs-variable\">x</span><span class=\"hljs-punctuation\">]</span><span class=\"hljs-operator\">^</span><span class=\"hljs-number\">2</span> <span class=\"hljs-operator\">+</span> <span class=\"hljs-built_in\">Plot</span><span class=\"hljs-punctuation\">[</span><span class=\"hljs-variable\">foo</span><span class=\"hljs-operator\">,</span> <span class=\"hljs-punctuation\">{</span><span class=\"hljs-variable\">x</span><span class=\"hljs-operator\">,</span> <span class=\"hljs-number\">0</span><span class=\"hljs-operator\">,</span> <span class=\"hljs-number\">1</span><span class=\"hljs-punctuation\">}</span><span class=\"hljs-punctuation\">]</span>\n"
+  }
+ ],
+ "auto": [
+  {
+   "code": "fn main() { let x = 1; }",
+   "language": "javascript",
+   "relevance": 3,
+   "value": "fn <span class=\"hljs-function\"><span class=\"hljs-title\">main</span>(<span class=\"hljs-params\"></span>)</span> { <span class=\"hljs-keyword\">let</span> x = <span class=\"hljs-number\">1</span>; }"
+  },
+  {
+   "code": "def f():\n    return 1",
+   "language": "ruby",
+   "relevance": 3,
+   "value": "<span class=\"hljs-function\"><span class=\"hljs-keyword\">def</span> <span class=\"hljs-title\">f</span><span class=\"hljs-params\">()</span></span>:\n    <span class=\"hljs-keyword\">return</span> <span class=\"hljs-number\">1</span>"
+  },
+  {
+   "code": "SELECT * FROM t;",
+   "language": "n1ql",
+   "relevance": 2,
+   "value": "<span class=\"hljs-keyword\">SELECT</span> * <span class=\"hljs-keyword\">FROM</span> t;"
+  },
+  {
+   "code": "<div>hi</div>",
+   "language": "applescript",
+   "relevance": 2,
+   "value": "&lt;<span class=\"hljs-keyword\">div</span>&gt;hi&lt;/<span class=\"hljs-keyword\">div</span>&gt;"
+  },
+  {
+   "code": "#include <stdio.h>\nint main() {}",
+   "language": "cpp",
+   "relevance": 5,
+   "value": "<span class=\"hljs-meta\">#<span class=\"hljs-meta-keyword\">include</span> <span class=\"hljs-meta-string\">&lt;stdio.h&gt;</span></span>\n<span class=\"hljs-function\"><span class=\"hljs-keyword\">int</span> <span class=\"hljs-title\">main</span><span class=\"hljs-params\">()</span> </span>{}"
+  }
+ ],
+ "autoSubset": {
+  "code": "let x = 1;",
+  "subset": [
+   "javascript",
+   "rust",
+   "python"
+  ],
+  "language": "javascript",
+  "value": "<span class=\"hljs-keyword\">let</span> x = <span class=\"hljs-number\">1</span>;",
+  "relevance": 1
+ }
+}

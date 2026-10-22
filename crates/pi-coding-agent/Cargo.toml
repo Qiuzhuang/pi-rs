@@ -34,6 +34,7 @@ indexmap.workspace = true
 unicode-width.workspace = true
 flate2.workspace = true
 crc32fast.workspace = true
+fancy-regex.workspace = true
 libc.workspace = true
 image.workspace = true
 unicode-normalization.workspace = true

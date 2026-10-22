@@ -3,6 +3,7 @@
 pub mod abort;
 pub mod ansi;
 pub mod changelog;
+pub mod chalk;
 pub mod child_process;
 pub mod clipboard;
 pub mod clipboard_command;
@@ -25,6 +26,7 @@ pub mod open_browser;
 pub mod output_files;
 pub mod paths;
 pub mod photon;
+pub mod process_exit;
 pub mod pi_user_agent;
 pub mod shell;
 pub mod sleep;

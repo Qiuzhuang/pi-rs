@@ -1,12 +1,15 @@
 //! Opt-in tests against real npm packages installed in `PI_JSRT_NPM_DIR` (skipped when unset):
 //!
 //! ```sh
-//! npm install @anthropic-ai/sdk openai execa glob node-fetch
+//! npm install --ignore-scripts @anthropic-ai/sdk openai execa glob node-fetch ssh2 undici jose \
+//!   node-forge tar archiver adm-zip got axios
 //! PI_JSRT_NPM_DIR=$PWD cargo test -p pi-jsrt --test npm_packages
 //! ```
 //!
 //! (`tests/modules.rs::real_npm_packages` covers ms, chalk, typebox, yaml, zod, diff, minimatch,
-//! uuid, lodash-es, nanoid and strip-ansi.) The SDKs talk to a local mock server.
+//! uuid, lodash-es, nanoid and strip-ansi.) The SDKs talk to a local mock server; network
+//! packages talk to local servers. `--ignore-scripts` keeps ssh2 on its pure-JS crypto path (no
+//! native addon), like pi-jsrt where addons cannot load.
 
 use std::path::{Path, PathBuf};
 

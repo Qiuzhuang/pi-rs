@@ -145,3 +145,175 @@ fn sets_name_on_the_selected_session_before_runtime_model_validation() {
         .collect();
     assert_eq!(names, vec!["CLI Named Session"]);
 }
+
+// ---------------------------------------------------------------------------
+// session-id-readonly.test.ts. In-process cases call `create_session_manager`; TS also spies on
+// `console.error` and `SessionManager.list`, which Rust cannot intercept, so those assertions are
+// left out. The fork-target case exits the process, so it runs the binary.
+// ---------------------------------------------------------------------------
+
+mod session_id {
+    use super::*;
+    use pi_coding_agent::cli::args::Args;
+    use pi_coding_agent::core::session_manager::{NewSessionOptions, SessionManager};
+    use pi_coding_agent::core::settings_manager::SettingsManager;
+    use pi_coding_agent::pi_main::create_session_manager;
+    use serde_json::json;
+    use std::sync::Arc;
+
+    fn has_session_with_id(root: &Path, session_id: &str) -> bool {
+        let Ok(entries) = std::fs::read_dir(root) else { return false };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() && has_session_with_id(&path, session_id) {
+                return true;
+            }
+            if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+                continue;
+            }
+            let first = std::fs::read_to_string(&path).unwrap_or_default().lines().next().unwrap_or_default().to_string();
+            if let Ok(header) = serde_json::from_str::<serde_json::Value>(&first)
+                && header["type"] == "session"
+                && header["id"] == session_id
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn persist_session(session: &SessionManager, content: &str) {
+        let now = chrono::Utc::now().timestamp_millis();
+        session
+            .append_message(pi_agent::types::AgentMessage::from_value(json!({ "role": "user", "content": content, "timestamp": now })).unwrap())
+            .unwrap();
+        session
+            .append_message(
+                pi_agent::types::AgentMessage::from_value(json!({
+                    "role": "assistant", "content": [{ "type": "text", "text": "persisted" }],
+                    "api": "anthropic-messages", "provider": "anthropic", "model": "test",
+                    "usage": { "input": 1, "output": 1, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 2,
+                        "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 } },
+                    "stopReason": "stop", "timestamp": now
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+    }
+
+    fn settings() -> Arc<SettingsManager> {
+        SettingsManager::in_memory(None, None)
+    }
+
+    fn create(cwd: &Path, dir: &Path, id: &str) -> Arc<SessionManager> {
+        SessionManager::create(
+            &cwd.to_string_lossy(),
+            Some(&dir.to_string_lossy()),
+            Some(&NewSessionOptions { id: Some(id.into()), parent_session: None }),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn does_not_persist_a_custom_id_for_metadata_commands() {
+        let (_dir, agent_dir, project_dir) = temp_root();
+        let result = run_pi(&["--session-id", "read-only-help", "--help"], &project_dir, &agent_dir, true);
+        assert_eq!(result.code, Some(0), "{}", result.stderr);
+        assert!(!has_session_with_id(&agent_dir.join("sessions"), "read-only-help"));
+    }
+
+    #[tokio::test]
+    async fn creates_missing_ids_and_reopens_existing_ids_in_process() {
+        let (dir, _agent_dir, project_dir) = temp_root();
+        let session_dir = dir.path().canonicalize().unwrap().join("sessions");
+        let cwd = project_dir.to_string_lossy().into_owned();
+        let sd = session_dir.to_string_lossy().into_owned();
+
+        let read_only = create_session_manager(
+            &Args { session_id: Some("read-only".into()), help: Some(true), ..Default::default() },
+            &cwd,
+            Some(&sd),
+            settings(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(read_only.get_session_id(), "read-only");
+        assert_eq!(read_only.get_session_file(), None);
+
+        let created = create_session_manager(&Args { session_id: Some("persisted-id".into()), ..Default::default() }, &cwd, Some(&sd), settings())
+            .await
+            .unwrap();
+        persist_session(&created, "persist me");
+        let reopened = create_session_manager(&Args { session_id: Some("persisted-id".into()), ..Default::default() }, &cwd, Some(&sd), settings())
+            .await
+            .unwrap();
+        assert_eq!(reopened.get_session_file(), created.get_session_file());
+    }
+
+    // Regression test for #9440 (TS also asserts that `SessionManager.list` is not called).
+    #[tokio::test]
+    async fn looks_up_exact_ids_without_building_full_session_listings() {
+        let (dir, _agent_dir, project_dir) = temp_root();
+        let session_dir = dir.path().canonicalize().unwrap().join("sessions");
+        let unrelated = create(&project_dir, &session_dir, "unrelated-id");
+        persist_session(&unrelated, "large transcript contents must not be loaded");
+        let created = create_session_manager(
+            &Args { session_id: Some("fresh-id".into()), ..Default::default() },
+            &project_dir.to_string_lossy(),
+            Some(&session_dir.to_string_lossy()),
+            settings(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(created.get_session_id(), "fresh-id");
+    }
+
+    #[tokio::test]
+    async fn reopens_an_exact_id_from_a_renamed_session_file() {
+        let (dir, _agent_dir, project_dir) = temp_root();
+        let session_dir = dir.path().canonicalize().unwrap().join("sessions");
+        let original = create(&project_dir, &session_dir, "renamed-id");
+        persist_session(&original, "persist me");
+        let renamed = session_dir.join("imported-session.jsonl");
+        std::fs::rename(original.get_session_file().unwrap(), &renamed).unwrap();
+        let reopened = create_session_manager(
+            &Args { session_id: Some("renamed-id".into()), ..Default::default() },
+            &project_dir.to_string_lossy(),
+            Some(&session_dir.to_string_lossy()),
+            settings(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(reopened.get_session_file(), Some(renamed.to_string_lossy().into_owned()));
+    }
+
+    #[test]
+    fn filters_exact_ids_by_cwd_in_a_custom_session_directory() {
+        let (dir, _agent_dir, _project_dir) = temp_root();
+        let root = dir.path().canonicalize().unwrap();
+        let (project_a, project_b, session_dir) = (root.join("project-a"), root.join("project-b"), root.join("sessions"));
+        std::fs::create_dir_all(&project_a).unwrap();
+        std::fs::create_dir_all(&project_b).unwrap();
+        let foreign = create(&project_b, &session_dir, "foreign-id");
+        persist_session(&foreign, "foreign session");
+        let sd = session_dir.to_string_lossy().into_owned();
+        assert_eq!(SessionManager::find_by_id(&project_a.to_string_lossy(), "foreign-id", Some(&sd)).unwrap(), None);
+        assert_eq!(SessionManager::find_by_id(&project_b.to_string_lossy(), "foreign-id", Some(&sd)).unwrap(), foreign.get_session_file());
+    }
+
+    #[test]
+    fn rejects_an_existing_fork_target() {
+        let (dir, agent_dir, project_dir) = temp_root();
+        let session_dir = dir.path().canonicalize().unwrap().join("sessions");
+        persist_session(&create(&project_dir, &session_dir, "source-id"), "source");
+        persist_session(&create(&project_dir, &session_dir, "existing-id"), "target");
+        let result = run_pi(
+            &["--session-dir", session_dir.to_str().unwrap(), "--fork", "source-id", "--session-id", "existing-id", "-p", "hi"],
+            &project_dir,
+            &agent_dir,
+            true,
+        );
+        assert_eq!(result.code, Some(1), "{}", result.stderr);
+        assert!(result.stderr.contains("Session already exists with id 'existing-id'"), "{}", result.stderr);
+    }
+}

@@ -1896,3 +1896,260 @@ async fn materializes_the_cloudflare_endpoint_after_extension_style_auth_resolut
     assert_eq!(requests[0].header("x-api-key"), None);
 }
 
+
+// ---------------------------------------------------------------------------
+// suite/regressions/7301-stalled-availability-refresh.test.ts. TS replaces `authStorage.list` and
+// `models.getAvailable`; here a credential store wrapper stalls `list`, and a native provider's
+// auth check stalls the provider-scoped pass.
+// ---------------------------------------------------------------------------
+
+use pi_coding_agent::core::provider_composer::{AuthStatus, AuthStatusSource};
+
+/// Credential store whose next `list` waits for `release` (or fails with `fail`).
+struct StallingStore {
+    inner: Arc<AuthStorage>,
+    stall: AtomicBool,
+    started: tokio::sync::Notify,
+    started_flag: AtomicBool,
+    gate: tokio::sync::Notify,
+    failure: Mutex<Option<String>>,
+    calls: AtomicUsize,
+}
+
+impl StallingStore {
+    fn new(inner: Arc<AuthStorage>) -> Arc<Self> {
+        Arc::new(Self {
+            inner,
+            stall: AtomicBool::new(false),
+            started: tokio::sync::Notify::new(),
+            started_flag: AtomicBool::new(false),
+            gate: tokio::sync::Notify::new(),
+            failure: Mutex::new(None),
+            calls: AtomicUsize::new(0),
+        })
+    }
+    fn stall_next_list(&self) {
+        self.stall.store(true, Ordering::SeqCst);
+    }
+    async fn wait_started(&self) {
+        while !self.started_flag.load(Ordering::SeqCst) {
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+    }
+    fn release(&self) {
+        self.gate.notify_one();
+    }
+    fn fail(&self, message: &str) {
+        *self.failure.lock() = Some(message.to_string());
+        self.gate.notify_one();
+    }
+}
+
+#[async_trait]
+impl CredentialStore for StallingStore {
+    async fn read(&self, provider_id: &str, signal: Option<&CancellationToken>) -> anyhow::Result<Option<Credential>> {
+        self.inner.read(provider_id, signal).await
+    }
+    async fn list(&self, signal: Option<&CancellationToken>) -> anyhow::Result<Vec<CredentialInfo>> {
+        let entries = self.inner.list(signal).await?;
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        if !self.stall.swap(false, Ordering::SeqCst) {
+            return Ok(entries);
+        }
+        self.started_flag.store(true, Ordering::SeqCst);
+        self.started.notify_waiters();
+        self.gate.notified().await;
+        if let Some(message) = self.failure.lock().take() {
+            anyhow::bail!(message);
+        }
+        Ok(entries)
+    }
+    async fn modify(&self, provider_id: &str, f: ModifyCredentialFn, signal: Option<&CancellationToken>) -> anyhow::Result<Option<Credential>> {
+        self.inner.modify(provider_id, f, signal).await
+    }
+    async fn delete(&self, provider_id: &str, signal: Option<&CancellationToken>) -> anyhow::Result<()> {
+        self.inner.delete(provider_id, signal).await
+    }
+}
+
+async fn wait_for_recovery_refresh(store: &StallingStore, runtime: &Arc<ModelRuntime>) {
+    let refresh = {
+        let runtime = runtime.clone();
+        tokio::spawn(async move { runtime.refresh(refresh_opts(false, &[])).await })
+    };
+    for _ in 0..1000 {
+        if store.calls.load(Ordering::SeqCst) >= 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(2)).await;
+    }
+    assert_eq!(store.calls.load(Ordering::SeqCst), 2);
+    refresh.await.unwrap().unwrap();
+}
+
+fn stored_status() -> AuthStatus {
+    AuthStatus::configured(AuthStatusSource::Stored, None)
+}
+
+#[tokio::test]
+async fn recovers_without_letting_the_stalled_refresh_overwrite_the_newer_snapshot() {
+    let store = StallingStore::new(AuthStorage::in_memory(None));
+    let runtime = runtime_with(store.clone()).await;
+    store.modify("stale-provider", Box::new(|_| async { Ok(Some(api_key("stale-key"))) }.boxed()), None).await.unwrap();
+    runtime.refresh(refresh_opts(false, &[])).await.unwrap();
+    assert_eq!(runtime.get_provider_auth_status("stale-provider"), stored_status());
+
+    store.stall_next_list();
+    store.calls.store(0, Ordering::SeqCst);
+    let stale_refresh = {
+        let runtime = runtime.clone();
+        tokio::spawn(async move { runtime.get_available(None, None).await })
+    };
+    store.wait_started().await;
+
+    store.delete("stale-provider", None).await.unwrap();
+    store.modify("current-provider", Box::new(|_| async { Ok(Some(api_key("current-key"))) }.boxed()), None).await.unwrap();
+    wait_for_recovery_refresh(&store, &runtime).await;
+    assert_eq!(runtime.get_provider_auth_status("stale-provider"), AuthStatus::unconfigured());
+    assert_eq!(runtime.get_provider_auth_status("current-provider"), stored_status());
+
+    store.release();
+    stale_refresh.await.unwrap().unwrap();
+    assert_eq!(runtime.get_provider_auth_status("stale-provider"), AuthStatus::unconfigured());
+    assert_eq!(runtime.get_provider_auth_status("current-provider"), stored_status());
+}
+
+#[tokio::test]
+async fn does_not_let_a_stale_failure_overwrite_newer_availability_error_state() {
+    let store = StallingStore::new(AuthStorage::in_memory(None));
+    let runtime = runtime_with(store.clone()).await;
+    store.stall_next_list();
+    store.calls.store(0, Ordering::SeqCst);
+    let stale_refresh = {
+        let runtime = runtime.clone();
+        tokio::spawn(async move { runtime.get_available(None, None).await })
+    };
+    store.wait_started().await;
+    wait_for_recovery_refresh(&store, &runtime).await;
+    assert_eq!(runtime.get_error(), None);
+
+    store.fail("stale credential list failure");
+    let error = stale_refresh.await.unwrap().unwrap_err();
+    assert!(error.to_string().contains("stale credential list failure"), "{error}");
+    assert_eq!(runtime.get_error(), None);
+}
+
+#[tokio::test]
+async fn does_not_let_a_stale_provider_scoped_failure_overwrite_a_newer_availability_pass() {
+    let runtime = runtime_with(AuthStorage::in_memory(None)).await;
+    let stall = Arc::new(AtomicBool::new(true));
+    let started = Arc::new(AtomicBool::new(false));
+    let gate = Arc::new(tokio::sync::Notify::new());
+    let (s, st, g) = (stall.clone(), started.clone(), gate.clone());
+    // The first check (the provider-scoped pass) stalls, then fails; later checks succeed.
+    let check: CheckFn = Arc::new(move |_| {
+        if s.swap(false, Ordering::SeqCst) {
+            st.store(true, Ordering::SeqCst);
+            let g = g.clone();
+            return async move {
+                g.notified().await;
+                anyhow::bail!("stale provider availability failure")
+            }
+            .boxed();
+        }
+        async { Ok(Some(AuthCheck { source: Some("stored".into()), auth_type: AuthType::ApiKey })) }.boxed()
+    });
+    runtime.register_native_provider(sync_provider("scoped", None, Some(check), None)).unwrap();
+    // Let the registration's background refresh run without the stall.
+    stall.store(false, Ordering::SeqCst);
+    runtime.refresh(refresh_opts(false, &["scoped"])).await.unwrap();
+    stall.store(true, Ordering::SeqCst);
+
+    let stale_refresh = {
+        let runtime = runtime.clone();
+        tokio::spawn(async move { runtime.get_available(Some("scoped"), None).await })
+    };
+    wait_for(&started).await;
+    runtime.get_available(None, None).await.unwrap();
+    assert_eq!(runtime.get_error(), None);
+
+    gate.notify_one();
+    let error = stale_refresh.await.unwrap().unwrap_err();
+    assert!(format!("{error:#}").contains("stale provider availability failure"), "{error:#}");
+    assert_eq!(runtime.get_error(), None);
+}
+
+// ---------------------------------------------------------------------------
+// suite/regressions/7027-credential-refresh-hang.test.ts (the ModelRuntime case; the
+// `completeProviderAuthentication` cases belong to interactive mode).
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn does_not_hold_login_behind_an_older_stalled_network_catalog_refresh() {
+    let network_started = Arc::new(AtomicBool::new(false));
+    let started = network_started.clone();
+    let refresh: RefreshFn = Arc::new(move |context| {
+        if !context.allow_network {
+            return async { Ok(()) }.boxed();
+        }
+        started.store(true, Ordering::SeqCst);
+        pending()
+    });
+    let login: LoginFn = Arc::new(|| async { Ok(ApiKeyCredential { key: Some("secret".into()), env: None }) }.boxed());
+    // Unlike `sync_provider`, resolve falls back to an ambient key, so the network phase runs.
+    let resolve: ResolveFn = Arc::new(|credential: Option<ApiKeyCredential>| {
+        async move {
+            let key = credential.and_then(|c| c.key);
+            let source = if key.is_some() { "stored key" } else { "ambient key" };
+            Ok(Some(AuthResult {
+                auth: ModelAuth { api_key: Some(key.unwrap_or_else(|| "ambient-key".into())), ..Default::default() },
+                env: None,
+                source: Some(source.into()),
+            }))
+        }
+        .boxed()
+    });
+    let provider = Arc::new(TestProvider {
+        id: "stalled-login".into(),
+        name: "Stalled Login".into(),
+        auth: ProviderAuth {
+            api_key: Some(Arc::new(TestApiKeyAuth {
+                name: "API key".into(),
+                login: Some(login),
+                check: Some(Arc::new(|credential: Option<ApiKeyCredential>| {
+                    async move {
+                        Ok(credential
+                            .and_then(|c| c.key)
+                            .map(|_| AuthCheck { source: Some("stored key".into()), auth_type: AuthType::ApiKey }))
+                    }
+                    .boxed()
+                })),
+                resolve,
+            })),
+            oauth: None,
+        },
+        models: vec![model_json("stalled-login", "dynamic", "https://example.test/v1")],
+        refresh: Some(refresh),
+        deferred: None,
+    });
+    let credentials = AuthStorage::in_memory(None);
+    let runtime = runtime_with_provider(provider, credentials.clone()).await;
+
+    let stalled_refresh = {
+        let runtime = runtime.clone();
+        tokio::spawn(async move { runtime.refresh(refresh_opts(true, &["stalled-login"])).await })
+    };
+    wait_for(&network_started).await;
+    let credential = tokio::time::timeout(
+        Duration::from_secs(5),
+        runtime.login("stalled-login", AuthType::ApiKey, interaction("unused"), None, None),
+    )
+    .await
+    .expect("login is not held behind the stalled refresh")
+    .unwrap();
+    assert_eq!(credential, api_key("secret"));
+    assert!(runtime.get_available_snapshot().iter().any(|m| m.id == "dynamic"));
+    assert_eq!(credentials.read("stalled-login", None).await.unwrap(), Some(api_key("secret")));
+    let result = tokio::time::timeout(Duration::from_secs(5), stalled_refresh).await.expect("stalled refresh settles").unwrap().unwrap();
+    assert!(!result.aborted);
+}

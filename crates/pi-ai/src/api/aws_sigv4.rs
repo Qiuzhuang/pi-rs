@@ -7,14 +7,32 @@ use sha2::{Digest, Sha256};
 type HmacSha256 = Hmac<Sha256>;
 
 /// Static AWS credentials.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct AwsCredentials {
     pub access_key_id: String,
     pub secret_access_key: String,
     pub session_token: Option<String>,
     /// Expiration (epoch ms), when the source reports one.
     pub expiration_ms: Option<i64>,
+    /// `credentials.accountId`, when the source reports one (the user agent then carries the
+    /// `RESOLVED_ACCOUNT_ID` feature).
+    pub account_id: Option<String>,
+    /// `credentials.$source`: the user agent feature ids (`setCredentialFeature`) of the providers
+    /// that produced these credentials, in the order they were first set. Not compared by `==`.
+    pub features: Vec<(&'static str, &'static str)>,
 }
+
+impl PartialEq for AwsCredentials {
+    fn eq(&self, other: &Self) -> bool {
+        self.access_key_id == other.access_key_id
+            && self.secret_access_key == other.secret_access_key
+            && self.session_token == other.session_token
+            && self.expiration_ms == other.expiration_ms
+            && self.account_id == other.account_id
+    }
+}
+
+impl Eq for AwsCredentials {}
 
 impl std::fmt::Debug for AwsCredentials {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -23,13 +41,43 @@ impl std::fmt::Debug for AwsCredentials {
             .field("secret_access_key", &"<redacted>")
             .field("session_token", &self.session_token.as_ref().map(|_| "<redacted>"))
             .field("expiration_ms", &self.expiration_ms)
+            .field("account_id", &self.account_id)
+            .field("features", &self.features)
             .finish()
     }
 }
 
 impl AwsCredentials {
     pub fn new(access_key_id: impl Into<String>, secret_access_key: impl Into<String>, session_token: Option<String>) -> Self {
-        Self { access_key_id: access_key_id.into(), secret_access_key: secret_access_key.into(), session_token, expiration_ms: None }
+        Self {
+            access_key_id: access_key_id.into(),
+            secret_access_key: secret_access_key.into(),
+            session_token,
+            expiration_ms: None,
+            account_id: None,
+            features: Vec::new(),
+        }
+    }
+
+    /// `setCredentialFeature(credentials, name, id)`: a property assignment, so a feature set
+    /// again keeps its first position.
+    pub fn set_feature(&mut self, name: &'static str, id: &'static str) {
+        match self.features.iter_mut().find(|(existing, _)| *existing == name) {
+            Some(entry) => entry.1 = id,
+            None => self.features.push((name, id)),
+        }
+    }
+
+    /// [`set_feature`](Self::set_feature) by value.
+    pub fn with_feature(mut self, name: &'static str, id: &'static str) -> Self {
+        self.set_feature(name, id);
+        self
+    }
+
+    /// Set `account_id` from a non-empty value.
+    pub fn with_account_id(mut self, account_id: Option<String>) -> Self {
+        self.account_id = account_id.filter(|id| !id.is_empty());
+        self
     }
 }
 

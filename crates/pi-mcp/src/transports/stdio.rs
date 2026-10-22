@@ -344,8 +344,8 @@ impl Inner {
             if text.trim().is_empty() {
                 continue;
             }
-            let parsed = serde_json::from_str(text)
-                .map_err(|error| Error::Other(error.to_string()))
+            let parsed = pi_json::js_json_parse(text)
+                .map_err(Error::Other)
                 .and_then(parse_json_rpc_message);
             match parsed {
                 Ok(message) => self.events.emit_message(message),

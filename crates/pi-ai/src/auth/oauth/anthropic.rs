@@ -45,12 +45,26 @@ fn redirect_uri() -> String {
     format!("http://localhost:{CALLBACK_PORT}{CALLBACK_PATH}")
 }
 
+/// `formatErrorDetails`: `<name>: <message>`, the Node error `code`, then the cause, recursively.
+/// (Stack traces have no Rust equivalent.)
 fn format_error_details(error: &anyhow::Error) -> String {
-    let mut details = vec![format!("Error: {error}")];
-    if let Some(cause) = error.chain().nth(1) {
-        details.push(format!("cause={cause}"));
+    use crate::utils::http::{FetchFailed, FetchTerminated, NetworkError};
+    let mut parts = Vec::new();
+    for (depth, error) in error.chain().enumerate() {
+        let is_type_error = error.is::<FetchFailed>()
+            || error.is::<FetchTerminated>()
+            || matches!(
+                error.downcast_ref::<super::http::OAuthFetchError>(),
+                Some(super::http::OAuthFetchError::Network(_) | super::http::OAuthFetchError::Terminated(_))
+            );
+        let name = if is_type_error { "TypeError" } else { "Error" };
+        let mut details = format!("{name}: {error}");
+        if let Some(code) = error.downcast_ref::<NetworkError>().and_then(|e| e.code) {
+            details.push_str(&format!("; code={code}"));
+        }
+        parts.push(if depth == 0 { details } else { format!("cause={details}") });
     }
-    details.join("; ")
+    parts.join("; ")
 }
 
 async fn post_json(
@@ -79,10 +93,9 @@ fn credential_from_tokens(
     url: &str,
     invalid_prefix: &str,
 ) -> anyhow::Result<OAuthCredential> {
-    let data: Value = serde_json::from_str(body).map_err(|e| {
-        anyhow::anyhow!(
-            "{invalid_prefix} returned invalid JSON. url={url}; body={body}; details=Error: {e}"
-        )
+    // `formatErrorDetails` of the `SyntaxError` (its stack trace has no Rust equivalent).
+    let data: Value = crate::utils::js_json::js_json_parse(body).map_err(|e| {
+        anyhow::anyhow!("{invalid_prefix} returned invalid JSON. url={url}; body={body}; details=SyntaxError: {e}")
     })?;
     let expires_in = data
         .get("expires_in")

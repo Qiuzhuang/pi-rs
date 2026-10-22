@@ -1029,7 +1029,7 @@ impl GoogleClient {
             }
             None => send.await,
         }
-        .map_err(|e| anyhow::anyhow!("fetch failed: {e}"))?;
+        .map_err(|e| anyhow::Error::new(crate::utils::http::FetchFailed::new(&e)))?;
         let status = response.status();
         if !status.is_success() {
             let is_json = response
@@ -1117,8 +1117,7 @@ impl GoogleChunkReader {
             let trimmed = event.trim();
             if let Some(data) = trimmed.strip_prefix("data:") {
                 let data = data.trim();
-                let json: Value = serde_json::from_str(data)
-                    .map_err(|e| anyhow::anyhow!("Unexpected token in JSON at position {}: {e}", e.column()))?;
+                let json: Value = crate::utils::js_json::js_json_parse(data).map_err(anyhow::Error::msg)?;
                 self.queue.push_back(json);
             }
         }

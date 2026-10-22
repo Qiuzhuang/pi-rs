@@ -6,53 +6,7 @@ use std::cmp::Ordering;
 
 use serde_json::Value;
 
-/// JavaScript `String(number)` for a finite or non-finite double.
-pub fn number_to_string(value: f64) -> String {
-    if value.is_nan() {
-        return "NaN".to_string();
-    }
-    if value.is_infinite() {
-        return if value > 0.0 { "Infinity" } else { "-Infinity" }.to_string();
-    }
-    if value == 0.0 {
-        return "0".to_string();
-    }
-    let negative = value < 0.0;
-    // Rust's `{:e}` prints the shortest round-tripping digits, like ECMAScript's Number::toString.
-    let formatted = format!("{:e}", value.abs());
-    let (mantissa, exponent) = formatted.split_once('e').unwrap_or((formatted.as_str(), "0"));
-    let digits: String = mantissa.chars().filter(|c| *c != '.').collect();
-    let exponent: i64 = exponent.parse().unwrap_or(0);
-    let k = digits.len() as i64;
-    let n = exponent + 1;
-    let mut out = String::new();
-    if negative {
-        out.push('-');
-    }
-    if k <= n && n <= 21 {
-        out.push_str(&digits);
-        out.extend(std::iter::repeat_n('0', (n - k) as usize));
-    } else if 0 < n && n <= 21 {
-        out.push_str(&digits[..n as usize]);
-        out.push('.');
-        out.push_str(&digits[n as usize..]);
-    } else if -6 < n && n <= 0 {
-        out.push_str("0.");
-        out.extend(std::iter::repeat_n('0', (-n) as usize));
-        out.push_str(&digits);
-    } else {
-        let e = n - 1;
-        out.push_str(&digits[..1]);
-        if k > 1 {
-            out.push('.');
-            out.push_str(&digits[1..]);
-        }
-        out.push('e');
-        out.push(if e >= 0 { '+' } else { '-' });
-        out.push_str(&e.abs().to_string());
-    }
-    out
-}
+pub use pi_json::{number_to_string, object_keys, quote};
 
 /// JavaScript `String(value)` of a JSON number.
 pub fn json_number_to_string(number: &serde_json::Number) -> String {
@@ -63,47 +17,6 @@ pub fn json_number_to_string(number: &serde_json::Number) -> String {
         return value.to_string();
     }
     number_to_string(number.as_f64().unwrap_or(f64::NAN))
-}
-
-/// `JSON.stringify(string)`.
-pub fn quote(text: &str) -> String {
-    let mut out = String::with_capacity(text.len() + 2);
-    out.push('"');
-    for c in text.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\u{8}' => out.push_str("\\b"),
-            '\u{c}' => out.push_str("\\f"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
-            c => out.push(c),
-        }
-    }
-    out.push('"');
-    out
-}
-
-/// Whether `key` is an array index, which JavaScript orders before other keys.
-fn is_array_index(key: &str) -> bool {
-    if key == "0" {
-        return true;
-    }
-    !key.is_empty()
-        && !key.starts_with('0')
-        && key.len() <= 10
-        && key.bytes().all(|b| b.is_ascii_digit())
-        && key.parse::<u64>().is_ok_and(|n| n < u32::MAX as u64)
-}
-
-/// Object keys in JavaScript property order: array indices ascending, then insertion order.
-pub fn object_keys(map: &serde_json::Map<String, Value>) -> Vec<&String> {
-    let mut indices: Vec<&String> = map.keys().filter(|key| is_array_index(key)).collect();
-    indices.sort_by_key(|key| key.parse::<u64>().unwrap_or(0));
-    indices.extend(map.keys().filter(|key| !is_array_index(key)));
-    indices
 }
 
 /// `JSON.stringify(value)` without indentation.

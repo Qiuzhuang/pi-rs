@@ -643,20 +643,101 @@ pub struct DeferredHandle {
 // ---------------------------------------------------------------------------
 
 /// System instructions and tool declarations at one point in the transcript.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+///
+/// JSON key order follows how TS builds the message: `role`, `content`, `sections`, then
+/// `timestamp` before `toolsAdded`/`toolsRemoved` (the agent loop's tool-change messages), or after
+/// them when [`timestamp_last`](Self::timestamp_last) is set (`createInitialSystemMessage`,
+/// `getCurrentSystemMessage`). Parsing records which order the input used, so a message is
+/// written back as read.
+#[derive(Debug, Clone, Default)]
 pub struct SystemMessage {
-    #[serde(default, deserialize_with = "null_as_default")]
     pub content: SystemContent,
     /// Named, ordered prompt sections; `None` (null) removes one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sections: Option<IndexMap<String, Option<String>>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tools_added: Option<Vec<Tool>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tools_removed: Option<Vec<ToolReference>>,
-    #[serde(with = "lax_i64")]
     pub timestamp: i64,
+    /// Serialize `timestamp` after the tool fields. Only affects key order; ignored by `==`.
+    pub timestamp_last: bool,
+}
+
+impl PartialEq for SystemMessage {
+    fn eq(&self, other: &Self) -> bool {
+        self.content == other.content
+            && self.sections == other.sections
+            && self.tools_added == other.tools_added
+            && self.tools_removed == other.tools_removed
+            && self.timestamp == other.timestamp
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SystemMessageWire {
+    #[serde(default, deserialize_with = "null_as_default")]
+    content: SystemContent,
+    #[serde(default)]
+    sections: Option<IndexMap<String, Option<String>>>,
+    #[serde(default)]
+    tools_added: Option<Vec<Tool>>,
+    #[serde(default)]
+    tools_removed: Option<Vec<ToolReference>>,
+    #[serde(with = "lax_i64")]
+    timestamp: i64,
+}
+
+impl Serialize for SystemMessage {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        struct Timestamp(i64);
+        impl Serialize for Timestamp {
+            fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                lax_i64::serialize(&self.0, serializer)
+            }
+        }
+        let len = 2
+            + usize::from(self.sections.is_some())
+            + usize::from(self.tools_added.is_some())
+            + usize::from(self.tools_removed.is_some());
+        let mut state = serializer.serialize_struct("SystemMessage", len)?;
+        state.serialize_field("content", &self.content)?;
+        if let Some(sections) = &self.sections {
+            state.serialize_field("sections", sections)?;
+        }
+        if !self.timestamp_last {
+            state.serialize_field("timestamp", &Timestamp(self.timestamp))?;
+        }
+        if let Some(tools) = &self.tools_added {
+            state.serialize_field("toolsAdded", tools)?;
+        }
+        if let Some(tools) = &self.tools_removed {
+            state.serialize_field("toolsRemoved", tools)?;
+        }
+        if self.timestamp_last {
+            state.serialize_field("timestamp", &Timestamp(self.timestamp))?;
+        }
+        state.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for SystemMessage {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let map = Map::<String, Value>::deserialize(deserializer)?;
+        let position = |key: &str| map.keys().position(|k| k == key);
+        let timestamp_last = match (position("timestamp"), position("toolsAdded"), position("toolsRemoved")) {
+            (Some(timestamp), added, removed) => added.into_iter().chain(removed).any(|tools| tools < timestamp),
+            _ => false,
+        };
+        let wire = SystemMessageWire::deserialize(Value::Object(map)).map_err(D::Error::custom)?;
+        Ok(SystemMessage {
+            content: wire.content,
+            sections: wire.sections,
+            tools_added: wire.tools_added,
+            tools_removed: wire.tools_removed,
+            timestamp: wire.timestamp,
+            timestamp_last,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

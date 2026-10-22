@@ -12,6 +12,7 @@ base64 = { workspace = true }
 bytes = { workspace = true }
 futures = { workspace = true }
 once_cell = { workspace = true }
+pi-json = { workspace = true }
 parking_lot = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }

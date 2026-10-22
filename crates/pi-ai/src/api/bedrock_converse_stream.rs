@@ -20,7 +20,6 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use bytes::Bytes;
 use futures::{Stream, StreamExt};
-use rand::Rng;
 use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
 
@@ -768,12 +767,12 @@ fn default_endpoint(region: &str) -> String {
 
 /// `user-agent` and `x-amz-user-agent` of the `BedrockRuntimeClient` (`customUserAgent` from the
 /// client identity; a custom string becomes a single-name section).
-fn sdk_user_agent(config: &BedrockClientConfig, app_id: Option<&str>) -> (String, String) {
+fn sdk_user_agent(config: &BedrockClientConfig, app_id: Option<&str>, credentials: Option<&AwsCredentials>) -> (String, String) {
     let mut custom = config.custom_user_agent.clone();
     if let Some(text) = &config.custom_user_agent_string {
         custom.push((text.clone(), None));
     }
-    super::aws_credentials::aws_sdk_user_agent(AWS_SDK_VERSION, "Bedrock Runtime", &custom, app_id)
+    super::aws_credentials::aws_sdk_user_agent(AWS_SDK_VERSION, "Bedrock Runtime", &custom, app_id, credentials)
 }
 
 // ---------------------------------------------------------------------------
@@ -800,7 +799,8 @@ pub(crate) const TRANSIENT_STATUSES: [u16; 4] = [500, 502, 503, 504];
 
 enum Attempt {
     Ok(reqwest::Response),
-    Failed { error: anyhow::Error, retryable: bool, throttling: bool },
+    /// `retry_after`: the response's retry-after hint (epoch ms).
+    Failed { error: anyhow::Error, retryable: bool, throttling: bool, retry_after: Option<i64> },
 }
 
 fn max_attempts() -> u32 {
@@ -875,7 +875,7 @@ async fn attempt_request(
         Some(signal) => tokio::select! {
             r = send => r,
             _ = signal.cancelled() => {
-                return Attempt::Failed { error: anyhow::anyhow!("Request aborted"), retryable: false, throttling: false };
+                return Attempt::Failed { error: anyhow::anyhow!("Request aborted"), retryable: false, throttling: false, retry_after: None };
             }
         },
         None => send.await,
@@ -883,8 +883,13 @@ async fn attempt_request(
     let response = match result {
         Ok(response) => response,
         Err(error) => {
-            let message = if error.is_timeout() { format!("Connection timed out: {error}") } else { error.to_string() };
-            return Attempt::Failed { error: anyhow::anyhow!(message), retryable: true, throttling: false };
+            // The SDK's Node HTTP handler rejects with the socket error itself.
+            let message = if error.is_timeout() {
+                format!("Connection timed out: {error}")
+            } else {
+                crate::utils::http::NetworkError::from_reqwest(&error).to_string()
+            };
+            return Attempt::Failed { error: anyhow::anyhow!(message), retryable: true, throttling: false, retry_after: None };
         }
     };
     let status = response.status().as_u16();
@@ -892,6 +897,7 @@ async fn attempt_request(
         return Attempt::Ok(response);
     }
     let headers = response.headers().clone();
+    let retry_after = super::aws_credentials::retry_after_hint(&headers);
     let body = response.text().await.unwrap_or_default();
     let error = parse_service_error(status, &headers, &body);
     let name = match &error {
@@ -900,7 +906,7 @@ async fn attempt_request(
     };
     let throttling = status == 429 || THROTTLING_CODES.contains(&name.as_str());
     let retryable = throttling || TRANSIENT_STATUSES.contains(&status) || TRANSIENT_CODES.contains(&name.as_str());
-    Attempt::Failed { error: error.into(), retryable, throttling }
+    Attempt::Failed { error: error.into(), retryable, throttling, retry_after }
 }
 
 enum RequestAuth {
@@ -920,13 +926,12 @@ async fn send_with_retries(
     loop {
         match attempt_request(client, prepared, attempt, max, auth, region, signal).await {
             Attempt::Ok(response) => return Ok(response),
-            Attempt::Failed { error, retryable, throttling } => {
+            Attempt::Failed { error, retryable, throttling, retry_after } => {
                 if !retryable || attempt >= max || signal.is_some_and(|s| s.is_cancelled()) {
                     return Err(error);
                 }
-                let base = if throttling { 500.0 } else { 100.0 };
-                let delay = (rand::thread_rng().r#gen::<f64>() * 2f64.powi(attempt as i32 - 1) * base).min(20_000.0);
-                let sleep = tokio::time::sleep(Duration::from_millis(delay as u64));
+                let delay = super::aws_credentials::sdk_retry_delay_ms(attempt - 1, throttling, retry_after);
+                let sleep = tokio::time::sleep(Duration::from_millis(delay));
                 match signal {
                     Some(signal) => tokio::select! {
                         _ = sleep => {},
@@ -1262,7 +1267,12 @@ async fn run_stream(model: Model, context: TranscriptContext, options: StreamOpt
         let auth = if let Some(token) = &config.bearer_token {
             RequestAuth::Bearer(token.clone())
         } else if let Some(credentials) = &config.credentials {
-            RequestAuth::SigV4(credentials.clone())
+            // `config.credentials` given as an object: the SDK attributes it to code (`e`).
+            let mut credentials = credentials.clone();
+            if credentials.features.is_empty() {
+                credentials.set_feature("CREDENTIALS_CODE", "e");
+            }
+            RequestAuth::SigV4(credentials)
         } else {
             let context = CredentialContext {
                 client: client.clone(),
@@ -1276,7 +1286,11 @@ async fn run_stream(model: Model, context: TranscriptContext, options: StreamOpt
             Some(port) => format!("{}:{port}", url.host_str().unwrap_or_default()),
             None => url.host_str().unwrap_or_default().to_string(),
         };
-        let (user_agent, x_amz_user_agent) = sdk_user_agent(&config, app_id.as_deref());
+        let signing = match &auth {
+            RequestAuth::SigV4(credentials) => Some(credentials),
+            RequestAuth::Bearer(_) => None,
+        };
+        let (user_agent, x_amz_user_agent) = sdk_user_agent(&config, app_id.as_deref(), signing);
         let mut headers: Vec<(String, String)> = vec![
             ("content-type".into(), "application/json".into()),
             ("x-amz-user-agent".into(), x_amz_user_agent),

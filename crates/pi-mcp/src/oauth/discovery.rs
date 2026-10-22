@@ -306,7 +306,8 @@ pub fn select_resource(
             metadata.resource
         ))
     };
-    if requested.origin() != configured.origin() {
+    // `URL.origin` is the string "null" for opaque origins, so two of them compare equal in JS.
+    if requested.origin().ascii_serialization() != configured.origin().ascii_serialization() {
         return Err(mismatch());
     }
     let with_slash = |path: &str| {
@@ -392,5 +393,13 @@ mod tests {
         assert!(select_resource(&server, Some(&metadata("https://mcp.example/other"))).is_err());
         assert!(select_resource(&server, Some(&metadata("https://other.example/api"))).is_err());
         assert_eq!(select_resource(&server, None).unwrap(), None);
+        // Opaque origins serialize as "null" in JS and so compare equal.
+        let opaque = Url::parse("custom://a/mcp").unwrap();
+        assert_eq!(
+            select_resource(&opaque, Some(&metadata("other://b/"))).unwrap().as_deref(),
+            Some("other://b/")
+        );
+        assert!(select_resource(&opaque, Some(&metadata("other://b/x"))).is_err());
+        assert!(select_resource(&server, Some(&metadata("other://b/"))).is_err());
     }
 }

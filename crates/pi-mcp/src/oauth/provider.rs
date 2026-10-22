@@ -95,8 +95,12 @@ pub type RedirectFn = Arc<dyn Fn(&Url) -> Result<()> + Send + Sync>;
 pub struct McpOAuthProviderOptions {
     pub server_url: Url,
     pub redirect_url: String,
-    /// `redirect_uris` defaults to `[redirect_url]` when empty.
+    /// Client metadata for registration. Its `redirect_uris` is used when [`Self::redirect_uris`]
+    /// is `None` and the list is not empty.
     pub client_metadata: OAuthClientMetadata,
+    /// TS `clientMetadata.redirect_uris`: `None` defaults to `[redirect_url]` (or a non-empty
+    /// `client_metadata.redirect_uris`); `Some` is kept as given, even when empty.
+    pub redirect_uris: Option<Vec<String>>,
     /// See [`OAuthClientProvider::client_metadata_document`].
     pub client_metadata_document: Option<ClientMetadataDocumentFn>,
     pub client_id: Option<String>,
@@ -115,6 +119,7 @@ impl McpOAuthProviderOptions {
             server_url,
             redirect_url: redirect_url.into(),
             client_metadata: OAuthClientMetadata::default(),
+            redirect_uris: None,
             client_metadata_document: None,
             client_id: None,
             client_secret: None,
@@ -148,8 +153,12 @@ impl McpOAuthProvider {
     pub fn new(options: McpOAuthProviderOptions) -> Self {
         let redirect_url = options.redirect_url;
         let mut client_metadata = options.client_metadata;
-        if client_metadata.redirect_uris.is_empty() {
-            client_metadata.redirect_uris = vec![redirect_url.clone()];
+        match options.redirect_uris {
+            Some(redirect_uris) => client_metadata.redirect_uris = redirect_uris,
+            None if client_metadata.redirect_uris.is_empty() => {
+                client_metadata.redirect_uris = vec![redirect_url.clone()];
+            }
+            None => {}
         }
         if client_metadata.grant_types.is_none() {
             client_metadata.grant_types =
@@ -350,5 +359,35 @@ impl OAuthClientProvider for McpOAuthProvider {
 
     async fn discovery_state(&self) -> Result<Option<OAuthDiscoveryState>> {
         Ok(self.load().await?.discovery)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn provider(configure: impl FnOnce(&mut McpOAuthProviderOptions)) -> McpOAuthProvider {
+        let mut options = McpOAuthProviderOptions::new(
+            Url::parse("https://mcp.example/mcp").unwrap(),
+            "http://127.0.0.1/callback",
+            |_| Ok(()),
+        );
+        configure(&mut options);
+        McpOAuthProvider::new(options)
+    }
+
+    #[test]
+    fn redirect_uris_default_to_the_redirect_url_but_an_explicit_empty_list_is_kept() {
+        assert_eq!(provider(|_| {}).client_metadata().redirect_uris, vec!["http://127.0.0.1/callback"]);
+        assert_eq!(
+            provider(|options| options.redirect_uris = Some(Vec::new())).client_metadata().redirect_uris,
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            provider(|options| options.redirect_uris = Some(vec!["http://localhost/cb".into()]))
+                .client_metadata()
+                .redirect_uris,
+            vec!["http://localhost/cb"]
+        );
     }
 }

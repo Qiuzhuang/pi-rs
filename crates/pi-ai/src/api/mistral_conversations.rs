@@ -465,7 +465,7 @@ fn parse_event(raw: &str) -> anyhow::Result<Option<MistralEvent>> {
     if data == "[DONE]" {
         return Ok(Some(MistralEvent::Done));
     }
-    let parsed: Value = serde_json::from_str(data)?;
+    let parsed: Value = crate::utils::js_json::js_json_parse(data).map_err(anyhow::Error::msg)?;
     if !parsed.is_object() || !parsed.get("choices").is_some_and(Value::is_array) {
         anyhow::bail!("Invalid Mistral streaming event");
     }
@@ -590,7 +590,7 @@ async fn request_mistral_stream(
     };
     let response = match response {
         Err(_) => anyhow::bail!("Mistral response headers timed out after {timeout_ms}ms"),
-        Ok(result) => result.map_err(|e| anyhow::anyhow!("fetch failed: {e}"))?,
+        Ok(result) => result.map_err(|e| anyhow::Error::new(crate::utils::http::FetchFailed::new(&e)))?,
     };
     if let Some(on_response) = &options.on_response {
         on_response(ProviderResponse { status: response.status().as_u16(), headers: headers_to_record(response.headers()) }, model.clone())

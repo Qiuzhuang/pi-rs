@@ -355,7 +355,9 @@ fn parse_pi_messages_event(raw: &str) -> anyhow::Result<Option<Value>> {
         .find(|line| line.starts_with("data:"))
         .map(|line| line[5..].trim());
     match data {
-        Some(data) if !data.is_empty() && data != "[DONE]" => Ok(Some(serde_json::from_str(data)?)),
+        Some(data) if !data.is_empty() && data != "[DONE]" => {
+            Ok(Some(crate::utils::js_json::js_json_parse_as(data).map_err(anyhow::Error::msg)?))
+        }
         _ => Ok(None),
     }
 }

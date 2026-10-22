@@ -256,3 +256,135 @@ mod tests {
         }
     }
 }
+
+/// A `fetch` that failed before a response arrived: undici's `TypeError: fetch failed`.
+///
+/// The message is exactly `fetch failed`, as in Node; the network error is the
+/// [`source`](std::error::Error::source) (`error.cause`), worded like Node's
+/// (`connect ECONNREFUSED 127.0.0.1:8080`, `getaddrinfo ENOTFOUND example.invalid`) and carrying
+/// its errno-style `code`. Callers that show causes (version check, tool downloads, OAuth
+/// details) read it from the chain.
+#[derive(Debug, Clone, thiserror::Error)]
+#[error("fetch failed")]
+pub struct FetchFailed {
+    #[source]
+    pub cause: NetworkError,
+}
+
+/// The `cause` of a [`FetchFailed`] (or of a body read that was `terminated`).
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{message}")]
+pub struct NetworkError {
+    /// Node's `error.code` (`ECONNREFUSED`, `ENOTFOUND`, `ETIMEDOUT`, ...), when known.
+    pub code: Option<&'static str>,
+    pub message: String,
+}
+
+impl FetchFailed {
+    pub fn new(error: &reqwest::Error) -> Self {
+        Self { cause: NetworkError::from_reqwest(error) }
+    }
+}
+
+/// `TypeError: terminated`: the connection failed while the response body was being read.
+#[derive(Debug, Clone, thiserror::Error)]
+#[error("terminated")]
+pub struct FetchTerminated {
+    #[source]
+    pub cause: NetworkError,
+}
+
+impl NetworkError {
+    /// Describe a reqwest transport error the way Node's network stack words it.
+    pub fn from_reqwest(error: &reqwest::Error) -> Self {
+        let url = error.url();
+        let host = url.and_then(|u| u.host_str()).unwrap_or("localhost").trim_start_matches('[').trim_end_matches(']');
+        // Connections go to the proxy when the environment configures one for this URL.
+        let proxy = url
+            .and_then(|u| get_proxy_url_for_target(u.as_str(), None))
+            .and_then(|p| reqwest::Url::parse(&p).ok());
+        let connect_url = proxy.as_ref().or(url);
+        let connect_host = connect_url.and_then(|u| u.host_str()).unwrap_or(host).trim_start_matches('[').trim_end_matches(']');
+        let address = match connect_url.and_then(|u| u.port_or_known_default()) {
+            Some(port) => format!("{connect_host}:{port}"),
+            None => connect_host.to_string(),
+        };
+        let mut texts: Vec<String> = Vec::new();
+        let mut io_kind = None;
+        let mut source: Option<&(dyn std::error::Error + 'static)> = std::error::Error::source(error);
+        while let Some(current) = source {
+            if let Some(io) = current.downcast_ref::<std::io::Error>() {
+                io_kind.get_or_insert(io.kind());
+            }
+            texts.push(current.to_string());
+            source = current.source();
+        }
+        let all = texts.join(": ").to_ascii_lowercase();
+        let node = |code: &'static str, message: String| Self { code: Some(code), message };
+        if all.contains("dns error") || all.contains("failed to lookup address") {
+            return node("ENOTFOUND", format!("getaddrinfo ENOTFOUND {connect_host}"));
+        }
+        use std::io::ErrorKind;
+        match io_kind {
+            Some(ErrorKind::ConnectionRefused) => return node("ECONNREFUSED", format!("connect ECONNREFUSED {address}")),
+            Some(ErrorKind::ConnectionReset) => return node("ECONNRESET", "read ECONNRESET".into()),
+            Some(ErrorKind::ConnectionAborted) => return node("ECONNABORTED", "read ECONNABORTED".into()),
+            Some(ErrorKind::TimedOut) => return node("ETIMEDOUT", format!("connect ETIMEDOUT {address}")),
+            Some(ErrorKind::HostUnreachable) => return node("EHOSTUNREACH", format!("connect EHOSTUNREACH {address}")),
+            Some(ErrorKind::NetworkUnreachable) => return node("ENETUNREACH", format!("connect ENETUNREACH {address}")),
+            Some(ErrorKind::BrokenPipe) => return node("EPIPE", "write EPIPE".into()),
+            _ => {}
+        }
+        if error.is_timeout() {
+            return node("UND_ERR_CONNECT_TIMEOUT", format!("Connect Timeout Error (attempted address: {address})"));
+        }
+        if all.contains("unknownissuer") {
+            return node("UNABLE_TO_GET_ISSUER_CERT_LOCALLY", "unable to get local issuer certificate".into());
+        }
+        if all.contains("expired") && all.contains("certificate") {
+            return node("CERT_HAS_EXPIRED", "certificate has expired".into());
+        }
+        if all.contains("notvalidforname") {
+            return node(
+                "ERR_TLS_CERT_ALTNAME_INVALID",
+                format!("Hostname/IP does not match certificate's altnames: Host: {host}. is not in the cert's altnames"),
+            );
+        }
+        if all.contains("connection closed") || all.contains("incomplete message") {
+            return node("UND_ERR_SOCKET", "other side closed".into());
+        }
+        // Anything else: the innermost description.
+        Self { code: None, message: texts.pop().unwrap_or_else(|| error.to_string()) }
+    }
+}
+
+/// `true` when `error`'s chain holds a [`FetchFailed`] or [`FetchTerminated`]: a network failure
+/// rather than an HTTP error.
+pub fn is_fetch_failure(error: &anyhow::Error) -> bool {
+    error.chain().any(|e| e.is::<FetchFailed>() || e.is::<FetchTerminated>())
+}
+
+#[cfg(test)]
+mod fetch_error_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn connection_refused_reads_like_node() {
+        // Bind and drop a listener to get a port nothing listens on.
+        let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+        let error = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .unwrap()
+            .get(format!("http://127.0.0.1:{port}/"))
+            .send()
+            .await
+            .unwrap_err();
+        let failed = anyhow::Error::new(FetchFailed::new(&error));
+        assert_eq!(failed.to_string(), "fetch failed");
+        assert_eq!(format!("{failed:#}"), format!("fetch failed: connect ECONNREFUSED 127.0.0.1:{port}"));
+        let cause = failed.chain().nth(1).unwrap().downcast_ref::<NetworkError>().unwrap();
+        assert_eq!(cause.code, Some("ECONNREFUSED"));
+        assert!(is_fetch_failure(&failed.context("outer")));
+    }
+}

@@ -120,14 +120,46 @@ pub(crate) fn user_agent_app_id(profile: Option<&str>) -> Option<String> {
     profile.get("sdk_ua_app_id").or_else(|| profile.get("sdk-ua-app-id")).cloned().filter(|i| !i.is_empty())
 }
 
+/// The `m/` user agent section of a request (`checkFeatures` + `encodeFeatures`): the standard
+/// retry mode (`E`), `RESOLVED_ACCOUNT_ID` (`T`) when the signing credentials carry an account
+/// id, then the credentials' `$source` features, comma-separated within 1024 bytes.
+pub(crate) fn user_agent_features(credentials: Option<&AwsCredentials>) -> String {
+    let mut features: Vec<(&str, &str)> = vec![("RETRY_MODE_STANDARD", "E")];
+    let mut set = |name: &'static str, id: &'static str| match features.iter_mut().find(|(n, _)| *n == name) {
+        Some(entry) => entry.1 = id,
+        None => features.push((name, id)),
+    };
+    if let Some(credentials) = credentials {
+        if credentials.account_id.is_some() {
+            set("RESOLVED_ACCOUNT_ID", "T");
+        }
+        for (name, id) in &credentials.features {
+            set(name, id);
+        }
+    }
+    let mut buffer = String::new();
+    for (_, id) in features {
+        if buffer.len() + id.len() + 1 > 1024 {
+            break;
+        }
+        if !buffer.is_empty() {
+            buffer.push(',');
+        }
+        buffer.push_str(id);
+    }
+    buffer
+}
+
 /// The `user-agent` and `x-amz-user-agent` headers of an AWS SDK v3 client
-/// (`createDefaultUserAgentProvider` + `userAgentMiddleware`) with the standard retry mode
-/// feature (`m/E`). `custom` are the client's `customUserAgent` pairs.
+/// (`createDefaultUserAgentProvider` + `userAgentMiddleware`). `custom` are the client's
+/// `customUserAgent` pairs; `credentials` are the request's signing credentials, whose features
+/// join the standard retry mode in the `m/` section.
 pub(crate) fn aws_sdk_user_agent(
     client_version: &str,
     service_id: &str,
     custom: &[(String, Option<String>)],
     app_id: Option<&str>,
+    credentials: Option<&AwsCredentials>,
 ) -> (String, String) {
     let release = node_os_release();
     let mut defaults = vec![
@@ -141,7 +173,7 @@ pub(crate) fn aws_sdk_user_agent(
     if let Some(exec_env) = std::env::var("AWS_EXECUTION_ENV").ok().filter(|e| !e.is_empty()) {
         defaults.push(escape_user_agent(&format!("exec-env/{exec_env}"), None));
     }
-    defaults.push("m/E".to_string());
+    defaults.push(format!("m/{}", user_agent_features(credentials)));
     if let Some(app) = app_id {
         defaults.push(escape_user_agent("app", Some(app)));
     }
@@ -154,6 +186,81 @@ pub(crate) fn aws_sdk_user_agent(
 /// `maxAttempts` of the SDK clients' standard retry strategy (`AWS_MAX_ATTEMPTS`, default 3).
 pub(crate) fn aws_max_attempts() -> u32 {
     std::env::var("AWS_MAX_ATTEMPTS").ok().and_then(|v| v.parse::<u32>().ok()).filter(|v| *v > 0).unwrap_or(3)
+}
+
+/// `parseRetryAfterHeader` of the SDK's retry middleware: the first `retry-after` (seconds, or an
+/// HTTP date) or `x-amz-retry-after` (milliseconds) response header, as an epoch-ms time.
+pub(crate) fn retry_after_hint(headers: &reqwest::header::HeaderMap) -> Option<i64> {
+    let now = crate::utils::now_ms();
+    for (name, value) in headers {
+        let value = value.to_str().unwrap_or_default();
+        match name.as_str() {
+            "retry-after" => {
+                let seconds = |text: &str| {
+                    let valid = !text.is_empty()
+                        && text.split_once('.').map_or(text.bytes().all(|b| b.is_ascii_digit()), |(int, frac)| {
+                            !int.is_empty()
+                                && !frac.is_empty()
+                                && int.bytes().all(|b| b.is_ascii_digit())
+                                && frac.bytes().all(|b| b.is_ascii_digit())
+                        });
+                    valid.then(|| text.parse::<f64>().ok()).flatten()
+                };
+                let retry_after_seconds = if value.ends_with("GMT") {
+                    parse_http_date(value).map(|date| (date - now) as f64 / 1000.0)
+                } else if let Some((_, tail)) = value.rsplit_once(" GMT, ") {
+                    seconds(tail)
+                } else if let Some(secs) = seconds(value) {
+                    Some(secs)
+                } else {
+                    parse_iso8601(value).filter(|date| *date >= now).map(|date| (date - now) as f64 / 1000.0)
+                };
+                return retry_after_seconds.map(|secs| now + (secs * 1000.0) as i64);
+            }
+            "x-amz-retry-after" => {
+                let millis = if value.trim().is_empty() { Some(0.0) } else { value.trim().parse::<f64>().ok() };
+                return millis.filter(|m| !m.is_nan()).map(|m| now + m as i64);
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// `parseRfc7231DateTime` for the IMF-fixdate (`Sun, 06 Nov 1994 08:49:37 GMT`) and RFC 850
+/// (`Sunday, 06-Nov-94 08:49:37 GMT`) forms.
+fn parse_http_date(text: &str) -> Option<i64> {
+    const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    let (_, rest) = text.split_once(", ")?;
+    let rest = rest.strip_suffix(" GMT")?;
+    let (date, time) = rest.rsplit_once(' ')?;
+    let (day, month, year) = match date.split(' ').collect::<Vec<_>>()[..] {
+        [day, month, year] => (day, month, year.to_string()),
+        _ => match date.split('-').collect::<Vec<_>>()[..] {
+            [day, month, year] if year.len() == 2 => {
+                // RFC 850 two-digit years: within 50 years of now, like the SDK.
+                let two: i64 = year.parse().ok()?;
+                (day, month, (if two < 50 { 2000 + two } else { 1900 + two }).to_string())
+            }
+            _ => return None,
+        },
+    };
+    let month = MONTHS.iter().position(|m| *m == month)? + 1;
+    let day: u32 = day.parse().ok()?;
+    parse_iso8601(&format!("{year}-{month:02}-{day:02}T{time}Z"))
+}
+
+/// The standard retry strategy's wait before retrying after `retry_count` earlier retries:
+/// `floor(random * min(base * 2^retry_count, 20000))` with a 100ms base (500ms for throttling),
+/// raised toward a server retry-after hint by at most five seconds.
+pub(crate) fn sdk_retry_delay_ms(retry_count: u32, throttling: bool, retry_after: Option<i64>) -> u64 {
+    let base = if throttling { 500.0 } else { 100.0 };
+    let backoff = (rand::random::<f64>() * (base * 2f64.powi(retry_count as i32)).min(20_000.0)).floor();
+    let delay = match retry_after {
+        Some(hint) => backoff.max(((hint - crate::utils::now_ms()) as f64).min(backoff + 5_000.0)),
+        None => backoff,
+    };
+    delay.max(0.0) as u64
 }
 
 /// `process.versions.node` reported in AWS SDK user agents.
@@ -306,7 +413,9 @@ pub fn profile_region(profile: Option<&str>) -> Option<String> {
 pub fn from_env() -> Option<AwsCredentials> {
     let access = env("AWS_ACCESS_KEY_ID")?;
     let secret = env("AWS_SECRET_ACCESS_KEY")?;
-    let mut credentials = AwsCredentials::new(access, secret, env("AWS_SESSION_TOKEN"));
+    let mut credentials = AwsCredentials::new(access, secret, env("AWS_SESSION_TOKEN"))
+        .with_account_id(env("AWS_ACCOUNT_ID"))
+        .with_feature("CREDENTIALS_ENV_VARS", "g");
     credentials.expiration_ms = env("AWS_CREDENTIAL_EXPIRATION").and_then(|e| parse_iso8601(&e));
     Some(credentials)
 }
@@ -341,7 +450,11 @@ fn sts_credentials(xml: &str) -> anyhow::Result<AwsCredentials> {
     let (Some(access), Some(secret)) = (xml_tag(xml, "AccessKeyId"), xml_tag(xml, "SecretAccessKey")) else {
         anyhow::bail!("Invalid response from STS: missing credentials");
     };
-    let mut credentials = AwsCredentials::new(access, secret, xml_tag(xml, "SessionToken"));
+    // `getAccountIdFromAssumedRoleUser`: the fifth field of the assumed role's ARN.
+    let account_id = xml_tag(xml, "AssumedRoleUser")
+        .and_then(|user| xml_tag(&user, "Arn"))
+        .and_then(|arn| arn.split(':').nth(4).map(str::to_string));
+    let mut credentials = AwsCredentials::new(access, secret, xml_tag(xml, "SessionToken")).with_account_id(account_id);
     credentials.expiration_ms = xml_tag(xml, "Expiration").and_then(|e| parse_iso8601(&e));
     Ok(credentials)
 }
@@ -426,7 +539,8 @@ async fn sts_request(
         Some(port) => format!("{}:{port}", url.host_str().unwrap_or_default()),
         None => url.host_str().unwrap_or_default().to_string(),
     };
-    let (user_agent, x_amz_user_agent) = aws_sdk_user_agent(AWS_NESTED_CLIENTS_VERSION, "STS", &[], context.app_id.as_deref());
+    let (user_agent, x_amz_user_agent) =
+        aws_sdk_user_agent(AWS_NESTED_CLIENTS_VERSION, "STS", &[], context.app_id.as_deref(), signing);
     let invocation_id = uuid::Uuid::new_v4().to_string();
     let max = aws_max_attempts();
     let mut attempt = 1u32;
@@ -455,10 +569,12 @@ async fn sts_request(
                 request = request.header(name.as_str(), value.as_str());
             }
         }
-        let (error, retryable, throttling) = match request.send().await {
-            Err(error) => (anyhow::Error::new(error), true, false),
+        let (error, retryable, throttling, retry_after) = match request.send().await {
+            // The SDK's Node HTTP handler rejects with the socket error itself.
+            Err(error) => (anyhow::Error::new(crate::utils::http::NetworkError::from_reqwest(&error)), true, false, None),
             Ok(response) => {
                 let status = response.status().as_u16();
+                let retry_after = retry_after_hint(response.headers());
                 let text = response.text().await.unwrap_or_default();
                 if (200..300).contains(&status) {
                     return Ok(text);
@@ -467,15 +583,13 @@ async fn sts_request(
                 let throttling = status == 429 || STS_THROTTLING_CODES.contains(&code.as_str());
                 let transient = [500, 502, 503, 504].contains(&status)
                     || ["TimeoutError", "RequestTimeout", "RequestTimeoutException"].contains(&code.as_str());
-                (sts_error(status, &text), throttling || transient, throttling)
+                (sts_error(status, &text), throttling || transient, throttling, retry_after)
             }
         };
         if !retryable || attempt >= max {
             return Err(error);
         }
-        let base = if throttling { 500.0 } else { 100.0 };
-        let delay = (rand::random::<f64>() * (base * 2f64.powi(attempt as i32 - 1)).min(20_000.0)).floor();
-        tokio::time::sleep(Duration::from_millis(delay as u64)).await;
+        tokio::time::sleep(Duration::from_millis(sdk_retry_delay_ms(attempt - 1, throttling, retry_after))).await;
         attempt += 1;
     }
 }
@@ -538,7 +652,7 @@ async fn assume_role(
         members.push(("ExternalId", external));
     }
     let text = sts_request(context, &region, query_body("AssumeRole", &members), Some(source)).await?;
-    sts_credentials(&text)
+    Ok(sts_credentials(&text)?.with_feature("CREDENTIALS_STS_ASSUME_ROLE", "i"))
 }
 
 /// `stsRegionDefaultResolver`: `AWS_REGION`, the profile's region, else us-east-1.
@@ -568,13 +682,21 @@ async fn assume_role_with_web_identity(
         &[("RoleArn", role_arn), ("RoleSessionName", &session), ("WebIdentityToken", token.as_str())],
     );
     let text = sts_request(context, &region, body, None).await?;
-    sts_credentials(&text)
+    let mut credentials = sts_credentials(&text)?;
+    if credentials.account_id.is_some() {
+        credentials.set_feature("RESOLVED_ACCOUNT_ID", "T");
+    }
+    credentials.set_feature("CREDENTIALS_STS_ASSUME_ROLE_WEB_ID", "k");
+    // `fromTokenFile` attributes a token file named by the environment.
+    if env("AWS_WEB_IDENTITY_TOKEN_FILE").as_deref() == Some(token_file) {
+        credentials.set_feature("CREDENTIALS_ENV_VARS_STS_WEB_ID_TOKEN", "h");
+    }
+    Ok(credentials)
 }
 
 /// Run a `credential_process` command and parse its JSON output (`resolveProcessCredentials`).
 /// Callers turn every failure into a chain-continuing `CredentialsProviderError`.
 pub async fn from_process(command: &str, profile_name: &str, profile: &Profile) -> anyhow::Result<AwsCredentials> {
-    let _ = profile;
     let output = if cfg!(windows) {
         tokio::process::Command::new("cmd").arg("/d").arg("/s").arg("/c").arg(command).output().await
     } else {
@@ -598,7 +720,14 @@ pub async fn from_process(command: &str, profile_name: &str, profile: &Profile) 
         other => other.to_string(),
     };
     let session_token = data.get("SessionToken").filter(|v| !v.is_null() && v.as_str() != Some("")).map(text);
-    let mut credentials = AwsCredentials::new(text(access), text(secret), session_token);
+    let account_id = data
+        .get("AccountId")
+        .filter(|v| !v.is_null() && v.as_str() != Some(""))
+        .map(text)
+        .or_else(|| profile.get("aws_account_id").cloned());
+    let mut credentials = AwsCredentials::new(text(access), text(secret), session_token)
+        .with_account_id(account_id)
+        .with_feature("CREDENTIALS_PROCESS", "w");
     if let Some(expiration) = data.get("Expiration").and_then(Value::as_str).filter(|e| !e.is_empty()) {
         let expires = parse_iso8601(expiration);
         if expires.is_some_and(|e| e < crate::utils::now_ms()) {
@@ -640,7 +769,7 @@ fn iso_timestamp(epoch_ms: i64) -> String {
 fn read_sso_token(key: &str) -> anyhow::Result<(PathBuf, Value)> {
     let path = sso_cache_path(key).ok_or_else(|| anyhow::anyhow!("Unable to locate the SSO token cache"))?;
     let text = std::fs::read_to_string(&path)?;
-    Ok((path, serde_json::from_str(&text)?))
+    Ok((path, crate::utils::js_json::js_json_parse(&text).map_err(anyhow::Error::msg)?))
 }
 
 /// `@aws-sdk/token-providers` `fromSso` for an sso-session profile: the cached token, refreshed
@@ -692,22 +821,16 @@ async fn sso_session_token(
     SSO_LAST_REFRESH_ATTEMPT.lock().insert(session_name.to_string(), now);
     let endpoint = configured_endpoint("SSO_OIDC").unwrap_or_else(|| format!("https://oidc.{sso_region}.amazonaws.com"));
     let refreshed = async {
-        let response = context
-            .client
-            .post(format!("{}/token", endpoint.trim_end_matches('/')))
-            .json(&serde_json::json!({
-                "clientId": client_id,
-                "clientSecret": client_secret,
-                "grantType": "refresh_token",
-                "refreshToken": refresh_token,
-            }))
-            .send()
-            .await
-            .ok()?;
-        if !response.status().is_success() {
-            return None;
-        }
-        let data: Value = response.json().await.ok()?;
+        // `SSOOIDCClient.send(CreateTokenCommand)`.
+        let url = format!("{}/token", endpoint.trim_end_matches('/'));
+        let body = serde_json::json!({
+            "clientId": client_id,
+            "clientSecret": client_secret,
+            "grantType": "refresh_token",
+            "refreshToken": refresh_token,
+        });
+        let response = send_aws_sdk_request("SSO OIDC", context, || context.client.post(&url).json(&body)).await.ok()?;
+        let data: Value = serde_json::from_str(&response.body).ok()?;
         let access = data.get("accessToken").and_then(Value::as_str)?.to_string();
         let expires_in = data.get("expiresIn").and_then(Value::as_f64)?;
         Some((access, expires_in, data.get("refreshToken").cloned()))
@@ -734,16 +857,78 @@ async fn sso_session_token(
     Ok((access, Some(expiration)))
 }
 
-/// The AWS SDK's `${name}: ${message}` rendering of a REST-JSON service error.
-async fn aws_json_error(response: reqwest::Response) -> String {
-    let error_type = response
-        .headers()
+/// A REST-JSON service error's name (`x-amzn-errortype`, else the body's `__type`/`code`).
+fn aws_json_error_name(headers: &reqwest::header::HeaderMap, body: &str) -> Option<String> {
+    let error_type = headers
         .get("x-amzn-errortype")
         .and_then(|v| v.to_str().ok())
         .map(|v| v.split(':').next().unwrap_or(v).to_string());
-    let data: Value = response.json().await.unwrap_or(Value::Null);
-    let name = error_type
-        .or_else(|| data.get("__type").or_else(|| data.get("code")).and_then(Value::as_str).map(|t| t.rsplit('#').next().unwrap_or(t).to_string()))
+    error_type.or_else(|| {
+        let data: Value = serde_json::from_str(body).unwrap_or(Value::Null);
+        data.get("__type").or_else(|| data.get("code")).and_then(Value::as_str).map(|t| t.rsplit('#').next().unwrap_or(t).to_string())
+    })
+}
+
+/// A response of an AWS SDK request that [`send_aws_sdk_request`] did not retry further.
+struct SdkResponse {
+    status: u16,
+    headers: reqwest::header::HeaderMap,
+    body: String,
+}
+
+/// Send a request of an AWS SDK (nested) client the way its middleware stack does: the SDK user
+/// agent, `amz-sdk-invocation-id`, `amz-sdk-request`, and the standard retry strategy (network
+/// errors, throttling and transient errors, honoring retry-after hints). `build` creates the
+/// request for each attempt. Network failures surface as the Node socket error.
+async fn send_aws_sdk_request(
+    service_id: &str,
+    context: &CredentialContext,
+    build: impl Fn() -> reqwest::RequestBuilder,
+) -> anyhow::Result<SdkResponse> {
+    let (user_agent, x_amz_user_agent) =
+        aws_sdk_user_agent(AWS_NESTED_CLIENTS_VERSION, service_id, &[], context.app_id.as_deref(), None);
+    let invocation_id = uuid::Uuid::new_v4().to_string();
+    let max = aws_max_attempts();
+    let mut attempt = 1u32;
+    loop {
+        let result = build()
+            .header("x-amz-user-agent", &x_amz_user_agent)
+            .header("user-agent", &user_agent)
+            .header("amz-sdk-invocation-id", &invocation_id)
+            .header("amz-sdk-request", format!("attempt={attempt}; max={max}"))
+            .send()
+            .await;
+        let (outcome, retryable, throttling, retry_after) = match result {
+            Err(error) => {
+                (Err(anyhow::Error::new(crate::utils::http::NetworkError::from_reqwest(&error))), true, false, None)
+            }
+            Ok(response) => {
+                let status = response.status().as_u16();
+                let headers = response.headers().clone();
+                let body = response.text().await.unwrap_or_default();
+                let retry_after = retry_after_hint(&headers);
+                if (200..300).contains(&status) {
+                    return Ok(SdkResponse { status, headers, body });
+                }
+                let name = aws_json_error_name(&headers, &body).unwrap_or_default();
+                let throttling = status == 429 || STS_THROTTLING_CODES.contains(&name.as_str());
+                let transient = [500, 502, 503, 504].contains(&status)
+                    || ["TimeoutError", "RequestTimeout", "RequestTimeoutException"].contains(&name.as_str());
+                (Ok(SdkResponse { status, headers, body }), throttling || transient, throttling, retry_after)
+            }
+        };
+        if !retryable || attempt >= max {
+            return outcome;
+        }
+        tokio::time::sleep(Duration::from_millis(sdk_retry_delay_ms(attempt - 1, throttling, retry_after))).await;
+        attempt += 1;
+    }
+}
+
+/// The AWS SDK's `${name}: ${message}` rendering of a REST-JSON service error.
+fn aws_json_error(response: &SdkResponse) -> String {
+    let data: Value = serde_json::from_str(&response.body).unwrap_or(Value::Null);
+    let name = aws_json_error_name(&response.headers, &response.body)
         .unwrap_or_else(|| "UnknownError".to_string());
     let message = data
         .get("message")
@@ -813,17 +998,15 @@ async fn from_sso(
         url::form_urlencoded::byte_serialize(account.as_bytes()).collect::<String>(),
         url::form_urlencoded::byte_serialize(role.as_bytes()).collect::<String>()
     );
-    let response = context
-        .client
-        .get(url)
-        .header("x-amz-sso_bearer_token", token)
-        .send()
+    // `SSOClient.send(GetRoleCredentialsCommand)`.
+    let response = send_aws_sdk_request("SSO", context, || context.client.get(&url).header("x-amz-sso_bearer_token", &token))
         .await
-        .map_err(|e| terminal(e.to_string()))?;
-    if !response.status().is_success() {
-        return Err(terminal(aws_json_error(response).await));
+        // `new CredentialsProviderError(e)`: the message is `String(e)` of the socket error.
+        .map_err(|e| terminal(format!("Error: {e}")))?;
+    if !(200..300).contains(&response.status) {
+        return Err(terminal(aws_json_error(&response)));
     }
-    let data: Value = response.json().await.unwrap_or(Value::Null);
+    let data: Value = serde_json::from_str(&response.body).unwrap_or(Value::Null);
     let creds = &data["roleCredentials"];
     let field = |key: &str| creds.get(key).and_then(Value::as_str).filter(|v| !v.is_empty()).map(str::to_string);
     let expiration = creds.get("expiration").and_then(Value::as_i64).filter(|e| *e != 0);
@@ -832,8 +1015,14 @@ async fn from_sso(
     else {
         return Err(terminal("SSO returns an invalid temporary credential."));
     };
-    let mut credentials = AwsCredentials::new(access, secret, Some(session_token));
+    let mut credentials =
+        AwsCredentials::new(access, secret, Some(session_token)).with_account_id(field("accountId"));
     credentials.expiration_ms = Some(expiration);
+    if session_name.as_deref().is_some_and(|s| !s.is_empty()) {
+        credentials.set_feature("CREDENTIALS_SSO", "s");
+    } else {
+        credentials.set_feature("CREDENTIALS_SSO_LEGACY", "u");
+    }
     Ok(credentials)
 }
 
@@ -850,7 +1039,7 @@ fn login_token_path(login_session: &str) -> Option<PathBuf> {
 fn load_login_token(path: &std::path::Path) -> anyhow::Result<Value> {
     let fail = |error: String| terminal(format!("Failed to load token from {}: {error}", path.display()));
     let text = std::fs::read_to_string(path).map_err(|e| fail(format!("Error: {}", node_fs_error(&e, "open", path))))?;
-    let token: Value = serde_json::from_str(&text).map_err(|e| fail(format!("SyntaxError: {e}")))?;
+    let token: Value = crate::utils::js_json::js_json_parse(&text).map_err(|e| fail(format!("SyntaxError: {e}")))?;
     let truthy = |v: Option<&Value>| v.is_some_and(|v| !v.is_null() && v != &Value::Bool(false) && v != &Value::String(String::new()));
     let mut missing: Vec<&str> =
         ["accessToken", "clientId", "refreshToken", "dpopKey"].into_iter().filter(|k| !truthy(token.get(*k))).collect();
@@ -868,7 +1057,9 @@ fn load_login_token(path: &std::path::Path) -> anyhow::Result<Value> {
 
 fn login_credentials(access_token: &Value) -> AwsCredentials {
     let field = |k: &str| access_token.get(k).and_then(Value::as_str).unwrap_or_default().to_string();
-    let mut credentials = AwsCredentials::new(field("accessKeyId"), field("secretAccessKey"), Some(field("sessionToken")));
+    let mut credentials = AwsCredentials::new(field("accessKeyId"), field("secretAccessKey"), Some(field("sessionToken")))
+        .with_account_id(Some(field("accountId")))
+        .with_feature("CREDENTIALS_LOGIN", "AD");
     credentials.expiration_ms = access_token.get("expiresAt").and_then(Value::as_str).and_then(parse_iso8601);
     credentials
 }
@@ -992,7 +1183,7 @@ async fn from_login(profile: &Profile, context: &CredentialContext) -> anyhow::R
     // The `SigninClient` request: SDK user agent, invocation id, standard retries, and a new
     // DPoP proof per attempt (the interceptor runs inside the retry middleware).
     let (user_agent, x_amz_user_agent) =
-        aws_sdk_user_agent(AWS_NESTED_CLIENTS_VERSION, "Signin", &[], context.app_id.as_deref());
+        aws_sdk_user_agent(AWS_NESTED_CLIENTS_VERSION, "Signin", &[], context.app_id.as_deref(), None);
     let invocation_id = uuid::Uuid::new_v4().to_string();
     let max = aws_max_attempts();
     let mut attempt = 1u32;
@@ -1010,6 +1201,7 @@ async fn from_login(profile: &Profile, context: &CredentialContext) -> anyhow::R
             .body(body.to_string())
             .send()
             .await;
+        let retry_after = result.as_ref().ok().and_then(|response| retry_after_hint(response.headers()));
         let (retryable, throttling) = match &result {
             Err(_) => (true, false),
             Ok(response) if response.status().is_success() => (false, false),
@@ -1030,9 +1222,7 @@ async fn from_login(profile: &Profile, context: &CredentialContext) -> anyhow::R
         if !retryable || attempt >= max {
             break result;
         }
-        let base = if throttling { 500.0 } else { 100.0 };
-        let delay = (rand::random::<f64>() * 2f64.powi(attempt as i32 - 1) * base).min(20_000.0);
-        tokio::time::sleep(Duration::from_millis(delay as u64)).await;
+        tokio::time::sleep(Duration::from_millis(sdk_retry_delay_ms(attempt - 1, throttling, retry_after))).await;
         attempt += 1;
     };
     let fresh_unexpired = |error: String| -> anyhow::Result<AwsCredentials> {
@@ -1043,7 +1233,8 @@ async fn from_login(profile: &Profile, context: &CredentialContext) -> anyhow::R
     };
     let response = match response {
         Ok(response) => response,
-        Err(error) => return fresh_unexpired(format!("Error: {error}")),
+        // `String(error)` of the Node socket error.
+        Err(error) => return fresh_unexpired(format!("Error: {}", crate::utils::http::NetworkError::from_reqwest(&error))),
     };
     if !response.status().is_success() {
         let header_type = response.headers().get("x-amzn-errortype").and_then(|v| v.to_str().ok()).map(str::to_string);
@@ -1122,6 +1313,8 @@ fn static_credentials(profile: &Profile) -> AwsCredentials {
         profile.get("aws_secret_access_key").cloned().unwrap_or_default(),
         profile.get("aws_session_token").cloned(),
     )
+    .with_account_id(profile.get("aws_account_id").cloned())
+    .with_feature("CREDENTIALS_PROFILE", "n")
 }
 
 /// `fromEnv` as a chain link.
@@ -1149,14 +1342,16 @@ fn credential_source_provider<'a>(
     profile_name: &'a str,
     context: &'a CredentialContext,
 ) -> anyhow::Result<futures::future::BoxFuture<'a, anyhow::Result<AwsCredentials>>> {
+    // Each source's credentials are attributed to the named provider (`setNamedProvider`).
+    let named = |credentials: AwsCredentials| credentials.with_feature("CREDENTIALS_PROFILE_NAMED_PROVIDER", "p");
     Ok(match source {
         "EcsContainer" => Box::pin(async move {
-            from_container(&context.client).await.map_err(|e| provider_error(e.to_string()))
+            from_container(&context.client).await.map(named).map_err(|e| provider_error(e.to_string()))
         }),
-        "Ec2InstanceMetadata" => {
-            Box::pin(async move { from_imds(&context.client).await.map_err(|e| provider_error(e.to_string())) })
-        }
-        "Environment" => Box::pin(async move { env_provider() }),
+        "Ec2InstanceMetadata" => Box::pin(async move {
+            from_imds(&context.client).await.map(named).map_err(|e| provider_error(e.to_string()))
+        }),
+        "Environment" => Box::pin(async move { env_provider().map(named) }),
         other => {
             return Err(provider_error(format!(
                 "Unsupported credential source in profile {profile_name}. Got {other}, expected EcsContainer or Ec2InstanceMetadata or Environment."
@@ -1204,16 +1399,25 @@ fn resolve_profile<'a>(
                 None,
                 context,
             )
-            .await;
+            .await
+            .map(|c| c.with_feature("CREDENTIALS_PROFILE_STS_WEB_ID_TOKEN", "q"));
         }
         if let Some(command) = profile.get("credential_process") {
-            return from_process(command, name, profile).await.map_err(|e| provider_error(e.to_string()));
+            return from_process(command, name, profile)
+                .await
+                .map(|c| c.with_feature("CREDENTIALS_PROFILE_PROCESS", "v"))
+                .map_err(|e| provider_error(e.to_string()));
         }
         if is_sso_profile(profile) {
-            return from_sso(name, profile, shared, context).await;
+            let feature = if profile.get("sso_session").is_some_and(|s| !s.is_empty()) {
+                ("CREDENTIALS_PROFILE_SSO", "r")
+            } else {
+                ("CREDENTIALS_PROFILE_SSO_LEGACY", "t")
+            };
+            return from_sso(name, profile, shared, context).await.map(|c| c.with_feature(feature.0, feature.1));
         }
         if profile.get("login_session").is_some_and(|s| !s.is_empty()) {
-            return from_login(profile, context).await;
+            return from_login(profile, context).await.map(|c| c.with_feature("CREDENTIALS_PROFILE_LOGIN", "AC"));
         }
         Err(provider_error(format!("Could not resolve credentials using profile: [{name}] in configuration/credentials file(s).")))
     })
@@ -1264,8 +1468,9 @@ async fn resolve_assume_role(
         }
         None => credential_source_provider(profile.get("credential_source").map(String::as_str).unwrap_or_default(), name, context)?,
     };
+    let source_profile_feature = |c: AwsCredentials| c.with_feature("CREDENTIALS_PROFILE_SOURCE_PROFILE", "o");
     if is_credential_source_without_role_arn(Some(profile)) {
-        return source_credentials.await;
+        return source_credentials.await.map(source_profile_feature);
     }
     if profile.get("mfa_serial").is_some_and(|s| !s.is_empty()) {
         // The SDK prompts through `mfaCodeProvider`; the default chain has none, so a
@@ -1275,7 +1480,9 @@ async fn resolve_assume_role(
         )));
     }
     let source = source_credentials.await?;
-    assume_role(&source, profile, profile.get("role_arn").map(String::as_str).unwrap_or_default(), context).await
+    assume_role(&source, profile, profile.get("role_arn").map(String::as_str).unwrap_or_default(), context)
+        .await
+        .map(source_profile_feature)
 }
 
 /// ECS/EKS container credentials (`AWS_CONTAINER_CREDENTIALS_RELATIVE_URI`/`_FULL_URI`).
@@ -1300,7 +1507,8 @@ pub async fn from_container(client: &reqwest::Client) -> anyhow::Result<AwsCrede
         anyhow::bail!("Container credentials request failed with status {}", response.status().as_u16());
     }
     let data: Value = response.json().await?;
-    parse_metadata_credentials(&data)
+    // `fromHttp` (tried first in the container chain).
+    Ok(parse_metadata_credentials(&data)?.with_feature("CREDENTIALS_HTTP", "z"))
 }
 
 fn parse_metadata_credentials(data: &Value) -> anyhow::Result<AwsCredentials> {
@@ -1421,6 +1629,60 @@ pub fn sso_cache_file_for(key: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn user_agent_features_follow_the_sdk_credential_attribution() {
+        assert_eq!(user_agent_features(None), "E");
+        let profile: Profile = [("aws_access_key_id", "A"), ("aws_secret_access_key", "S")]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        assert_eq!(user_agent_features(Some(&static_credentials(&profile))), "E,n");
+        // An assumed role: the STS credentials (with the role's account), then the ini provider.
+        let xml = "<AssumeRoleResult><AssumedRoleUser><AssumedRoleId>X</AssumedRoleId><Arn>arn:aws:sts::123456789012:assumed-role/r/s</Arn></AssumedRoleUser><Credentials><AccessKeyId>A</AccessKeyId><SecretAccessKey>S</SecretAccessKey></Credentials></AssumeRoleResult>";
+        let assumed = sts_credentials(xml)
+            .unwrap()
+            .with_feature("CREDENTIALS_STS_ASSUME_ROLE", "i")
+            .with_feature("CREDENTIALS_PROFILE_SOURCE_PROFILE", "o")
+            .with_feature("CREDENTIALS_STS_ASSUME_ROLE", "i");
+        assert_eq!(assumed.account_id.as_deref(), Some("123456789012"));
+        assert_eq!(user_agent_features(Some(&assumed)), "E,T,i,o");
+        let (user_agent, x_amz) = aws_sdk_user_agent("3.997.44", "SSO OIDC", &[], None, Some(&assumed));
+        assert!(user_agent.contains(" api/sso-oidc#3.997.44 m/E,T,i,o"), "{user_agent}");
+        assert_eq!(x_amz, "aws-sdk-js/3.997.44");
+    }
+
+    #[test]
+    fn retry_after_hints_raise_the_backoff_like_the_sdk() {
+        let headers = |pairs: &[(&'static str, &str)]| {
+            let mut map = reqwest::header::HeaderMap::new();
+            for (name, value) in pairs {
+                map.append(*name, value.parse().unwrap());
+            }
+            map
+        };
+        let now = crate::utils::now_ms();
+        let near = |hint: Option<i64>, expected: i64| hint.is_some_and(|h| (h - expected).abs() < 1_000);
+        assert!(near(retry_after_hint(&headers(&[("retry-after", "3")])), now + 3_000));
+        assert!(near(retry_after_hint(&headers(&[("retry-after", "1.5")])), now + 1_500));
+        assert!(near(retry_after_hint(&headers(&[("x-amz-retry-after", "2500")])), now + 2_500));
+        assert!(near(retry_after_hint(&headers(&[("retry-after", "Sun, 06 Nov 2050 08:49:37 GMT")])), 2551337377000));
+        // The first retry-after header decides, even when it does not parse.
+        assert_eq!(retry_after_hint(&headers(&[("retry-after", "soon"), ("x-amz-retry-after", "10")])), None);
+        assert_eq!(retry_after_hint(&headers(&[("x-amz-retry-after", "x")])), None);
+        assert_eq!(retry_after_hint(&headers(&[("content-type", "text/xml")])), None);
+        for _ in 0..20 {
+            // Without a hint: below the base for the first retry, 20s at most.
+            assert!(sdk_retry_delay_ms(0, false, None) < 100);
+            assert!(sdk_retry_delay_ms(0, true, None) < 500);
+            assert!(sdk_retry_delay_ms(30, false, None) < 20_000);
+            // A hint raises the wait, by at most five seconds over the backoff.
+            let delay = sdk_retry_delay_ms(0, false, Some(crate::utils::now_ms() + 2_000));
+            assert!((1_900..=2_000).contains(&delay), "{delay}");
+            let delay = sdk_retry_delay_ms(0, false, Some(crate::utils::now_ms() + 60_000));
+            assert!((5_000..5_100).contains(&delay), "{delay}");
+        }
+    }
 
     #[test]
     fn parses_shared_config_files() {

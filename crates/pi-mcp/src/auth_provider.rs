@@ -167,8 +167,8 @@ impl HttpResponse {
     /// `response.json()`.
     pub async fn json(self) -> Result<Value> {
         let text = self.text().await?;
-        serde_json::from_str(&text)
-            .map_err(|error| Error::Other(format!("Invalid JSON response: {error}")))
+        // The `SyntaxError` of `JSON.parse`, as undici's `response.json()` throws it.
+        pi_json::js_json_parse(&text).map_err(Error::Other)
     }
 }
 
@@ -241,12 +241,12 @@ async fn reqwest_fetch(client: reqwest::Client, request: HttpRequest) -> Result<
         },
         None => send.await,
     }
-    .map_err(|error| Error::Network(format!("fetch failed: {error}")))?;
+    .map_err(|error| network_error("fetch failed", &error))?;
     let status = response.status().as_u16();
     let headers = response.headers().clone();
     let body = response
         .bytes_stream()
-        .map(|chunk| chunk.map_err(|error| Error::Network(format!("terminated: {error}"))))
+        .map(|chunk| chunk.map_err(|error| network_error("terminated", &error)))
         .boxed();
     Ok(HttpResponse::new(
         status,
@@ -332,4 +332,16 @@ impl AuthProvider for FnAuthProvider {
             .as_ref()
             .map(|handler| handler(context))
     }
+}
+
+/// undici's `TypeError` for a network failure: the bare `message`, with the innermost transport
+/// error as the cause.
+fn network_error(message: &str, error: &reqwest::Error) -> Error {
+    let mut cause = error.to_string();
+    let mut source = std::error::Error::source(error);
+    while let Some(current) = source {
+        cause = current.to_string();
+        source = current.source();
+    }
+    Error::Network { message: message.to_string(), cause: Some(cause) }
 }

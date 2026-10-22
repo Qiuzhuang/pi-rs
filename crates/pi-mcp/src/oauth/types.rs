@@ -410,25 +410,94 @@ pub fn parse_authorization_server_metadata(value: Value) -> Result<Authorization
     from_object(input, "authorization server metadata")
 }
 
-/// `Number(value)` for the JSON values a token response may carry.
+/// `Number(value)` for a JSON value: primitives convert directly, arrays and objects through
+/// their string form (`[5]` is `"5"`, `[]` and `[null]` are `""`, objects are `"[object Object]"`).
 fn js_number(value: &Value) -> f64 {
     match value {
         Value::Number(number) => number.as_f64().unwrap_or(f64::NAN),
         Value::Bool(value) => f64::from(u8::from(*value)),
-        Value::String(text) => {
-            let text = text.trim();
-            // Non-finite results are rejected by the caller, so `inf` and friends need no special case.
-            if text.is_empty() {
-                0.0
-            } else {
-                text.parse().unwrap_or(f64::NAN)
-            }
-        }
         Value::Null => 0.0,
-        Value::Array(items) if items.is_empty() => 0.0,
-        Value::Array(items) if items.len() == 1 => js_number(&items[0]),
-        _ => f64::NAN,
+        Value::String(text) => js_string_to_number(text),
+        Value::Array(_) | Value::Object(_) => js_string_to_number(&js_to_string(value)),
     }
+}
+
+/// `String(value)` for a JSON value (`Array.prototype.join` for arrays).
+fn js_to_string(value: &Value) -> String {
+    match value {
+        Value::Null => "null".into(),
+        Value::Bool(value) => value.to_string(),
+        Value::Number(number) => match number.as_f64() {
+            Some(f) if f.fract() == 0.0 && f.abs() < 1e21 => format!("{f}"),
+            _ => number.to_string(),
+        },
+        Value::String(text) => text.clone(),
+        Value::Array(items) => items
+            .iter()
+            .map(|item| if item.is_null() { String::new() } else { js_to_string(item) })
+            .collect::<Vec<_>>()
+            .join(","),
+        Value::Object(_) => "[object Object]".into(),
+    }
+}
+
+/// ECMAScript `StringToNumber`: surrounding JS whitespace is ignored, an empty string is 0,
+/// `0x`/`0o`/`0b` prefixes select a radix (unsigned only), `Infinity` may be signed, anything
+/// else must be a decimal literal; otherwise `NaN`.
+fn js_string_to_number(text: &str) -> f64 {
+    let is_js_space = |c: char| {
+        matches!(
+            c,
+            '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'..='\u{200a}'
+                | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}'
+        )
+    };
+    let text = text.trim_matches(is_js_space);
+    if text.is_empty() {
+        return 0.0;
+    }
+    for (prefix, radix) in [("0x", 16), ("0X", 16), ("0o", 8), ("0O", 8), ("0b", 2), ("0B", 2)] {
+        if let Some(digits) = text.strip_prefix(prefix) {
+            if digits.is_empty() {
+                return f64::NAN;
+            }
+            return digits.chars().try_fold(0.0f64, |acc, c| c.to_digit(radix).map(|d| acc * f64::from(radix) + f64::from(d))).unwrap_or(f64::NAN);
+        }
+    }
+    let unsigned = text.strip_prefix(['+', '-']).unwrap_or(text);
+    if unsigned == "Infinity" {
+        return if text.starts_with('-') { f64::NEG_INFINITY } else { f64::INFINITY };
+    }
+    // StrUnsignedDecimalLiteral: digits with an optional fraction (at least one digit in all),
+    // then an optional exponent. Rust's parser accepts more (`inf`, `nan`), so check first.
+    let bytes = unsigned.as_bytes();
+    let mut i = 0;
+    let int_digits = bytes.iter().take_while(|b| b.is_ascii_digit()).count();
+    i += int_digits;
+    let mut frac_digits = 0;
+    if bytes.get(i) == Some(&b'.') {
+        i += 1;
+        frac_digits = bytes[i..].iter().take_while(|b| b.is_ascii_digit()).count();
+        i += frac_digits;
+    }
+    if int_digits + frac_digits == 0 {
+        return f64::NAN;
+    }
+    if matches!(bytes.get(i), Some(b'e' | b'E')) {
+        i += 1;
+        if matches!(bytes.get(i), Some(b'+' | b'-')) {
+            i += 1;
+        }
+        let exp_digits = bytes[i..].iter().take_while(|b| b.is_ascii_digit()).count();
+        if exp_digits == 0 {
+            return f64::NAN;
+        }
+        i += exp_digits;
+    }
+    if i != bytes.len() {
+        return f64::NAN;
+    }
+    text.parse().unwrap_or(f64::NAN)
 }
 
 pub fn parse_oauth_tokens(value: Option<Value>) -> Result<OAuthTokens> {
@@ -507,6 +576,61 @@ mod tests {
             parse_oauth_tokens(None).unwrap_err().to_string(),
             "Invalid OAuth token response"
         );
+    }
+
+    #[test]
+    fn expires_in_follows_js_number_conversion() {
+        // Expected values from Node's `Number(value)`.
+        let cases = [
+            (json!("0x1A"), 26.0),
+            (json!(" 42\n"), 42.0),
+            (json!("\u{a0}\u{feff}7\u{3000}"), 7.0),
+            (json!("0b101"), 5.0),
+            (json!("0o17"), 15.0),
+            (json!("1e3"), 1000.0),
+            (json!(".5"), 0.5),
+            (json!("5."), 5.0),
+            (json!("+.5e-1"), 0.05),
+            (json!([]), 0.0),
+            (json!([null]), 0.0),
+            (json!(["0x10"]), 16.0),
+            (json!([[" 8 "]]), 8.0),
+            (json!(true), 1.0),
+        ];
+        for (value, expected) in cases {
+            assert_eq!(js_number(&value), expected, "{value}");
+            let tokens = parse_oauth_tokens(Some(
+                json!({ "access_token": "a", "token_type": "Bearer", "expires_in": value }),
+            ))
+            .unwrap();
+            assert_eq!(tokens.expires_in, Some(expected));
+        }
+        for value in [
+            json!("-0x10"),
+            json!("inf"),
+            json!("1_000"),
+            json!("1e"),
+            json!("0x"),
+            json!("\u{85} 1"),
+            json!("Infinity"),
+            json!([true]),
+            json!([1, 2]),
+            json!({}),
+        ] {
+            let error = parse_oauth_tokens(Some(
+                json!({ "access_token": "a", "token_type": "Bearer", "expires_in": value }),
+            ))
+            .unwrap_err();
+            assert_eq!(error.to_string(), "Invalid expires_in", "{value}");
+        }
+        assert_eq!(js_number(&json!("-Infinity")), f64::NEG_INFINITY);
+        assert_eq!(js_number(&json!("")), 0.0);
+        // An empty string counts as absent, like null.
+        let tokens = parse_oauth_tokens(Some(
+            json!({ "access_token": "a", "token_type": "Bearer", "expires_in": "" }),
+        ))
+        .unwrap();
+        assert_eq!(tokens.expires_in, None);
     }
 
     #[test]

@@ -17,6 +17,7 @@ tokio-util.workspace = true
 futures.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+pi-json.workspace = true
 thiserror.workspace = true
 parking_lot.workspace = true
 indexmap.workspace = true

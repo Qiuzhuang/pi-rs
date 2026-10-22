@@ -16,6 +16,7 @@ pi-mcp = { path = "crates/pi-mcp" }
 pi-codemode = { path = "crates/pi-codemode" }
 pi-jsrt = { path = "crates/pi-jsrt" }
 pi-telemetry = { path = "crates/pi-telemetry" }
+pi-json = { path = "crates/pi-json" }
 pi-coding-agent = { path = "crates/pi-coding-agent" }
 
 tokio = { version = "1", features = ["full"] }

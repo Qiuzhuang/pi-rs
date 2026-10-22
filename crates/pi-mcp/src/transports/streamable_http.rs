@@ -478,8 +478,8 @@ impl Inner {
             {
                 return;
             }
-            let parsed = serde_json::from_str::<Value>(&event.data)
-                .map_err(|error| Error::Other(error.to_string()))
+            let parsed = pi_json::js_json_parse(&event.data)
+                .map_err(Error::Other)
                 .and_then(parse_json_rpc_message);
             match parsed {
                 Ok(message) => {

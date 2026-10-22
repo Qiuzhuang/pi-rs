@@ -425,7 +425,7 @@ pub fn convert_responses_messages(
                                 .as_deref()
                                 .filter(|s| !s.is_empty())
                             {
-                                let item: Value = serde_json::from_str(signature)?;
+                                let item: Value = crate::utils::js_json::js_json_parse(signature).map_err(anyhow::Error::msg)?;
                                 output.push(item);
                             }
                         }

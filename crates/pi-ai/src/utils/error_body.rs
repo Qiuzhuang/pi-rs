@@ -40,14 +40,25 @@ impl std::fmt::Display for ProviderHttpError {
 
 impl std::error::Error for ProviderHttpError {}
 
+/// JavaScript truthiness of a JSON value.
+fn js_truthy(value: &Value) -> bool {
+    match value {
+        Value::Null => false,
+        Value::Bool(b) => *b,
+        Value::Number(n) => n.as_f64().is_some_and(|f| f != 0.0),
+        Value::String(s) => !s.is_empty(),
+        Value::Array(_) | Value::Object(_) => true,
+    }
+}
+
+/// `APIError.makeMessage` of the `openai`/`@anthropic-ai/sdk` SDKs.
 fn sdk_make_message(status: Option<u16>, error: Option<&Value>, message: Option<&str>) -> String {
-    let msg: Option<String> = match error {
-        Some(err) => match err.get("message") {
-            Some(Value::String(s)) if !s.is_empty() => Some(s.clone()),
-            Some(m) if !m.is_null() && m != &Value::Bool(false) && m != &Value::String(String::new()) => {
-                Some(m.to_string())
-            }
-            _ => Some(err.to_string()),
+    use crate::utils::js_json::js_json_stringify;
+    let msg: Option<String> = match error.filter(|e| js_truthy(e)) {
+        Some(err) => match err.get("message").filter(|m| js_truthy(m)) {
+            Some(Value::String(s)) => Some(s.clone()),
+            Some(m) => Some(js_json_stringify(m)),
+            None => Some(js_json_stringify(err)),
         },
         None => message.map(str::to_string),
     };

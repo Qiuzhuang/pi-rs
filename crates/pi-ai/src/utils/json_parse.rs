@@ -4,6 +4,7 @@
 use serde_json::{Map, Value};
 
 use crate::types::JsonObject;
+use crate::utils::js_json::js_json_parse;
 
 fn is_valid_json_escape(c: char) -> bool {
     matches!(c, '"' | '\\' | '/' | 'b' | 'f' | 'n' | 'r' | 't')
@@ -78,17 +79,13 @@ pub fn repair_json(json: &str) -> String {
     repaired
 }
 
-/// `JSON.parse` with a repair fallback.
-pub fn parse_json_with_repair(json: &str) -> Result<Value, serde_json::Error> {
-    match serde_json::from_str::<Value>(json) {
+/// `JSON.parse` with a repair fallback. Errors carry the message of V8's `SyntaxError`.
+pub fn parse_json_with_repair(json: &str) -> Result<Value, String> {
+    match js_json_parse(json) {
         Ok(v) => Ok(v),
         Err(error) => {
             let repaired = repair_json(json);
-            if repaired != json {
-                serde_json::from_str::<Value>(&repaired)
-            } else {
-                Err(error)
-            }
+            if repaired != json { js_json_parse(&repaired) } else { Err(error) }
         }
     }
 }
@@ -100,13 +97,6 @@ pub struct ParsedToolCallArguments {
     pub arguments_error: Option<String>,
 }
 
-/// Mimic the message of a JavaScript `SyntaxError` from `JSON.parse` loosely.
-fn json_error_message(error: &serde_json::Error) -> String {
-    let text = error.to_string();
-    // serde_json appends " at line X column Y"; keep it, it is informative.
-    text
-}
-
 /// Parses the model's complete arguments text of a finished tool call.
 pub fn parse_tool_call_arguments(json: Option<&str>) -> ParsedToolCallArguments {
     let Some(json) = json.filter(|j| !j.trim().is_empty()) else {
@@ -115,7 +105,7 @@ pub fn parse_tool_call_arguments(json: Option<&str>) -> ParsedToolCallArguments 
     let error = match parse_json_with_repair(json) {
         Ok(Value::Object(map)) => return ParsedToolCallArguments { arguments: map, arguments_error: None },
         Ok(_) => "Tool arguments must be a JSON object".to_string(),
-        Err(e) => json_error_message(&e),
+        Err(e) => e,
     };
     ParsedToolCallArguments {
         arguments: Map::new(),
@@ -402,5 +392,32 @@ impl PartialParser {
                 break;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tool_call_argument_errors_carry_v8_json_parse_messages() {
+        let cases = [
+            (
+                r#"{"action":"apply","actions":[{"kind":"seek","time":.5}]}"#,
+                r#"Unexpected token '.', ..."k","time":.5}]}" is not valid JSON"#,
+            ),
+            (r#"{"kind":"seek","clipId":"clip-fl"#, "Unterminated string in JSON at position 32 (line 1 column 33)"),
+            (r#"{"a":1}}"#, "Unexpected non-whitespace character after JSON at position 7 (line 1 column 8)"),
+        ];
+        for (raw, message) in cases {
+            assert_eq!(
+                parse_tool_call_arguments(Some(raw)).arguments_error.as_deref(),
+                Some(format!("{message}\n\nReceived arguments:\n{raw}").as_str())
+            );
+        }
+        // A lone surrogate escape is valid JSON for `JSON.parse`.
+        let parsed = parse_tool_call_arguments(Some(r#"{"text":"\uD800"}"#));
+        assert_eq!(parsed.arguments_error, None);
+        assert_eq!(parsed.arguments["text"], "\u{FFFD}");
     }
 }

@@ -161,12 +161,17 @@ async fn aws_sdk_fidelity() {
     if cfg!(target_os = "linux") {
         assert!(user_agent.starts_with(&format!("aws-sdk-js/3.997.44 ua/2.1 os/linux#{release} lang/js md/nodejs#22.19.0 api/sts#3.997.44 m/E")), "{user_agent}");
     }
+    // The STS client's features include its signing credentials' sources: the static profile for
+    // the middle role, then the middle role's assumed credentials for the outer one.
+    assert!(user_agent.contains(" m/E,n"), "{user_agent}");
+    assert!(sts[2].header("user-agent").unwrap().contains(" m/E,i,o"), "{:?}", sts[2].header("user-agent"));
     assert_eq!(sts[1].header("x-amz-user-agent"), Some("aws-sdk-js/3.997.44"));
     let bedrock = server.requests().into_iter().rfind(|r| r.path.starts_with("/model/")).unwrap();
     assert!(bedrock.header("authorization").unwrap().contains("Credential=ASIAOUTER/"));
     if cfg!(target_os = "linux") {
         assert!(bedrock.header("user-agent").unwrap().starts_with(&format!("aws-sdk-js/3.1127.0 ua/2.1 os/linux#{release} lang/js")));
     }
+    assert!(bedrock.header("user-agent").unwrap().contains(" m/E,i,o "), "{:?}", bedrock.header("user-agent"));
 
     // Every request resolves the chain again (a new client per request in TS).
     let message = bedrock_converse_stream::stream(&model_at(&server.url), &hello(), options("outer")).result().await;

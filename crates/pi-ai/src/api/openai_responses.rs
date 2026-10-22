@@ -418,13 +418,26 @@ pub(crate) fn openai_sdk_base_headers(timeout_ms: u64) -> HeaderList {
     headers
 }
 
-/// `APIError.makeMessage` of the `openai` SDK for an error without a status.
-fn sdk_error_message(error: &Value) -> String {
-    match error.get("message") {
-        Some(Value::String(s)) if !s.is_empty() => s.clone(),
-        Some(m) if truthy(m) => m.to_string(),
-        _ => error.to_string(),
-    }
+/// `APIError.makeMessage` of the `openai` SDK for an error without a status: a truthy
+/// `error.message` (`JSON.stringify`-ed unless a string), else the whole error as JSON, else
+/// `message`.
+fn sdk_error_message(error: Option<&Value>, message: Option<&Value>) -> String {
+    use crate::utils::js_json::js_json_stringify;
+    let msg = match error.filter(|e| truthy(e)) {
+        Some(error) => match error.get("message").filter(|m| truthy(m)) {
+            Some(Value::String(s)) => s.clone(),
+            Some(m) => js_json_stringify(m),
+            None => js_json_stringify(error),
+        },
+        // `message` is `data.message` as is: only a non-empty string prints (a template literal of
+        // another truthy value would too, but the SSE `message` field is a string in practice).
+        None => match message.filter(|m| truthy(m)) {
+            Some(Value::String(s)) => s.clone(),
+            Some(m) => js_json_stringify(m),
+            None => String::new(),
+        },
+    };
+    if msg.is_empty() { "(no status code or body)".to_string() } else { msg }
 }
 
 /// The error the `openai` SDK raises for an SSE frame whose data is not JSON.
@@ -446,13 +459,15 @@ pub(crate) fn openai_sse_events(
             if done {
                 return None;
             }
-            let api_error = |error: Value, headers: &reqwest::header::HeaderMap| ProviderHttpError {
-                status: None,
-                headers: Some(headers.clone()),
-                message: sdk_error_message(&error),
-                body: None,
-                error: Some(error),
-                name: "APIError".to_string(),
+            let api_error = |error: Option<Value>, message: Option<&Value>, headers: Option<&reqwest::header::HeaderMap>| {
+                ProviderHttpError {
+                    status: None,
+                    headers: headers.cloned(),
+                    message: sdk_error_message(error.as_ref(), message),
+                    body: None,
+                    error,
+                    name: "APIError".to_string(),
+                }
             };
             match reader.next_event().await {
                 Err(error) if error.downcast_ref::<crate::utils::sse::StreamAborted>().is_some() => None,
@@ -473,15 +488,13 @@ pub(crate) fn openai_sse_events(
                         return Some((Ok(event), (reader, headers, false)));
                     }
                     if sse.event.as_deref() == Some("error") {
-                        let error = match data.get("error") {
-                            Some(e) if !e.is_null() => e.clone(),
-                            _ => data,
-                        };
-                        let http = api_error(error, &headers);
+                        // `new APIError(undefined, data.error, data.message, undefined)`
+                        let http = api_error(data.get("error").cloned(), data.get("message"), None);
                         return Some((Err(http.into()), (reader, headers, true)));
                     }
                     if let Some(error) = data.get("error").filter(|e| truthy(e)) {
-                        let http = api_error(error.clone(), &headers);
+                        // `new APIError(undefined, data.error, undefined, response.headers)`
+                        let http = api_error(Some(error.clone()), None, Some(&headers));
                         return Some((Err(http.into()), (reader, headers, true)));
                     }
                     Some((Ok(data), (reader, headers, false)))
@@ -777,6 +790,24 @@ impl ProviderStreams for OpenAIResponsesApi {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sdk_error_messages_match_api_error_make_message() {
+        // Expected values from the `openai` SDK's `APIError.makeMessage(undefined, error, message)`.
+        let parse = |text: &str| serde_json::from_str::<Value>(text).unwrap();
+        let cases: [(Option<Value>, Option<Value>, &str); 7] = [
+            (Some(parse(r#"{"message":{"b":1.0,"1":2}}"#)), None, r#"{"1":2,"b":1}"#),
+            (None, Some(json!("boom")), "boom"),
+            (Some(json!(false)), Some(json!("m")), "m"),
+            (Some(parse(r#"{"message":0,"code":1.5}"#)), None, r#"{"message":0,"code":1.5}"#),
+            (Some(json!("str")), None, r#""str""#),
+            (None, None, "(no status code or body)"),
+            (Some(parse(r#"{"message":[1,2.50]}"#)), None, "[1,2.5]"),
+        ];
+        for (error, message, expected) in cases {
+            assert_eq!(sdk_error_message(error.as_ref(), message.as_ref()), expected);
+        }
+    }
 
     #[test]
     fn chatgpt_sign_in_detection() {

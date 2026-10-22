@@ -141,8 +141,7 @@ impl OAuthHttpResponse {
 
     /// `response.json()`.
     pub fn json(&self) -> anyhow::Result<Value> {
-        serde_json::from_str(&self.body)
-            .map_err(|e| anyhow::anyhow!("Unexpected token in JSON: {e}"))
+        crate::utils::js_json::js_json_parse(&self.body).map_err(anyhow::Error::msg)
     }
 
     /// `readJson`: the body as an object, `None` when it is not a JSON object.
@@ -163,9 +162,12 @@ pub enum OAuthFetchError {
     /// The request timeout elapsed (`TimeoutError`).
     #[error("The operation was aborted due to timeout")]
     Timeout,
-    /// A network failure (`TypeError: fetch failed`).
-    #[error("fetch failed: {0}")]
-    Network(String),
+    /// A network failure (`TypeError: fetch failed`, the network error as its cause).
+    #[error(transparent)]
+    Network(crate::utils::http::FetchFailed),
+    /// The connection failed while reading the body (`TypeError: terminated`).
+    #[error(transparent)]
+    Terminated(crate::utils::http::FetchTerminated),
 }
 
 pub type OAuthFetch = Arc<
@@ -204,7 +206,7 @@ pub fn default_oauth_fetch() -> OAuthFetch {
             let response = builder
                 .send()
                 .await
-                .map_err(|e| OAuthFetchError::Network(describe(&e)))?;
+                .map_err(|e| OAuthFetchError::Network(crate::utils::http::FetchFailed::new(&e)))?;
             let status = response.status();
             let headers = response
                 .headers()
@@ -219,7 +221,11 @@ pub fn default_oauth_fetch() -> OAuthFetch {
             let body = response
                 .text()
                 .await
-                .map_err(|e| OAuthFetchError::Network(describe(&e)))?;
+                .map_err(|e| {
+                    OAuthFetchError::Terminated(crate::utils::http::FetchTerminated {
+                        cause: crate::utils::http::NetworkError::from_reqwest(&e),
+                    })
+                })?;
             Ok(OAuthHttpResponse {
                 status: status.as_u16(),
                 status_text: status.canonical_reason().unwrap_or_default().to_string(),
@@ -228,19 +234,6 @@ pub fn default_oauth_fetch() -> OAuthFetch {
             })
         })
     })
-}
-
-fn describe(error: &reqwest::Error) -> String {
-    let mut parts = vec![error.to_string()];
-    let mut source = std::error::Error::source(error);
-    while let Some(s) = source {
-        let text = s.to_string();
-        if !parts.contains(&text) {
-            parts.push(text);
-        }
-        source = s.source();
-    }
-    parts.join(": ")
 }
 
 /// Send a request, honoring an abort signal and an optional timeout.

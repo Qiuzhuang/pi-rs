@@ -344,7 +344,7 @@ fn process_line(
     if data.is_empty() {
         return Ok(());
     }
-    let value: Value = serde_json::from_str(data).map_err(|e| e.to_string())?;
+    let value: Value = pi_ai::utils::js_json::js_json_parse(data)?;
     // TypeScript warns about and skips event types it does not know.
     if !is_known_proxy_event_type(value.get("type").and_then(Value::as_str)) {
         eprintln!(

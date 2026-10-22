@@ -426,7 +426,7 @@ async fn file_subject_token(path: &str, format: &SubjectTokenFormat) -> anyhow::
     let token = match format {
         SubjectTokenFormat::Text => Some(raw).filter(|t| !t.is_empty()),
         SubjectTokenFormat::Json { subject_token_field_name } => {
-            let json: Value = serde_json::from_str(&raw).map_err(|e| anyhow::anyhow!("{e}"))?;
+            let json: Value = crate::utils::js_json::js_json_parse(&raw).map_err(anyhow::Error::msg)?;
             json.get(subject_token_field_name).filter(|v| truthy(Some(v))).map(|v| js_string(Some(v)))
         }
     };
@@ -606,7 +606,7 @@ async fn certificate_material(
     let contents = tokio::fs::read_to_string(&config_path)
         .await
         .map_err(|_| anyhow::anyhow!("Failed to read certificate config file at: {config_path}"))?;
-    let config: Value = serde_json::from_str(&contents)
+    let config: Value = crate::utils::js_json::js_json_parse(&contents)
         .map_err(|e| anyhow::anyhow!("Failed to parse certificate config from {config_path}: {e}"))?;
     let workload = config.get("cert_configs").and_then(|c| c.get("workload"));
     let cert_path = workload.and_then(|w| w.get("cert_path")).and_then(Value::as_str).filter(|p| !p.is_empty());
@@ -907,7 +907,7 @@ async fn aws_security_credentials(
     };
     let role = send_checked(with_auth_headers(with_token(client.get(url)), None), false, None).await?;
     let text = send_checked(with_auth_headers(with_token(client.get(format!("{url}/{role}"))), None), true, None).await?;
-    let data: Value = serde_json::from_str(&text)?;
+    let data: Value = crate::utils::js_json::js_json_parse(&text).map_err(anyhow::Error::msg)?;
     Ok(AwsSecurityCredentials {
         access_key_id: js_string(data.get("AccessKeyId")),
         secret_access_key: js_string(data.get("SecretAccessKey")),

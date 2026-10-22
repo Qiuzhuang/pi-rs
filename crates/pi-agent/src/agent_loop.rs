@@ -533,6 +533,8 @@ fn with_tool_changes(message: &SystemMessage, changes: &ToolStateChanges) -> Sys
         } else {
             Some(changes.tools_removed.clone())
         },
+        // `{ ...rest, toolsAdded?, toolsRemoved? }`: the tool fields follow `timestamp`.
+        timestamp_last: false,
         ..message.clone()
     }
 }

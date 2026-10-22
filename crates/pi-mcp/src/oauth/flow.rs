@@ -514,7 +514,7 @@ async fn token_request(
     let response = fetch(request).await?;
     let (ok, status) = (response.ok(), response.status());
     let text = response.text().await?;
-    let value: Option<Value> = serde_json::from_str(&text).ok();
+    let value: Option<Value> = pi_json::js_json_parse(&text).ok();
     // Servers may report OAuth errors with any status, so check the body before the status.
     if let Some(Value::Object(object)) = &value
         && let Some(Value::String(code)) = object.get("error")

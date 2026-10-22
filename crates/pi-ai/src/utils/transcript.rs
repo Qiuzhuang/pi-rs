@@ -18,6 +18,8 @@ pub fn create_initial_system_message(system_prompt: Option<&str>, tools: Option<
         tools_added: if has_tools { tools.map(<[Tool]>::to_vec) } else { None },
         tools_removed: None,
         timestamp: 0,
+        // `{ role, content, toolsAdded?, timestamp }`
+        timestamp_last: true,
     })
 }
 
@@ -120,6 +122,8 @@ pub fn get_current_system_message(messages: &[Message]) -> Option<SystemMessage>
         tools_added: if tools.is_empty() { None } else { Some(tools) },
         tools_removed: None,
         timestamp: timestamp.unwrap_or(0),
+        // `{ role, content, sections?, toolsAdded?, timestamp }`
+        timestamp_last: true,
     })
 }
 
@@ -277,5 +281,41 @@ pub fn resolve_transcript_tools(messages: &[Message], support: TranscriptToolSup
                 folded_system_messages: folded,
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tool(name: &str) -> Tool {
+        serde_json::from_value(serde_json::json!({ "name": name, "description": "", "parameters": {} })).unwrap()
+    }
+
+    #[test]
+    fn system_message_key_order_follows_the_ts_construction() {
+        // `createInitialSystemMessage`: `{ role, content, toolsAdded, timestamp }`.
+        let initial = create_initial_system_message(Some("p"), Some(&[tool("a")])).unwrap();
+        assert_eq!(
+            serde_json::to_string(&Message::System(initial.clone())).unwrap(),
+            r#"{"role":"system","content":"p","toolsAdded":[{"name":"a","description":"","parameters":{}}],"timestamp":0}"#
+        );
+        // `getCurrentSystemMessage`: `{ role, content, sections?, toolsAdded?, timestamp }`.
+        let current = get_current_system_message(&[Message::System(initial)]).unwrap();
+        assert!(serde_json::to_string(&current).unwrap().ends_with(r#"}}],"timestamp":0}"#));
+        // The agent loop's tool-change messages put `timestamp` first; parsing keeps either order.
+        for json in [
+            r#"{"role":"system","content":"","sections":{"a":null},"timestamp":1,"toolsRemoved":[{"name":"a"}]}"#,
+            r#"{"role":"system","content":"","toolsRemoved":[{"name":"a"}],"timestamp":1}"#,
+            r#"{"role":"system","content":"x","timestamp":2}"#,
+        ] {
+            let message: Message = serde_json::from_str(json).unwrap();
+            assert_eq!(serde_json::to_string(&message).unwrap(), json);
+        }
+        // Key order does not affect equality.
+        let a: SystemMessage = serde_json::from_str(r#"{"content":"","toolsRemoved":[{"name":"a"}],"timestamp":1}"#).unwrap();
+        let b: SystemMessage = serde_json::from_str(r#"{"content":"","timestamp":1,"toolsRemoved":[{"name":"a"}]}"#).unwrap();
+        assert!(a.timestamp_last && !b.timestamp_last);
+        assert_eq!(a, b);
     }
 }

@@ -175,7 +175,7 @@ impl GoogleCredentials {
         }
         let resolved = super::google_external_account::resolve_regular_file(&path.to_string_lossy())?;
         let text = std::fs::read_to_string(&resolved)?;
-        let json: Value = serde_json::from_str(&text)?;
+        let json: Value = crate::utils::js_json::js_json_parse(&text).map_err(anyhow::Error::msg)?;
         GoogleCredentials::from_json(&json)
     }
 

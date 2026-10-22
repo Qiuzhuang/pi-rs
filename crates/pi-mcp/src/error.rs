@@ -69,9 +69,10 @@ pub enum Error {
     /// `McpSessionExpiredError`: the server answered 404 for an established session.
     #[error("MCP session expired")]
     SessionExpired { body: String },
-    /// A network failure (`TypeError` from `fetch`), worth retrying.
-    #[error("{0}")]
-    Network(String),
+    /// A network failure (`TypeError` from `fetch`), worth retrying. `message` is undici's
+    /// (`fetch failed`, `terminated`); `cause` describes the underlying network error.
+    #[error("{message}")]
+    Network { message: String, cause: Option<String> },
     /// Other `TypeError`s, for example an invalid URL.
     #[error("{0}")]
     Type(String),
@@ -134,7 +135,7 @@ impl Error {
             Error::Http { .. } => "McpHttpError",
             Error::AuthRequired { .. } => "McpAuthRequiredError",
             Error::SessionExpired { .. } => "McpSessionExpiredError",
-            Error::Network(_) | Error::Type(_) => "TypeError",
+            Error::Network { .. } | Error::Type(_) => "TypeError",
             Error::OAuth(_) => "OAuthError",
             Error::OAuthIssuerMismatch { .. } => "OAuthIssuerMismatchError",
             Error::OAuthInsecureEndpoint { .. } => "OAuthInsecureEndpointError",
@@ -171,7 +172,7 @@ impl Error {
 
     /// Whether this is a JavaScript `TypeError` (network failures and invalid URLs).
     pub fn is_type_error(&self) -> bool {
-        matches!(self, Error::Network(_) | Error::Type(_))
+        matches!(self, Error::Network { .. } | Error::Type(_))
     }
 
     /// JSON-RPC error code of an `McpError`.

@@ -890,7 +890,7 @@ impl CodexSseDecoder {
             if data.is_empty() || data == "[DONE]" {
                 continue;
             }
-            match serde_json::from_str::<Value>(data) {
+            match crate::utils::js_json::js_json_parse(data) {
                 Ok(value) => events.push(value),
                 Err(cause) => {
                     return Err(CodexProtocolError {
@@ -1555,7 +1555,7 @@ async fn read_websocket_event(
         if text.is_empty() {
             continue;
         }
-        return match serde_json::from_str::<Value>(&text) {
+        return match crate::utils::js_json::js_json_parse(&text) {
             Ok(value) => Ok(SocketRead::Event(value)),
             Err(cause) => Err(CodexProtocolError {
                 message: format!("Invalid Codex WebSocket JSON: {cause}"),

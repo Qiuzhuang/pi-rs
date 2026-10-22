@@ -164,7 +164,7 @@ fn map_send_error(error: reqwest::Error, timeout_ms: Option<u64>) -> anyhow::Err
             return timeout_http_error(timeout).into();
         }
     // A fetch failure (not an HTTP error): not retried, like a `TypeError` from `fetch`.
-    anyhow::anyhow!("fetch failed: {error}")
+    anyhow::Error::new(crate::utils::http::FetchFailed::new(&error))
 }
 
 /// The HTTP client for a request: the caller's `http_client`, else a proxy-aware shared client.

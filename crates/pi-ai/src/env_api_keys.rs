@@ -21,12 +21,17 @@ fn has_vertex_adc_credentials(env: Option<&ProviderEnv>) -> bool {
     if let Some(explicit) = env.and_then(|e| e.get("GOOGLE_APPLICATION_CREDENTIALS")).filter(|v| !v.is_empty()) {
         return Path::new(explicit).exists();
     }
-    if let Some(path) = get_provider_env_value("GOOGLE_APPLICATION_CREDENTIALS", env) {
-        return Path::new(&path).exists();
-    }
-    dirs::home_dir()
-        .map(|home| home.join(".config").join("gcloud").join("application_default_credentials.json").exists())
-        .unwrap_or(false)
+    // The first answer without an explicit path is cached for the process, like TS
+    // (`cachedVertexAdcCredentialsExists`).
+    static CACHED: once_cell::sync::OnceCell<bool> = once_cell::sync::OnceCell::new();
+    *CACHED.get_or_init(|| {
+        if let Some(path) = get_provider_env_value("GOOGLE_APPLICATION_CREDENTIALS", env) {
+            return Path::new(&path).exists();
+        }
+        dirs::home_dir()
+            .map(|home| home.join(".config").join("gcloud").join("application_default_credentials.json").exists())
+            .unwrap_or(false)
+    })
 }
 
 fn api_key_env_vars(provider: &str) -> Option<Vec<&'static str>> {

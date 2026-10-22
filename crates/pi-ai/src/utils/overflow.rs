@@ -5,33 +5,35 @@ use regex::Regex;
 
 use crate::types::{AssistantMessage, StopReason};
 
+// JavaScript regex semantics: `\d`/`\w` are ASCII-only and `.` excludes all line terminators,
+// so they are spelled out (the `regex` crate's classes are Unicode-aware).
 const OVERFLOW_PATTERN_SOURCES: &[&str] = &[
     r"(?i)prompt (?:is )?too long",
     r"(?i)prompt exceeds max length",
     r"(?i)request_too_large",
     r"(?i)input is too long for requested model",
     r"(?i)exceeds the context window",
-    r"(?i)exceeds (?:the )?(?:model'?s )?maximum context length(?: of [\d,]+ tokens?|\s*\([\d,]+\))",
-    r"(?i)input token count.*exceeds the maximum",
-    r"(?i)maximum prompt length is \d+",
+    r"(?i)exceeds (?:the )?(?:model'?s )?maximum context length(?: of [0-9,]+ tokens?|\s*\([0-9,]+\))",
+    r"(?i)input token count[^\n\r\u{2028}\u{2029}]*exceeds the maximum",
+    r"(?i)maximum prompt length is [0-9]+",
     r"(?i)reduce the length of the messages",
-    r"(?i)maximum context length is \d+ tokens",
-    r"(?i)exceeds (?:the )?maximum allowed input length of [\d,]+ tokens?",
-    r"(?i)input \(\d+ tokens\) is longer than the model'?s context length \(\d+ tokens\)",
-    r"(?i)exceeds the limit of \d+",
+    r"(?i)maximum context length is [0-9]+ tokens",
+    r"(?i)exceeds (?:the )?maximum allowed input length of [0-9,]+ tokens?",
+    r"(?i)input \([0-9]+ tokens\) is longer than the model'?s context length \([0-9]+ tokens\)",
+    r"(?i)exceeds the limit of [0-9]+",
     r"(?i)exceeds the available context size",
     r"(?i)greater than the context length",
     r"(?i)context window exceeds limit",
     r"(?i)exceeded model token limit",
-    r"(?i)too large for model with \d+ maximum context length",
-    r"(?i)prompt has [\d,]+ tokens?, but the configured context size is [\d,]+ tokens?",
+    r"(?i)too large for model with [0-9]+ maximum context length",
+    r"(?i)prompt has [0-9,]+ tokens?, but the configured context size is [0-9,]+ tokens?",
     r"(?i)model_context_window_exceeded",
     r"(?i)prompt too long; exceeded (?:max )?context length",
     r"(?i)range of input length should be",
     r"(?i)context[_ ]length[_ ]exceeded",
     r"(?i)too many tokens",
     r"(?i)token limit exceeded",
-    r"(?i)^(?:[\w -]+ API error \(413\):|413(?:\s|:|$))",
+    r"(?i)^(?:[A-Za-z0-9_ -]+ API error \(413\):|413(?:\s|:|$))",
 ];
 
 static OVERFLOW_PATTERNS: Lazy<Vec<Regex>> =
@@ -86,3 +88,26 @@ pub fn is_recoverable_length(message: &AssistantMessage, desired_max_output: u64
 pub fn get_overflow_patterns() -> Vec<Regex> {
     OVERFLOW_PATTERNS.clone()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn error(text: &str) -> AssistantMessage {
+        AssistantMessage { stop_reason: StopReason::Error, error_message: Some(text.into()), ..Default::default() }
+    }
+
+    #[test]
+    fn javascript_character_classes() {
+        assert!(is_context_overflow(&error("github-copilot API error (413): {}"), None));
+        // JS `\w` is ASCII: a non-ASCII provider name does not match the 413 prefix.
+        assert!(!is_context_overflow(&error("prövider API error (413): {}"), None));
+        // JS `\d` is ASCII.
+        assert!(!is_context_overflow(&error("maximum prompt length is \u{0663}"), None));
+        assert!(is_context_overflow(&error("maximum prompt length is 3"), None));
+        // JS `.` stops at \r.
+        assert!(!is_context_overflow(&error("input token count\rexceeds the maximum"), None));
+        assert!(is_context_overflow(&error("input token count (5) exceeds the maximum"), None));
+    }
+}
+

@@ -211,6 +211,8 @@ class Readable extends Stream {
       st.length = rest.length;
     }
     st.dataEmitted = true;
+    // Like Node, read() emits 'data' for the chunk it returns.
+    this.emit("data", out);
     if (st.ended && st.buffer.length === 0) this._scheduleFlow();
     else if (!st.ended && !st.reading && st.length < st.highWaterMark) {
       st.reading = true;
@@ -247,11 +249,20 @@ class Readable extends Stream {
   resume() {
     const st = this._readableState;
     if (!st.flowing) {
-      st.flowing = true;
+      // Like Node: with 'readable' listeners the stream stays in paused mode (read() drives it).
+      st.flowing = !st.readableListening;
       this.emit("resume");
       this._scheduleFlow();
     }
     return this;
+  }
+  removeListener(ev, fn) {
+    super.removeListener(ev, fn);
+    if (ev === "readable" && this.listenerCount("readable") === 0) this._readableState.readableListening = false;
+    return this;
+  }
+  off(ev, fn) {
+    return this.removeListener(ev, fn);
   }
   isPaused() {
     return this._readableState.flowing === false;
@@ -309,16 +320,14 @@ class Readable extends Stream {
     stream.on("end", () => this.push(null));
     return this;
   }
+  // Like Node: paused-mode iteration with read() and 'readable', so it also works when other
+  // code listens for 'readable' (a 'data'-based iterator would never flow then).
   async *[Symbol.asyncIterator]() {
     const st = this._readableState;
-    const queue = [];
     let done = false;
     let error = null;
     let wake = null;
-    const onData = (c) => {
-      queue.push(c);
-      wake?.();
-    };
+    const onReadable = () => wake?.();
     const onEnd = () => {
       done = true;
       wake?.();
@@ -327,14 +336,16 @@ class Readable extends Stream {
       error = e;
       wake?.();
     };
-    this.on("data", onData);
+    this.on("readable", onReadable);
     this.once("end", onEnd);
     this.once("error", onError);
     this.once("close", onEnd);
     try {
       for (;;) {
-        if (queue.length) {
-          yield queue.shift();
+        if (error) throw error;
+        const chunk = st.destroyed ? null : this.read();
+        if (chunk !== null) {
+          yield chunk;
           continue;
         }
         if (error) throw error;
@@ -345,7 +356,7 @@ class Readable extends Stream {
         wake = null;
       }
     } finally {
-      this.off("data", onData);
+      this.off("readable", onReadable);
       this.off("end", onEnd);
       this.off("error", onError);
       this.off("close", onEnd);
@@ -760,12 +771,115 @@ const promises = {
     }),
 };
 
+// Readable stream helpers (Node 17+): toArray, forEach, some/every/find, reduce, map/filter,
+// take/drop, flatMap.
+{
+  const P = Readable.prototype;
+  const signalOf = (o) => o?.signal;
+  const abortIf = (o) => {
+    if (signalOf(o)?.aborted) throw Object.assign(new Error("The operation was aborted"), { name: "AbortError", code: "ABORT_ERR" });
+  };
+  P.toArray = async function (options) {
+    const out = [];
+    for await (const chunk of this) {
+      abortIf(options);
+      out.push(chunk);
+    }
+    return out;
+  };
+  P.forEach = async function (fn, options) {
+    for await (const chunk of this) {
+      abortIf(options);
+      await fn(chunk, { signal: signalOf(options) });
+    }
+  };
+  P.some = async function (fn, options) {
+    for await (const chunk of this) if (await fn(chunk, { signal: signalOf(options) })) return true;
+    return false;
+  };
+  P.every = async function (fn, options) {
+    for await (const chunk of this) if (!(await fn(chunk, { signal: signalOf(options) }))) return false;
+    return true;
+  };
+  P.find = async function (fn, options) {
+    for await (const chunk of this) if (await fn(chunk, { signal: signalOf(options) })) return chunk;
+    return undefined;
+  };
+  P.reduce = async function (fn, ...init) {
+    let acc = init[0];
+    let first = init.length === 0;
+    for await (const chunk of this) {
+      if (first) {
+        acc = chunk;
+        first = false;
+      } else acc = await fn(acc, chunk);
+    }
+    if (first) throw Object.assign(new TypeError("Reduce of an empty stream requires an initial value"), { code: "ERR_INVALID_ARGS" });
+    return acc;
+  };
+  const derive = (src, gen) => Readable.from(gen(src), { objectMode: true });
+  P.map = function (fn, options) {
+    return derive(this, async function* (s) {
+      for await (const chunk of s) yield await fn(chunk, { signal: signalOf(options) });
+    });
+  };
+  P.filter = function (fn, options) {
+    return derive(this, async function* (s) {
+      for await (const chunk of s) if (await fn(chunk, { signal: signalOf(options) })) yield chunk;
+    });
+  };
+  P.flatMap = function (fn, options) {
+    return derive(this, async function* (s) {
+      for await (const chunk of s) yield* await fn(chunk, { signal: signalOf(options) });
+    });
+  };
+  P.take = function (n) {
+    return derive(this, async function* (s) {
+      if (n <= 0) return;
+      let i = 0;
+      for await (const chunk of s) {
+        yield chunk;
+        if (++i >= n) return;
+      }
+    });
+  };
+  P.drop = function (n) {
+    return derive(this, async function* (s) {
+      let i = 0;
+      for await (const chunk of s) if (i++ >= n) yield chunk;
+    });
+  };
+}
+
+/**
+ * Node's stream constructors are plain functions, and old-style subclasses initialize them with
+ * `Writable.call(this, options)` (follow-redirects, readable-stream users). Export callable
+ * wrappers around the classes: `new` and `class extends` construct the class; a plain call
+ * constructs one and moves its state onto `this`.
+ */
+function callable(Cls) {
+  const F = function (...args) {
+    if (new.target) return Reflect.construct(Cls, args, new.target);
+    if (this === undefined || this === null || this === globalThis) return Reflect.construct(Cls, args, F);
+    const inst = Reflect.construct(Cls, args, this.constructor ?? F);
+    for (const key of Reflect.ownKeys(inst)) {
+      if (!Object.prototype.hasOwnProperty.call(this, key)) Object.defineProperty(this, key, Object.getOwnPropertyDescriptor(inst, key));
+    }
+    return undefined;
+  };
+  Object.defineProperty(F, "name", { value: Cls.name });
+  F.prototype = Cls.prototype;
+  Object.setPrototypeOf(F, Cls);
+  Object.defineProperty(Cls.prototype, "constructor", { value: F, writable: true, configurable: true });
+  return F;
+}
+
 Stream.Stream = Stream;
-Stream.Readable = Readable;
-Stream.Writable = Writable;
-Stream.Duplex = Duplex;
-Stream.Transform = Transform;
-Stream.PassThrough = PassThrough;
+Stream.Readable = callable(Readable);
+Stream.Writable = callable(Writable);
+Stream.Duplex = callable(Duplex);
+Stream.Transform = callable(Transform);
+Stream.PassThrough = callable(PassThrough);
 Stream.pipeline = pipeline;
 Stream.finished = eos;
 Stream.promises = promises;

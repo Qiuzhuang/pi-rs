@@ -931,7 +931,7 @@ class X509Certificate {
     return keyFromHandle(ops.keyImport(asBuffer(this.#info.spki), { format: "der", type: "spki", private: false }));
   }
   get subjectAltName() {
-    return undefined;
+    return this.#info.subjectaltname;
   }
   checkHost(name) {
     const cn = this.#info.subject.CN;
@@ -952,6 +952,7 @@ class X509Certificate {
     return {
       subject: { ...this.#info.subject },
       issuer: { ...this.#info.issuer },
+      subjectaltname: this.#info.subjectaltname,
       valid_from: this.validFrom,
       valid_to: this.validTo,
       serialNumber: this.serialNumber,

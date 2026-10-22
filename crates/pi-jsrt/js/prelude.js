@@ -2,8 +2,16 @@
 // registry, CommonJS module objects, Error.stack formatting and timers.
 // Evaluated as `(function (ops, internal) { ... })`.
 
-const hidden = (obj, name, value) =>
-  Object.defineProperty(obj, name, { value, writable: true, configurable: true, enumerable: false });
+// Values of lazily loaded globals (see below); glue defines them through `hidden`.
+const lazyValues = Object.create(null);
+const hidden = (obj, name, value) => {
+  if (obj === globalThis && typeof name === "string" && lazyGlobalNames.has(name)) {
+    lazyValues[name] = value;
+    return obj;
+  }
+  return Object.defineProperty(obj, name, { value, writable: true, configurable: true, enumerable: false });
+};
+const lazyGlobalNames = new Set(Object.keys(ops.config.lazyGlobals ?? {}));
 internal.hidden = hidden;
 
 // ---------------------------------------------------------------------------
@@ -94,16 +102,19 @@ internal.requireBuiltin = (name) => {
 };
 
 // Globals provided by lazily loaded glue: an accessor loads the file on first use.
+// Lazy globals stay accessors for good, backed by `lazyValues`: redefining a global object
+// property from accessor to data (or deleting it) inside its own getter corrupts Boa's inline
+// caches (the next read of the name "calls" whatever now sits in the cached slot).
 for (const name of Object.keys(lazyGlobals)) {
   Object.defineProperty(globalThis, name, {
     configurable: true,
     enumerable: false,
     get() {
-      internal.loadGlue(lazyGlobals[name]);
-      return globalThis[name];
+      if (!(name in lazyValues)) internal.loadGlue(lazyGlobals[name]);
+      return lazyValues[name];
     },
     set(value) {
-      hidden(globalThis, name, value);
+      lazyValues[name] = value;
     },
   });
 }

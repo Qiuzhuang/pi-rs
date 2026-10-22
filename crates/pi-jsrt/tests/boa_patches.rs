@@ -159,3 +159,50 @@ fn symbol_for_is_consistent_across_parallel_runtimes() {
         assert_eq!(thread.join().unwrap(), json!(0));
     }
 }
+
+/// vendor/boa_parser: `async(x)` not followed by `=>` is a call of a function named `async`
+/// (`asynckit`, used by form-data and axios), not an async arrow head.
+#[tokio::test]
+async fn call_of_a_function_named_async() {
+    let rt = JsRuntime::new(RuntimeOptions::default()).unwrap();
+    let ns = rt
+        .eval_module(
+            r#"
+            function async(cb) { return typeof cb === "function" ? cb() + 1 : "none"; }
+            const iterator = (item, f) => f;
+            const cb = () => 41;
+            const called = [async(cb), async(), iterator(1, async(cb))];
+            const arrows = [await (async (x) => x * 2)(2), await (async () => 7)(), await (async x => x)(3), await (async (a, b) => a + b)(1, 2)];
+            export default { called, arrows };
+            "#,
+            "async-call.mjs",
+        )
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(ns.get("default").await.unwrap(), json!({ "called": [42, "none", 42], "arrows": [4, 7, 3, 3] }));
+}
+
+/// Boa's global-name inline cache records the slot found by a lookup with the shape the global
+/// object has *after* the lookup. Lazily loaded globals used to replace their accessor with a data
+/// property inside the getter, so the second `x instanceof ReadableStream` (same code site) "called"
+/// the class as the cached getter. Lazy globals now stay accessors (see prelude.js).
+#[tokio::test]
+async fn lazy_globals_survive_repeated_access_from_one_site() {
+    let rt = JsRuntime::new(RuntimeOptions::default()).unwrap();
+    let ns = rt
+        .eval_module(
+            r#"
+            const out = [];
+            for (const v of ["x", 1, undefined, {}]) out.push(v instanceof ReadableStream);
+            for (let i = 0; i < 3; i++) out.push(typeof Headers, typeof WebAssembly);
+            export default out;
+            "#,
+            "lazy-globals.mjs",
+        )
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(
+        ns.get("default").await.unwrap(),
+        json!([false, false, false, false, "function", "object", "function", "object", "function", "object"])
+    );
+}

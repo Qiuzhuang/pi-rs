@@ -18,6 +18,7 @@ pub(crate) mod fs;
 pub(crate) mod keys;
 pub(crate) mod net;
 pub(crate) mod process;
+pub(crate) mod tls;
 pub(crate) mod wasm;
 pub(crate) mod zlib;
 
@@ -115,8 +116,6 @@ const LAZY_GLUE: &[LazyGlue] = &[
             "async_hooks",
             "worker_threads",
             "console",
-            "tls",
-            "dns",
             "dgram",
             "cluster",
             "vm",
@@ -138,6 +137,18 @@ const LAZY_GLUE: &[LazyGlue] = &[
         file: "node/net.js",
         src: include_str!("../../js/node/net.js"),
         builtins: &["net"],
+        globals: &[],
+    },
+    LazyGlue {
+        file: "node/dns.js",
+        src: include_str!("../../js/node/dns.js"),
+        builtins: &["dns", "dns/promises"],
+        globals: &[],
+    },
+    LazyGlue {
+        file: "node/tls.js",
+        src: include_str!("../../js/node/tls.js"),
+        builtins: &["tls", "_tls_wrap", "_tls_common"],
         globals: &[],
     },
     LazyGlue {
@@ -245,6 +256,8 @@ pub(crate) fn bootstrap(ctx: &mut Context) -> JsResult<()> {
         define_ops(ctx, &ops, crypto::KDF_OPS)?;
         define_ops(ctx, &ops, keys::OPS)?;
         define_ops(ctx, &ops, wasm::OPS)?;
+        define_ops(ctx, &ops, tls::OPS)?;
+        define_ops(ctx, &ops, net::DNS_OPS)?;
     }
     let config = process::config_object(ctx)?;
     if node && let Some(cfg) = config.as_object() {

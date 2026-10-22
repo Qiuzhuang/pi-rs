@@ -380,3 +380,66 @@ export default out;
     let expected: Value = serde_json::from_str(r#"{"valid":[true,false],"imports":[{"module":"env","name":"log","kind":"function"},{"module":"env","name":"reenter","kind":"function"},{"module":"env","name":"g","kind":"global"}],"exports":["memory:memory","counter:global","table:table","double:function","add64:function","callLog:function","sum:function","grow:function","bump:function","callIndirect:function","trap:function","div:function","outer:function","pair:function"],"double":42,"add64":"4611686018427387909","callLog":42,"logged":[[41,"bigint","9007199254740993",1.5]],"hello":"hello wasm","sum":256,"grow":[1,196608,0,true,true],"growJs":[3,262144],"growFail":-1,"bump":[12,19,19],"counter":1,"table":[2,true,10],"trap":["RuntimeError",true,"unreachable"],"div0":["RuntimeError",true,"divide by zero"],"indirectOOB":["RuntimeError",true,"table index is out of bounds"],"outer":1008,"pair":[1,2],"jsThrow":["Error",false,"from js"],"link":"LinkError","compileErr":"CompileError","memory":[65536,1,196608,42],"global":"6","tag":"[object WebAssembly]"}"#).unwrap();
     assert_eq!(v, expected);
 }
+
+/// `node:tls` client/server and `node:https` with a test CA (certificates in the source):
+/// ALPN, verification against `ca`, Node's verification error codes (unknown issuer, wrong
+/// host, self-signed), `rejectUnauthorized: false`, https.createServer, https.request with and
+/// without an Agent. Output compared with Node 22.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn tls_and_https() {
+    let v = run(r#"
+import tls from "node:tls";
+import https from "node:https";
+const certs = {"ca": "-----BEGIN CERTIFICATE-----\nMIIBijCCATGgAwIBAgIUVs+EfMS/+Ro7R0lcA4uc/AhPkfcwCgYIKoZIzj0EAwIw\nGjEYMBYGA1UEAwwPcGktanNydCB0ZXN0IENBMCAXDTI2MTAyMjE0NTQ1NloYDzIx\nMjYwOTI4MTQ1NDU2WjAaMRgwFgYDVQQDDA9waS1qc3J0IHRlc3QgQ0EwWTATBgcq\nhkjOPQIBBggqhkjOPQMBBwNCAAQXCcWuLg51sJCkC2Jjdx3JnX9g30cJm2/Q+ntm\nIKTAK1Qf33OATy1sjP94DopCai3wP+eOi5/On5xoGRfrwSuLo1MwUTAdBgNVHQ4E\nFgQUT/pxUc0B07VmR1bUJ1CjH3qtNwYwHwYDVR0jBBgwFoAUT/pxUc0B07VmR1bU\nJ1CjH3qtNwYwDwYDVR0TAQH/BAUwAwEB/zAKBggqhkjOPQQDAgNHADBEAiBAJYPI\nkFx24T48mhhbpia1ZkznObsjhiqwHClxPMIeDgIgJThIRiRm0g2PuaoNQFBJzvKx\nnT4Y2EGoPBoqvDax6+k=\n-----END CERTIFICATE-----\n", "leafKey": "-----BEGIN EC PRIVATE KEY-----\nMHcCAQEEIDMUcB3eZ4nh1AzrsEMvsmqcOxfnBpjfLWJUJWivV79QoAoGCCqGSM49\nAwEHoUQDQgAECsujzoaPh8daHDbzr+W8cUzLjRqqoXS57N2//PYAZ7IMr47Pkxto\nbCvCjp2YpgHhoxfaNUQSnnpnt88TTmKQew==\n-----END EC PRIVATE KEY-----\n", "leafCert": "-----BEGIN CERTIFICATE-----\nMIIByjCCAW+gAwIBAgIUY2YuzVK4HDbIzlyNdAw/u74U/7UwCgYIKoZIzj0EAwIw\nGjEYMBYGA1UEAwwPcGktanNydCB0ZXN0IENBMCAXDTI2MTAyMjE0NTQ1NloYDzIx\nMjYwOTI4MTQ1NDU2WjAUMRIwEAYDVQQDDAlsb2NhbGhvc3QwWTATBgcqhkjOPQIB\nBggqhkjOPQMBBwNCAAQKy6POho+Hx1ocNvOv5bxxTMuNGqqhdLns3b/89gBnsgyv\njs+TG2hsK8KOnZimAeGjF9o1RBKeeme3zxNOYpB7o4GWMIGTMBoGA1UdEQQTMBGC\nCWxvY2FsaG9zdIcEfwAAATAJBgNVHRMEAjAAMAsGA1UdDwQEAwIHgDAdBgNVHSUE\nFjAUBggrBgEFBQcDAQYIKwYBBQUHAwIwHQYDVR0OBBYEFEnI8FK6Ovo9sspTt0r9\nUzpPhZDQMB8GA1UdIwQYMBaAFE/6cVHNAdO1ZkdW1CdQox96rTcGMAoGCCqGSM49\nBAMCA0kAMEYCIQCSxhvJ5bcdbziBydqRjR7cFGlcu7mBHseV5NDOkRkd7QIhAK0K\nHb6U4U6rbzNvIl+I/L+wKz97yKaglZ5BgB0aHSxB\n-----END CERTIFICATE-----\n", "selfKey": "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgdgY8dymE4ogssKPY\nwiPUuUK/Vd7p24Pf66MkNRxPvkWhRANCAARyoIUirzoFMXRzf/h3glvrCpsBC834\n5x9X36pyLsrgn3025Y7liAVHHIsIW2I2G0esamjWwQLxTITOXoFe1pUW\n-----END PRIVATE KEY-----\n", "selfCert": "-----BEGIN CERTIFICATE-----\nMIIBmzCCAUGgAwIBAgIUS/1oasIwSWyNdibO8FDTpMXj8kkwCgYIKoZIzj0EAwIw\nFDESMBAGA1UEAwwJbG9jYWxob3N0MCAXDTI2MTAyMjE0NTQ1NloYDzIxMjYwOTI4\nMTQ1NDU2WjAUMRIwEAYDVQQDDAlsb2NhbGhvc3QwWTATBgcqhkjOPQIBBggqhkjO\nPQMBBwNCAARyoIUirzoFMXRzf/h3glvrCpsBC8345x9X36pyLsrgn3025Y7liAVH\nHIsIW2I2G0esamjWwQLxTITOXoFe1pUWo28wbTAdBgNVHQ4EFgQUJ1PVpBqrN9iN\n3/LdV3jFPioUuDwwHwYDVR0jBBgwFoAUJ1PVpBqrN9iN3/LdV3jFPioUuDwwDwYD\nVR0TAQH/BAUwAwEB/zAaBgNVHREEEzARgglsb2NhbGhvc3SHBH8AAAEwCgYIKoZI\nzj0EAwIDSAAwRQIhAK2VRsHWv2v8SxSKEM/mi+KImGGhovgXStaw3D1xRujIAiBq\nJc1DQbnRlymy8y/B1HyIz5UYShVBzBNH2IX+Y4caOA==\n-----END CERTIFICATE-----\n"};
+const out = {};
+const server = tls.createServer({ key: certs.leafKey, cert: certs.leafCert, ALPNProtocols: ["h2", "echo/1"] }, (socket) => {
+  socket.on("data", (d) => socket.write(`echo:${d}:${socket.alpnProtocol}`));
+  socket.on("end", () => socket.end());
+});
+await new Promise((r) => server.listen(0, "127.0.0.1", r));
+const port = server.address().port;
+const talk = (opts) => new Promise((resolve) => {
+  const s = tls.connect({ port, host: "127.0.0.1", ...opts }, () => {
+    const info = { authorized: s.authorized, authorizationError: s.authorizationError, protocol: s.getProtocol(), alpn: s.alpnProtocol, cn: s.getPeerCertificate().subject?.CN, issuer: s.getPeerCertificate(true).issuer?.CN };
+    s.write("ping");
+    s.once("data", (d) => { info.reply = String(d); s.end(); resolve(info); });
+  });
+  s.on("error", (e) => resolve({ error: e.code, message: e.message }));
+});
+out.trusted = await talk({ ca: certs.ca, servername: "localhost", ALPNProtocols: ["echo/1"] });
+out.untrusted = await talk({ servername: "localhost" });
+out.insecure = await talk({ servername: "localhost", rejectUnauthorized: false });
+out.wrongName = await talk({ ca: certs.ca, servername: "example.com" });
+const self = tls.createServer({ key: certs.selfKey, cert: certs.selfCert }, (s) => s.end("bye"));
+await new Promise((r) => self.listen(0, "127.0.0.1", r));
+out.selfSigned = await new Promise((resolve) => {
+  const s = tls.connect({ port: self.address().port, host: "localhost" });
+  s.on("secureConnect", () => resolve("connected"));
+  s.on("error", (e) => resolve([e.code, e.message]));
+});
+self.close();
+const web = https.createServer({ key: certs.leafKey, cert: certs.leafCert }, (req, res) => {
+  res.setHeader("content-type", "text/plain");
+  res.end(`hello ${req.method} ${req.url} over ${req.socket.getProtocol()}`);
+});
+await new Promise((r) => web.listen(0, "127.0.0.1", r));
+const get = (opts) => new Promise((resolve) => {
+  const req = https.request({ host: "localhost", port: web.address().port, path: "/x?y=1", ...opts }, (res) => {
+    let body = "";
+    res.on("data", (d) => (body += d));
+    res.on("end", () => resolve({ status: res.statusCode, body }));
+  });
+  req.on("error", (e) => resolve({ error: e.code }));
+  req.end();
+});
+out.https = await get({ ca: certs.ca });
+out.httpsAgent = await get({ agent: new https.Agent({ ca: certs.ca, keepAlive: true }), method: "POST" });
+out.httpsReject = await get({});
+web.close();
+server.close();
+export default out;
+"#)
+    .await;
+    let expected: Value = serde_json::from_str(r#"{"trusted":{"authorized":true,"authorizationError":null,"protocol":"TLSv1.3","alpn":"echo/1","cn":"localhost","issuer":"pi-jsrt test CA","reply":"echo:ping:echo/1"},"untrusted":{"error":"UNABLE_TO_VERIFY_LEAF_SIGNATURE","message":"unable to verify the first certificate"},"insecure":{"authorized":false,"authorizationError":"UNABLE_TO_VERIFY_LEAF_SIGNATURE","protocol":"TLSv1.3","alpn":false,"cn":"localhost","issuer":"pi-jsrt test CA","reply":"echo:ping:false"},"wrongName":{"error":"ERR_TLS_CERT_ALTNAME_INVALID","message":"Hostname/IP does not match certificate's altnames: Host: example.com. is not in the cert's altnames: DNS:localhost, IP Address:127.0.0.1"},"selfSigned":["DEPTH_ZERO_SELF_SIGNED_CERT","self-signed certificate"],"https":{"status":200,"body":"hello GET /x?y=1 over TLSv1.3"},"httpsAgent":{"status":200,"body":"hello POST /x?y=1 over TLSv1.3"},"httpsReject":{"error":"UNABLE_TO_VERIFY_LEAF_SIGNATURE"}}"#).unwrap();
+    assert_eq!(v, expected);
+}

@@ -500,6 +500,38 @@ pub(crate) fn cert_fields(der: &[u8]) -> Option<[&[u8]; 5]> {
     Some([fields[0].content, fields[2].raw, fields[3].raw, fields[4].raw, fields[5].raw])
 }
 
+/// The subjectAltName extension formatted like OpenSSL/Node (`DNS:a, IP Address:1.2.3.4`).
+pub(crate) fn subject_alt_names(der: &[u8]) -> Option<String> {
+    let (cert, _) = read_tlv(der)?;
+    let tbs = children(cert.content).into_iter().next()?;
+    let ext = children(tbs.content).into_iter().find(|f| f.tag == 0xa3)?;
+    let (seq, _) = read_tlv(ext.content)?;
+    for e in children(seq.content) {
+        let parts = children(e.content);
+        if parts.first().map(|p| p.content) != Some(&[0x55, 0x1d, 0x11][..]) {
+            continue;
+        }
+        let value = parts.last()?;
+        let (names, _) = read_tlv(value.content)?;
+        let mut out = Vec::new();
+        for n in children(names.content) {
+            match n.tag {
+                0x82 => out.push(format!("DNS:{}", String::from_utf8_lossy(n.content))),
+                0x81 => out.push(format!("email:{}", String::from_utf8_lossy(n.content))),
+                0x86 => out.push(format!("URI:{}", String::from_utf8_lossy(n.content))),
+                0x87 if n.content.len() == 4 => out.push(format!("IP Address:{}", std::net::Ipv4Addr::from(<[u8; 4]>::try_from(n.content).ok()?))),
+                0x87 if n.content.len() == 16 => {
+                    let ip = std::net::Ipv6Addr::from(<[u8; 16]>::try_from(n.content).ok()?);
+                    out.push(format!("IP Address:{}", ip.segments().iter().map(|s| format!("{s:X}")).collect::<Vec<_>>().join(":")));
+                }
+                _ => {}
+            }
+        }
+        return Some(out.join(", "));
+    }
+    None
+}
+
 // ---------------------------------------------------------------------------
 // Import
 // ---------------------------------------------------------------------------
@@ -1630,9 +1662,11 @@ fn op_cert_info(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<Js
     let subject = name_object(ctx, subject)?;
     let times: Vec<String> = read_tlv(validity).map(|(t, _)| children(t.content).iter().map(|c| String::from_utf8_lossy(c.content).into_owned()).collect()).unwrap_or_default();
     let spki = bytes_to_js(spki, ctx)?;
+    let san = subject_alt_names(&der).map(|s| js_str(&s)).unwrap_or_default();
     object(
         ctx,
         vec![
+            ("subjectaltname", san),
             ("serialNumber", js_str(&serial_hex)),
             ("issuer", issuer),
             ("subject", subject),

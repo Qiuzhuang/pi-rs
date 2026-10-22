@@ -2952,6 +2952,8 @@ dependencies = [
  "regex",
  "reqwest",
  "rsa",
+ "rustls",
+ "rustls-native-certs",
  "ruzstd",
  "scrypt",
  "sec1",
@@ -2970,6 +2972,7 @@ dependencies = [
  "url",
  "uuid",
  "wasmi",
+ "webpki-roots",
  "x25519-dalek",
 ]
 

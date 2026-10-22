@@ -11,7 +11,8 @@ use boa_interner::Interner;
 mod tests;
 
 /// The maximum number of tokens which can be peeked ahead.
-const MAX_PEEK_SKIP: usize = 3;
+// PATCH(pi-rs): 4 instead of 3, to tell `async(x)` calls from `async (x) => ...` arrows.
+const MAX_PEEK_SKIP: usize = 4;
 
 /// The fixed size of the buffer used for storing values that are peeked ahead.
 ///
@@ -39,17 +40,7 @@ where
     fn from(lexer: Lexer<R>) -> Self {
         Self {
             lexer,
-            peeked: [
-                None::<Token>,
-                None::<Token>,
-                None::<Token>,
-                None::<Token>,
-                None::<Token>,
-                None::<Token>,
-                None::<Token>,
-                None::<Token>,
-                None::<Token>,
-            ],
+            peeked: [const { None::<Token> }; PEEK_BUF_SIZE],
             read_index: 0,
             write_index: 0,
             last_linear_pos: LinearPosition::default(),

@@ -461,7 +461,7 @@ impl Loader {
                 let prepared = self.prepare_file(ctx, path)?;
                 match prepared.format {
                     Format::Esm => Module::parse(Source::from_bytes(prepared.code.as_bytes()).with_path(path), None, ctx)
-                        .map_err(|e| error::from_boa(e, ctx))?,
+                        .map_err(|e| with_file(error::from_boa(e, ctx), path))?,
                     Format::Json => {
                         let v = parse_json_text(ctx, &prepared.code, path)?;
                         synthetic_from_value(ctx, v, Some(path.clone()), false).map_err(|e| error::from_boa(e, ctx))?
@@ -739,6 +739,17 @@ fn object_keys(ctx: &mut Context, obj: &JsObject) -> JsResult<Vec<JsString>> {
 /// Build a synthetic ES module exposing `value` as `default` and its own enumerable
 /// properties as named exports. With `cjs_interop`, `__esModule` objects use their
 /// `default` property as the default export.
+/// Name the file in parse errors (Boa's messages only carry line and column).
+fn with_file(err: Error, path: &Path) -> Error {
+    match err {
+        Error::Js(mut e) if e.name == "SyntaxError" && !e.message.contains(&*path.to_string_lossy()) => {
+            e.message = format!("{} ({})", e.message, path.display());
+            Error::Js(e)
+        }
+        other => other,
+    }
+}
+
 fn synthetic_from_value(ctx: &mut Context, value: JsValue, path: Option<PathBuf>, cjs_interop: bool) -> JsResult<Module> {
     let mut names = vec![js_string!("default")];
     let mut default = value.clone();

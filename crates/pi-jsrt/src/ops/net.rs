@@ -320,3 +320,44 @@ pub(crate) const OPS: &[(&str, usize, OpFn)] = &[
     ("netDestroy", 1, op_net_destroy),
     ("netServerClose", 1, op_net_server_close),
 ];
+
+/// `ops.dnsLookup(hostname) -> Promise<[{ address, family }]>` (getaddrinfo via tokio).
+fn op_dns_lookup(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
+    let host = arg_string(args, 0, ctx)?;
+    Ok(engine::spawn_result(
+        ctx,
+        async move {
+            match tokio::net::lookup_host((host.as_str(), 0)).await {
+                Ok(addrs) => {
+                    let mut seen = Vec::new();
+                    for a in addrs {
+                        let item = (a.ip().to_string(), if a.is_ipv4() { 4 } else { 6 });
+                        if !seen.contains(&item) {
+                            seen.push(item);
+                        }
+                    }
+                    Ok(seen)
+                }
+                Err(e) => {
+                    // getaddrinfo's EAI_NONAME / EAI_AGAIN surface as io errors without errno.
+                    let code = if e.raw_os_error().is_some() { io_code(&e) } else { "ENOTFOUND" };
+                    Err(crate::Error::Js(crate::error::JsException {
+                        name: "Error".into(),
+                        message: format!("getaddrinfo {code} {host}"),
+                        stack: None,
+                        code: Some(code.into()),
+                    }))
+                }
+            }
+        },
+        |list, ctx| {
+            let mut items = Vec::new();
+            for (address, family) in list {
+                items.push(object(ctx, vec![("address", js_str(&address)), ("family", JsValue::from(family))])?);
+            }
+            Ok(super::array(ctx, items))
+        },
+    ))
+}
+
+pub(crate) const DNS_OPS: &[(&str, usize, OpFn)] = &[("dnsLookup", 1, op_dns_lookup)];

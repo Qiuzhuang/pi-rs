@@ -742,8 +742,6 @@ function stubModule(name, names, extra = {}) {
     return mod;
   });
 }
-stubModule("tls", ["connect", "createServer", "createSecureContext", "TLSSocket"]);
-stubModule("dns", ["lookup", "resolve", "resolve4", "resolve6", "reverse"], { promises: {} });
 stubModule("dgram", ["createSocket"]);
 stubModule("cluster", ["fork", "setupPrimary"], { isPrimary: true, isMaster: true, isWorker: false });
 stubModule("vm", ["runInNewContext", "runInContext", "createContext", "Script", "compileFunction"], {
@@ -755,7 +753,30 @@ stubModule("v8", ["serialize", "deserialize", "getHeapSnapshot", "writeHeapSnaps
   setFlagsFromString: () => {},
 });
 stubModule("inspector", ["open", "close", "url", "Session"]);
-stubModule("http2", ["connect", "createServer"], { constants: {}, sensitiveHeaders: Symbol("nodejs.http2.sensitiveHeaders") });
+{
+  // HTTP/2 is not implemented; the module loads (packages import names from it) and throws when used.
+  const unsupported = (name) =>
+    class {
+      constructor() {
+        throw new Error(`http2.${name} is not supported in pi-jsrt`);
+      }
+    };
+  stubModule("http2", ["connect", "createServer", "createSecureServer", "performServerHandshake"], {
+    constants: {
+      NGHTTP2_SESSION_SERVER: 0, NGHTTP2_SESSION_CLIENT: 1, HTTP2_HEADER_STATUS: ":status", HTTP2_HEADER_METHOD: ":method",
+      HTTP2_HEADER_AUTHORITY: ":authority", HTTP2_HEADER_SCHEME: ":scheme", HTTP2_HEADER_PATH: ":path",
+      HTTP2_HEADER_PROTOCOL: ":protocol", HTTP2_HEADER_CONTENT_TYPE: "content-type", HTTP2_HEADER_CONTENT_LENGTH: "content-length",
+      HTTP2_METHOD_GET: "GET", HTTP2_METHOD_POST: "POST", HTTP2_METHOD_CONNECT: "CONNECT", NGHTTP2_CANCEL: 8,
+      NGHTTP2_NO_ERROR: 0, NGHTTP2_REFUSED_STREAM: 7, HTTP_STATUS_OK: 200,
+    },
+    sensitiveHeaders: Symbol("nodejs.http2.sensitiveHeaders"),
+    getDefaultSettings: () => ({ headerTableSize: 4096, enablePush: true, initialWindowSize: 65535, maxFrameSize: 16384, maxConcurrentStreams: 4294967295, maxHeaderListSize: 65535, enableConnectProtocol: false }),
+    getPackedSettings: () => internal.Buffer.alloc(0),
+    getUnpackedSettings: () => ({}),
+    Http2ServerRequest: unsupported("Http2ServerRequest"),
+    Http2ServerResponse: unsupported("Http2ServerResponse"),
+  });
+}
 stubModule("diagnostics_channel", [], {
   channel: () => ({ hasSubscribers: false, publish() {}, subscribe() {}, unsubscribe() {} }),
   hasSubscribers: () => false,

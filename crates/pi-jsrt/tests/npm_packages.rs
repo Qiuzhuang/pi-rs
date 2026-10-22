@@ -428,3 +428,53 @@ export default out;
         })
     );
 }
+
+/// got, axios and node-forge against a local `https.createServer` with a certificate from a test
+/// CA: trusted via `https.certificateAuthority` / an `https.Agent` with `ca`, redirects,
+/// verification failures for untrusted requests. Output compared with Node 22.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn got_axios_forge_over_https() {
+    let Some(dir) = npm_dir() else { return };
+    let v = run(&dir, r#"
+import https from "node:https";
+import got from "got";
+import axios from "axios";
+import forge from "node-forge";
+const certs = {"ca": "-----BEGIN CERTIFICATE-----\nMIIBijCCATGgAwIBAgIUVs+EfMS/+Ro7R0lcA4uc/AhPkfcwCgYIKoZIzj0EAwIw\nGjEYMBYGA1UEAwwPcGktanNydCB0ZXN0IENBMCAXDTI2MTAyMjE0NTQ1NloYDzIx\nMjYwOTI4MTQ1NDU2WjAaMRgwFgYDVQQDDA9waS1qc3J0IHRlc3QgQ0EwWTATBgcq\nhkjOPQIBBggqhkjOPQMBBwNCAAQXCcWuLg51sJCkC2Jjdx3JnX9g30cJm2/Q+ntm\nIKTAK1Qf33OATy1sjP94DopCai3wP+eOi5/On5xoGRfrwSuLo1MwUTAdBgNVHQ4E\nFgQUT/pxUc0B07VmR1bUJ1CjH3qtNwYwHwYDVR0jBBgwFoAUT/pxUc0B07VmR1bU\nJ1CjH3qtNwYwDwYDVR0TAQH/BAUwAwEB/zAKBggqhkjOPQQDAgNHADBEAiBAJYPI\nkFx24T48mhhbpia1ZkznObsjhiqwHClxPMIeDgIgJThIRiRm0g2PuaoNQFBJzvKx\nnT4Y2EGoPBoqvDax6+k=\n-----END CERTIFICATE-----\n", "key": "-----BEGIN EC PRIVATE KEY-----\nMHcCAQEEIDMUcB3eZ4nh1AzrsEMvsmqcOxfnBpjfLWJUJWivV79QoAoGCCqGSM49\nAwEHoUQDQgAECsujzoaPh8daHDbzr+W8cUzLjRqqoXS57N2//PYAZ7IMr47Pkxto\nbCvCjp2YpgHhoxfaNUQSnnpnt88TTmKQew==\n-----END EC PRIVATE KEY-----\n", "cert": "-----BEGIN CERTIFICATE-----\nMIIByjCCAW+gAwIBAgIUY2YuzVK4HDbIzlyNdAw/u74U/7UwCgYIKoZIzj0EAwIw\nGjEYMBYGA1UEAwwPcGktanNydCB0ZXN0IENBMCAXDTI2MTAyMjE0NTQ1NloYDzIx\nMjYwOTI4MTQ1NDU2WjAUMRIwEAYDVQQDDAlsb2NhbGhvc3QwWTATBgcqhkjOPQIB\nBggqhkjOPQMBBwNCAAQKy6POho+Hx1ocNvOv5bxxTMuNGqqhdLns3b/89gBnsgyv\njs+TG2hsK8KOnZimAeGjF9o1RBKeeme3zxNOYpB7o4GWMIGTMBoGA1UdEQQTMBGC\nCWxvY2FsaG9zdIcEfwAAATAJBgNVHRMEAjAAMAsGA1UdDwQEAwIHgDAdBgNVHSUE\nFjAUBggrBgEFBQcDAQYIKwYBBQUHAwIwHQYDVR0OBBYEFEnI8FK6Ovo9sspTt0r9\nUzpPhZDQMB8GA1UdIwQYMBaAFE/6cVHNAdO1ZkdW1CdQox96rTcGMAoGCCqGSM49\nBAMCA0kAMEYCIQCSxhvJ5bcdbziBydqRjR7cFGlcu7mBHseV5NDOkRkd7QIhAK0K\nHb6U4U6rbzNvIl+I/L+wKz97yKaglZ5BgB0aHSxB\n-----END CERTIFICATE-----\n"};
+const server = https.createServer({ key: certs.key, cert: certs.cert }, (req, res) => {
+  let body = "";
+  req.on("data", (d) => (body += d));
+  req.on("end", () => {
+    if (req.url === "/redirect") { res.writeHead(302, { location: "/json" }); res.end(); return; }
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify({ method: req.method, url: req.url, body, encrypted: req.socket.encrypted === true }));
+  });
+});
+await new Promise((r) => server.listen(0, "127.0.0.1", r));
+const base = `https://localhost:${server.address().port}`;
+const out = {};
+out.got = await got.post(`${base}/got`, { json: { a: 1 }, https: { certificateAuthority: certs.ca } }).json();
+out.gotRedirect = (await got(`${base}/redirect`, { https: { certificateAuthority: certs.ca } }).json()).url;
+try { await got(`${base}/x`, { retry: { limit: 0 } }); } catch (e) { out.gotUntrusted = e.code; }
+const agent = new https.Agent({ ca: certs.ca });
+const ax = await axios.put(`${base}/axios`, "payload", { httpsAgent: agent, headers: { "content-type": "text/plain" } });
+out.axios = { status: ax.status, data: ax.data };
+try { await axios.get(`${base}/x`); } catch (e) { out.axiosUntrusted = e.code; }
+// node-forge: pure-JS crypto (its random source is node:crypto).
+const key = forge.pkcs5.pbkdf2("password", "salt", 1000, 16);
+const cipher = forge.cipher.createCipher("AES-CBC", key);
+const iv = forge.random.getBytesSync(16);
+cipher.start({ iv });
+cipher.update(forge.util.createBuffer("forge secret"));
+cipher.finish();
+const decipher = forge.cipher.createDecipher("AES-CBC", key);
+decipher.start({ iv });
+decipher.update(cipher.output);
+decipher.finish();
+out.forge = { roundTrip: decipher.output.toString(), sha256: forge.md.sha256.create().update("abc").digest().toHex().slice(0, 16), keyHex: forge.util.bytesToHex(key) };
+server.close();
+export default out;
+"#).await;
+    let expected: Value = serde_json::from_str(r#"{"got":{"method":"POST","url":"/got","body":"{\"a\":1}","encrypted":true},"gotRedirect":"/json","gotUntrusted":"UNABLE_TO_VERIFY_LEAF_SIGNATURE","axios":{"status":200,"data":{"method":"PUT","url":"/axios","body":"payload","encrypted":true}},"axiosUntrusted":"UNABLE_TO_VERIFY_LEAF_SIGNATURE","forge":{"roundTrip":"forge secret","sha256":"ba7816bf8f01cfea","keyHex":"6e88be8bad7eae9d9e10aa061224034f"}}"#).unwrap();
+    assert_eq!(v, expected);
+}

@@ -15,7 +15,7 @@ mod r#yield;
 
 use crate::{
     Error,
-    lexer::{Error as LexError, InputElement, TokenKind},
+    lexer::{Error as LexError, InputElement, Token, TokenKind},
     parser::{
         AllowAwait, AllowIn, AllowYield, Cursor, OrAbrupt, ParseResult, TokenParser,
         expression::{
@@ -125,7 +125,28 @@ where
                 };
 
                 let peek_1 = cursor.peek(1, interner).or_abrupt()?.kind().clone();
-                if !cursor
+                // PATCH(pi-rs): `async()` and `async(x)` not followed by `=>` are calls of a
+                // function named `async` (asynckit, used by form-data/axios), not arrow heads.
+                let is_call = matches!(peek_1, TokenKind::Punctuator(Punctuator::OpenParen)) && {
+                    let arrow_at = |cursor: &mut Cursor<R>, n: usize, interner: &mut Interner| -> ParseResult<bool> {
+                        Ok(matches!(
+                            cursor.peek(n, interner)?.map(Token::kind),
+                            Some(TokenKind::Punctuator(Punctuator::Arrow))
+                        ))
+                    };
+                    match cursor.peek(2, interner)?.map(|t| t.kind().clone()) {
+                        Some(TokenKind::Punctuator(Punctuator::CloseParen)) => !arrow_at(cursor, 3, interner)?,
+                        Some(TokenKind::IdentifierName(_)) => {
+                            matches!(
+                                cursor.peek(3, interner)?.map(Token::kind),
+                                Some(TokenKind::Punctuator(Punctuator::CloseParen))
+                            ) && !arrow_at(cursor, 4, interner)?
+                        }
+                        _ => false,
+                    }
+                };
+                if !is_call
+                    && !cursor
                     .peek_is_line_terminator(skip_n, interner)
                     .or_abrupt()?
                     && (matches!(peek_1, TokenKind::Punctuator(Punctuator::OpenParen))

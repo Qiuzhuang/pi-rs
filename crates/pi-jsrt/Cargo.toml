@@ -64,6 +64,9 @@ pkcs1 = { version = "0.7", features = ["pem", "std"] }
 der = { version = "0.7", features = ["oid", "std"] }
 wasmi = { version = "2", default-features = false, features = ["stable", "std", "validate", "auto-dispatch"] }
 aligned-vec = "0.6"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+webpki-roots = "1"
+rustls-native-certs = "0.8"
 
 [dev-dependencies]
 tempfile = "3"

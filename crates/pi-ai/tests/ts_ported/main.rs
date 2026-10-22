@@ -14,3 +14,4 @@ mod openai_responses;
 mod google;
 mod bedrock;
 mod oauth;
+mod catalog;

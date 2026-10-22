@@ -19,6 +19,11 @@ pub(crate) mod npm_registry;
 #[cfg(test)]
 mod tests;
 
+/// Serializes tests that change process-global state the package manager reads
+/// (`HOME`, `PI_OFFLINE`, cwd, `PI_CODING_AGENT_DIR`).
+#[cfg(test)]
+pub(crate) static TEST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 use crate::config::CONFIG_DIR_NAME;
 use crate::core::output_guard::is_stdout_taken_over;
 use crate::core::pi_manifest::{PiManifest, read_pi_manifest};

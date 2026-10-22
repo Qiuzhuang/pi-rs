@@ -3,9 +3,8 @@
 
 use super::*;
 use crate::config::ENV_AGENT_DIR;
-use std::sync::Mutex as StdMutex;
 
-static CLI_LOCK: StdMutex<()> = StdMutex::new(());
+use crate::core::package_manager::TEST_ENV_LOCK as CLI_LOCK;
 
 struct Env {
     _guard: std::sync::MutexGuard<'static, ()>,

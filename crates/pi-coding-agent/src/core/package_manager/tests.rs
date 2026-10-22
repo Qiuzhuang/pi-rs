@@ -11,10 +11,8 @@ use serde_json::json;
 use std::sync::Mutex as StdMutex;
 use std::time::Duration;
 
-static ENV_LOCK: StdMutex<()> = StdMutex::new(());
-
 fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-    ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    super::TEST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -45,6 +45,8 @@ pub(crate) enum FsOp {
     Fstat(i32),
     Ftruncate(i32, u64),
     Fsync(i32),
+    Futimes(i32, f64, f64),
+    Fchmod(i32, u32),
 }
 
 pub(crate) struct StatData {
@@ -407,6 +409,18 @@ pub(crate) fn exec(op: FsOp) -> Result<FsOut, Error> {
             f.lock().sync_all().map_err(|e| io_error(&e, "fsync", None))?;
             FsOut::Unit
         }
+        Futimes(fd, atime, mtime) => {
+            let f = file_for(fd).map_err(|e| io_error(&e, "futime", None))?;
+            let to_time = |s: f64| SystemTime::UNIX_EPOCH + Duration::from_secs_f64(s.max(0.0));
+            let times = fs::FileTimes::new().set_accessed(to_time(atime)).set_modified(to_time(mtime));
+            f.lock().set_times(times).map_err(|e| io_error(&e, "futime", None))?;
+            FsOut::Unit
+        }
+        Fchmod(fd, mode) => {
+            let f = file_for(fd).map_err(|e| io_error(&e, "fchmod", None))?;
+            f.lock().set_permissions(fs::Permissions::from_mode(mode)).map_err(|e| io_error(&e, "fchmod", None))?;
+            FsOut::Unit
+        }
     })
 }
 
@@ -529,6 +543,8 @@ fn build(args: &[JsValue], ctx: &mut Context) -> JsResult<FsOp> {
         "fstat" => FsOp::Fstat(n(0, ctx)? as i32),
         "ftruncate" => FsOp::Ftruncate(n(0, ctx)? as i32, n(1, ctx)?.max(0.0) as u64),
         "fsync" => FsOp::Fsync(n(0, ctx)? as i32),
+        "futimes" => FsOp::Futimes(n(0, ctx)? as i32, n(1, ctx)?, n(2, ctx)?),
+        "fchmod" => FsOp::Fchmod(n(0, ctx)? as i32, n(1, ctx)? as u32),
         other => return Err(engine::type_error(format!("unknown fs op {other}"))),
     })
 }

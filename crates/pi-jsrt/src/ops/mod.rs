@@ -16,6 +16,7 @@ pub(crate) mod fetch;
 pub(crate) mod fs;
 pub(crate) mod net;
 pub(crate) mod process;
+pub(crate) mod zlib;
 
 /// Glue scripts installed in every runtime.
 const WEB_GLUE: &[(&str, &str)] = &[
@@ -105,7 +106,6 @@ const LAZY_GLUE: &[LazyGlue] = &[
             "async_hooks",
             "worker_threads",
             "console",
-            "zlib",
             "tls",
             "dns",
             "dgram",
@@ -117,6 +117,12 @@ const LAZY_GLUE: &[LazyGlue] = &[
             "diagnostics_channel",
             "constants",
         ],
+        globals: &[],
+    },
+    LazyGlue {
+        file: "node/zlib.js",
+        src: include_str!("../../js/node/zlib.js"),
+        builtins: &["zlib"],
         globals: &[],
     },
     LazyGlue {
@@ -207,6 +213,7 @@ pub(crate) fn bootstrap(ctx: &mut Context) -> JsResult<()> {
         define_ops(ctx, &ops, crypto::OPS)?;
         define_ops(ctx, &ops, fetch::OPS)?;
         define_ops(ctx, &ops, net::OPS)?;
+        define_ops(ctx, &ops, zlib::OPS)?;
     }
     let config = process::config_object(ctx)?;
     if node && let Some(cfg) = config.as_object() {
@@ -373,4 +380,46 @@ pub(crate) fn object(ctx: &mut Context, entries: Vec<(&str, JsValue)>) -> JsResu
 /// Build a JS array from values.
 pub(crate) fn array(ctx: &mut Context, items: Vec<JsValue>) -> JsValue {
     boa_engine::object::builtins::JsArray::from_iter(items, ctx).into()
+}
+
+/// Rust state owned by a JS object (dropped when the object is collected).
+pub(crate) struct NativeCell<T: 'static>(pub std::cell::RefCell<T>);
+
+impl<T: 'static> boa_engine::gc::Finalize for NativeCell<T> {}
+// SAFETY: the cell holds no GC-managed values.
+unsafe impl<T: 'static> boa_engine::gc::Trace for NativeCell<T> {
+    boa_engine::gc::empty_trace!();
+}
+impl<T: 'static> boa_engine::JsData for NativeCell<T> {}
+
+/// Wrap Rust state in an opaque JS object.
+pub(crate) fn native_object<T: 'static>(value: T) -> JsValue {
+    JsObject::from_proto_and_data(None, NativeCell(std::cell::RefCell::new(value))).into()
+}
+
+/// Borrow the Rust state of an object made by [`native_object`].
+pub(crate) fn with_native<T: 'static, R>(v: &JsValue, f: impl FnOnce(&mut T) -> R) -> JsResult<R> {
+    let obj = v.as_object().ok_or_else(|| engine::type_error("invalid native handle"))?;
+    let cell = obj.downcast_ref::<NativeCell<T>>().ok_or_else(|| engine::type_error("invalid native handle"))?;
+    let mut inner = cell.0.try_borrow_mut().map_err(|_| engine::type_error("native handle is busy"))?;
+    Ok(f(&mut inner))
+}
+
+/// An `Error` (or `TypeError`/`RangeError` with `kind`) carrying extra properties such as
+/// `code` and `errno`.
+pub(crate) fn coded_error(ctx: &mut Context, kind: &str, message: &str, props: &[(&str, JsValue)]) -> boa_engine::JsError {
+    let native = match kind {
+        "TypeError" => boa_engine::JsNativeError::typ(),
+        "RangeError" => boa_engine::JsNativeError::range(),
+        "SyntaxError" => boa_engine::JsNativeError::syntax(),
+        _ => boa_engine::JsNativeError::error(),
+    }
+    .with_message(message.to_string());
+    let value = boa_engine::JsError::from(native).into_opaque(ctx).unwrap_or_default();
+    if let Some(obj) = value.as_object() {
+        for (k, v) in props {
+            let _ = obj.set(js_str(k).as_string().unwrap(), v.clone(), true, ctx);
+        }
+    }
+    boa_engine::JsError::from_opaque(value)
 }

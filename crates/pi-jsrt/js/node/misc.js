@@ -729,32 +729,6 @@ function stubModule(name, names, extra = {}) {
     return mod;
   });
 }
-stubModule("zlib", [
-  "gzip",
-  "gzipSync",
-  "gunzip",
-  "gunzipSync",
-  "deflate",
-  "deflateSync",
-  "inflate",
-  "inflateSync",
-  "deflateRaw",
-  "deflateRawSync",
-  "inflateRaw",
-  "inflateRawSync",
-  "brotliCompress",
-  "brotliCompressSync",
-  "brotliDecompress",
-  "brotliDecompressSync",
-  "unzip",
-  "unzipSync",
-  "createGzip",
-  "createGunzip",
-  "createDeflate",
-  "createInflate",
-  "createBrotliCompress",
-  "createBrotliDecompress",
-], { constants: {} });
 stubModule("tls", ["connect", "createServer", "createSecureContext", "TLSSocket"]);
 stubModule("dns", ["lookup", "resolve", "resolve4", "resolve6", "reverse"], { promises: {} });
 stubModule("dgram", ["createSocket"]);

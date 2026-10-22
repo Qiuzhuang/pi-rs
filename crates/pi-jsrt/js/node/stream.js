@@ -15,14 +15,15 @@ function chunkLength(chunk, objectMode) {
   return chunk?.length ?? 0;
 }
 
-class Stream extends EventEmitter {
-  constructor(opts) {
-    super(opts);
-  }
-  pipe(dest, options) {
-    return Readable.prototype.pipe.call(this, dest, options);
-  }
+// A plain function like Node's legacy `Stream`, so old code can call `Stream.call(this)`.
+function Stream(opts) {
+  EventEmitter.call(this, opts);
 }
+Object.setPrototypeOf(Stream.prototype, EventEmitter.prototype);
+Object.setPrototypeOf(Stream, EventEmitter);
+Stream.prototype.pipe = function pipe(dest, options) {
+  return Readable.prototype.pipe.call(this, dest, options);
+};
 
 class Readable extends Stream {
   constructor(options = {}) {

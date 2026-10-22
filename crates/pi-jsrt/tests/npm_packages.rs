@@ -107,7 +107,9 @@ async fn run(dir: &Path, source: &str) -> Value {
     .unwrap();
     let file = dir.join(format!("pi-jsrt-npm-test-{}.mjs", uuid::Uuid::new_v4()));
     std::fs::write(&file, source).unwrap();
-    let result = rt.import(file.display().to_string()).await;
+    let result = tokio::time::timeout(std::time::Duration::from_secs(120), rt.import(file.display().to_string()))
+        .await
+        .expect("timed out");
     let _ = std::fs::remove_file(&file);
     let ns = result.unwrap_or_else(|e| panic!("{e}\n{:?}", e.as_js().and_then(|j| j.stack.clone())));
     ns.get("default").await.unwrap()
@@ -176,5 +178,74 @@ export default {
     assert_eq!(
         v,
         json!({ "echo": "hi", "piped": "from stdin", "failed": 3, "files": ["node_modules/execa/package.json"], "fetch": "function", "headers": "1" })
+    );
+}
+
+/// zlib consumers: tar (gzip streams through minipass), adm-zip (deflateRaw/inflateRaw sync) and
+/// archiver (zip streams via readable-stream), cross-checked by reading archiver's zip with
+/// adm-zip.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn zlib_packages_tar_adm_zip_archiver() {
+    let Some(dir) = npm_dir() else { return };
+    let work = tempfile::tempdir().unwrap();
+    let v = run(
+        &dir,
+        &format!(
+            r#"
+import * as tar from "tar";
+import AdmZip from "adm-zip";
+import {{ ZipArchive }} from "archiver";
+import fs from "node:fs";
+import path from "node:path";
+const work = {work:?};
+fs.mkdirSync(path.join(work, "src/sub"), {{ recursive: true }});
+fs.writeFileSync(path.join(work, "src/a.txt"), "alpha ".repeat(1000));
+fs.writeFileSync(path.join(work, "src/sub/b.txt"), "beta");
+await tar.c({{ gzip: true, file: path.join(work, "out.tgz"), cwd: work }}, ["src"]);
+fs.mkdirSync(path.join(work, "x"));
+await tar.x({{ file: path.join(work, "out.tgz"), cwd: path.join(work, "x") }});
+const listed = [];
+await tar.t({{ file: path.join(work, "out.tgz"), onReadEntry: (e) => listed.push(e.path) }});
+
+const zip = new AdmZip();
+zip.addFile("hello.txt", Buffer.from("hello zip ".repeat(100)));
+zip.addLocalFolder(path.join(work, "src"), "src");
+const zbuf = zip.toBuffer();
+const back = new AdmZip(zbuf);
+
+const output = fs.createWriteStream(path.join(work, "arch.zip"));
+const archive = new ZipArchive({{ zlib: {{ level: 9 }} }});
+const closed = new Promise((resolve, reject) => {{ output.on("close", resolve); archive.on("error", reject); }});
+archive.pipe(output);
+archive.append("from archiver ".repeat(50), {{ name: "note.txt" }});
+archive.directory(path.join(work, "src"), "tree");
+await archive.finalize();
+await closed;
+const arch = new AdmZip(path.join(work, "arch.zip"));
+export default {{
+  extracted: fs.readFileSync(path.join(work, "x/src/a.txt"), "utf8").length,
+  b: fs.readFileSync(path.join(work, "x/src/sub/b.txt"), "utf8"),
+  listed: listed.sort(),
+  zipEntries: back.getEntries().map((e) => e.entryName).sort(),
+  zipHello: back.readAsText("hello.txt").length,
+  archEntries: arch.getEntries().map((e) => e.entryName).sort(),
+  archNote: arch.readAsText("note.txt").length,
+  archB: arch.readAsText("tree/sub/b.txt"),
+}};
+"#,
+            work = work.path().display().to_string()
+        ),
+    )
+    .await;
+    assert_eq!(
+        v,
+        json!({
+            "extracted": 6000, "b": "beta",
+            "listed": ["src/", "src/a.txt", "src/sub/", "src/sub/b.txt"],
+            "zipEntries": ["hello.txt", "src/a.txt", "src/sub/", "src/sub/b.txt"],
+            "zipHello": 1000,
+            "archEntries": ["note.txt", "tree/a.txt", "tree/sub/", "tree/sub/b.txt"],
+            "archNote": 700, "archB": "beta",
+        })
     );
 }

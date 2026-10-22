@@ -8,7 +8,7 @@
 //! (`tests/modules.rs::real_npm_packages` covers ms, chalk, typebox, yaml, zod, diff, minimatch,
 //! uuid, lodash-es, nanoid and strip-ansi.) The SDKs talk to a local mock server.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use pi_jsrt::{JsRuntime, RuntimeOptions};
 use serde_json::{Value, json};
@@ -99,9 +99,9 @@ fn route(path: &str) -> (&'static str, String) {
     }
 }
 
-async fn run(dir: &PathBuf, source: &str) -> Value {
+async fn run(dir: &Path, source: &str) -> Value {
     let rt = JsRuntime::new(RuntimeOptions {
-        cwd: Some(dir.clone()),
+        cwd: Some(dir.to_path_buf()),
         ..Default::default()
     })
     .unwrap();

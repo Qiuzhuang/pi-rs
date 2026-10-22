@@ -545,6 +545,7 @@ struct VtState {
     writes: Vec<String>,
     log_writes: bool,
     kitty_protocol_active: bool,
+    title: Option<String>,
 }
 
 /// Virtual terminal for tests, backed by a small terminal emulator.
@@ -563,12 +564,18 @@ impl VirtualTerminal {
                 writes: Vec::new(),
                 log_writes: true,
                 kitty_protocol_active: true,
+                title: None,
             })),
         }
     }
 
     fn lock(&self) -> MutexGuard<'_, VtState> {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// The last window title set through `set_title`.
+    pub fn get_title(&self) -> Option<String> {
+        self.lock().title.clone()
     }
 
     /// Simulate keyboard input.
@@ -705,7 +712,9 @@ impl Terminal for VirtualTerminal {
         self.lock().emu.feed("\x1b[2J\x1b[H");
     }
     fn set_title(&self, title: &str) {
-        self.lock().emu.feed(&format!("\x1b]0;{title}\x07"));
+        let mut st = self.lock();
+        st.title = Some(title.to_string());
+        st.emu.feed(&format!("\x1b]0;{title}\x07"));
     }
 }
 

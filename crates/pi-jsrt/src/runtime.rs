@@ -317,7 +317,12 @@ impl JsRuntime {
             let handle = std::thread::Builder::new()
                 .name(shared.options.thread_name.clone())
                 .stack_size(shared.options.thread_stack_size)
-                .spawn(move || engine::thread_main(init, ready_tx));
+                .spawn(move || {
+                    // Host functions run on this thread and may spawn tokio tasks.
+                    let tokio_handle = init.tokio.clone();
+                    let _guard = tokio_handle.enter();
+                    engine::thread_main(init, ready_tx)
+                });
             let (thread_id, join) = match handle {
                 Ok(h) => (h.thread().id(), Some(h)),
                 Err(e) => {

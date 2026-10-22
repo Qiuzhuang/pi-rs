@@ -84,11 +84,15 @@ struct FixtureOptions {
     columns: usize,
     rows: usize,
     flags: Vec<(String, pi_coding_agent::core::extensions::types::FlagValue)>,
+    /// Faux model ids (default: one model).
+    models: Vec<&'static str>,
+    /// Files written into the agent dir before loading (relative path, content).
+    agent_files: Vec<(&'static str, String)>,
 }
 
 impl Default for FixtureOptions {
     fn default() -> Self {
-        Self { settings: json!({ "quietStartup": true }), columns: 100, rows: 40, flags: Vec::new() }
+        Self { settings: json!({ "quietStartup": true }), columns: 100, rows: 40, flags: Vec::new(), models: Vec::new(), agent_files: Vec::new() }
     }
 }
 
@@ -106,6 +110,11 @@ impl Fixture {
             std::env::set_var("PI_OFFLINE", "1");
             std::env::set_var("PI_SKIP_VERSION_CHECK", "1");
         }
+        for (path, content) in &options.agent_files {
+            let path = agent_dir.join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, content).unwrap();
+        }
         let cwd = agent_dir.join("project");
         std::fs::create_dir_all(&cwd).unwrap();
         let cwd = cwd.display().to_string();
@@ -118,6 +127,11 @@ impl Fixture {
         let harness = create_harness(HarnessOptions {
             settings: Some(options.settings.clone()),
             resource_loader: Some(TestResourceLoader::new(Some(loaded))),
+            models: options
+                .models
+                .iter()
+                .map(|id| pi_ai::providers::faux::FauxModelDefinition { id: id.to_string(), ..Default::default() })
+                .collect(),
             ..Default::default()
         })
         .await
@@ -166,7 +180,9 @@ impl Fixture {
                 return screen;
             }
             if Instant::now() > deadline {
-                panic!("timed out waiting for {what}; screen:\n{screen}");
+                self.mode.tui().request_render(true);
+                tokio::time::sleep(Duration::from_millis(300)).await;
+                panic!("timed out waiting for {what}; screen:\n{screen}\nafter a full redraw:\n{}", self.screen());
             }
         }
     }
@@ -239,6 +255,22 @@ fn tool_call(name: &str, args: Value) -> FauxResponseStep {
 
 fn text(text: &str) -> FauxResponseStep {
     faux_text_message(text).into()
+}
+
+type Captured = Arc<parking_lot::Mutex<Vec<pi_ai::types::TranscriptContext>>>;
+
+/// A text reply that records the request context it answers.
+fn capturing(reply: &str, sink: &Captured) -> FauxResponseStep {
+    let reply = reply.to_string();
+    let sink = sink.clone();
+    FauxResponseStep::factory(move |context, _, _, _| {
+        sink.lock().push(context.clone());
+        faux_text_message(reply.clone())
+    })
+}
+
+fn system_prompt_of(context: &pi_ai::types::TranscriptContext) -> String {
+    pi_ai::utils::transcript::get_current_system_prompt(&context.messages)
 }
 
 // ---------------------------------------------------------------------------
@@ -347,5 +379,261 @@ async fn modal_editor_replaces_the_editor_and_keeps_app_actions() {
     fx.keys(ENTER);
     fx.wait_text("modal reply").await;
     assert_eq!(fx.harness.user_texts(), vec!["ello".to_string()]);
+    fx.cleanup();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn custom_footer_toggles() {
+    let Some(dir) = examples() else { return };
+    let _lock = LOCK.lock().await;
+    let fx = Fixture::new(&dir, &["custom-footer.ts"]).await;
+
+    fx.submit("/footer");
+    fx.wait_text("Custom footer enabled").await;
+    let screen = fx.wait_text("↑0 ↓0 $0.000").await;
+    assert!(screen.contains("faux-1"), "{screen}");
+    fx.submit("/footer");
+    fx.wait_text("Default footer restored").await;
+    fx.wait_gone("↑0 ↓0 $0.000").await;
+    fx.cleanup();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn custom_header_replaces_and_restores_the_header() {
+    let Some(dir) = examples() else { return };
+    let _lock = LOCK.lock().await;
+    let fx = Fixture::new(&dir, &["custom-header.ts"]).await;
+
+    let screen = fx.wait_text("shitty coding agent").await;
+    assert!(screen.contains("██████████████"), "mascot missing:\n{screen}");
+    fx.submit("/builtin-header");
+    fx.wait_text("Built-in header restored").await;
+    fx.wait_gone("shitty coding agent").await;
+    fx.cleanup();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn status_line_follows_turns() {
+    let Some(dir) = examples() else { return };
+    let _lock = LOCK.lock().await;
+    let fx = Fixture::new(&dir, &["status-line.ts"]).await;
+
+    fx.wait_text("Ready").await;
+    fx.respond(vec![text("ok")]);
+    fx.submit("hi");
+    fx.wait_text("✓ Turn 1 complete").await;
+    fx.cleanup();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn widget_placement_above_and_below_the_editor() {
+    let Some(dir) = examples() else { return };
+    let _lock = LOCK.lock().await;
+    let fx = Fixture::new(&dir, &["widget-placement.ts"]).await;
+
+    let screen = fx.wait_for("both widgets", |s| s.contains("Above editor widget") && s.contains("Below editor widget")).await;
+    let lines: Vec<&str> = screen.lines().collect();
+    let above = lines.iter().position(|l| l.contains("Above editor widget")).unwrap();
+    let below = lines.iter().position(|l| l.contains("Below editor widget")).unwrap();
+    let borders: Vec<usize> = lines.iter().enumerate().filter(|(_, l)| l.starts_with("────")).map(|(i, _)| i).collect();
+    assert!(borders.len() >= 2, "{screen}");
+    assert!(above < borders[0] && below > borders[1], "widgets misplaced:\n{screen}");
+    fx.cleanup();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn titlebar_spinner_animates_and_restores_the_title() {
+    let Some(dir) = examples() else { return };
+    let _lock = LOCK.lock().await;
+    let fx = Fixture::new(&dir, &["titlebar-spinner.ts"]).await;
+
+    fx.respond(vec![text("done")]);
+    fx.submit("hi");
+    fx.wait_text("done").await;
+    fx.wait_until("the base title", || fx.terminal.get_title().as_deref() == Some("π - project")).await;
+    fx.cleanup();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn model_status_notifies_on_model_change() {
+    let Some(dir) = examples() else { return };
+    let _lock = LOCK.lock().await;
+    let fx =
+        Fixture::with_options(&dir, &["model-status.ts"], FixtureOptions { models: vec!["faux-1", "faux-2"], ..Default::default() })
+            .await;
+
+    fx.submit("/model");
+    fx.wait_text("Only showing models").await;
+    fx.type_text("faux-2").await;
+    fx.wait_text("Model Name: faux-2").await;
+    fx.keys(ENTER);
+    // The interactive mode's own "Model: faux-2" status coalesces with the extension's
+    // notification (both are status lines), as in TS.
+    let screen = fx.wait_text("🤖 faux-2").await;
+    eprintln!("{screen}");
+    fx.cleanup();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn notify_runs_on_agent_settled() {
+    let Some(dir) = examples() else { return };
+    let _lock = LOCK.lock().await;
+    let fx = Fixture::new(&dir, &["notify.ts"]).await;
+
+    fx.respond(vec![text("settled")]);
+    fx.submit("hi");
+    fx.wait_text("settled").await;
+    fx.wait_idle().await;
+    let screen = fx.screen();
+    assert!(!screen.contains("Extension error") && !screen.contains("error"), "{screen}");
+    fx.cleanup();
+}
+
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn question_tool_dialog_selects_and_types_answers() {
+    let Some(dir) = examples() else { return };
+    let _lock = LOCK.lock().await;
+    let fx = Fixture::new(&dir, &["question.ts"]).await;
+    let options = json!([{ "label": "Red" }, { "label": "Blue", "description": "the sky" }]);
+
+    fx.respond(vec![tool_call("question", json!({ "question": "Favorite color?", "options": options })), text("noted")]);
+    fx.submit("ask me");
+    let screen = fx.wait_text("↑↓ navigate • Enter to select • Esc to cancel").await;
+    assert!(screen.contains("Favorite color?") && screen.contains("1. Red") && screen.contains("2. Blue"), "{screen}");
+    assert!(screen.contains("the sky") && screen.contains("3. Type something."), "{screen}");
+    fx.keys(DOWN);
+    fx.keys(ENTER);
+    fx.wait_text("noted").await;
+    let result = get_message_text(&pi_agent::types::AgentMessage::ToolResult(fx.harness.tool_result("question")));
+    assert_eq!(result, "User selected: 2. Blue");
+
+    // "Type something." opens the inline editor.
+    fx.respond(vec![tool_call("question", json!({ "question": "Favorite color?", "options": options })), text("noted again")]);
+    fx.submit("ask again");
+    fx.wait_text("↑↓ navigate • Enter to select • Esc to cancel").await;
+    fx.keys(DOWN);
+    fx.keys(DOWN);
+    fx.keys(ENTER);
+    fx.wait_text("Your answer:").await;
+    fx.type_text("Green").await;
+    fx.keys(ENTER);
+    fx.wait_text("noted again").await;
+    let result = get_message_text(&pi_agent::types::AgentMessage::ToolResult(fx.harness.tool_result("question")));
+    assert_eq!(result, "User wrote: Green");
+    fx.cleanup();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn questionnaire_single_question() {
+    let Some(dir) = examples() else { return };
+    let _lock = LOCK.lock().await;
+    let fx = Fixture::new(&dir, &["questionnaire.ts"]).await;
+    let questions = json!([{
+        "id": "scope",
+        "prompt": "Which scope?",
+        "options": [{ "value": "small", "label": "Small" }, { "value": "big", "label": "Big" }]
+    }]);
+    fx.respond(vec![tool_call("questionnaire", json!({ "questions": questions })), text("thanks")]);
+    fx.submit("ask");
+    fx.wait_text("Which scope?").await;
+    fx.keys(DOWN);
+    fx.keys(ENTER);
+    fx.wait_text("thanks").await;
+    let result = get_message_text(&pi_agent::types::AgentMessage::ToolResult(fx.harness.tool_result("questionnaire")));
+    assert!(result.contains("Big"), "{result}");
+    fx.cleanup();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn permission_gate_asks_before_dangerous_commands() {
+    let Some(dir) = examples() else { return };
+    let _lock = LOCK.lock().await;
+    let fx = Fixture::new(&dir, &["permission-gate.ts"]).await;
+
+    fx.respond(vec![tool_call("bash", json!({ "command": "sudo rm -rf /tmp/pi-nothing-here" })), text("ok, not done")]);
+    fx.submit("clean up");
+    let screen = fx.wait_text("Dangerous command:").await;
+    assert!(screen.contains("sudo rm -rf /tmp/pi-nothing-here") && screen.contains("Yes") && screen.contains("No"), "{screen}");
+    fx.keys(DOWN);
+    fx.keys(ENTER);
+    fx.wait_text("ok, not done").await;
+    let result = fx.harness.tool_result("bash");
+    assert!(result.is_error, "blocked tool call should be an error result");
+    assert!(get_message_text(&pi_agent::types::AgentMessage::ToolResult(result)).contains("Blocked by user"));
+    fx.cleanup();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn tools_settings_list_toggles_active_tools() {
+    let Some(dir) = examples() else { return };
+    let _lock = LOCK.lock().await;
+    let fx = Fixture::new(&dir, &["tools.ts"]).await;
+    assert!(fx.harness.session.get_active_tool_names().contains(&"read".to_string()));
+
+    fx.submit("/tools");
+    let screen = fx.wait_text("Tool Configuration").await;
+    assert!(screen.contains("enabled"), "{screen}");
+    // The first tool is `read`: Enter cycles enabled -> disabled.
+    fx.keys(ENTER);
+    fx.wait_until("read to be disabled", || !fx.harness.session.get_active_tool_names().contains(&"read".to_string())).await;
+    fx.keys(ESC);
+    fx.wait_gone("Tool Configuration").await;
+    let saved = custom_entries(&fx, "tools-config");
+    assert!(!saved.is_empty());
+    assert!(!saved.last().unwrap()["data"]["enabledTools"].as_array().unwrap().contains(&json!("read")));
+    fx.cleanup();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn plan_mode_plans_then_executes_with_progress() {
+    let Some(dir) = examples() else { return };
+    let _lock = LOCK.lock().await;
+    let fx = Fixture::new(&dir, &["plan-mode/index.ts"]).await;
+
+    fx.submit("/plan");
+    fx.wait_text("Plan mode enabled").await;
+    fx.wait_text("⏸ plan").await;
+    let tools = fx.harness.session.get_active_tool_names();
+    assert!(!tools.contains(&"edit".to_string()) && !tools.contains(&"write".to_string()), "{tools:?}");
+
+    fx.respond(vec![text("Plan:\n1. Inspect the parser module\n2. Write the failing test")]);
+    fx.submit("fix the bug");
+    fx.wait_text("Plan mode - what next?").await;
+    fx.respond(vec![text("Working. [DONE:1] [DONE:2]")]);
+    fx.keys(ENTER); // Execute the plan
+    fx.wait_text("Plan Complete!").await;
+    let tools = fx.harness.session.get_active_tool_names();
+    assert!(tools.contains(&"edit".to_string()) && tools.contains(&"write".to_string()), "{tools:?}");
+    fx.cleanup();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn preset_selects_model_tools_and_instructions() {
+    let Some(dir) = examples() else { return };
+    let _lock = LOCK.lock().await;
+    let presets = json!({
+        "explore": { "provider": "faux", "model": "faux-2", "tools": ["read", "grep"], "instructions": "PRESET-INSTRUCTIONS" }
+    });
+    let fx = Fixture::with_options(
+        &dir,
+        &["preset.ts"],
+        FixtureOptions { models: vec!["faux-1", "faux-2"], agent_files: vec![("presets.json", presets.to_string())], ..Default::default() },
+    )
+    .await;
+
+    fx.submit("/preset");
+    fx.wait_text("Select Preset").await;
+    fx.keys(ENTER);
+    fx.wait_text("Preset \"explore\" activated").await;
+    fx.wait_text("preset:explore").await;
+    assert_eq!(fx.harness.session.model().map(|m| m.id), Some("faux-2".to_string()));
+    assert_eq!(fx.harness.session.get_active_tool_names(), vec!["read".to_string(), "grep".to_string()]);
+    let captured = Captured::default();
+    fx.respond(vec![capturing("terse", &captured)]);
+    fx.submit("hi");
+    fx.wait_text("terse").await;
+    let prompt = system_prompt_of(&captured.lock()[0]);
+    assert!(prompt.ends_with("\n\nPRESET-INSTRUCTIONS"), "{prompt}");
     fx.cleanup();
 }

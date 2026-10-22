@@ -23,7 +23,9 @@ mod cache;
 mod handoff;
 mod matrix;
 mod overflow;
+mod stream;
 mod thinking;
+mod usage;
 mod tool_results;
 
 /// Credentials that gate a target, mirroring the TS `skipIf` conditions.
@@ -444,14 +446,17 @@ fn live_models_exist_in_catalog() {
         include_str!("abort.rs"),
         include_str!("matrix.rs"),
         include_str!("overflow.rs"),
+        include_str!("stream.rs"),
         include_str!("thinking.rs"),
         include_str!("cache.rs"),
         include_str!("handoff.rs"),
         include_str!("tool_results.rs"),
+        include_str!("usage.rs"),
     ];
     let patterns = [
         regex::Regex::new(r#"target\(\s*"[^"]*",\s*Gate::[A-Za-z]+(?:\([^)]*\))?,\s*"([^"]+)",\s*"([^"]+)""#).unwrap(),
         regex::Regex::new(r#"catalog_model\("([^"]+)",\s*"([^"]+)"\)"#).unwrap(),
+        regex::Regex::new(r#"\.on\("([^"]+)",\s*"([^"]+)"\)"#).unwrap(),
     ];
     let mut checked = 0;
     let mut missing = Vec::new();

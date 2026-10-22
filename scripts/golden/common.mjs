@@ -58,19 +58,43 @@ export class Golden {
 	 * `options.widths` / `options.themes` override the defaults.
 	 */
 	add(name, kind, input, build, options = {}) {
+		const { widths, themes, out } = this.#start(name, options);
+		for (const themeName of themes) {
+			this.#prepare(themeName, options);
+			out[themeName] = this.#render(build(input), widths);
+		}
+		this.#finish(name, kind, input, widths, options, out);
+	}
+
+	/** Like `add`, for builders that return a promise (components that load data asynchronously). */
+	async addAsync(name, kind, input, build, options = {}) {
+		const { widths, themes, out } = this.#start(name, options);
+		for (const themeName of themes) {
+			this.#prepare(themeName, options);
+			out[themeName] = this.#render(await build(input), widths);
+		}
+		this.#finish(name, kind, input, widths, options, out);
+	}
+
+	#start(name, options) {
 		if (this.names.has(name)) throw new Error(`duplicate case ${name}`);
 		this.names.add(name);
-		const widths = options.widths ?? WIDTHS;
-		const themes = options.themes ?? THEMES;
-		const out = {};
-		for (const themeName of themes) {
-			useTheme(themeName);
-			if (options.caps) setCaps(options.caps);
-			const built = build(input);
-			const render = typeof built === "function" ? built : (w) => built.render(w);
-			out[themeName] = widths.map((w) => render(w));
-			if (built && typeof built.dispose === "function") built.dispose();
-		}
+		return { widths: options.widths ?? WIDTHS, themes: options.themes ?? THEMES, out: {} };
+	}
+
+	#prepare(themeName, options) {
+		useTheme(themeName);
+		if (options.caps) setCaps(options.caps);
+	}
+
+	#render(built, widths) {
+		const render = typeof built === "function" ? built : (w) => built.render(w);
+		const lines = widths.map((w) => render(w));
+		if (built && typeof built.dispose === "function") built.dispose();
+		return lines;
+	}
+
+	#finish(name, kind, input, widths, options, out) {
 		this.cases.push({ name, kind, input, widths, ...(options.caps ? { caps: options.caps } : {}), out });
 	}
 

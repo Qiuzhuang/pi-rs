@@ -36,3 +36,10 @@ mod selectors;
 fn golden_selectors() {
     harness::run("selectors.json", selectors::build);
 }
+#[path = "golden/sessions.rs"]
+mod sessions;
+
+#[test]
+fn golden_sessions() {
+    harness::run("sessions.json", sessions::build);
+}

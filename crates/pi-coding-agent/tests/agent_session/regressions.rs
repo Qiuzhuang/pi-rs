@@ -964,3 +964,441 @@ async fn runs_tool_call_handlers_after_the_assistant_tool_use_message_is_settled
     );
     harness.cleanup();
 }
+
+// #5109: exclude tools.
+fn tool_registering_extension() -> TestExtension {
+    use pi_coding_agent::core::extensions::types::{SessionStartEvent, ToolDefinition};
+    ext(|pi| {
+        let api = pi.clone();
+        on_event::<SessionStartEvent, _, _>(&*pi, move |_event, _ctx| {
+            let api = api.clone();
+            async move {
+                for (name, label, description, snippet) in [
+                    ("ask_question", "Ask Question", "Ask a question", "Ask a question"),
+                    ("dynamic_tool", "Dynamic Tool", "Dynamic test tool", "Run dynamic test behavior"),
+                ] {
+                    let mut tool = ToolDefinition::new(
+                        name,
+                        label,
+                        description,
+                        json!({"type": "object", "properties": {}}),
+                        |_id, _p, _s, _u, _c| async { Ok(pi_agent::types::AgentToolResult::text("ok", Some(json!({})))) },
+                    );
+                    tool.prompt_snippet = Some(snippet.into());
+                    api.register_tool(tool)?;
+                }
+                Ok(None)
+            }
+        })?;
+        Ok(())
+    })
+}
+
+fn sorted_tool_names(harness: &Harness) -> Vec<String> {
+    let mut names: Vec<String> = harness.session.get_all_tools().into_iter().map(|t| t.name).collect();
+    names.sort();
+    names
+}
+
+fn strings(values: &[&str]) -> Option<Vec<String>> {
+    Some(values.iter().map(|s| s.to_string()).collect())
+}
+
+#[tokio::test]
+async fn filters_built_in_and_extension_tools_from_available_and_active_tools() {
+    let harness = create_harness(HarnessOptions {
+        excluded_tool_names: strings(&["read", "ask_question"]),
+        extension_factories: vec![tool_registering_extension()],
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    harness
+        .session
+        .bind_extensions(&pi_coding_agent::core::agent_session::ExtensionBindings::default())
+        .await
+        .unwrap();
+
+    let all = sorted_tool_names(&harness);
+    assert!(!all.contains(&"read".to_string()));
+    assert!(!all.contains(&"ask_question".to_string()));
+    assert!(all.contains(&"bash".to_string()));
+    assert!(all.contains(&"dynamic_tool".to_string()));
+    let mut active = harness.session.get_active_tool_names();
+    active.sort();
+    assert_eq!(active, vec!["bash", "dynamic_tool", "edit", "write"]);
+    let prompt = harness.session.system_prompt();
+    assert!(!prompt.contains("- read:"));
+    assert!(!prompt.contains("ask_question"));
+    assert!(prompt.contains("- dynamic_tool: Run dynamic test behavior"));
+    harness.cleanup();
+}
+
+#[tokio::test]
+async fn lets_excluded_tools_override_the_allowlist() {
+    let harness = create_harness(HarnessOptions {
+        allowed_tool_names: strings(&["read", "bash", "ask_question"]),
+        excluded_tool_names: strings(&["read", "ask_question"]),
+        initial_active_tool_names: strings(&["read", "bash", "ask_question"]),
+        extension_factories: vec![tool_registering_extension()],
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    harness
+        .session
+        .bind_extensions(&pi_coding_agent::core::agent_session::ExtensionBindings::default())
+        .await
+        .unwrap();
+
+    assert_eq!(sorted_tool_names(&harness), vec!["bash"]);
+    assert_eq!(harness.session.get_active_tool_names(), vec!["bash"]);
+    let prompt = harness.session.system_prompt();
+    assert!(prompt.contains("- bash:"));
+    assert!(!prompt.contains("- read:"));
+    assert!(!prompt.contains("ask_question"));
+    harness.cleanup();
+}
+
+#[tokio::test]
+async fn matches_allowlist_and_denylist_patterns() {
+    let harness = create_harness(HarnessOptions {
+        allowed_tool_names: strings(&["*_tool", "ask_*", "re*"]),
+        excluded_tool_names: strings(&["ask*"]),
+        initial_active_tool_names: strings(&["*_tool", "ask_*", "re*"]),
+        extension_factories: vec![tool_registering_extension()],
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    harness
+        .session
+        .bind_extensions(&pi_coding_agent::core::agent_session::ExtensionBindings::default())
+        .await
+        .unwrap();
+
+    // Patterns that match a tool activate it like its name.
+    assert_eq!(sorted_tool_names(&harness), vec!["dynamic_tool", "read"]);
+    let mut active = harness.session.get_active_tool_names();
+    active.sort();
+    assert_eq!(active, vec!["dynamic_tool", "read"]);
+    harness.cleanup();
+}
+
+// #9178: tree navigation during manual compaction.
+const BUSY: &str = "Wait for the current compaction or tree navigation to finish before navigating the session tree.";
+
+fn no_summary() -> AgentSessionNavigateTreeOptions {
+    AgentSessionNavigateTreeOptions {
+        summarize: Some(false),
+        ..Default::default()
+    }
+}
+
+#[tokio::test]
+async fn rejects_navigation_during_manual_compaction_before_the_active_leaf_can_change() {
+    use pi_coding_agent::core::extensions::types::{SessionBeforeCompactEvent, SessionBeforeCompactResult};
+    let (started_tx, started_rx) = tokio::sync::oneshot::channel::<()>();
+    let started_tx = Arc::new(Mutex::new(Some(started_tx)));
+    let release = Arc::new(tokio::sync::Notify::new());
+    let rel = release.clone();
+    let harness = Arc::new(
+        create_harness(HarnessOptions {
+            settings: Some(json!({"compaction": {"keepRecentTokens": 1}})),
+            extension_factories: vec![ext(move |pi| {
+                let (tx, rel) = (started_tx.clone(), rel.clone());
+                on_event::<SessionBeforeCompactEvent, _, _>(&*pi, move |event, _ctx| {
+                    let (tx, rel) = (tx.clone(), rel.clone());
+                    async move {
+                        if let Some(tx) = tx.lock().take() {
+                            let _ = tx.send(());
+                        }
+                        rel.notified().await;
+                        Ok(Some(SessionBeforeCompactResult {
+                            cancel: None,
+                            compaction: Some(pi_coding_agent::core::compaction::CompactionResult {
+                                summary: "summary".into(),
+                                first_kept_entry_id: event.preparation.first_kept_entry_id.clone(),
+                                tokens_before: event.preparation.tokens_before,
+                                estimated_tokens_after: None,
+                                usage: None,
+                                details: Some(json!({})),
+                            }),
+                        }))
+                    }
+                })?;
+                Ok(())
+            })],
+            ..Default::default()
+        })
+        .await
+        .unwrap(),
+    );
+    let sm = &harness.session_manager;
+    sm.append_message(user_msg("first user")).unwrap();
+    let target = sm.append_message(assistant_msg("first assistant")).unwrap();
+    sm.append_message(user_msg("second user")).unwrap();
+    let original_leaf = sm.append_message(assistant_msg("second assistant")).unwrap();
+    harness.session.agent().set_messages(sm.build_session_context().messages);
+
+    let session = harness.session.clone();
+    let compaction = tokio::spawn(async move { session.compact(None).await });
+    started_rx.await.unwrap();
+
+    assert!(harness.session.is_compacting());
+    let error = harness.session.navigate_tree(&target, Some(&no_summary())).await.unwrap_err();
+    assert_eq!(error.to_string(), BUSY);
+    assert_eq!(sm.get_leaf_id().as_deref(), Some(original_leaf.as_str()));
+    release.notify_one();
+    compaction.await.unwrap().unwrap();
+
+    let last = serde_json::to_value(sm.get_entries().last().unwrap()).unwrap();
+    assert_eq!(last["type"], json!("compaction"));
+    assert_eq!(last["parentId"], json!(original_leaf));
+    assert!(harness.session.messages().iter().any(|m| get_message_text(m) == "second assistant"));
+    harness.cleanup();
+}
+
+#[tokio::test]
+async fn rejects_a_second_navigation_while_the_first_is_waiting() {
+    let (started_tx, started_rx) = tokio::sync::oneshot::channel::<()>();
+    let started_tx = Arc::new(Mutex::new(Some(started_tx)));
+    let release = Arc::new(tokio::sync::Notify::new());
+    let rel = release.clone();
+    let harness = Arc::new(
+        create_harness(HarnessOptions {
+            extension_factories: vec![ext(move |pi| {
+                let (tx, rel) = (started_tx.clone(), rel.clone());
+                pi.on(
+                    "session_before_tree",
+                    Arc::new(move |_event, _ctx| {
+                        let (tx, rel) = (tx.clone(), rel.clone());
+                        Box::pin(async move {
+                            if let Some(tx) = tx.lock().take() {
+                                let _ = tx.send(());
+                            }
+                            rel.notified().await;
+                            Ok(None)
+                        })
+                    }),
+                )?;
+                Ok(())
+            })],
+            ..Default::default()
+        })
+        .await
+        .unwrap(),
+    );
+    let sm = &harness.session_manager;
+    let second_target = sm.append_message(user_msg("first user")).unwrap();
+    let first_target = sm.append_message(assistant_msg("first assistant")).unwrap();
+    sm.append_message(user_msg("second user")).unwrap();
+    let original_leaf = sm.append_message(assistant_msg("second assistant")).unwrap();
+    harness.session.agent().set_messages(sm.build_session_context().messages);
+
+    let (session, t) = (harness.session.clone(), first_target.clone());
+    let first = tokio::spawn(async move { session.navigate_tree(&t, Some(&no_summary())).await });
+    started_rx.await.unwrap();
+    let (session, t) = (harness.session.clone(), second_target.clone());
+    let second = tokio::spawn(async move { session.navigate_tree(&t, Some(&no_summary())).await });
+    tick().await;
+    assert_eq!(sm.get_leaf_id().as_deref(), Some(original_leaf.as_str()));
+    release.notify_one();
+
+    let error = second.await.unwrap().unwrap_err();
+    assert_eq!(error.to_string(), BUSY);
+    first.await.unwrap().unwrap();
+    assert_eq!(sm.get_leaf_id().as_deref(), Some(first_target.as_str()));
+    harness.cleanup();
+}
+
+// copilot-request-size-overflow
+#[tokio::test]
+async fn compacts_an_image_heavy_history_and_retries_after_the_real_413() {
+    const COPILOT_413: &str = r#"github-copilot API error (413): {"message":"failed to parse request","code":""}"#;
+    const REQUEST_LIMIT: usize = 32 * 1024 * 1024;
+    let harness = create_harness(HarnessOptions {
+        provider: Some("github-copilot".into()),
+        models: vec![pi_ai::providers::faux::FauxModelDefinition {
+            id: "faux-copilot".into(),
+            context_window: Some(1_000_000),
+            ..Default::default()
+        }],
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    // Synthetic base64 only; no image decoding or network calls are involved.
+    let image_data = "A".repeat(384 * 1024);
+    let timestamp = now_ms() - 10_000;
+    let model = harness.get_model();
+    let with_model = |mut m: pi_ai::types::AssistantMessage| {
+        m.provider = model.provider.clone();
+        m.api = model.api.clone();
+        m.model = model.id.clone();
+        m.timestamp = timestamp;
+        AgentMessage::Assistant(m)
+    };
+    let sm = &harness.session_manager;
+    sm.append_message(agent_message(json!({"role": "user", "content": "Review the old images", "timestamp": timestamp})))
+        .unwrap();
+    sm.append_message(with_model(message(
+        vec![faux_tool_call(
+            "read",
+            json!({"path": "old-images"}).as_object().cloned().unwrap(),
+            Some("read-images"),
+        )],
+        Some(StopReason::ToolUse),
+    )))
+    .unwrap();
+    let images: Vec<Value> = (0..89)
+        .map(|_| json!({"type": "image", "mimeType": "image/png", "data": image_data}))
+        .collect();
+    sm.append_message(agent_message(json!({
+        "role": "toolResult", "toolCallId": "read-images", "toolName": "read",
+        "content": images, "isError": false, "timestamp": timestamp
+    })))
+    .unwrap();
+    sm.append_message(with_model(faux_text_message("Finished reviewing the old images"))).unwrap();
+    // Keep a completed recent turn so recovery does not summarize the whole current request.
+    sm.append_message(agent_message(json!({
+        "role": "user", "content": format!("Recent task notes: {}", "x".repeat(80_000)), "timestamp": timestamp
+    })))
+    .unwrap();
+    sm.append_message(with_model(faux_text_message("Ready to continue"))).unwrap();
+    harness.session.agent().set_messages(sm.build_session_context().messages);
+    let oversized = Arc::new(Mutex::new(false));
+    let retried_without_images = Arc::new(Mutex::new(false));
+    let (o, r) = (oversized.clone(), retried_without_images.clone());
+    harness.set_responses(vec![
+        respond_with(move |context| {
+            *o.lock() = serde_json::to_vec(context).unwrap().len() > REQUEST_LIMIT;
+            // TS throws from the response factory, which the faux provider reports as a
+            // zero-usage error response.
+            faux_assistant_message(
+                vec![],
+                FauxMessageOptions {
+                    stop_reason: Some(StopReason::Error),
+                    error_message: Some(COPILOT_413.into()),
+                    ..Default::default()
+                },
+            )
+        }),
+        // The overflow recovery summarization runs on the compacted, image-free context.
+        text("The old images have been reviewed. Continue with the recent task."),
+        respond_with(move |context| {
+            *r.lock() = !serde_json::to_string(context).unwrap().contains(r#""type":"image""#);
+            faux_text_message("Continued after compaction")
+        }),
+    ]);
+
+    harness.session.prompt("Continue the task using the recent notes.", None).await.unwrap();
+
+    assert!(*oversized.lock());
+    assert!(*retried_without_images.lock());
+    assert_eq!(harness.faux.state().call_count, 3);
+    assert_eq!(
+        harness.events_of_type("compaction_start"),
+        vec![json!({"type": "compaction_start", "reason": "overflow"})]
+    );
+    let end = harness.events_of_type("compaction_end").last().cloned().unwrap();
+    assert_eq!(end["reason"], json!("overflow"));
+    assert_eq!(end["aborted"], json!(false));
+    assert_eq!(end["willRetry"], json!(true));
+    assert_eq!(
+        harness.session.get_last_assistant_text().as_deref(),
+        Some("Continued after compaction")
+    );
+    harness.cleanup();
+}
+
+// #7253: manual compaction during an active response.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn persists_the_aborted_response_before_running_the_requested_manual_compaction() {
+    use pi_coding_agent::core::extensions::types::{SessionBeforeCompactEvent, SessionBeforeCompactResult};
+    let noop = FnAgentTool::new(
+        "noop",
+        "No-op",
+        "Return immediately",
+        json!({"type": "object", "properties": {}}),
+        |_id, _p, _s, _u| async { Ok(pi_agent::types::AgentToolResult::text("done", Some(json!({})))) },
+    )
+    .into_ref();
+    let harness = Arc::new(
+        create_harness(HarnessOptions {
+            models: vec![pi_ai::providers::faux::FauxModelDefinition {
+                id: "faux-1".into(),
+                context_window: Some(1000),
+                max_tokens: Some(1000),
+                ..Default::default()
+            }],
+            settings: Some(json!({"compaction": {"enabled": true, "reserveTokens": 200, "keepRecentTokens": 2}})),
+            tools: Some(vec![noop]),
+            extension_factories: vec![ext(|pi| {
+                on_event::<SessionBeforeCompactEvent, _, _>(&*pi, |event, _ctx| async move {
+                    let reason = serde_json::to_value(event.reason)?;
+                    Ok(Some(SessionBeforeCompactResult {
+                        cancel: None,
+                        compaction: Some(pi_coding_agent::core::compaction::CompactionResult {
+                            summary: format!("{} summary", reason.as_str().unwrap_or_default()),
+                            first_kept_entry_id: event.preparation.first_kept_entry_id.clone(),
+                            tokens_before: event.preparation.tokens_before,
+                            estimated_tokens_after: None,
+                            usage: None,
+                            details: Some(json!({})),
+                        }),
+                    }))
+                })?;
+                Ok(())
+            })],
+            ..Default::default()
+        })
+        .await
+        .unwrap(),
+    );
+    // The second response blocks its (worker) thread until released, like the TS async factory.
+    let (started_tx, started_rx) = std::sync::mpsc::channel::<()>();
+    let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+    let started_tx = Mutex::new(Some(started_tx));
+    let release_rx = Mutex::new(Some(release_rx));
+    harness.set_responses(vec![
+        tool_use("noop", json!({})),
+        respond_with(move |_| {
+            if let Some(tx) = started_tx.lock().take() {
+                let _ = tx.send(());
+            }
+            if let Some(rx) = release_rx.lock().take() {
+                let _ = rx.recv();
+            }
+            faux_text_message(format!("second response:{}", "x".repeat(4000)))
+        }),
+    ]);
+
+    let session = harness.session.clone();
+    let prompt = tokio::spawn(async move { session.prompt("Run the tool, then continue responding.", None).await });
+    tokio::task::spawn_blocking(move || started_rx.recv().unwrap()).await.unwrap();
+
+    let session = harness.session.clone();
+    let compact = tokio::spawn(async move { session.compact(None).await });
+    tick().await;
+    release_tx.send(()).unwrap();
+    prompt.await.unwrap().unwrap();
+    let result = compact.await.unwrap().unwrap();
+    assert_eq!(result.summary, "manual summary");
+
+    let reasons = |ty: &str| -> Vec<Value> { harness.events_of_type(ty).iter().map(|e| e["reason"].clone()).collect() };
+    assert_eq!(reasons("compaction_start"), vec![json!("manual")]);
+    assert_eq!(reasons("compaction_end"), vec![json!("manual")]);
+    let entries = harness.session_manager.get_entries();
+    let aborted_index = entries
+        .iter()
+        .position(|e| matches!(e, SessionEntry::Message(m) if matches!(&m.message, AgentMessage::Assistant(a) if a.stop_reason == StopReason::Aborted)))
+        .expect("aborted response persisted");
+    let compaction_index = entries
+        .iter()
+        .position(|e| matches!(e, SessionEntry::Compaction(_)))
+        .expect("compaction persisted");
+    assert!(compaction_index > aborted_index);
+    assert_eq!(entries.iter().filter(|e| matches!(e, SessionEntry::Compaction(_))).count(), 1);
+    harness.cleanup();
+}

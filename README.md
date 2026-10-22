@@ -59,15 +59,58 @@ byte-compatible JSON output:
 - **Providers**: requests carry the same bodies and headers as the official SDKs the TypeScript
   version uses (OpenAI, Anthropic, Google GenAI, AWS SDK user agents and retry behavior, ...).
 
-Known differences and the status of every area are tracked in
-[`PORTING-STATUS.md`](PORTING-STATUS.md). The main ones:
+The status of every area is tracked in [`PORTING-STATUS.md`](PORTING-STATUS.md); the differences
+that remain are listed below.
 
-- No Bun-specific plumbing, `rpc-entry.ts`, or Node module-resolution experiments (use
-  `pi --mode rpc`).
-- Rust strings cannot hold unpaired UTF-16 surrogates; where JavaScript would keep one (for
-  example `JSON.parse("\"\\uD800\"")`), the port substitutes U+FFFD.
-- Extension code runs on Boa rather than V8, so engine-level details (stack trace text,
-  performance characteristics, a few rarely used language features) differ.
+## Known differences
+
+Behavior that still differs from TypeScript pi, and why:
+
+- **JavaScript engine.** Extensions run on Boa (`pi-jsrt`) and code mode scripts on Boa instead of
+  V8/QuickJS: stack trace text, engine error messages and performance differ, a few language
+  features (decorators) are missing, and code mode's memory limit is not enforced (Boa has no heap
+  limit). Node API coverage of `pi-jsrt` is tracked in `PORTING-STATUS.md`. A reload of the
+  extensions starts a new runtime, so `globalThis` does not carry values across `/reload` as
+  Node's single global object does.
+- **Strings.** Rust strings cannot hold unpaired UTF-16 surrogates; where JavaScript would keep one
+  (`JSON.parse("\"\\uD800\"")`, `sanitizeSurrogates`), the port has U+FFFD.
+- **`JSON.parse` limits.** Numbers beyond the `f64` range (`1e400`, `Infinity` in JavaScript) and
+  nesting deeper than 128 levels are rejected (serde_json); a JSON value cannot hold `Infinity`.
+- **Distribution.** No Bun-specific plumbing or `rpc-entry.ts` (use `pi --mode rpc`), no
+  npm/pnpm/yarn self-update (the binary updates by download). Without an `npm` executable, npm
+  packages are installed by a built-in client that cannot run lifecycle scripts or resolve
+  git/file/workspace dependency specs.
+- **Native code.** Images are processed with the `image` crate instead of Photon (WASM), so encoded
+  bytes and the resize candidate picked can differ. Word segmentation uses ICU4X dictionaries,
+  which split about 5% of Chinese/Japanese test sentences differently from V8's ICU4C. Codex
+  request bodies are zstd-compressed at the fastest level (pure-Rust `ruzstd`), so bytes differ
+  while the content is the same. `localeCompare` is ICU's root collation, which is what Node uses
+  for English locales; a full-ICU Node under a tailored locale (`de`, `sv`, ...) would sort by that
+  locale.
+- **Windows.** The Windows terminal backend (VT input, console modes) is not ported, and the AWS
+  user agent omits `os.release()` there; neither could be built and tested in the Linux environment
+  the port was developed in.
+- **YAML frontmatter.** The `yaml` package is ported in full for parsing, but keys whose value is a
+  collection, date or buffer are stringified approximately (the package runs its YAML
+  stringifier), and nesting deeper than 800 levels reports `Maximum call stack size exceeded` at a
+  different depth than V8's stack limit.
+- **Emoji width.** RGI emoji ZWJ sequences are recognized structurally; a ZWJ sequence of RGI
+  emoji that is not itself in the RGI list counts as one wide emoji.
+- **Error stacks.** After a settings warning, package commands print the error's
+  `Name: message` line but not the V8 stack frames that follow in TypeScript (they name the
+  installation's JavaScript files and line numbers).
+- **Timing-only output.** When stdin ends at the `--resume` picker, TypeScript may draw an
+  intermediate "Loading ..." frame if its asynchronous session load is slower than the first
+  render; the final screen and the terminal restore are identical.
+- **Deliberately not reproduced.** The HTML export inserts its templates literally: TypeScript's
+  `String.replace` expands `$&`/`$$` in the inserted code, which breaks a highlight.js regex and
+  drops the `$` of the cost display. `theme()` initializes the system theme on first use instead
+  of throwing "Theme not initialized". An invalid `file://` URL in a path argument is kept
+  literally instead of failing in `fileURLToPath`.
+- **Extension API details.** `ctx.getSystemPromptOptions()` returns a copy, so mutating it outside
+  `before_agent_start` does not change later turns as mutating TypeScript's live object would.
+- **Unverified.** The Bedrock error text when a stream is aborted mid-response (HTTP/2 close) has
+  not been compared with the AWS SDK.
 
 ## Extensions
 

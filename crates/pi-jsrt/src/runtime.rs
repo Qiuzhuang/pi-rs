@@ -420,7 +420,7 @@ impl JsRuntime {
             start(Box::new(move |r| {
                 let _ = tx.send(r);
             }));
-            return rx.recv().ok();
+            return around_blocking_wait(|| rx.recv().ok());
         }
         let (job_tx, job_rx) = mpsc::channel::<ServiceJob>();
         let previous = self.inner.servicing.lock().replace(job_tx.clone());
@@ -465,7 +465,8 @@ impl JsRuntime {
         if self.is_js_thread() {
             return Err(Error::Deadlock);
         }
-        park_on(rx?).map_err(|_| Error::Terminated)?
+        let rx = rx?;
+        around_blocking_wait(|| park_on(rx)).map_err(|_| Error::Terminated)?
     }
 
     /// Run `f` on the JS thread with direct access to the Boa [`Context`].
@@ -679,6 +680,36 @@ impl JsRuntime {
 }
 
 /// Block the current thread on a future, parking between polls.
+/// Wraps every wait of a non-JS thread for the JS thread (see [`set_blocking_wait_hook`]).
+pub type BlockingWaitHook = fn(&mut dyn FnMut());
+
+static BLOCKING_WAIT_HOOK: std::sync::OnceLock<BlockingWaitHook> = std::sync::OnceLock::new();
+
+/// Install a wrapper around every blocking wait of another thread for the JS thread (blocking
+/// calls into JS, `wait_servicing` off the JS thread). An embedder uses it to release locks the
+/// waiting thread holds that the JS thread may need meanwhile (pi's TUI releases its UI lock: a
+/// frame rendering a JS component waits for the JS thread, which may wait for a UI update that
+/// needs that lock). The first installed hook wins.
+pub fn set_blocking_wait_hook(hook: BlockingWaitHook) {
+    let _ = BLOCKING_WAIT_HOOK.set(hook);
+}
+
+fn around_blocking_wait<R>(f: impl FnOnce() -> R) -> R {
+    let Some(hook) = BLOCKING_WAIT_HOOK.get() else { return f() };
+    let mut f = Some(f);
+    let mut out = None;
+    hook(&mut || {
+        if let Some(f) = f.take() {
+            out = Some(f());
+        }
+    });
+    match out {
+        Some(r) => r,
+        // A hook that did not call the wait: run it unwrapped.
+        None => (f.take().expect("wait ran or not"))(),
+    }
+}
+
 fn park_on<F: Future>(fut: F) -> F::Output {
     struct Unpark(std::thread::Thread);
     impl std::task::Wake for Unpark {
@@ -998,7 +1029,7 @@ impl JsHandle {
         let waker = std::task::Waker::from(Arc::new(Unpark(waiter.clone())));
         let mut cx = std::task::Context::from_waker(&waker);
         let mut handed_over = false;
-        loop {
+        around_blocking_wait(move || loop {
             if let std::task::Poll::Ready(r) = queued.as_mut().poll(&mut cx) {
                 match r {
                     Ok(r) => return r,
@@ -1029,7 +1060,7 @@ impl JsHandle {
                 }
             }
             std::thread::park_timeout(std::time::Duration::from_millis(2));
-        }
+        })
     }
 
     /// Call the function with JSON arguments; awaits a returned promise; returns JSON.

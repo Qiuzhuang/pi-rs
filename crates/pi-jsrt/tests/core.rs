@@ -492,3 +492,20 @@ async fn blocking_call_queued_before_the_js_thread_starts_servicing() {
         }
     }
 }
+
+/// The embedder's blocking-wait hook wraps waits of other threads for the JS thread (pi releases
+/// its UI lock there).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn blocking_wait_hook_wraps_waits_for_the_js_thread() {
+    static WAITS: AtomicUsize = AtomicUsize::new(0);
+    pi_jsrt::set_blocking_wait_hook(|wait| {
+        WAITS.fetch_add(1, Ordering::SeqCst);
+        wait();
+    });
+    let rt = JsRuntime::new(RuntimeOptions::default()).unwrap();
+    let f = rt.eval_handle("(x) => x + 1").await.unwrap();
+    let before = WAITS.load(Ordering::SeqCst);
+    let result = tokio::task::spawn_blocking(move || f.call_blocking(vec![json!(1)])).await.unwrap().unwrap();
+    assert_eq!(result, json!(2));
+    assert!(WAITS.load(Ordering::SeqCst) > before);
+}

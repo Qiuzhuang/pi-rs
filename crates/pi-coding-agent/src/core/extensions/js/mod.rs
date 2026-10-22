@@ -427,6 +427,10 @@ impl JsExtensionHost {
             // Renders hold the UI lock while they call into JS (extension components), so the JS
             // thread must never wait for that lock (e.g. a host call that emits session events).
             rt2.with_context(|_| pi_tui::ui_lock::exempt_current_thread()).await?;
+            // And a thread holding the UI lock that waits for the JS thread (a frame rendering an
+            // extension component, an atomic interactive task) releases it while it waits: the JS
+            // thread may meanwhile wait for the extension UI executor, which needs the lock.
+            pi_jsrt::set_blocking_wait_hook(|wait| pi_tui::ui_lock::unlocked(wait));
             let slot = slot2.clone();
             rt2.register_function("__piHost.call", move |rt, args| {
                 let bridge = slot.lock().upgrade().ok_or_else(|| pi_jsrt::Error::host("pi extension host is shut down"))?;

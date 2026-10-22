@@ -104,8 +104,8 @@ pub mod transpile;
 
 pub use error::{Error, JsException, Result};
 pub use runtime::{
-    in_host_call, ExitHandler, JsCallback, JsHandle, JsObjectHandle, JsRuntime, OutputSink, RuntimeOptions, UncaughtHandler,
-    VirtualModule,
+    in_host_call, set_blocking_wait_hook, BlockingWaitHook, ExitHandler, JsCallback, JsHandle, JsObjectHandle, JsRuntime,
+    OutputSink, RuntimeOptions, UncaughtHandler, VirtualModule,
 };
 
 /// Re-export of the Boa engine for use with [`JsRuntime::with_context`].

@@ -755,10 +755,23 @@ async fn vertex_adc_service_account_tokens() {
         verifying.verify(format!("{}.{}", segments[0], segments[1]).as_bytes(), &signature).unwrap();
     }
 
-    // Tokens are cached until shortly before they expire.
-    google_vertex::stream(&model, &context("hello"), options).result().await;
-    assert_eq!(token_server.requests().len(), 1);
-    assert_eq!(api_server.request(1).header("authorization"), Some("Bearer token-0"));
+    // Like TS (a new GoogleGenAI/GoogleAuth per request), every request re-reads the
+    // credentials and fetches a new token.
+    google_vertex::stream(&model, &context("hello"), options.clone()).result().await;
+    assert_eq!(token_server.requests().len(), 2);
+    assert_eq!(api_server.request(1).header("authorization"), Some("Bearer token-1"));
+
+    // Token requests retry like Gaxios (`retryConfig` with POST): a 503 is retried after 100 ms.
+    let flaky = MockServer::sequence(vec![
+        Response::json(503, json!({ "error": "unavailable" })),
+        Response::json(200, json!({ "access_token": "retried-token", "expires_in": 3600 })),
+    ])
+    .await;
+    google_auth::set_google_token_url_override(Some(format!("{}/token", flaky.url)));
+    let message = google_vertex::stream(&model, &context("hello"), options).result().await;
+    assert_eq!(message.raw_stop_reason.as_deref(), Some("SAFETY"), "{:?}", message.error_message);
+    assert_eq!(flaky.requests().len(), 2);
+    assert_eq!(api_server.request(2).header("authorization"), Some("Bearer retried-token"));
 
     // Authorized-user (gcloud) credentials use the refresh-token grant.
     let user_server = MockServer::start(|request, _| {

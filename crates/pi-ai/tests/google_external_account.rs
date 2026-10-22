@@ -72,7 +72,7 @@ async fn file_source_exchanges_the_subject_token_at_sts() {
         ]
     );
 
-    // A cached token is reused until it is about to expire.
+    // Each request builds a new GoogleAuth in TS, so nothing is cached across requests.
     headers_for(json!({
         "type": "external_account",
         "audience": audience,
@@ -83,7 +83,7 @@ async fn file_source_exchanges_the_subject_token_at_sts() {
     }))
     .await
     .unwrap();
-    assert_eq!(sts.requests().len(), 1);
+    assert_eq!(sts.requests().len(), 2);
 }
 
 #[tokio::test]

@@ -439,8 +439,66 @@ fn with_auth_headers(request: reqwest::RequestBuilder, api_client: Option<&str>)
         .header("User-Agent", auth_user_agent())
 }
 
-async fn send_checked(request: reqwest::RequestBuilder, json_response: bool) -> anyhow::Result<String> {
-    let response = request.send().await.map_err(|e| anyhow::anyhow!("request failed, reason: {e}"))?;
+/// The Gaxios `retryConfig` of a request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct GaxiosRetry {
+    /// Retries for retryable statuses (1xx, 408, 429, 5xx).
+    pub retry: u32,
+    /// Retries for requests that got no response.
+    pub no_response_retries: u32,
+}
+
+impl GaxiosRetry {
+    /// `AuthClient.RETRY_CONFIG` (and gtoken's `retryConfig`): the Gaxios defaults with POST retried.
+    pub(crate) const AUTH: GaxiosRetry = GaxiosRetry { retry: 3, no_response_retries: 2 };
+    /// gcp-metadata requests (`retryConfig: { noResponseRetries: 3 }`).
+    pub(crate) const METADATA: GaxiosRetry = GaxiosRetry { retry: 3, no_response_retries: 3 };
+}
+
+/// Gaxios `getNextRetryDelay`: `retryDelay` (100 ms) on the first retry plus
+/// `(2^attempt - 1) / 2` seconds, i.e. 100 ms, 500 ms, 1500 ms.
+pub(crate) fn gaxios_retry_delay_ms(attempt: u32) -> u64 {
+    let first = if attempt == 0 { 100 } else { 0 };
+    first + ((2u64.pow(attempt) - 1) * 1000) / 2
+}
+
+/// Send a request the way Gaxios does with retries enabled: a response with a retryable status
+/// (1xx, 408, 429, 5xx) is retried up to `retry` times, a request without a response up to
+/// `no_response_retries` times, with Gaxios' backoff. The last response (or transport error) is
+/// returned.
+pub(crate) async fn gaxios_send(
+    request: reqwest::RequestBuilder,
+    retry: Option<GaxiosRetry>,
+) -> reqwest::Result<reqwest::Response> {
+    let Some(retry) = retry else { return request.send().await };
+    let mut attempt = 0u32;
+    loop {
+        let Some(this_attempt) = request.try_clone() else { return request.send().await };
+        let should_retry = match this_attempt.send().await {
+            Ok(response) => {
+                let status = response.status().as_u16();
+                let retryable = (100..=199).contains(&status) || status == 408 || status == 429 || (500..=599).contains(&status);
+                if !(retryable && attempt < retry.retry) {
+                    return Ok(response);
+                }
+                true
+            }
+            Err(error) => {
+                if attempt >= retry.no_response_retries || attempt >= retry.retry {
+                    return Err(error);
+                }
+                true
+            }
+        };
+        if should_retry {
+            tokio::time::sleep(std::time::Duration::from_millis(gaxios_retry_delay_ms(attempt))).await;
+            attempt += 1;
+        }
+    }
+}
+
+async fn send_checked(request: reqwest::RequestBuilder, json_response: bool, retry: Option<GaxiosRetry>) -> anyhow::Result<String> {
+    let response = gaxios_send(request, retry).await.map_err(|e| anyhow::anyhow!("request failed, reason: {e}"))?;
     let status = response.status().as_u16();
     let text = response.text().await.unwrap_or_default();
     if !(200..300).contains(&status) {
@@ -464,7 +522,8 @@ async fn url_subject_token(
     }
     let request = with_auth_headers(request, None);
     let json_response = matches!(format, SubjectTokenFormat::Json { .. });
-    let text = send_checked(request, json_response).await?;
+    // The identity pool URL supplier sends `RETRY_CONFIG`.
+    let text = send_checked(request, json_response, Some(GaxiosRetry::AUTH)).await?;
     let token = match format {
         SubjectTokenFormat::Text => Some(text).filter(|t| !t.is_empty()),
         SubjectTokenFormat::Json { subject_token_field_name } => token_from_json_text(&text, subject_token_field_name),
@@ -799,7 +858,7 @@ fn env_nonempty(name: &str) -> Option<String> {
 
 async fn imds_session_token(client: &reqwest::Client, url: &str) -> anyhow::Result<String> {
     let request = with_auth_headers(client.put(url).header("x-aws-ec2-metadata-token-ttl-seconds", "300"), None);
-    send_checked(request, false).await
+    send_checked(request, false, None).await
 }
 
 async fn aws_region(client: &reqwest::Client, region_url: Option<&str>, imds_url: Option<&str>) -> anyhow::Result<String> {
@@ -817,7 +876,8 @@ async fn aws_region(client: &reqwest::Client, region_url: Option<&str>, imds_url
     if let Some(token) = &token {
         request = request.header("x-aws-ec2-metadata-token", token);
     }
-    let zone = send_checked(with_auth_headers(request, None), false).await?;
+    // The AWS supplier is built without `additionalGaxiosOptions`: no retries.
+    let zone = send_checked(with_auth_headers(request, None), false, None).await?;
     // The availability zone minus its trailing letter.
     let mut chars: Vec<char> = zone.chars().collect();
     chars.pop();
@@ -845,8 +905,8 @@ async fn aws_security_credentials(
         Some(token) => request.header("x-aws-ec2-metadata-token", token),
         None => request,
     };
-    let role = send_checked(with_auth_headers(with_token(client.get(url)), None), false).await?;
-    let text = send_checked(with_auth_headers(with_token(client.get(format!("{url}/{role}"))), None), true).await?;
+    let role = send_checked(with_auth_headers(with_token(client.get(url)), None), false, None).await?;
+    let text = send_checked(with_auth_headers(with_token(client.get(format!("{url}/{role}"))), None), true, None).await?;
     let data: Value = serde_json::from_str(&text)?;
     Ok(AwsSecurityCredentials {
         access_key_id: js_string(data.get("AccessKeyId")),
@@ -1032,7 +1092,9 @@ pub async fn external_account_access_token(
         request = request.header("authorization", basic_auth(client_id, config.client_secret.as_deref()));
     }
     let request = with_auth_headers(request, Some(&config.metrics_header_value()));
-    let response = request.send().await.map_err(|e| anyhow::anyhow!("request to {} failed, reason: {e}", config.token_url))?;
+    let response = gaxios_send(request, Some(GaxiosRetry::AUTH))
+        .await
+        .map_err(|e| anyhow::anyhow!("request to {} failed, reason: {e}", config.token_url))?;
     let status = response.status().as_u16();
     let text = response.text().await.unwrap_or_default();
     if !(200..300).contains(&status) {
@@ -1056,7 +1118,7 @@ pub async fn external_account_access_token(
             })
             .to_string(),
         );
-    let text = send_checked(with_auth_headers(request, None), true).await?;
+    let text = send_checked(with_auth_headers(request, None), true, Some(GaxiosRetry::AUTH)).await?;
     let data: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
     let token = js_string(data.get("accessToken"));
     let expires_at = data.get("expireTime").and_then(Value::as_str).and_then(super::google_auth::parse_rfc3339_ms);
@@ -1111,8 +1173,7 @@ pub async fn external_account_authorized_user_token(
             basic_auth(config.client_id.as_deref().unwrap_or("undefined"), config.client_secret.as_deref()),
         )
         .body(form_body(&[("grant_type", "refresh_token"), ("refresh_token", &refresh_token)]));
-    let response = with_auth_headers(request, None)
-        .send()
+    let response = gaxios_send(with_auth_headers(request, None), Some(GaxiosRetry::AUTH))
         .await
         .map_err(|e| anyhow::anyhow!("request to {} failed, reason: {e}", config.token_url))?;
     let status = response.status().as_u16();
@@ -1147,7 +1208,9 @@ mod tests {
 
     #[test]
     fn gaxios_messages() {
-        assert_eq!(gaxios_error_message(404, "", true), "Request failed with status code 404");
+        // An empty body is the (string) response data, so it is the message.
+        assert_eq!(gaxios_error_message(404, "", true), "");
+        assert_eq!(gaxios_error_message(404, "[]", true), "Request failed with status code 404");
         assert_eq!(gaxios_error_message(400, r#"{"error":"bad"}"#, true), "bad");
         assert_eq!(gaxios_error_message(403, r#"{"error":{"message":"denied"}}"#, true), "denied");
         assert_eq!(gaxios_error_message(500, "oops", false), "oops");
@@ -1155,6 +1218,11 @@ mod tests {
             oauth_error_message(r#"{"error":"invalid_grant","error_description":"expired"}"#, 400),
             "Error code invalid_grant: expired"
         );
+    }
+
+    #[test]
+    fn gaxios_backoff() {
+        assert_eq!((0..3).map(gaxios_retry_delay_ms).collect::<Vec<_>>(), vec![100, 500, 1500]);
     }
 
     #[test]

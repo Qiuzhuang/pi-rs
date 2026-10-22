@@ -13,7 +13,7 @@ use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
 
 use super::constrained_sampling::{get_json_schema_tool_parameters, resolve_json_schema_strict_sampling};
-use super::google_auth::{GoogleCredentials, VERTEX_AI_SCOPE, get_request_headers, resolve_credentials};
+use super::google_auth::{GoogleAuth, VERTEX_AI_SCOPE};
 use super::transform_messages::transform_messages;
 use crate::models::{calculate_cost, clamp_thinking_level};
 use crate::types::{
@@ -818,7 +818,9 @@ pub struct GoogleClientOptions {
 
 enum ClientAuth {
     ApiKey(String),
-    Google { key_filename: Option<String> },
+    /// The client's own `GoogleAuth`: credentials and token are reused across this client's
+    /// requests (retries) but not across clients.
+    Google(std::sync::Arc<GoogleAuth>),
 }
 
 /// A resolved `GoogleGenAI` client: endpoint, default headers and auth.
@@ -928,7 +930,7 @@ impl GoogleClient {
                 }
                 ClientAuth::ApiKey(key)
             }
-            None => ClientAuth::Google { key_filename: options.key_filename.clone() },
+            None => ClientAuth::Google(std::sync::Arc::new(GoogleAuth::new(options.key_filename.clone()))),
         };
         Ok(GoogleClient {
             vertex,
@@ -988,9 +990,8 @@ impl GoogleClient {
                     append_header(&mut headers, "x-goog-api-key", key);
                 }
             }
-            ClientAuth::Google { key_filename } => {
-                let credentials: GoogleCredentials = resolve_credentials(key_filename.as_deref(), client).await?;
-                for (name, value) in get_request_headers(&credentials, VERTEX_AI_SCOPE, client).await? {
+            ClientAuth::Google(auth) => {
+                for (name, value) in auth.get_request_headers(VERTEX_AI_SCOPE, client).await? {
                     if !has(&headers, &name) {
                         append_header(&mut headers, &name, &value);
                     }

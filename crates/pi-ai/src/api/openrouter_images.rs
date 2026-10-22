@@ -77,20 +77,16 @@ fn parse_usage(raw: &Value, model: &ImageModel) -> Usage {
     }
 }
 
-fn build_headers(model: &ImageModel, api_key: &str, options: &StreamOptions, timeout_ms: u64) -> HeaderList {
+fn build_headers(model: &ImageModel, api_key: &str, options: &StreamOptions, timeout_ms: u64) -> anyhow::Result<HeaderList> {
     let mut headers = HeaderList::new();
     headers.set("Accept", Some("application/json"));
     headers.set("User-Agent", Some(&format!("OpenAI/JS {OPENAI_SDK_VERSION}")));
     for (name, value) in stainless_headers(OPENAI_SDK_VERSION, timeout_ms) {
         headers.set(&name, Some(&value));
     }
+    crate::utils::http::apply_openai_sdk_tenant_headers(&mut headers);
     headers.set("Authorization", Some(&format!("Bearer {api_key}")));
-    if let Ok(org) = std::env::var("OPENAI_ORG_ID") {
-        headers.set("OpenAI-Organization", Some(&org));
-    }
-    if let Ok(project) = std::env::var("OPENAI_PROJECT_ID") {
-        headers.set("OpenAI-Project", Some(&project));
-    }
+    crate::utils::http::apply_openai_custom_headers_env(&mut headers)?;
     let identity = to_provider_headers(&get_identity_headers(
         ClientIdentityTarget { provider: &model.provider, base_url: &model.base_url },
         options.identity.as_ref(),
@@ -107,7 +103,7 @@ fn build_headers(model: &ImageModel, api_key: &str, options: &StreamOptions, tim
         }
     }
     headers.set("Content-Type", Some("application/json"));
-    headers
+    Ok(headers)
 }
 
 /// Image generation over OpenRouter's chat completions endpoint. Never fails: errors become
@@ -128,14 +124,15 @@ pub async fn generate_images(model: &ImageModel, context: &ImagesContext, option
         let Some(api_key) = options.api_key.clone().filter(|k| !k.is_empty()) else {
             anyhow::bail!("No API key for provider: {}", model.provider);
         };
+        let timeout_ms = options.timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS);
+        // `createClient` (which can reject OPENAI_CUSTOM_HEADERS) runs before the params.
+        let headers = build_headers(model, &api_key, &options, timeout_ms)?;
         let mut params = build_params(model, context);
         if let Some(on_payload) = &options.on_payload
             && let Some(next) = on_payload(params.clone(), image_hook_model(model)).await {
                 params = next;
             }
-        let timeout_ms = options.timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS);
         let url = format!("{}/chat/completions", model.base_url.trim_end_matches('/'));
-        let headers = build_headers(model, &api_key, &options, timeout_ms);
         let client = match &options.http_client {
             Some(client) => client.clone(),
             None => client_for(&url, options.env.as_ref())?,

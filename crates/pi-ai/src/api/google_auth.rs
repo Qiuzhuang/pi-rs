@@ -11,7 +11,6 @@
 //! (`external_account`, `external_account_authorized_user`) live in
 //! [`super::google_external_account`].
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -20,11 +19,12 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
+use sha2::Sha256;
 
 use super::google_external_account::{
     ExternalAccountAuthorizedUserConfig, ExternalAccountConfig, auth_api_client_header, auth_user_agent,
-    external_account_access_token, external_account_authorized_user_token, gaxios_error_message,
+    GaxiosRetry, external_account_access_token, external_account_authorized_user_token, gaxios_error_message,
+    gaxios_send,
 };
 
 /// OAuth scope Vertex AI requires.
@@ -41,7 +41,6 @@ pub const NO_ADC_FOUND: &str =
     "Could not load the default credentials. Browse to https://cloud.google.com/docs/authentication/getting-started for more information.";
 
 static TOKEN_URL_OVERRIDE: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
-static TOKEN_CACHE: Lazy<Mutex<HashMap<String, CachedToken>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
 #[derive(Clone)]
 struct CachedToken {
@@ -53,7 +52,6 @@ struct CachedToken {
 #[doc(hidden)]
 pub fn set_google_token_url_override(url: Option<String>) {
     *TOKEN_URL_OVERRIDE.lock() = url;
-    TOKEN_CACHE.lock().clear();
 }
 
 fn token_url() -> String {
@@ -191,12 +189,6 @@ impl GoogleCredentials {
             GoogleCredentials::Compute => None,
         }
     }
-
-    fn cache_key(&self) -> String {
-        let text = format!("{self:?}");
-        let digest = Sha256::digest(text.as_bytes());
-        digest.iter().map(|b| format!("{b:02x}")).collect()
-    }
 }
 
 /// The gcloud well-known ADC file location.
@@ -330,7 +322,10 @@ async fn post_token_form(
     if style == TokenErrorStyle::GToken {
         request = request.header("accept", "application/json");
     }
-    let response = request.body(body).send().await.map_err(|e| anyhow::anyhow!("request to {url} failed, reason: {e}"))?;
+    // gtoken and `OAuth2Client.refreshTokenNoCache` both retry like Gaxios' auth requests.
+    let response = gaxios_send(request.body(body), Some(GaxiosRetry::AUTH))
+        .await
+        .map_err(|e| anyhow::anyhow!("request to {url} failed, reason: {e}"))?;
     let status = response.status();
     let text = response.text().await.unwrap_or_default();
     let data: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
@@ -407,14 +402,14 @@ fn fetch_access_token<'a>(
             }
             GoogleCredentials::Impersonated { source, service_account_impersonation_url, delegates, .. } => {
                 let (source_token, _) = fetch_access_token(source, scope, client).await?;
-                let response = client
+                let request = client
                     .post(service_account_impersonation_url)
                     .bearer_auth(source_token)
                     .header("x-goog-api-client", auth_api_client_header())
                     .header("User-Agent", auth_user_agent())
-                    .json(&json!({ "delegates": delegates, "scope": [scope], "lifetime": "3600s" }))
-                    .send()
-                    .await?;
+                    .json(&json!({ "delegates": delegates, "scope": [scope], "lifetime": "3600s" }));
+                // `Impersonated.RETRY_CONFIG`.
+                let response = gaxios_send(request, Some(GaxiosRetry::AUTH)).await?;
                 let status = response.status();
                 let data: Value = response.json().await.unwrap_or(Value::Null);
                 if !status.is_success() {
@@ -445,7 +440,8 @@ fn fetch_access_token<'a>(
                     gce_metadata_host(),
                     url::form_urlencoded::byte_serialize(scope.as_bytes()).collect::<String>()
                 );
-                let response = client.get(url).header("Metadata-Flavor", "Google").send().await?;
+                // gcp-metadata: `retryConfig: { noResponseRetries: 3 }`.
+                let response = gaxios_send(client.get(url).header("Metadata-Flavor", "Google"), Some(GaxiosRetry::METADATA)).await?;
                 if !response.status().is_success() {
                     anyhow::bail!("Could not refresh access token: metadata server returned {}", response.status().as_u16());
                 }
@@ -481,26 +477,7 @@ pub fn parse_rfc3339_ms(text: &str) -> Option<i64> {
     Some((days * 86400 + h * 3600 + mi * 60 + s) * 1000 + millis)
 }
 
-/// Request headers for `credentials`: `authorization: Bearer <token>` and, when a quota
-/// project is configured (`quota_project_id` or `GOOGLE_CLOUD_QUOTA_PROJECT`),
-/// `x-goog-user-project`. Access tokens are cached until five minutes before they expire.
-pub async fn get_request_headers(
-    credentials: &GoogleCredentials,
-    scope: &str,
-    client: &reqwest::Client,
-) -> anyhow::Result<Vec<(String, String)>> {
-    let key = format!("{}\u{0}{scope}", credentials.cache_key());
-    let cached = TOKEN_CACHE.lock().get(&key).cloned();
-    let token = match cached.filter(|c| c.expires_at_ms.is_none_or(|e| e - EAGER_REFRESH_THRESHOLD_MS > crate::utils::now_ms())) {
-        Some(cached) => cached.token,
-        None => {
-            let (token, expires_at_ms) = fetch_access_token(credentials, scope, client).await?;
-            if expires_at_ms.is_some() {
-                TOKEN_CACHE.lock().insert(key, CachedToken { token: token.clone(), expires_at_ms });
-            }
-            token
-        }
-    };
+fn quota_headers(credentials: &GoogleCredentials, token: &str) -> Vec<(String, String)> {
     let mut headers = vec![("authorization".to_string(), format!("Bearer {token}"))];
     let quota = std::env::var("GOOGLE_CLOUD_QUOTA_PROJECT")
         .ok()
@@ -509,7 +486,56 @@ pub async fn get_request_headers(
     if let Some(quota) = quota {
         headers.push(("x-goog-user-project".to_string(), quota));
     }
-    Ok(headers)
+    headers
+}
+
+/// Request headers for `credentials` with a freshly fetched token: `authorization: Bearer
+/// <token>` and, when a quota project is configured (`quota_project_id` or
+/// `GOOGLE_CLOUD_QUOTA_PROJECT`), `x-goog-user-project`.
+pub async fn get_request_headers(
+    credentials: &GoogleCredentials,
+    scope: &str,
+    client: &reqwest::Client,
+) -> anyhow::Result<Vec<(String, String)>> {
+    let (token, _) = fetch_access_token(credentials, scope, client).await?;
+    Ok(quota_headers(credentials, &token))
+}
+
+/// One `GoogleAuth` instance (what `@google/genai` creates per client, i.e. per pi request):
+/// credentials resolve on first use (`getClient` caches them only on success) and the access
+/// token is reused until it is within five minutes of expiring. Nothing is shared across
+/// instances, so every request re-reads the credentials and fetches a new token, as in TS.
+pub struct GoogleAuth {
+    key_filename: Option<String>,
+    state: tokio::sync::Mutex<Option<(GoogleCredentials, Option<CachedToken>)>>,
+}
+
+impl GoogleAuth {
+    pub fn new(key_filename: Option<String>) -> Self {
+        Self { key_filename, state: tokio::sync::Mutex::new(None) }
+    }
+
+    /// `GoogleAuth.getRequestHeaders()`.
+    pub async fn get_request_headers(&self, scope: &str, client: &reqwest::Client) -> anyhow::Result<Vec<(String, String)>> {
+        let mut state = self.state.lock().await;
+        if state.is_none() {
+            let credentials = resolve_credentials(self.key_filename.as_deref(), client).await?;
+            *state = Some((credentials, None));
+        }
+        let (credentials, cached) = state.as_mut().expect("credentials resolved above");
+        let fresh = cached.as_ref().filter(|c| {
+            c.expires_at_ms.is_none_or(|e| e - EAGER_REFRESH_THRESHOLD_MS > crate::utils::now_ms())
+        });
+        let token = match fresh {
+            Some(cached) => cached.token.clone(),
+            None => {
+                let (token, expires_at_ms) = fetch_access_token(credentials, scope, client).await?;
+                *cached = Some(CachedToken { token: token.clone(), expires_at_ms });
+                token
+            }
+        };
+        Ok(quota_headers(credentials, &token))
+    }
 }
 
 #[cfg(test)]

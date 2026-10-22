@@ -18,6 +18,7 @@ use pi_ai::providers::all::{builtin_providers, get_builtin_model};
 use pi_ai::*;
 use serde_json::{Map, Value, json};
 
+mod abort;
 mod cache;
 mod handoff;
 mod matrix;
@@ -440,6 +441,7 @@ pub fn expect_not_error(message: &AssistantMessage) {
 #[test]
 fn live_models_exist_in_catalog() {
     let sources = [
+        include_str!("abort.rs"),
         include_str!("matrix.rs"),
         include_str!("overflow.rs"),
         include_str!("thinking.rs"),

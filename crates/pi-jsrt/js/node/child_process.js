@@ -115,6 +115,8 @@ internal.childEvent = (id, kind, a, b) => {
       child.exitCode = a;
       child.signalCode = b;
       if (child._timeout) clearTimeout(child._timeout);
+      // Node destroys the stdin pipe when the child exits.
+      if (child.stdin && !child.stdin.destroyed) child.stdin.destroy();
       child.emit("exit", a, b);
       break;
     case "close":

@@ -152,6 +152,9 @@ pub(crate) fn try_internal(ctx: &Context) -> Option<JsObject> {
 pub(crate) struct Executor {
     promise_jobs: RefCell<VecDeque<PromiseJob>>,
     async_jobs: RefCell<VecDeque<NativeAsyncJob>>,
+    /// `FinalizationRegistry` cleanup jobs: each waits (forever, until the registry is
+    /// collected) for a GC notification, so they must not keep `run_jobs` from returning.
+    cleanup_jobs: RefCell<VecDeque<NativeAsyncJob>>,
     generic_jobs: RefCell<VecDeque<GenericJob>>,
 }
 
@@ -165,7 +168,8 @@ impl JobExecutor for Executor {
     fn enqueue_job(self: Rc<Self>, job: Job, context: &mut Context) {
         match job {
             Job::PromiseJob(j) => self.promise_jobs.borrow_mut().push_back(j),
-            Job::AsyncJob(j) | Job::FinalizationRegistryCleanupJob(j) => self.async_jobs.borrow_mut().push_back(j),
+            Job::AsyncJob(j) => self.async_jobs.borrow_mut().push_back(j),
+            Job::FinalizationRegistryCleanupJob(j) => self.cleanup_jobs.borrow_mut().push_back(j),
             Job::GenericJob(j) => self.generic_jobs.borrow_mut().push_back(j),
             Job::TimeoutJob(j) => {
                 let delay = Duration::from_millis(j.timeout().as_millis());
@@ -204,17 +208,32 @@ impl JobExecutor for Executor {
 
     async fn run_jobs_async(self: Rc<Self>, context: &RefCell<&mut Context>) -> JsResult<()> {
         let mut group = FuturesUnordered::new();
+        // Cleanup jobs are polled while other work is pending (so a collection that happens
+        // during this run still calls the cleanup callback) but never waited for; they are
+        // dropped when the queues are drained (the registry then never cleans up, which
+        // the spec allows: hosts are not required to call cleanup callbacks).
+        let mut cleanups = FuturesUnordered::new();
         loop {
             // Take the queue first: the borrow must not span `job.call` (which may enqueue jobs).
             let jobs = std::mem::take(&mut *self.async_jobs.borrow_mut());
             for job in jobs {
                 group.push(job.call(context));
             }
+            let jobs = std::mem::take(&mut *self.cleanup_jobs.borrow_mut());
+            for job in jobs {
+                cleanups.push(job.call(context));
+            }
             if self.is_empty() && group.is_empty() {
                 break;
             }
             if !group.is_empty()
                 && let Some(Some(Err(err))) = futures::FutureExt::now_or_never(group.next())
+            {
+                let ctx = &mut **context.borrow_mut();
+                report_uncaught(ctx, err);
+            }
+            if !cleanups.is_empty()
+                && let Some(Some(Err(err))) = futures::FutureExt::now_or_never(cleanups.next())
             {
                 let ctx = &mut **context.borrow_mut();
                 report_uncaught(ctx, err);

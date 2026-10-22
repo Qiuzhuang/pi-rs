@@ -90,3 +90,29 @@ async fn class_computed_method_key_closures_in_function_scope() {
         .unwrap();
     assert_eq!(v, json!(42));
 }
+
+/// boa_parser required a token after `export { ... }` (to look for `from`), so a module ending in
+/// a local export list without a semicolon failed with `SyntaxError: abrupt end`
+/// (e.g. `fetch-blob/from.js`, used by node-fetch).
+#[tokio::test]
+async fn export_list_at_end_of_module_without_semicolon() {
+    let dir = tempfile::tempdir().unwrap();
+    write(dir.path(), "a.mjs", "const a = 1\nexport { a }\n");
+    write(dir.path(), "b.mjs", "const b = 2\nexport { b as default, b, }");
+    write(dir.path(), "c.mjs", "export { a } from './a.mjs'");
+    write(
+        dir.path(),
+        "main.mjs",
+        "import { a } from './a.mjs'\nimport b from './b.mjs'\nimport { a as c } from './c.mjs'\nconst all = { a, b, c }\nexport { all }",
+    );
+    let rt = JsRuntime::new(RuntimeOptions {
+        cwd: Some(dir.path().to_path_buf()),
+        ..Default::default()
+    })
+    .unwrap();
+    let ns = rt
+        .import(dir.path().join("main.mjs").to_str().unwrap())
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(ns.get("all").await.unwrap(), json!({ "a": 1, "b": 2, "c": 1 }));
+}

@@ -90,3 +90,4 @@ incremental = false
 # Vendored crates with local fixes (see vendor/<crate>/PATCH.md).
 [patch.crates-io]
 boa_ast = { path = "vendor/boa_ast" }
+boa_parser = { path = "vendor/boa_parser" }

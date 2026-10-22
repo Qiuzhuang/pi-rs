@@ -419,3 +419,26 @@ async fn host_function_waiting_on_a_thread_that_calls_back_into_js() {
     .unwrap();
     assert_eq!(result, json!([42, 1]));
 }
+
+/// `new FinalizationRegistry()` queues a cleanup job that waits for a GC notification; it must
+/// not keep microtask draining (and therefore every eval and module import) from finishing.
+#[tokio::test]
+async fn finalization_registry_does_not_block_the_job_queue() {
+    let rt = JsRuntime::new(RuntimeOptions::default()).unwrap();
+    let v = tokio::time::timeout(
+        Duration::from_secs(10),
+        rt.eval("const r = new FinalizationRegistry(() => {}); r.register({}, 1); Promise.resolve(1).then((x) => x + 1)"),
+    )
+    .await
+    .expect("job queue drained")
+    .unwrap();
+    assert_eq!(v, json!(2));
+    let ns = tokio::time::timeout(
+        Duration::from_secs(10),
+        rt.eval_module("const r = new FinalizationRegistry(() => {}); await null; export const ok = typeof r.register;", "fr.mjs"),
+    )
+    .await
+    .expect("module evaluated")
+    .unwrap();
+    assert_eq!(ns.get("ok").await.unwrap(), json!("function"));
+}

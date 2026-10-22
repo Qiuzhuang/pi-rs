@@ -421,6 +421,7 @@ impl Loader {
     /// Load (but do not evaluate) the ES module for a resolved target.
     fn load_module(self: &Rc<Self>, ctx: &mut Context, resolved: &Resolved) -> Result<Module, Error> {
         let key = resolved.key();
+        tracing::trace!(target: "pi_jsrt", "load module {key}");
         if let Some(m) = self.esm.borrow().get(&key) {
             return Ok(m.clone());
         }

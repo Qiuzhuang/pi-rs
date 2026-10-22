@@ -295,6 +295,27 @@ function getEventListeners(emitter, name) {
   return [];
 }
 
+function getMaxListeners(emitterOrTarget) {
+  if (typeof emitterOrTarget?.getMaxListeners === "function") return emitterOrTarget.getMaxListeners();
+  return defaultMaxListeners;
+}
+
+// Node: listen for `abort` once and return a Disposable that removes the listener.
+function addAbortListener(signal, listener) {
+  if (signal === undefined) throw new TypeError('The "signal" argument must be an instance of AbortSignal. Received undefined');
+  if (typeof listener !== "function") throw new TypeError('The "listener" argument must be of type function');
+  let removed = false;
+  const handler = () => listener.call(signal, new Event("abort"));
+  if (signal.aborted) queueMicrotask(handler);
+  else signal.addEventListener("abort", handler, { once: true });
+  const dispose = () => {
+    if (removed) return;
+    removed = true;
+    signal.removeEventListener("abort", handler);
+  };
+  return { [Symbol.dispose ?? Symbol.for("nodejs.dispose")]: dispose };
+}
+
 function setMaxListeners(n = defaultMaxListeners, ...targets) {
   if (targets.length === 0) defaultMaxListeners = n;
   for (const t of targets) t.setMaxListeners?.(n);
@@ -307,6 +328,8 @@ EventEmitter.errorMonitor = errorMonitor;
 EventEmitter.captureRejectionSymbol = Symbol.for("nodejs.rejection");
 EventEmitter.getEventListeners = getEventListeners;
 EventEmitter.setMaxListeners = setMaxListeners;
+EventEmitter.getMaxListeners = getMaxListeners;
+EventEmitter.addAbortListener = addAbortListener;
 EventEmitter.usingDomains = false;
 EventEmitter.EventEmitterAsyncResource = EventEmitter;
 Object.defineProperty(EventEmitter, "captureRejections", { value: false, writable: true, enumerable: true });

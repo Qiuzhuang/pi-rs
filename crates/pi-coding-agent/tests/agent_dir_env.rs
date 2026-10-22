@@ -467,3 +467,54 @@ mod resource_loader_theme {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// clipboard-image-bmp-conversion.test.ts (linux case): TS mocks `runClipboardCommand`; here a
+// fake `wl-paste` on PATH serves a BMP. The win32 case reads pi-tui's native clipboard, which
+// cannot be faked, and is not ported.
+// ---------------------------------------------------------------------------
+
+#[cfg(unix)]
+#[tokio::test]
+async fn linux_converts_command_bmp_clipboard_images_to_png() {
+    use pi_coding_agent::utils::clipboard_image::{ReadClipboardImageOptions, read_clipboard_image};
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let mut bmp = vec![0u8; 58];
+    bmp[0..2].copy_from_slice(b"BM");
+    bmp[2..6].copy_from_slice(&58u32.to_le_bytes());
+    bmp[10..14].copy_from_slice(&54u32.to_le_bytes());
+    bmp[14..18].copy_from_slice(&40u32.to_le_bytes());
+    bmp[18..22].copy_from_slice(&1i32.to_le_bytes());
+    bmp[22..26].copy_from_slice(&1i32.to_le_bytes());
+    bmp[26..28].copy_from_slice(&1u16.to_le_bytes());
+    bmp[28..30].copy_from_slice(&24u16.to_le_bytes());
+    bmp[34..38].copy_from_slice(&4u32.to_le_bytes());
+    bmp[56] = 0xff;
+    let bmp_path = dir.path().join("clip.bmp");
+    std::fs::write(&bmp_path, &bmp).unwrap();
+    let script = format!(
+        "#!/bin/sh\ncase \"$*\" in\n  *--list-types*) echo image/bmp ;;\n  *image/bmp*) cat '{}' ;;\nesac\n",
+        bmp_path.display()
+    );
+    let wl_paste = dir.path().join("wl-paste");
+    std::fs::write(&wl_paste, script).unwrap();
+    std::fs::set_permissions(&wl_paste, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let _guard = ENV_LOCK.lock();
+    let path = format!("{}:{}", dir.path().display(), std::env::var("PATH").unwrap_or_default());
+    let saved = std::env::var("PATH").ok();
+    unsafe { std::env::set_var("PATH", &path) };
+    let options = ReadClipboardImageOptions {
+        env: Some([("WAYLAND_DISPLAY".to_string(), "wayland-0".to_string())].into_iter().collect()),
+        platform: Some("linux".into()),
+    };
+    let image = read_clipboard_image(Some(&options)).await;
+    if let Some(saved) = saved {
+        unsafe { std::env::set_var("PATH", saved) };
+    }
+    let image = image.unwrap().expect("clipboard image");
+    assert_eq!(image.mime_type, "image/png");
+    assert_eq!(&image.bytes[..4], &[0x89, 0x50, 0x4e, 0x47]);
+}

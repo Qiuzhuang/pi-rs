@@ -921,12 +921,17 @@ async fn send_with_retries(
     signal: Option<&CancellationToken>,
 ) -> anyhow::Result<reqwest::Response> {
     let max = super::aws_credentials::aws_max_attempts_for(profile)?;
+    let mut quota = super::aws_credentials::SdkRetryQuota::new();
     let mut attempt = 1;
     loop {
         match attempt_request(client, prepared, attempt, max, auth, region, signal).await {
             Attempt::Ok(response) => return Ok(response),
             Attempt::Failed { error, retryable, throttling, retry_after } => {
-                if !retryable || attempt >= max || signal.is_some_and(|s| s.is_cancelled()) {
+                if !retryable
+                    || attempt >= max
+                    || signal.is_some_and(|s| s.is_cancelled())
+                    || !quota.acquire(throttling)
+                {
                     return Err(error);
                 }
                 let delay = super::aws_credentials::sdk_retry_delay_ms(attempt - 1, throttling, retry_after);

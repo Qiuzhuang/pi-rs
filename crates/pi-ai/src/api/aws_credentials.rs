@@ -295,6 +295,27 @@ fn parse_http_date(text: &str) -> Option<i64> {
     parse_iso8601(&format!("{year}-{month:02}-{day:02}T{time}Z"))
 }
 
+/// The standard retry strategy's retry quota (`INITIAL_RETRY_TOKENS` 500; a retry costs 5, or
+/// `TIMEOUT_RETRY_COST` 10 for transient errors). Each SDK client has its own and pi creates a
+/// client per request, so it only stops retries when `max_attempts` exceeds about 50.
+pub(crate) struct SdkRetryQuota(u32);
+
+impl SdkRetryQuota {
+    pub(crate) fn new() -> Self {
+        Self(500)
+    }
+
+    /// Take the capacity a retry of this error needs; `false` when the quota is exhausted.
+    pub(crate) fn acquire(&mut self, throttling: bool) -> bool {
+        let cost = if throttling { 5 } else { 10 };
+        if self.0 < cost {
+            return false;
+        }
+        self.0 -= cost;
+        true
+    }
+}
+
 /// The standard retry strategy's wait before retrying after `retry_count` earlier retries:
 /// `floor(random * min(base * 2^retry_count, 20000))` with a 100ms base (500ms for throttling),
 /// raised toward a server retry-after hint by at most five seconds.
@@ -588,6 +609,7 @@ async fn sts_request(
         aws_sdk_user_agent(AWS_NESTED_CLIENTS_VERSION, "STS", &[], context.app_id.as_deref(), signing);
     let invocation_id = uuid::Uuid::new_v4().to_string();
     let max = aws_max_attempts()?;
+    let mut quota = SdkRetryQuota::new();
     let mut attempt = 1u32;
     loop {
         let mut headers = vec![
@@ -631,7 +653,7 @@ async fn sts_request(
                 (sts_error(status, &text), throttling || transient, throttling, retry_after)
             }
         };
-        if !retryable || attempt >= max {
+        if !retryable || attempt >= max || !quota.acquire(throttling) {
             return Err(error);
         }
         tokio::time::sleep(Duration::from_millis(sdk_retry_delay_ms(attempt - 1, throttling, retry_after))).await;
@@ -934,6 +956,7 @@ async fn send_aws_sdk_request(
         aws_sdk_user_agent(AWS_NESTED_CLIENTS_VERSION, service_id, &[], context.app_id.as_deref(), None);
     let invocation_id = uuid::Uuid::new_v4().to_string();
     let max = aws_max_attempts()?;
+    let mut quota = SdkRetryQuota::new();
     let mut attempt = 1u32;
     loop {
         let result = build()
@@ -962,7 +985,7 @@ async fn send_aws_sdk_request(
                 (Ok(SdkResponse { status, headers, body }), throttling || transient, throttling, retry_after)
             }
         };
-        if !retryable || attempt >= max {
+        if !retryable || attempt >= max || !quota.acquire(throttling) {
             return outcome;
         }
         tokio::time::sleep(Duration::from_millis(sdk_retry_delay_ms(attempt - 1, throttling, retry_after))).await;
@@ -1231,6 +1254,7 @@ async fn from_login(profile: &Profile, context: &CredentialContext) -> anyhow::R
         aws_sdk_user_agent(AWS_NESTED_CLIENTS_VERSION, "Signin", &[], context.app_id.as_deref(), None);
     let invocation_id = uuid::Uuid::new_v4().to_string();
     let max = aws_max_attempts()?;
+    let mut quota = SdkRetryQuota::new();
     let mut attempt = 1u32;
     let response = loop {
         let dpop = dpop_proof(fresh["dpopKey"].as_str().unwrap_or_default(), "POST", &endpoint)?;
@@ -1264,7 +1288,7 @@ async fn from_login(profile: &Profile, context: &CredentialContext) -> anyhow::R
                 (throttling || transient, throttling)
             }
         };
-        if !retryable || attempt >= max {
+        if !retryable || attempt >= max || !quota.acquire(throttling) {
             break result;
         }
         tokio::time::sleep(Duration::from_millis(sdk_retry_delay_ms(attempt - 1, throttling, retry_after))).await;
@@ -1673,6 +1697,18 @@ pub fn sso_cache_file_for(key: &str) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn retry_quota_allows_50_transient_or_100_throttling_retries() {
+        let mut quota = SdkRetryQuota::new();
+        assert!((0..50).all(|_| quota.acquire(false)));
+        assert!(!quota.acquire(false));
+        assert!(!quota.acquire(true));
+        let mut quota = SdkRetryQuota::new();
+        assert!((0..100).all(|_| quota.acquire(true)));
+        assert!(!quota.acquire(true));
+    }
+
     use super::*;
 
     #[test]

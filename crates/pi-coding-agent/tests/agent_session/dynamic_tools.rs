@@ -281,3 +281,123 @@ async fn keeps_custom_tools_active_but_omits_them_from_available_tools_when_prom
     assert!(!prompt.contains("Description should not appear in available tools"));
     session.dispose();
 }
+
+// ---------------------------------------------------------------------------
+// Regression #3592: no-builtin-tools keeps extension tools enabled.
+// ---------------------------------------------------------------------------
+
+use pi_coding_agent::core::sdk::CreateAgentSessionOptionsNoTools;
+
+async fn create_with_no_tools(d: &Dirs, no_tools: CreateAgentSessionOptionsNoTools) -> Arc<AgentSession> {
+    let settings_manager = SettingsManager::create(&d.temp_dir, Some(&d.agent_dir), None);
+    let extension = factory(|pi| {
+        let api = pi.clone();
+        on_event::<SessionStartEvent, _, _>(&*pi, move |_event, _ctx| {
+            let api = api.clone();
+            async move {
+                let mut tool = simple_tool("dynamic_tool", "Dynamic Tool", "Tool registered from session_start");
+                tool.prompt_snippet = Some("Run dynamic test behavior".into());
+                api.register_tool(tool)?;
+                Ok(None)
+            }
+        })?;
+        Ok(())
+    });
+    let resource_loader = Arc::new(DefaultResourceLoader::new(&DefaultResourceLoaderOptions {
+        cwd: d.temp_dir.clone(),
+        agent_dir: d.agent_dir.clone(),
+        settings_manager: Some(settings_manager.clone()),
+        extension_factories: Some(vec![extension]),
+        ..Default::default()
+    }));
+    resource_loader.reload(None).await.unwrap();
+    let session = create_agent_session(Some(&CreateAgentSessionOptions {
+        cwd: Some(d.temp_dir.clone()),
+        agent_dir: Some(d.agent_dir.clone()),
+        model: pi_ai::compat::get_model("anthropic", "claude-sonnet-4-5"),
+        settings_manager: Some(settings_manager),
+        session_manager: Some(SessionManager::in_memory(Some(&d.temp_dir), None, None).unwrap()),
+        resource_loader: Some(resource_loader as Arc<dyn ResourceLoader>),
+        no_tools: Some(no_tools),
+        ..Default::default()
+    }))
+    .await
+    .unwrap()
+    .session;
+    session.bind_extensions(&ExtensionBindings::default()).await.unwrap();
+    session
+}
+
+#[tokio::test]
+async fn keeps_extension_tools_active_when_built_in_defaults_are_disabled() {
+    let d = dirs();
+    let session = create_with_no_tools(&d, CreateAgentSessionOptionsNoTools::Builtin).await;
+
+    let mut names: Vec<String> = session.get_all_tools().into_iter().map(|t| t.name).collect();
+    names.sort();
+    assert_eq!(
+        names,
+        vec!["bash", "dynamic_tool", "edit", "find", "grep", "ls", "powershell", "read", "write"]
+    );
+    assert_eq!(session.get_active_tool_names(), vec!["dynamic_tool"]);
+    let prompt = session.system_prompt();
+    assert!(prompt.contains("- dynamic_tool: Run dynamic test behavior"));
+    assert!(!prompt.contains("- read:"));
+    assert!(!prompt.contains("- bash:"));
+    session.dispose();
+}
+
+#[tokio::test]
+async fn still_disables_all_tools_when_no_tools_is_all() {
+    let d = dirs();
+    let session = create_with_no_tools(&d, CreateAgentSessionOptionsNoTools::All).await;
+
+    assert!(session.get_all_tools().is_empty());
+    assert!(session.get_active_tool_names().is_empty());
+    assert!(session.system_prompt().contains("<tools>\n(none)\n"));
+    session.dispose();
+}
+
+#[tokio::test]
+async fn propagates_no_tools_through_service_based_session_creation() {
+    use pi_coding_agent::core::agent_session_services::{
+        CreateAgentSessionFromServicesOptions, CreateAgentSessionFromServicesOptionsNoTools,
+        CreateAgentSessionServicesOptions, create_agent_session_from_services, create_agent_session_services,
+    };
+    let d = dirs();
+    let settings_manager = SettingsManager::create(&d.temp_dir, Some(&d.agent_dir), None);
+    let services = create_agent_session_services(&CreateAgentSessionServicesOptions {
+        cwd: d.temp_dir.clone(),
+        agent_dir: Some(d.agent_dir.clone()),
+        settings_manager: Some(settings_manager),
+        model_runtime: None,
+        model_runtime_signal: None,
+        extension_flag_values: None,
+        resource_loader_options: None,
+        resource_loader_reload_options: None,
+    })
+    .await
+    .unwrap();
+
+    let session = create_agent_session_from_services(&CreateAgentSessionFromServicesOptions {
+        services,
+        session_manager: SessionManager::in_memory(Some(&d.temp_dir), None, None).unwrap(),
+        session_start_event: None,
+        model: pi_ai::compat::get_model("anthropic", "claude-sonnet-4-5"),
+        thinking_level: None,
+        scoped_models: None,
+        tools: None,
+        exclude_tools: None,
+        no_tools: Some(CreateAgentSessionFromServicesOptionsNoTools::Builtin),
+        custom_tools: None,
+    })
+    .await
+    .unwrap()
+    .session;
+
+    assert!(session.get_active_tool_names().is_empty());
+    let prompt = session.system_prompt();
+    assert!(prompt.contains("<tools>\n(none)\n"));
+    assert!(!prompt.contains("- read:"));
+    session.dispose();
+}

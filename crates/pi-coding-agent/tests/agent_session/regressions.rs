@@ -2205,3 +2205,561 @@ mod compaction_retries_transient_stream_drop {
         harness.cleanup();
     }
 }
+
+// #9789/#9822: context handlers and system messages.
+mod context_handler_system_messages {
+    use super::*;
+    use pi_ai::types::{Message, TranscriptContext};
+    use pi_ai::utils::transcript::{get_current_system_prompt, get_current_tools};
+    use pi_coding_agent::core::extensions::types::{
+        BeforeAgentStartEvent, BeforeAgentStartEventResult, ContextEvent, ContextEventResult,
+        ContextWithSystemEvent, SessionBeforeCompactEvent, SessionBeforeCompactResult,
+    };
+
+    /// Compaction supplied by an extension hook, as in the reported sessions.
+    fn compact_via_hook() -> TestExtension {
+        ext(|pi| {
+            on_event::<SessionBeforeCompactEvent, _, _>(&*pi, |event, _ctx| async move {
+                Ok(Some(SessionBeforeCompactResult {
+                    cancel: None,
+                    compaction: Some(pi_coding_agent::core::compaction::CompactionResult {
+                        summary: "extension summary".into(),
+                        first_kept_entry_id: event.preparation.first_kept_entry_id.clone(),
+                        tokens_before: event.preparation.tokens_before,
+                        estimated_tokens_after: None,
+                        usage: None,
+                        details: Some(json!({"source": "test"})),
+                    }),
+                }))
+            })?;
+            Ok(())
+        })
+    }
+
+    fn capture_request(harness: &Harness, reply: &'static str) -> Arc<Mutex<Option<TranscriptContext>>> {
+        let request = Arc::new(Mutex::new(None));
+        let r = request.clone();
+        harness.set_responses(vec![pi_ai::providers::faux::FauxResponseStep::factory(
+            move |context, _o, _s, _m| {
+                *r.lock() = Some(context.clone());
+                faux_text_message(reply)
+            },
+        )]);
+        request
+    }
+
+    fn request(captured: &Arc<Mutex<Option<TranscriptContext>>>) -> TranscriptContext {
+        captured.lock().clone().expect("expected a provider request")
+    }
+
+    fn roles(messages: &[Message]) -> Vec<&str> {
+        messages.iter().map(|m| m.role()).collect()
+    }
+
+    fn tool_names(context: &TranscriptContext) -> Vec<String> {
+        get_current_tools(&context.messages).into_iter().map(|t| t.name).collect()
+    }
+
+    fn system_messages(context: &TranscriptContext) -> Vec<pi_ai::types::SystemMessage> {
+        context
+            .messages
+            .iter()
+            .filter_map(|m| match m {
+                Message::System(s) => Some(s.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    async fn compact_session(harness: &Harness) {
+        harness
+            .settings_manager
+            .apply_overrides_json(json!({"compaction": {"keepRecentTokens": 1}}).as_object().unwrap());
+        harness.set_responses(vec![text("one"), text("two")]);
+        harness.session.prompt("first", None).await.unwrap();
+        harness.session.prompt("second", None).await.unwrap();
+        harness.session.compact(None).await.unwrap();
+        let roles: Vec<String> = harness.session.messages().iter().take(2).map(|m| m.role().to_string()).collect();
+        assert_eq!(roles, vec!["system", "compactionSummary"]);
+    }
+
+    fn compaction_summary_index(messages: &[AgentMessage]) -> usize {
+        messages.iter().position(|m| m.role() == "compactionSummary").unwrap_or(0)
+    }
+
+    #[tokio::test]
+    async fn keeps_the_prompt_and_tools_when_a_handler_slices_from_the_compaction_summary() {
+        let seen = Arc::new(Mutex::new(Vec::<Vec<AgentMessage>>::new()));
+        let s = seen.clone();
+        let harness = create_harness(HarnessOptions {
+            extension_factories: vec![
+                compact_via_hook(),
+                ext(move |pi| {
+                    let s = s.clone();
+                    on_event::<ContextEvent, _, _>(&*pi, move |event, _ctx| {
+                        let s = s.clone();
+                        async move {
+                            s.lock().push(event.messages.clone());
+                            let index = compaction_summary_index(&event.messages);
+                            Ok(Some(ContextEventResult {
+                                messages: Some(event.messages[index..].to_vec()),
+                            }))
+                        }
+                    })?;
+                    Ok(())
+                }),
+            ],
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        compact_session(&harness).await;
+        let captured = capture_request(&harness, "after compaction");
+
+        harness.session.prompt("third", None).await.unwrap();
+
+        let request = request(&captured);
+        assert!(!seen.lock().last().unwrap().iter().any(|m| m.role() == "system"));
+        assert_eq!(request.messages[0].role(), "system");
+        assert_eq!(tool_names(&request), harness.session.get_active_tool_names());
+        assert_eq!(get_current_system_prompt(&request.messages), harness.session.system_prompt());
+        assert_eq!(system_messages(&request).len(), 1);
+        harness.cleanup();
+    }
+
+    #[tokio::test]
+    async fn keeps_mid_conversation_system_messages_in_place_when_a_handler_leaves_the_conversation_unchanged() {
+        let turn = Arc::new(Mutex::new(0));
+        let harness = create_harness(HarnessOptions {
+            extension_factories: vec![ext(move |pi| {
+                let turn = turn.clone();
+                on_event::<BeforeAgentStartEvent, _, _>(&*pi, move |event, _ctx| {
+                    let turn = turn.clone();
+                    async move {
+                        let mut count = turn.lock();
+                        *count += 1;
+                        if *count != 2 {
+                            return Ok(None);
+                        }
+                        let mut options = event.system_prompt_options.clone();
+                        options.sections.insert("plan_mode".into(), "Plan only.".into());
+                        Ok(Some(BeforeAgentStartEventResult {
+                            system_prompt_options: Some(options),
+                            ..Default::default()
+                        }))
+                    }
+                })?;
+                on_event::<ContextEvent, _, _>(&*pi, |event, _ctx| async move {
+                    Ok(Some(ContextEventResult {
+                        messages: Some(event.messages),
+                    }))
+                })?;
+                Ok(())
+            })],
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        harness.set_responses(vec![text("one")]);
+        harness.session.prompt("first", None).await.unwrap();
+        let captured = capture_request(&harness, "two");
+
+        harness.session.prompt("second", None).await.unwrap();
+
+        let systems = system_messages(&request(&captured));
+        assert_eq!(systems.len(), 2);
+        assert_eq!(
+            serde_json::to_value(&systems[1].sections).unwrap(),
+            json!({"plan_mode": "<plan_mode>\nPlan only.\n</plan_mode>"})
+        );
+        harness.cleanup();
+    }
+
+    /// TS mutates `event.messages` in place without returning; Rust handlers return the edit.
+    #[tokio::test]
+    async fn applies_in_place_edits_to_event_messages_without_a_return_value() {
+        let harness = create_harness(HarnessOptions {
+            extension_factories: vec![ext(|pi| {
+                on_event::<ContextEvent, _, _>(&*pi, |event, _ctx| async move {
+                    let mut messages = event.messages;
+                    messages.insert(0, user_blocks("injected", 0));
+                    Ok(Some(ContextEventResult {
+                        messages: Some(messages),
+                    }))
+                })?;
+                Ok(())
+            })],
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        let captured = capture_request(&harness, "done");
+
+        harness.session.prompt("hello", None).await.unwrap();
+
+        let request = request(&captured);
+        assert_eq!(roles(&request.messages), vec!["system", "user", "user"]);
+        assert_eq!(tool_names(&request), harness.session.get_active_tool_names());
+        harness.cleanup();
+    }
+
+    #[tokio::test]
+    async fn keeps_system_messages_a_handler_adds_after_the_replayed_head() {
+        let harness = create_harness(HarnessOptions {
+            extension_factories: vec![ext(|pi| {
+                on_event::<ContextEvent, _, _>(&*pi, |event, _ctx| async move {
+                    let mut messages = vec![agent_message(
+                        json!({"role": "system", "content": "ephemeral reminder", "timestamp": 0}),
+                    )];
+                    messages.extend(event.messages);
+                    Ok(Some(ContextEventResult {
+                        messages: Some(messages),
+                    }))
+                })?;
+                Ok(())
+            })],
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        let captured = capture_request(&harness, "done");
+
+        harness.session.prompt("hello", None).await.unwrap();
+
+        let request = request(&captured);
+        assert_eq!(roles(&request.messages), vec!["system", "system", "user"]);
+        assert_eq!(tool_names(&request), harness.session.get_active_tool_names());
+        let prompt = get_current_system_prompt(&request.messages);
+        assert!(prompt.contains(&harness.session.system_prompt()));
+        assert!(prompt.contains("ephemeral reminder"));
+        harness.cleanup();
+    }
+
+    #[tokio::test]
+    async fn context_with_system_runs_after_context_handlers_on_the_restored_transcript() {
+        let seen = Arc::new(Mutex::new(Vec::<Vec<AgentMessage>>::new()));
+        let s = seen.clone();
+        let harness = create_harness(HarnessOptions {
+            extension_factories: vec![
+                compact_via_hook(),
+                ext(move |pi| {
+                    let s = s.clone();
+                    on_event::<ContextWithSystemEvent, _, _>(&*pi, move |event, _ctx| {
+                        let s = s.clone();
+                        async move {
+                            s.lock().push(event.messages.clone());
+                            let messages = event
+                                .messages
+                                .into_iter()
+                                .map(|message| match message {
+                                    AgentMessage::System(mut system) => {
+                                        if let Some(tools) = &mut system.tools_added {
+                                            tools.retain(|tool| tool.name != "bash");
+                                        }
+                                        AgentMessage::System(system)
+                                    }
+                                    other => other,
+                                })
+                                .collect();
+                            Ok(Some(ContextEventResult {
+                                messages: Some(messages),
+                            }))
+                        }
+                    })?;
+                    // Registered after, but runs first: context handlers precede context_with_system.
+                    on_event::<ContextEvent, _, _>(&*pi, |event, _ctx| async move {
+                        let index = compaction_summary_index(&event.messages);
+                        Ok(Some(ContextEventResult {
+                            messages: Some(event.messages[index..].to_vec()),
+                        }))
+                    })?;
+                    Ok(())
+                }),
+            ],
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        compact_session(&harness).await;
+        let captured = capture_request(&harness, "after compaction");
+
+        harness.session.prompt("third", None).await.unwrap();
+
+        let input = seen.lock().last().cloned().unwrap();
+        assert_eq!(input[0].role(), "system");
+        assert_eq!(input[1].role(), "compactionSummary");
+        let active = harness.session.get_active_tool_names();
+        assert!(active.contains(&"bash".to_string()));
+        let expected: Vec<String> = active.into_iter().filter(|n| n != "bash").collect();
+        assert_eq!(tool_names(&request(&captured)), expected);
+        harness.cleanup();
+    }
+
+    #[tokio::test]
+    async fn reports_a_context_with_system_handler_that_drops_the_leading_system_message_but_honors_its_output() {
+        let harness = create_harness(HarnessOptions {
+            extension_factories: vec![ext(|pi| {
+                on_event::<ContextWithSystemEvent, _, _>(&*pi, |event, _ctx| async move {
+                    Ok(Some(ContextEventResult {
+                        messages: Some(event.messages.into_iter().filter(|m| m.role() != "system").collect()),
+                    }))
+                })?;
+                Ok(())
+            })],
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        let errors = Arc::new(Mutex::new(Vec::<String>::new()));
+        let e = errors.clone();
+        harness
+            .session
+            .extension_runner()
+            .on_error(Arc::new(move |error| e.lock().push(format!("{}: {}", error.event, error.error))));
+        let captured = capture_request(&harness, "done");
+
+        harness.session.prompt("hello", None).await.unwrap();
+
+        assert_eq!(roles(&request(&captured).messages), vec!["user"]);
+        let errors = errors.lock().clone();
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert!(
+            errors[0].starts_with("context_with_system: Handler removed the leading system message"),
+            "{errors:?}"
+        );
+        harness.cleanup();
+    }
+}
+
+// #8724: in-memory fork during an active tool turn.
+#[tokio::test]
+async fn in_memory_fork_does_not_append_the_aborted_turn_to_the_replacement_session() {
+    use pi_coding_agent::core::agent_session::ExtensionBindings;
+    use pi_coding_agent::core::agent_session_runtime::{
+        AgentSessionRuntime, CreateAgentSessionRuntimeFactory, CreateAgentSessionRuntimeResult,
+    };
+    use pi_coding_agent::core::agent_session_services::{
+        AgentSessionServices, CreateAgentSessionFromServicesOptions,
+        CreateAgentSessionFromServicesOptionsNoTools, create_agent_session_from_services,
+    };
+
+    let (started_tx, started_rx) = tokio::sync::oneshot::channel::<()>();
+    let started_tx = Arc::new(Mutex::new(Some(started_tx)));
+    let blocking_tool = FnAgentTool::new(
+        "block",
+        "Block",
+        "Wait until aborted",
+        json!({"type": "object", "properties": {}}),
+        move |_id, _params, signal, _update| {
+            let started_tx = started_tx.clone();
+            async move {
+                if let Some(tx) = started_tx.lock().take() {
+                    let _ = tx.send(());
+                }
+                signal.cancelled().await;
+                Ok(pi_agent::types::AgentToolResult::text("tool aborted", Some(json!({}))))
+            }
+        },
+    )
+    .into_ref();
+    let harness = create_harness(HarnessOptions {
+        tools: Some(vec![blocking_tool]),
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    let temp_dir = harness.temp_dir.to_string_lossy().into_owned();
+    let services = AgentSessionServices {
+        cwd: temp_dir.clone(),
+        agent_dir: temp_dir,
+        model_runtime: harness.session.model_runtime(),
+        settings_manager: harness.settings_manager.clone(),
+        resource_loader: harness.session.resource_loader(),
+        diagnostics: Vec::new(),
+    };
+    let model = harness.get_model();
+    let s = services.clone();
+    let create_runtime: CreateAgentSessionRuntimeFactory = Arc::new(move |options| {
+        let services = s.clone();
+        let model = model.clone();
+        Box::pin(async move {
+            let created = create_agent_session_from_services(&CreateAgentSessionFromServicesOptions {
+                services: services.clone(),
+                session_manager: options.session_manager.clone(),
+                session_start_event: options.session_start_event.clone(),
+                model: Some(model),
+                thinking_level: None,
+                scoped_models: None,
+                tools: None,
+                exclude_tools: None,
+                no_tools: Some(CreateAgentSessionFromServicesOptionsNoTools::All),
+                custom_tools: None,
+            })
+            .await?;
+            Ok(CreateAgentSessionRuntimeResult {
+                session: created.session,
+                extensions_result: created.extensions_result,
+                model_fallback_message: created.model_fallback_message,
+                diagnostics: Vec::new(),
+                services,
+            })
+        })
+    });
+    let runtime = AgentSessionRuntime::new(harness.session.clone(), &services, &create_runtime, None, None);
+
+    harness.set_responses(vec![
+        text("first response"),
+        tool_use("block", json!({})),
+        text("unused after abort"),
+    ]);
+    runtime.session().prompt("first prompt", None).await.unwrap();
+    let first_user_entry_id = runtime.session().get_user_messages_for_forking()[0].entry_id.clone();
+
+    let session = runtime.session();
+    let outgoing = tokio::spawn(async move { session.prompt("start blocking tool", None).await });
+    started_rx.await.unwrap();
+    let fork_result = runtime.fork(&first_user_entry_id, None).await.unwrap();
+    outgoing.await.unwrap().unwrap();
+    runtime
+        .session()
+        .bind_extensions(&ExtensionBindings::default())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        serde_json::to_value(&fork_result).unwrap(),
+        json!({"cancelled": false, "selectedText": "first prompt"})
+    );
+    let roles: Vec<String> = runtime.session().messages().iter().map(|m| m.role().to_string()).collect();
+    assert_eq!(roles, vec!["system"]);
+    let entry_roles: Vec<String> = runtime
+        .session()
+        .session_manager()
+        .get_entries()
+        .into_iter()
+        .filter_map(|entry| match entry {
+            SessionEntry::Message(m) => Some(m.message.role().to_string()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(entry_roles, vec!["system"]);
+
+    let captured = Arc::new(Mutex::new(Vec::<String>::new()));
+    let c = captured.clone();
+    harness.set_responses(vec![pi_ai::providers::faux::FauxResponseStep::factory(
+        move |context, _o, _s, _m| {
+            *c.lock() = context.messages.iter().map(|m| m.role().to_string()).collect();
+            faux_text_message("next response")
+        },
+    )]);
+    runtime.session().prompt("next prompt", None).await.unwrap();
+
+    assert_eq!(*captured.lock(), vec!["system", "system", "user"]);
+    if !Arc::ptr_eq(&runtime.session(), &harness.session) {
+        let _ = runtime.dispose().await;
+    }
+    harness.cleanup();
+}
+
+// #7150: RPC prompt during manual compaction.
+#[tokio::test]
+async fn rejects_an_rpc_prompt_while_manual_compaction_is_in_progress() {
+    use pi_coding_agent::core::agent_session::PromptOptions;
+    use pi_coding_agent::core::extensions::types::{
+        InputSource, SessionBeforeCompactEvent, SessionBeforeCompactResult,
+    };
+
+    let (started_tx, started_rx) = tokio::sync::oneshot::channel::<()>();
+    let started_tx = Arc::new(Mutex::new(Some(started_tx)));
+    let release = Arc::new(tokio::sync::Notify::new());
+    let r = release.clone();
+    let harness = create_harness(HarnessOptions {
+        settings: Some(json!({"compaction": {"keepRecentTokens": 1}})),
+        extension_factories: vec![ext(move |pi| {
+            let started_tx = started_tx.clone();
+            let release = r.clone();
+            on_event::<SessionBeforeCompactEvent, _, _>(&*pi, move |event, _ctx| {
+                let started_tx = started_tx.clone();
+                let release = release.clone();
+                async move {
+                    let released = release.notified();
+                    if let Some(tx) = started_tx.lock().take() {
+                        let _ = tx.send(());
+                    }
+                    released.await;
+                    Ok(Some(SessionBeforeCompactResult {
+                        cancel: None,
+                        compaction: Some(pi_coding_agent::core::compaction::CompactionResult {
+                            summary: "manual compacted".into(),
+                            first_kept_entry_id: event.preparation.first_kept_entry_id.clone(),
+                            tokens_before: event.preparation.tokens_before,
+                            estimated_tokens_after: None,
+                            usage: None,
+                            details: Some(json!({})),
+                        }),
+                    }))
+                }
+            })?;
+            Ok(())
+        })],
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    let timestamp = now_ms();
+    harness
+        .session_manager
+        .append_message(user_blocks("old user message", timestamp - 1000))
+        .unwrap();
+    let mut assistant = faux_text_message("old assistant response");
+    assistant.timestamp = timestamp - 500;
+    harness
+        .session_manager
+        .append_message(AgentMessage::Assistant(assistant))
+        .unwrap();
+    harness
+        .session
+        .agent()
+        .set_messages(harness.session_manager.build_session_context().messages);
+    harness.set_responses(vec![text("probe response")]);
+
+    let session = harness.session.clone();
+    let compact = tokio::spawn(async move { session.compact(None).await });
+    started_rx.await.unwrap();
+
+    let preflight = Arc::new(Mutex::new(None::<String>));
+    let p = preflight.clone();
+    let result = harness
+        .session
+        .prompt(
+            "PROBE-7150",
+            Some(&PromptOptions {
+                source: Some(InputSource::Rpc),
+                preflight_result: Some(Arc::new(move |result| {
+                    *p.lock() = Some(format!("{result:?}"));
+                })),
+                ..Default::default()
+            }),
+        )
+        .await;
+    release.notify_one();
+    compact.await.unwrap().unwrap();
+
+    let persisted_user_texts: Vec<String> = harness
+        .session_manager
+        .get_entries()
+        .into_iter()
+        .filter_map(|entry| match entry {
+            SessionEntry::Message(m) if m.message.role() == "user" => Some(get_message_text(&m.message)),
+            _ => None,
+        })
+        .collect();
+    assert!(preflight.lock().is_none());
+    let error = result.unwrap_err();
+    assert!(error.to_string().contains("compaction is in progress"), "{error}");
+    assert!(!harness.user_texts().contains(&"PROBE-7150".to_string()));
+    assert!(!persisted_user_texts.contains(&"PROBE-7150".to_string()));
+    assert!(harness.events_of_type("agent_start").is_empty());
+    assert!(harness.events_of_type("agent_settled").is_empty());
+    harness.cleanup();
+}

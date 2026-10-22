@@ -33,13 +33,19 @@ in pi-rs; the reason is given), `[ ]` missing (none).
 - Shared module state. In TS, extensions share pi's module instances. pi-rs mirrors the parts that
   matter: `getKeybindings()` returns pi's live bindings, `initTheme()` sets pi's theme, the compat API
   registry is pi's, `Image` uses pi's PNG transcoder when none is set from JS. `setKeybindings()`
-  affects JavaScript components only (Rust-backed components keep pi's bindings).
-- `getNativeClipboard()` returns `undefined`: pi-rs has no native platform helper
-  (`pi_tui::native_platform::get_native_clipboard()` is `None`).
-- `observeModelRequest()` (pi-ai telemetry) is a no-op: telemetry contexts are not available to
-  extensions.
-- Stack/ScrollView `[LAYOUT_NODE]()` is implemented, but pi-rs lays out JS components through
-  `render()`; only Rust components take part in the viewport layout protocol.
+  replaces pi-tui's global keybindings for the whole app (pi's editor, selectors and Rust-backed
+  components): a JS `KeybindingsManager` is mirrored by a Rust manager (re-synced when it rebuilds),
+  a keybindings proxy installs the Rust manager it stands for.
+- `getNativeClipboard()` is pi-tui's native clipboard (`arboard`): present where TS loads its native
+  addon (macOS, Windows, Linux with an X11 `DISPLAY`), with `getText`, `getImage` (PNG bytes),
+  `getFilePaths`, and `setText` except on Linux (as in TS).
+- pi-ai telemetry: the telemetry parent pi passes in stream options reaches JavaScript as an opaque
+  `options.telemetry`; requests of a JavaScript `Models` collection that forward it are observed by
+  pi-ai's Rust telemetry module (`pi.ai.request`/`pi.ai.poll` spans, events, metrics).
+- Stacks and scroll views (`VStack`, `HStack`, `ScrollView`) take part in pi's fullscreen layout through
+  `[LAYOUT_NODE]()` like TS; a JS `ScrollView` laid out by pi delegates its scroll state to a Rust
+  `ScrollView` (wheel scrolling, follow-end, scrollbar).
+- TypeBox loads on first use: pi's glue no longer imports it eagerly.
 
 ## Checklist
 

@@ -13,3 +13,4 @@ mod boundaries;
 mod extension_mutations;
 mod runtime;
 mod bash_persistence;
+mod model_extension;

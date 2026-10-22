@@ -1218,3 +1218,86 @@ async fn applies_updated_top_level_prompt_settings_on_reload_after_startup() {
     assert!(!names(&t.runtime).contains(&"test".to_string()));
     t.cleanup().await;
 }
+
+// ---------------------------------------------------------------------------
+// `test/agent-session-branching.test.ts` (an API-key e2e suite in TS) on the faux provider.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn branching_allows_forking_from_a_single_message() {
+    let t = create_runtime_for_test(None, None, true, false).await;
+    let session = t.runtime.session();
+    session.prompt("Say hello", None).await.unwrap();
+    session.agent().wait_for_idle().await;
+
+    let user_messages = session.get_user_messages_for_forking();
+    assert_eq!(user_messages.len(), 1);
+    assert_eq!(user_messages[0].text, "Say hello");
+
+    let result = t.runtime.fork(&user_messages[0].entry_id, None).await.unwrap();
+    assert!(!result.cancelled);
+    let session = t.runtime.session();
+    assert_eq!(result.selected_text.as_deref(), Some("Say hello"));
+
+    // TS expects no messages here, but that API-key suite predates transcript system messages: the
+    // system message recorded before the first user message stays on the fork (as in #8724).
+    let roles: Vec<String> = session.messages().iter().map(|m| m.role().to_string()).collect();
+    assert_eq!(roles, vec!["system"]);
+    let file = session.session_file().expect("session file");
+    assert!(!std::path::Path::new(&file).exists());
+    t.cleanup().await;
+}
+
+#[tokio::test]
+async fn branching_supports_in_memory_forking_in_no_session_mode() {
+    let t = create_runtime_for_test(None, None, true, true).await;
+    let session = t.runtime.session();
+    assert!(session.session_file().is_none());
+
+    session.prompt("Say hi", None).await.unwrap();
+    session.agent().wait_for_idle().await;
+
+    let user_messages = session.get_user_messages_for_forking();
+    assert_eq!(user_messages.len(), 1);
+    assert!(!session.messages().is_empty());
+
+    let result = t.runtime.fork(&user_messages[0].entry_id, None).await.unwrap();
+    assert!(!result.cancelled);
+    let session = t.runtime.session();
+    assert_eq!(result.selected_text.as_deref(), Some("Say hi"));
+
+    // TS expects no messages here, but that API-key suite predates transcript system messages: the
+    // system message recorded before the first user message stays on the fork (as in #8724).
+    let roles: Vec<String> = session.messages().iter().map(|m| m.role().to_string()).collect();
+    assert_eq!(roles, vec!["system"]);
+    assert!(session.session_file().is_none());
+    t.cleanup().await;
+}
+
+#[tokio::test]
+async fn branching_forks_from_the_middle_of_a_conversation() {
+    let t = create_runtime_for_test(None, None, true, false).await;
+    let session = t.runtime.session();
+    for prompt in ["Say one", "Say two", "Say three"] {
+        session.prompt(prompt, None).await.unwrap();
+        session.agent().wait_for_idle().await;
+    }
+
+    let user_messages = session.get_user_messages_for_forking();
+    assert_eq!(user_messages.len(), 3);
+
+    let result = t.runtime.fork(&user_messages[1].entry_id, None).await.unwrap();
+    assert!(!result.cancelled);
+    assert_eq!(result.selected_text.as_deref(), Some("Say two"));
+
+    let roles: Vec<String> = t
+        .runtime
+        .session()
+        .messages()
+        .iter()
+        .filter(|m| m.role() != "system")
+        .map(|m| m.role().to_string())
+        .collect();
+    assert_eq!(roles, vec!["user", "assistant"]);
+    t.cleanup().await;
+}

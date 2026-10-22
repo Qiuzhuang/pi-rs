@@ -1123,3 +1123,140 @@ async fn does_not_trigger_threshold_compaction_below_the_threshold_or_when_disab
     below.cleanup();
     disabled.cleanup();
 }
+
+// ---------------------------------------------------------------------------
+// `test/agent-session-compaction.test.ts` (an API-key e2e suite in TS) on the faux provider.
+// ---------------------------------------------------------------------------
+
+/// Responses: the prompts' replies, then the summaries (with `keepRecentTokens: 1` the last turn is
+/// split, so compaction summarizes the history and the turn prefix separately).
+async fn e2e_harness(in_memory_responses: Vec<&'static str>) -> Harness {
+    let harness = create_harness(HarnessOptions {
+        settings: settings(json!({"compaction": {"keepRecentTokens": 1}})),
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    harness.set_responses(in_memory_responses.into_iter().map(text).collect());
+    harness
+}
+
+#[tokio::test]
+async fn e2e_triggers_manual_compaction_via_compact() {
+    let harness = e2e_harness(vec!["4", "6", "summary of the arithmetic", "turn prefix summary"]).await;
+    harness.session.prompt("What is 2+2? Reply with just the number.", None).await.unwrap();
+    harness.session.agent().wait_for_idle().await;
+    harness.session.prompt("What is 3+3? Reply with just the number.", None).await.unwrap();
+    harness.session.agent().wait_for_idle().await;
+
+    let result = harness.session.compact(None).await.unwrap();
+
+    assert!(!result.summary.is_empty());
+    assert!(result.tokens_before > 0);
+    let roles: Vec<String> = harness
+        .session
+        .messages()
+        .iter()
+        .filter(|m| m.role() != "system")
+        .map(|m| m.role().to_string())
+        .collect();
+    assert_eq!(roles.first().map(String::as_str), Some("compactionSummary"));
+    harness.cleanup();
+}
+
+#[tokio::test]
+async fn e2e_maintains_valid_session_state_after_compaction() {
+    let harness = e2e_harness(vec!["Paris", "Berlin", "summary", "turn prefix summary", "Rome"]).await;
+    harness.session.prompt("What is the capital of France? One word answer.", None).await.unwrap();
+    harness.session.prompt("What is the capital of Germany? One word answer.", None).await.unwrap();
+    harness.session.compact(None).await.unwrap();
+
+    harness.session.prompt("What is the capital of Italy? One word answer.", None).await.unwrap();
+    harness.session.agent().wait_for_idle().await;
+
+    let messages = harness.session.messages();
+    assert!(!messages.is_empty());
+    assert!(messages.iter().any(|m| m.role() == "assistant"));
+    assert_eq!(harness.assistant_texts().last().map(String::as_str), Some("Rome"));
+    harness.cleanup();
+}
+
+async fn e2e_persists_compaction(harness: &Harness) {
+    harness.session.prompt("Say hello", None).await.unwrap();
+    harness.session.prompt("Say goodbye", None).await.unwrap();
+
+    harness.session.compact(None).await.unwrap();
+
+    let compactions = compaction_entries(harness);
+    assert_eq!(compactions.len(), 1);
+    let SessionEntry::Compaction(compaction) = &compactions[0] else {
+        unreachable!()
+    };
+    assert!(!compaction.summary.is_empty());
+    assert!(!compaction.first_kept_entry_id.is_empty());
+    assert!(compaction.tokens_before > 0);
+}
+
+#[tokio::test]
+async fn e2e_persists_compaction_to_the_session_file() {
+    let temp = std::env::temp_dir().join(format!("pi-compaction-test-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&temp).unwrap();
+    let cwd = temp.to_string_lossy().into_owned();
+    let session_manager = pi_coding_agent::core::session_manager::SessionManager::create(&cwd, Some(&cwd), None).unwrap();
+    let harness = create_harness(HarnessOptions {
+        settings: settings(json!({"compaction": {"keepRecentTokens": 1}})),
+        session_manager: Some(session_manager.clone()),
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    harness.set_responses(vec![text("hello"), text("goodbye"), text("summary"), text("turn prefix summary")]);
+
+    e2e_persists_compaction(&harness).await;
+
+    // The compaction entry reached the session file.
+    let file = session_manager.get_session_file().unwrap();
+    let reopened = pi_coding_agent::core::session_manager::SessionManager::open(&file, None, None).unwrap();
+    assert_eq!(
+        reopened
+            .get_entries()
+            .iter()
+            .filter(|e| matches!(e, SessionEntry::Compaction(_)))
+            .count(),
+        1
+    );
+    harness.cleanup();
+    let _ = std::fs::remove_dir_all(&temp);
+}
+
+#[tokio::test]
+async fn e2e_works_with_no_session_mode() {
+    let harness = e2e_harness(vec!["hello", "goodbye", "summary", "turn prefix summary"]).await;
+    assert!(harness.session.session_file().is_none());
+    e2e_persists_compaction(&harness).await;
+    harness.cleanup();
+}
+
+#[tokio::test]
+async fn e2e_emits_compaction_events_during_manual_compaction() {
+    let harness = e2e_harness(vec!["hello", "summary", "turn prefix summary"]).await;
+    harness.session.prompt("Say hello", None).await.unwrap();
+
+    harness.session.compact(None).await.unwrap();
+
+    let events: Vec<Value> = harness
+        .events
+        .lock()
+        .iter()
+        .filter_map(|e| serde_json::to_value(e).ok())
+        .filter(|e| e["type"] == "compaction_start" || e["type"] == "compaction_end")
+        .collect();
+    assert_eq!(events.len(), 2);
+    assert_eq!(events[0], json!({"type": "compaction_start", "reason": "manual"}));
+    assert_eq!(
+        (&events[1]["type"], &events[1]["reason"], &events[1]["aborted"], &events[1]["willRetry"]),
+        (&json!("compaction_end"), &json!("manual"), &json!(false), &json!(false))
+    );
+    assert!(!harness.events_of_type("message_end").is_empty());
+    harness.cleanup();
+}

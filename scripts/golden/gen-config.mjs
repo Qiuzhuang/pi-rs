@@ -1370,6 +1370,36 @@ for (const [label, providerId, json] of composeInputs) {
 	add(`compose/${label}`, "compose", { providerId, content: JSON.stringify(json) }, out);
 }
 
+// Configured request auth status and compatibility request config.
+const { configuredRequestAuthStatus, resolveCompatibilityRequestConfig } = await ref("coding-agent/src/core/provider-composer.ts");
+process.env.PI_GOLDEN_SET_KEY = "secret";
+process.env.PI_GOLDEN_EMPTY_KEY = "";
+delete process.env.PI_GOLDEN_UNSET_KEY;
+const authProviders = {
+	literal: { apiKey: "sk-literal", baseUrl: "http://x" },
+	envSet: { apiKey: "$PI_GOLDEN_SET_KEY" },
+	envBraced: { apiKey: "${PI_GOLDEN_SET_KEY}" },
+	envUnset: { apiKey: "$PI_GOLDEN_UNSET_KEY" },
+	envEmpty: { apiKey: "$PI_GOLDEN_EMPTY_KEY" },
+	envMixed: { apiKey: "pre-${PI_GOLDEN_SET_KEY}-${PI_GOLDEN_UNSET_KEY}" },
+	bareEnvName: { apiKey: "PI_GOLDEN_SET_KEY" },
+	command: { apiKey: "!echo hi" },
+	none: { baseUrl: "http://x" },
+	headers: { baseUrl: "http://x", headers: { "x-a": "$PI_GOLDEN_SET_KEY", "x-b": "literal" }, authHeader: true },
+	modelHeaders: { baseUrl: "http://x", models: [{ id: "m", api: "openai-completions", headers: { "x-m": "model" } }], headers: { "x-p": "provider" } },
+};
+for (const [label, provider] of Object.entries(authProviders)) {
+	const root = makeTree({ "models.json": JSON.stringify({ providers: { p: provider } }) });
+	const config = await ModelConfig.load(path.join(root, "models.json"));
+	const providerConfig = config.getProvider("p");
+	const model = { id: "m", provider: "p", api: "openai-completions", headers: label === "modelHeaders" ? undefined : { "x-model-own": "1" } };
+	add(`auth/${label}`, "auth_status", { content: JSON.stringify({ providers: { p: provider } }) }, {
+		error: u(config.getError()),
+		status: u(configuredRequestAuthStatus(providerConfig, undefined)),
+		compat: capture(() => resolveCompatibilityRequestConfig(model, providerConfig, undefined)),
+	});
+}
+
 // ---------------------------------------------------------------------------------------------
 // Keybindings
 

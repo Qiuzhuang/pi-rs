@@ -1022,3 +1022,36 @@ fn golden_resource_loader() {
     }
     finish("resource loader", failures);
 }
+
+#[test]
+fn golden_request_auth_status() {
+    use crate::core::provider_composer::{configured_request_auth_status, resolve_compatibility_request_config};
+    // SAFETY: test-only variables with names no other code reads.
+    unsafe {
+        std::env::set_var("PI_GOLDEN_SET_KEY", "secret");
+        std::env::set_var("PI_GOLDEN_EMPTY_KEY", "");
+        std::env::remove_var("PI_GOLDEN_UNSET_KEY");
+    }
+    let fixture = fixture();
+    let mut failures = Vec::new();
+    for case in selected(&fixture, "auth_status") {
+        let config = crate::core::model_config::ModelConfig::from_content(case.input["content"].as_str().unwrap(), "models.json");
+        let provider = config.get_provider("p");
+        let mut model = json!({
+            "id": "m", "name": "m", "provider": "p", "api": "openai-completions", "baseUrl": "", "reasoning": false,
+            "input": ["text"], "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+            "contextWindow": 1, "maxTokens": 1,
+        });
+        if case.name != "auth/modelHeaders" {
+            model["headers"] = json!({ "x-model-own": "1" });
+        }
+        let model = pi_ai::types::AnyModel::from_value(model).unwrap();
+        let actual = json!({
+            "error": u(config.get_error().map(Value::from)),
+            "status": u(configured_request_auth_status(provider, None).map(|s| to_json(&s))),
+            "compat": ok_or(resolve_compatibility_request_config(&model, provider, None), |c| Some(to_json(&c))),
+        });
+        check(&mut failures, &case.name, &case.out, &actual);
+    }
+    finish("auth status", failures);
+}

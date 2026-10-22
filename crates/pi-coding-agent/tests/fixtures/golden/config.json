@@ -52596,6 +52596,241 @@
    }
   },
   {
+   "name": "auth/literal",
+   "kind": "auth_status",
+   "input": {
+    "content": "{\"providers\":{\"p\":{\"apiKey\":\"sk-literal\",\"baseUrl\":\"http://x\"}}}"
+   },
+   "out": {
+    "error": "<undefined>",
+    "status": {
+     "configured": true,
+     "source": "models_json_key"
+    },
+    "compat": {
+     "ok": {
+      "headers": {
+       "x-model-own": "1"
+      },
+      "authHeader": false
+     }
+    }
+   }
+  },
+  {
+   "name": "auth/envSet",
+   "kind": "auth_status",
+   "input": {
+    "content": "{\"providers\":{\"p\":{\"apiKey\":\"$PI_GOLDEN_SET_KEY\"}}}"
+   },
+   "out": {
+    "error": "<undefined>",
+    "status": {
+     "configured": true,
+     "source": "environment",
+     "label": "PI_GOLDEN_SET_KEY"
+    },
+    "compat": {
+     "ok": {
+      "headers": {
+       "x-model-own": "1"
+      },
+      "authHeader": false
+     }
+    }
+   }
+  },
+  {
+   "name": "auth/envBraced",
+   "kind": "auth_status",
+   "input": {
+    "content": "{\"providers\":{\"p\":{\"apiKey\":\"${PI_GOLDEN_SET_KEY}\"}}}"
+   },
+   "out": {
+    "error": "<undefined>",
+    "status": {
+     "configured": true,
+     "source": "environment",
+     "label": "PI_GOLDEN_SET_KEY"
+    },
+    "compat": {
+     "ok": {
+      "headers": {
+       "x-model-own": "1"
+      },
+      "authHeader": false
+     }
+    }
+   }
+  },
+  {
+   "name": "auth/envUnset",
+   "kind": "auth_status",
+   "input": {
+    "content": "{\"providers\":{\"p\":{\"apiKey\":\"$PI_GOLDEN_UNSET_KEY\"}}}"
+   },
+   "out": {
+    "error": "<undefined>",
+    "status": {
+     "configured": false
+    },
+    "compat": {
+     "ok": {
+      "headers": {
+       "x-model-own": "1"
+      },
+      "authHeader": false
+     }
+    }
+   }
+  },
+  {
+   "name": "auth/envEmpty",
+   "kind": "auth_status",
+   "input": {
+    "content": "{\"providers\":{\"p\":{\"apiKey\":\"$PI_GOLDEN_EMPTY_KEY\"}}}"
+   },
+   "out": {
+    "error": "<undefined>",
+    "status": {
+     "configured": false
+    },
+    "compat": {
+     "ok": {
+      "headers": {
+       "x-model-own": "1"
+      },
+      "authHeader": false
+     }
+    }
+   }
+  },
+  {
+   "name": "auth/envMixed",
+   "kind": "auth_status",
+   "input": {
+    "content": "{\"providers\":{\"p\":{\"apiKey\":\"pre-${PI_GOLDEN_SET_KEY}-${PI_GOLDEN_UNSET_KEY}\"}}}"
+   },
+   "out": {
+    "error": "<undefined>",
+    "status": {
+     "configured": false
+    },
+    "compat": {
+     "ok": {
+      "headers": {
+       "x-model-own": "1"
+      },
+      "authHeader": false
+     }
+    }
+   }
+  },
+  {
+   "name": "auth/bareEnvName",
+   "kind": "auth_status",
+   "input": {
+    "content": "{\"providers\":{\"p\":{\"apiKey\":\"PI_GOLDEN_SET_KEY\"}}}"
+   },
+   "out": {
+    "error": "<undefined>",
+    "status": {
+     "configured": true,
+     "source": "models_json_key"
+    },
+    "compat": {
+     "ok": {
+      "headers": {
+       "x-model-own": "1"
+      },
+      "authHeader": false
+     }
+    }
+   }
+  },
+  {
+   "name": "auth/command",
+   "kind": "auth_status",
+   "input": {
+    "content": "{\"providers\":{\"p\":{\"apiKey\":\"!echo hi\"}}}"
+   },
+   "out": {
+    "error": "<undefined>",
+    "status": {
+     "configured": true,
+     "source": "models_json_command"
+    },
+    "compat": {
+     "ok": {
+      "headers": {
+       "x-model-own": "1"
+      },
+      "authHeader": false
+     }
+    }
+   }
+  },
+  {
+   "name": "auth/none",
+   "kind": "auth_status",
+   "input": {
+    "content": "{\"providers\":{\"p\":{\"baseUrl\":\"http://x\"}}}"
+   },
+   "out": {
+    "error": "<undefined>",
+    "status": "<undefined>",
+    "compat": {
+     "ok": {
+      "headers": {
+       "x-model-own": "1"
+      },
+      "authHeader": false
+     }
+    }
+   }
+  },
+  {
+   "name": "auth/headers",
+   "kind": "auth_status",
+   "input": {
+    "content": "{\"providers\":{\"p\":{\"baseUrl\":\"http://x\",\"headers\":{\"x-a\":\"$PI_GOLDEN_SET_KEY\",\"x-b\":\"literal\"},\"authHeader\":true}}}"
+   },
+   "out": {
+    "error": "<undefined>",
+    "status": "<undefined>",
+    "compat": {
+     "ok": {
+      "headers": {
+       "x-model-own": "1",
+       "x-a": "secret",
+       "x-b": "literal"
+      },
+      "authHeader": true
+     }
+    }
+   }
+  },
+  {
+   "name": "auth/modelHeaders",
+   "kind": "auth_status",
+   "input": {
+    "content": "{\"providers\":{\"p\":{\"baseUrl\":\"http://x\",\"models\":[{\"id\":\"m\",\"api\":\"openai-completions\",\"headers\":{\"x-m\":\"model\"}}],\"headers\":{\"x-p\":\"provider\"}}}}"
+   },
+   "out": {
+    "error": "<undefined>",
+    "status": "<undefined>",
+    "compat": {
+     "ok": {
+      "headers": {
+       "x-p": "provider",
+       "x-m": "model"
+      },
+      "authHeader": false
+     }
+    }
+   }
+  },
+  {
    "name": "keybindings/missing",
    "kind": "keybindings",
    "input": {

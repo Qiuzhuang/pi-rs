@@ -4,6 +4,8 @@
 
 #[path = "../mock_http/mod.rs"]
 mod mock_http;
+#[path = "../oauth_support/mod.rs"]
+mod oauth_support;
 mod support;
 
 mod anthropic;
@@ -11,3 +13,4 @@ mod openai_completions;
 mod openai_responses;
 mod google;
 mod bedrock;
+mod oauth;

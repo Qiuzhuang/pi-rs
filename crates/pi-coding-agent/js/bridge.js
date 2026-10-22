@@ -99,6 +99,24 @@ export function componentRef(component) {
 	};
 }
 
+/** `component.handleMouse(event)` for Rust: flags plus the dispatch and focus targets as component refs. */
+export function invokeHandleMouse(component, event) {
+	const result = component.handleMouse?.(event);
+	if (!result) return null;
+	const out = {
+		handled: !!result.handled,
+		capture: !!result.capture,
+		focus: !!result.focus,
+		render: typeof result.render === "boolean" ? result.render : null,
+	};
+	if (result.target) {
+		const { component: target, originX, originY, width, height } = result.target;
+		out.target = { component: componentRef(target), originX, originY, width, height };
+	}
+	if (result.focusTarget) out.focusTarget = componentRef(result.focusTarget);
+	return out;
+}
+
 /** A JS object rendering a Rust component registered under `id`. */
 export class RustComponent {
 	constructor(id) {
@@ -106,6 +124,9 @@ export class RustComponent {
 	}
 	render(width) {
 		return call("rc", { id: this.__rid, m: "render", a: [width] }) ?? [];
+	}
+	handleMouse(event) {
+		return call("rc", { id: this.__rid, m: "handleMouse", a: [event] }) ?? undefined;
 	}
 	handleInput(data) {
 		call("rc", { id: this.__rid, m: "handleInput", a: [data] });
@@ -269,6 +290,10 @@ export class TuiProxy {
 				call("tui", { id: tuiId, m: "write", a: [String(data)] });
 			},
 		};
+	}
+	/** TS `ViewportTUI[VIEWPORT_TUI]`: present (true) on fullscreen viewport TUIs. */
+	get [Symbol.for("@earendil-works/pi-tui/viewport")]() {
+		return call("tui", { id: this.__tuiId, m: "isViewport", a: [] }) === true ? true : undefined;
 	}
 	requestRender(force) {
 		call("tui", { id: this.__tuiId, m: "requestRender", a: [!!force] });

@@ -25,6 +25,12 @@ pub fn set_image_transcoder(transcoder: Option<ImageTranscoder>) {
     PNG_CACHE.lock().unwrap_or_else(|e| e.into_inner()).clear();
 }
 
+/// The registered transcoder, if any (used by JavaScript extensions' `Image`, which shares the
+/// host's registration as TS extensions share pi-tui's module state).
+pub fn image_transcoder() -> Option<ImageTranscoder> {
+    IMAGE_TRANSCODER.read().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
 fn to_png(base64_data: &str, mime_type: &str) -> Option<String> {
     let transcoder = IMAGE_TRANSCODER.read().unwrap_or_else(|e| e.into_inner()).clone()?;
     let cached = {

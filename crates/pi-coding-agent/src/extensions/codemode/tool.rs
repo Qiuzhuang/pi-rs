@@ -60,8 +60,8 @@ pub struct CodemodeToolOptions {
 pub static CODEMODE_SCHEMA: LazyLock<Value> = LazyLock::new(|| {
     json!({
         "type": "object",
-        "properties": { "code": { "type": "string", "description": "Raw JavaScript source." } },
-        "required": ["code"]
+        "required": ["code"],
+        "properties": { "code": { "type": "string", "description": "Raw JavaScript source." } }
     })
 });
 

@@ -371,6 +371,254 @@ fn helper(bridge: &Arc<Bridge>, payload: &Value) -> anyhow::Result<Value> {
                 None => a(1),
             }
         }
+        _ => return session_helper(&f, &args),
+    })
+}
+
+/// `leafId` argument of the session-context builders: `{ set: false }` is TS `undefined`
+/// (last entry), `{ set: true, id: null }` is `null` (before any entry).
+fn leaf_arg(value: &Value) -> Option<Option<String>> {
+    if value.get("set").and_then(Value::as_bool) != Some(true) {
+        return None;
+    }
+    Some(value.get("id").and_then(Value::as_str).map(str::to_string))
+}
+
+fn file_entry_json(entry: &crate::core::session_manager::FileEntry) -> Value {
+    serde_json::to_value(entry).unwrap_or(Value::Null)
+}
+
+/// Compaction, session-tree, skill, diff, shell and CLI helpers of `@earendil-works/pi-coding-agent`,
+/// backed by their Rust ports.
+fn session_helper(f: &str, args: &[Value]) -> anyhow::Result<Value> {
+    use crate::core::compaction::{branch_summarization, compaction};
+    use crate::core::session_manager::{self as sm, FileEntry, SessionEntry};
+    let a = |i: usize| args.get(i).cloned().unwrap_or(Value::Null);
+    let s = |i: usize| a(i).as_str().unwrap_or_default().to_string();
+    let n = |i: usize| a(i).as_f64().unwrap_or(0.0);
+    let entries = |i: usize| -> anyhow::Result<Vec<SessionEntry>> { Ok(serde_json::from_value(a(i))?) };
+    Ok(match f {
+        "calculateContextTokens" => {
+            let usage: pi_ai::types::Usage = serde_json::from_value(a(0))?;
+            json!(compaction::calculate_context_tokens(&usage))
+        }
+        "getLastAssistantUsage" => serde_json::to_value(compaction::get_last_assistant_usage(&entries(0)?))?,
+        "findTurnStartIndex" => json!(compaction::find_turn_start_index(&entries(0)?, n(1) as i64, n(2) as i64)),
+        "findCutPoint" => serde_json::to_value(compaction::find_cut_point(&entries(0)?, n(1) as i64, n(2) as i64, n(3).max(0.0) as u64))?,
+        "shouldCompact" => {
+            let settings: compaction::CompactionSettings = serde_json::from_value(a(2))?;
+            json!(compaction::should_compact(n(0).max(0.0) as u64, n(1).max(0.0) as u64, &settings))
+        }
+        "prepareBranchEntries" => serde_json::to_value(branch_summarization::prepare_branch_entries(
+            &entries(0)?,
+            a(1).as_f64().map(|v| v as i64),
+        ))?,
+        "buildContextEntries" | "buildSessionProjection" | "buildSessionContext" => {
+            let list = entries(0)?;
+            let leaf = leaf_arg(&a(1));
+            let leaf = leaf.as_ref().map(|l| l.as_deref());
+            match f {
+                "buildContextEntries" => serde_json::to_value(sm::build_context_entries(&list, leaf, None))?,
+                "buildSessionProjection" => serde_json::to_value(sm::build_session_projection(&list, leaf, None))?,
+                _ => serde_json::to_value(sm::build_session_context(&list, leaf, None))?,
+            }
+        }
+        "getLatestCompactionEntry" => serde_json::to_value(sm::get_latest_compaction_entry(&entries(0)?))?,
+        "migrateSessionEntries" => {
+            let mut list = a(0)
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .map(FileEntry::from_value)
+                .collect::<Result<Vec<_>, _>>()?;
+            sm::migrate_session_entries(&mut list);
+            Value::Array(list.iter().map(file_entry_json).collect())
+        }
+        "parseSessionEntries" => Value::Array(sm::parse_session_entries(&s(0)).iter().map(file_entry_json).collect()),
+        "sessionEntryToContextMessages" => {
+            let entry: SessionEntry = serde_json::from_value(a(0))?;
+            serde_json::to_value(sm::session_entry_to_context_messages(&entry))?
+        }
+        "renderDiff" => json!(crate::modes::interactive::components::diff::render_diff(&s(0), None)),
+        "truncateToVisualLines" => {
+            let keep = opt(&a(4))?;
+            serde_json::to_value(crate::modes::interactive::components::visual_truncate::truncate_to_visual_lines(
+                &s(0),
+                n(1) as i64,
+                n(2) as i64,
+                a(3).as_f64().map(|v| v as i64),
+                keep,
+            ))?
+        }
+        "generateUnifiedPatch" => json!(crate::core::tools::edit_diff::generate_unified_patch(
+            &s(0),
+            &s(1),
+            &s(2),
+            a(3).as_f64().map(|v| v as i64)
+        )),
+        "formatDimensionNote" => {
+            let result: crate::utils::image_resize_core::ResizedImage = serde_json::from_value(a(0))?;
+            json!(crate::utils::image_resize::format_dimension_note(&result))
+        }
+        "getShellConfig" => serde_json::to_value(crate::utils::shell::get_shell_config(a(0).as_str())?)?,
+        "getPowerShellConfig" => serde_json::to_value(crate::utils::shell::get_power_shell_config()?)?,
+        "formatSkillsForPrompt" => {
+            let skills: Vec<crate::core::skills::Skill> = serde_json::from_value(a(0))?;
+            json!(crate::core::skills::format_skills_for_prompt(&skills, opt(&a(1))?))
+        }
+        "loadSkills" => serde_json::to_value(crate::core::skills::load_skills(&serde_json::from_value(a(0))?))?,
+        "loadSkillsFromDir" => serde_json::to_value(crate::core::skills::load_skills_from_dir(&serde_json::from_value(a(0))?))?,
+        "loadProjectContextFiles" => {
+            serde_json::to_value(crate::core::resource_loader::load_project_context_files(&serde_json::from_value(a(0))?))?
+        }
+        "hasTrustRequiringProjectResources" => json!(crate::core::trust_manager::has_trust_requiring_project_resources(&s(0))),
+        "readStoredCredential" => serde_json::to_value(crate::core::auth_storage::read_stored_credential(&s(0), a(1).as_str()))?,
+        "parseArgs" => {
+            let argv: Vec<String> = serde_json::from_value(a(0))?;
+            serde_json::to_value(crate::cli::args::parse_args(&argv))?
+        }
+        _ => return Err(anyhow::anyhow!("{f} is not available to extensions in pi-rs")),
+    })
+}
+
+/// `compact()`, `generateSummary()`, `generateSummaryWithUsage()` and `generateBranchSummary()`:
+/// the Rust compaction engine with the extension's model, auth, signal, stream function and
+/// retry callbacks.
+async fn compaction_helper(bridge: &Arc<Bridge>, p: &Value) -> anyhow::Result<Value> {
+    use crate::core::compaction::{branch_summarization, compaction};
+    use pi_ai::utils::retry::{RetryCallbacks, RetryPolicy};
+    let model: pi_ai::types::Model = serde_json::from_value(p["model"].clone())?;
+    let api_key = p["apiKey"].as_str().map(str::to_string);
+    let headers: Option<indexmap::IndexMap<String, String>> = opt(&p["headers"])?;
+    let env: Option<indexmap::IndexMap<String, String>> = opt(&p["env"])?;
+    let retry: Option<RetryPolicy> = opt(&p["retry"])?;
+    let thinking: Option<pi_agent::types::ThinkingLevel> = opt(&p["thinkingLevel"])?;
+    let signal = bridge.token(&p["signal"]);
+    let custom = p["customInstructions"].as_str().map(str::to_string);
+    let session_id = p["sessionId"].as_str().map(str::to_string);
+    let stream_fn: Option<pi_agent::types::StreamFn> = bridge.handle(&p["streamFn"]).map(|handle| {
+        let bridge = bridge.clone();
+        Arc::new(
+            move |model: pi_ai::types::Model,
+                  context: pi_ai::types::TranscriptContext,
+                  options: pi_ai::types::SimpleStreamOptions| {
+                let context = serde_json::to_value(&context).unwrap_or(Value::Null);
+                let stream = super::native::js_stream(bridge.clone(), handle.clone(), None, model, vec![context], options);
+                Box::pin(async move { Ok(stream) }) as futures::future::BoxFuture<'static, _>
+            },
+        ) as pi_agent::types::StreamFn
+    });
+    let callbacks = {
+        let cb = &p["callbacks"];
+        let f = |name: &str| bridge.handle(&cb[name]).map(|h| js_async_fn(bridge, h));
+        let (scheduled, start, finished) = (f("onRetryScheduled"), f("onRetryAttemptStart"), f("onRetryFinished"));
+        let any = scheduled.is_some() || start.is_some() || finished.is_some();
+        any.then(|| RetryCallbacks {
+            on_retry_scheduled: scheduled.map(|f| {
+                Box::new(move |attempt: u32, max: u32, delay: u64, error: String| {
+                    let fut = f(vec![json!(attempt), json!(max), json!(delay), json!(error)]);
+                    Box::pin(async move {
+                        let _ = fut.await;
+                    }) as futures::future::BoxFuture<'static, ()>
+                }) as pi_ai::utils::retry::OnRetryScheduled
+            }),
+            on_retry_attempt_start: start.map(|f| {
+                Box::new(move || {
+                    let fut = f(vec![]);
+                    Box::pin(async move {
+                        let _ = fut.await;
+                    }) as futures::future::BoxFuture<'static, ()>
+                }) as pi_ai::utils::retry::OnRetryAttemptStart
+            }),
+            on_retry_finished: finished.map(|f| {
+                Box::new(move |success: bool, attempt: u32, error: Option<String>| {
+                    let fut = f(vec![json!(success), json!(attempt), json!(error)]);
+                    Box::pin(async move {
+                        let _ = fut.await;
+                    }) as futures::future::BoxFuture<'static, ()>
+                }) as pi_ai::utils::retry::OnRetryFinished
+            }),
+        })
+    };
+    Ok(match p["fn"].as_str().unwrap_or_default() {
+        "compact" => {
+            let preparation: compaction::CompactionPreparation = serde_json::from_value(p["preparation"].clone())?;
+            serde_json::to_value(
+                compaction::compact(
+                    &preparation,
+                    &model,
+                    api_key.as_deref(),
+                    headers.as_ref(),
+                    custom.as_deref(),
+                    signal,
+                    thinking,
+                    stream_fn,
+                    env.as_ref(),
+                    retry.as_ref(),
+                    callbacks.as_ref(),
+                    session_id.as_deref(),
+                )
+                .await?,
+            )?
+        }
+        f @ ("generateSummary" | "generateSummaryWithUsage") => {
+            let messages: Vec<pi_agent::types::AgentMessage> = serde_json::from_value(p["messages"].clone())?;
+            let result = compaction::generate_summary_with_usage(
+                &messages,
+                &model,
+                p["reserveTokens"].as_f64().map(|v| v as u64),
+                api_key.as_deref(),
+                headers.as_ref(),
+                signal,
+                custom.as_deref(),
+                p["previousSummary"].as_str(),
+                thinking,
+                stream_fn,
+                env.as_ref(),
+                retry.as_ref(),
+                callbacks.as_ref(),
+                session_id.as_deref(),
+            )
+            .await?;
+            if f == "generateSummary" { json!(result.text) } else { serde_json::to_value(result)? }
+        }
+        "generateBranchSummary" => {
+            let entries: Vec<crate::core::session_manager::SessionEntry> = serde_json::from_value(p["entries"].clone())?;
+            let options = branch_summarization::GenerateBranchSummaryOptions {
+                model,
+                api_key,
+                headers,
+                env,
+                signal: signal.unwrap_or_default(),
+                custom_instructions: custom,
+                replace_instructions: p["replaceInstructions"].as_bool(),
+                reserve_tokens: p["reserveTokens"].as_f64().map(|v| v as u64),
+                stream_fn,
+                retry,
+                callbacks,
+            };
+            serde_json::to_value(branch_summarization::generate_branch_summary(&entries, &options).await?)?
+        }
+        other => return Err(anyhow::anyhow!("{other} is not available to extensions in pi-rs")),
+    })
+}
+
+/// Async image helpers (`resizeImage`, `convertToPng`, `detectSupportedImageMimeTypeFromFile`).
+async fn image_helper(payload: &Value) -> anyhow::Result<Value> {
+    let f = str_arg(payload, "fn");
+    let args = payload.get("args").and_then(Value::as_array).cloned().unwrap_or_default();
+    let a = |i: usize| args.get(i).cloned().unwrap_or(Value::Null);
+    let s = |i: usize| a(i).as_str().unwrap_or_default().to_string();
+    Ok(match f.as_str() {
+        "resizeImage" => {
+            let options: Option<crate::utils::image_resize_core::ImageResizeOptions> = opt(&a(2))?;
+            serde_json::to_value(crate::utils::image_resize::resize_image(&bytes_of(&a(0)), &s(1), options.as_ref()).await?)?
+        }
+        "convertToPng" => serde_json::to_value(crate::utils::image_convert::convert_to_png(&s(0), &s(1)).await?)?,
+        "detectSupportedImageMimeTypeFromFile" => {
+            json!(crate::utils::mime::detect_supported_image_mime_type_from_file(&s(0)).await?)
+        }
         _ => return Err(anyhow::anyhow!("{f} is not available to extensions in pi-rs")),
     })
 }
@@ -424,6 +672,8 @@ pub(crate) async fn dispatch_async(bridge: Arc<Bridge>, op: &str, payload: Value
             crate::utils::clipboard::copy_to_clipboard(&str_arg(&payload, "text")).await?;
             Ok(Value::Null)
         }
+        "ca.image" => image_helper(&payload).await,
+        "ca.compaction" => compaction_helper(&bridge, &payload).await,
         _ => {
             let _ = arg(&payload, 0);
             Err(anyhow::anyhow!("unknown async host call {op}"))

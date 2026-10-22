@@ -6,7 +6,7 @@
 import { call, callAsync, streamFromHost, tokenFor, u } from "pi-rs:bridge";
 import { ref } from "jsrt:host";
 import { createFauxCore } from "pi-rs:ai-faux";
-import { createModels, normalizeContext } from "pi-rs:ai-core";
+import { createModels, lazyApi, normalizeContext } from "pi-rs:ai-core";
 
 const ai = (fn, ...args) => u(call("ai", { fn, args }));
 
@@ -54,7 +54,14 @@ const builtinApi = (api) => () => nativeStreams(call("aip.api", { api }));
 
 export const anthropicMessagesApi = builtinApi("anthropic-messages");
 export const azureOpenAIResponsesApi = builtinApi("azure-openai-responses");
-export const bedrockConverseStreamApi = builtinApi("bedrock-converse-stream");
+const rustBedrockConverseStreamApi = builtinApi("bedrock-converse-stream");
+let bedrockModuleOverride;
+/** TS: `setBedrockProviderModule()` replaces the lazily loaded Bedrock implementation. */
+export function setBedrockProviderModule(module) {
+	bedrockModuleOverride = module;
+}
+export const bedrockConverseStreamApi = () =>
+	bedrockModuleOverride ? lazyApi(async () => bedrockModuleOverride) : rustBedrockConverseStreamApi();
 export const googleGenerativeAIApi = builtinApi("google-generative-ai");
 export const googleVertexApi = builtinApi("google-vertex");
 export const mistralConversationsApi = builtinApi("mistral-conversations");

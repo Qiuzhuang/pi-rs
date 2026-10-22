@@ -5,6 +5,11 @@
 // directly. Text measurement, key parsing and Markdown rendering call the Rust pi-tui crate
 // through host functions. Input and Editor are backed by the Rust components.
 
+import { spawn } from "child_process";
+import { EventEmitter } from "events";
+import { readdirSync, statSync } from "fs";
+import { homedir } from "os";
+import { basename, dirname, join } from "path";
 import {
 	call,
 	componentRef,
@@ -27,6 +32,7 @@ export const CURSOR_MARKER = "\x1b_pi:c\x07";
 export const FAKE_CURSOR_START = "\x1b_pi:fc\x07";
 export const FAKE_CURSOR_END = "\x1b_pi:/fc\x07";
 export const VIEWPORT_TUI = Symbol.for("@earendil-works/pi-tui/viewport");
+const LAYOUT_NODE = Symbol.for("@earendil-works/pi-tui/layout-node");
 
 export function renderFakeCursor(text) {
 	return `${FAKE_CURSOR_START}${text}${FAKE_CURSOR_END}`;
@@ -273,13 +279,57 @@ export class Container {
 		for (const child of this.children) child.invalidate?.();
 	}
 
+	handleMouse(event) {
+		if (event.y < 0 || event.y >= event.height) return undefined;
+		const mouseChildren =
+			this.mouseLayout?.width === event.width
+				? this.mouseLayout.children
+				: this.children.map((component) => ({ component, height: component.render(event.width).length }));
+		let childY = 0;
+		for (const { component: child, height: childHeight } of mouseChildren) {
+			if (event.y >= childY && event.y < childY + childHeight) {
+				const result = dispatchMouseEvent(child, { ...event, y: event.y - childY, height: childHeight });
+				if (result?.focus && this.handleInput) return { ...result, focusTarget: this };
+				return result;
+			}
+			childY += childHeight;
+		}
+		return undefined;
+	}
+
 	render(width) {
 		const lines = [];
+		const mouseChildren = [];
 		for (const child of this.children) {
-			for (const line of child.render(width)) lines.push(line);
+			const childLines = child.render(width);
+			mouseChildren.push({ component: child, height: childLines.length });
+			for (const line of childLines) lines.push(line);
 		}
+		this.mouseLayout = { width, children: mouseChildren };
 		return lines;
 	}
+}
+
+/** TS `dispatchMouseEvent()` (tui.ts): dispatch to a component and keep the exact target and transform. */
+function dispatchMouseEvent(component, event) {
+	const result = component.handleMouse?.(event);
+	if (!result) return undefined;
+	if ("target" in result) {
+		return result.focus && component.handleInput ? { ...result, focusTarget: component } : result;
+	}
+	if (!result.handled && !result.capture && !result.focus) return undefined;
+	return {
+		...result,
+		handled: true,
+		...(result.focus ? { focusTarget: component } : {}),
+		target: {
+			component,
+			originX: event.screenX - event.x,
+			originY: event.screenY - event.y,
+			width: event.width,
+			height: event.height,
+		},
+	};
 }
 
 export class Text {
@@ -439,14 +489,37 @@ export class Box {
 		for (const child of this.children) child.invalidate?.();
 	}
 
+	handleMouse(event) {
+		const contentWidth = Math.max(1, event.width - this.paddingX * 2);
+		const contentY = event.y - this.paddingY;
+		const contentX = event.x - this.paddingX;
+		if (contentY < 0 || contentX < 0 || contentX >= contentWidth) return undefined;
+		const mouseChildren =
+			this.mouseLayout?.width === contentWidth
+				? this.mouseLayout.children
+				: this.children.map((component) => ({ component, height: component.render(contentWidth).length }));
+		let childY = 0;
+		for (const { component: child, height: childHeight } of mouseChildren) {
+			if (contentY >= childY && contentY < childY + childHeight) {
+				return dispatchMouseEvent(child, { ...event, x: contentX, y: contentY - childY, width: contentWidth, height: childHeight });
+			}
+			childY += childHeight;
+		}
+		return undefined;
+	}
+
 	render(width) {
 		if (this.children.length === 0) return [];
 		const contentWidth = Math.max(1, width - this.paddingX * 2);
 		const leftPad = " ".repeat(this.paddingX);
 		const childLines = [];
+		const mouseChildren = [];
 		for (const child of this.children) {
-			for (const line of child.render(contentWidth)) childLines.push(line);
+			const lines = child.render(contentWidth);
+			mouseChildren.push({ component: child, height: lines.length });
+			for (const line of lines) childLines.push(line);
 		}
+		this.mouseLayout = { width: contentWidth, children: mouseChildren };
 		if (childLines.length === 0) return [];
 		const bgSample = this.bgFn ? this.bgFn("test") : undefined;
 		const cache = this.cache;
@@ -526,6 +599,41 @@ export class SelectList {
 		return lines;
 	}
 
+
+	handleMouse(event) {
+		if (this.filteredItems.length === 0) return undefined;
+		if (event.type === "wheel" && event.wheelDelta) {
+			const delta = event.wheelDelta < 0 ? -1 : 1;
+			const previousIndex = this.selectedIndex;
+			this.selectedIndex = Math.max(0, Math.min(this.filteredItems.length - 1, this.selectedIndex + delta));
+			if (this.selectedIndex !== previousIndex) this.notifySelectionChange();
+			return { handled: true, render: this.selectedIndex !== previousIndex };
+		}
+		// Hover must not change selection: the visible range is centered on it.
+		if (event.button !== "left" || (event.type !== "press" && event.type !== "click")) return undefined;
+		const { startIndex, endIndex } = this.getVisibleRange();
+		const itemIndex = startIndex + event.y;
+		if (itemIndex < startIndex || itemIndex >= endIndex) return undefined;
+		if (event.type === "press") {
+			this.mousePressedIndex = itemIndex;
+			if (this.selectedIndex !== itemIndex) {
+				this.selectedIndex = itemIndex;
+				this.notifySelectionChange();
+			}
+			return { handled: true, focus: true };
+		}
+		if (event.type === "click") {
+			const clickedIndex = this.mousePressedIndex ?? itemIndex;
+			this.mousePressedIndex = undefined;
+			const changed = this.selectedIndex !== clickedIndex;
+			this.selectedIndex = clickedIndex;
+			if (changed) this.notifySelectionChange();
+			const selectedItem = this.filteredItems[this.selectedIndex];
+			if (selectedItem) this.onSelect?.(selectedItem);
+			return { handled: true };
+		}
+		return undefined;
+	}
 	handleInput(keyData) {
 		const kb = getKeybindings();
 		if (kb.matches(keyData, "tui.select.up")) {
@@ -986,6 +1094,46 @@ export class SettingsList {
 		return lines;
 	}
 
+
+	handleMouse(event) {
+		if (this.submenuComponent) {
+			const result = this.submenuComponent.handleMouse?.(event);
+			return result ? { ...result, focus: true } : undefined;
+		}
+		if (this.searchEnabled && this.searchInput) {
+			if (event.y === 0) {
+				const result = this.searchInput.handleMouse?.(event);
+				return result ? { ...result, focus: true } : undefined;
+			}
+			if (event.y === 1) return undefined;
+		}
+		const displayItems = this.getDisplayItems();
+		if (displayItems.length === 0) return undefined;
+		if (event.type === "wheel" && event.wheelDelta) {
+			const delta = event.wheelDelta < 0 ? -1 : 1;
+			const previousIndex = this.selectedIndex;
+			this.selectedIndex = Math.max(0, Math.min(displayItems.length - 1, this.selectedIndex + delta));
+			return { handled: true, render: this.selectedIndex !== previousIndex };
+		}
+		// Hover must not change selection: the visible range is centered on it.
+		if (event.button !== "left" || (event.type !== "press" && event.type !== "click")) return undefined;
+		const rowOffset = this.searchEnabled ? 2 : 0;
+		const { startIndex, endIndex } = this.getVisibleRange(displayItems);
+		const itemIndex = startIndex + event.y - rowOffset;
+		if (itemIndex < startIndex || itemIndex >= endIndex) return undefined;
+		if (event.type === "press") {
+			this.mousePressedIndex = itemIndex;
+			this.selectedIndex = itemIndex;
+			return { handled: true, focus: true };
+		}
+		if (event.type === "click") {
+			this.selectedIndex = this.mousePressedIndex ?? itemIndex;
+			this.mousePressedIndex = undefined;
+			this.activateItem();
+			return { handled: true };
+		}
+		return undefined;
+	}
 	handleInput(data) {
 		if (this.submenuComponent) {
 			this.submenuComponent.handleInput?.(data);
@@ -1080,13 +1228,37 @@ export class SettingsList {
 	}
 }
 
+// TS components/image.ts
+let imageTranscoder;
+// Backstop for callers that recreate Image instances. Keyed by source data, least recently used first.
+const pngCache = new Map();
+
+export function setImageTranscoder(transcoder) {
+	imageTranscoder = transcoder;
+	pngCache.clear();
+}
+
+function toPng(base64Data, mimeType) {
+	if (!imageTranscoder) {
+		// pi's own transcoder (registered by the host on Kitty terminals), shared like pi-tui's module state.
+		const png = util("hostTranscodeToPng", base64Data, mimeType);
+		return png === false ? null : (png ?? null);
+	}
+	const cached = pngCache.get(base64Data);
+	const png = cached === undefined ? imageTranscoder(base64Data, mimeType) : cached;
+	pngCache.delete(base64Data);
+	pngCache.set(base64Data, png);
+	if (pngCache.size > 32) pngCache.delete(pngCache.keys().next().value);
+	return png;
+}
+
 export class Image {
 	constructor(base64Data, mimeType, theme, options = {}, dimensions) {
 		this.base64Data = base64Data;
 		this.mimeType = mimeType;
 		this.theme = theme;
 		this.options = options;
-		this.dimensions = dimensions;
+		this.dimensions = dimensions || getImageDimensions(base64Data, mimeType) || { widthPx: 800, heightPx: 600 };
 		this.imageId = options.imageId;
 	}
 
@@ -1101,41 +1273,1334 @@ export class Image {
 
 	render(width) {
 		if (this.cachedLines && this.cachedWidth === width) return this.cachedLines;
-		const fallback = util("imageFallback", this.mimeType, this.dimensions ?? null, this.options.filename ?? null);
-		const color = this.theme?.fallbackColor ?? ((s) => s);
-		this.cachedLines = [truncateToWidth(color(fallback), width)];
-		this.cachedWidth = width;
-		return this.cachedLines;
-	}
-}
-
-export class HStack extends Container {
-	render(width) {
-		const columns = this.children.map((child) => child.render(Math.max(1, Math.floor(width / Math.max(1, this.children.length)))));
-		const height = Math.max(0, ...columns.map((c) => c.length));
-		const colWidth = Math.max(1, Math.floor(width / Math.max(1, this.children.length)));
-		const lines = [];
-		for (let row = 0; row < height; row++) {
-			lines.push(columns.map((c) => truncateToWidth(c[row] ?? "", colWidth, "", true)).join(""));
+		const maxWidth = Math.max(1, Math.min(width - 2, this.options.maxWidthCells ?? 60));
+		const cellDimensions = getCellDimensions();
+		const defaultMaxHeight = Math.max(1, Math.ceil((maxWidth * cellDimensions.widthPx) / cellDimensions.heightPx));
+		const maxHeight = this.options.maxHeightCells ?? defaultMaxHeight;
+		const caps = getCapabilities();
+		let data = this.base64Data;
+		let dimensions = this.dimensions;
+		if (caps.images === "kitty" && this.mimeType !== "image/png") {
+			this.pngData ??= toPng(this.base64Data, this.mimeType) ?? undefined;
+			data = this.pngData ?? null;
+			// Conversion may apply EXIF rotation, so prefer the PNG's own dimensions.
+			if (data) dimensions = getPngDimensions(data) ?? dimensions;
 		}
+		let lines;
+		const result =
+			caps.images && data
+				? (() => {
+						if (caps.images === "kitty" && this.imageId === undefined) this.imageId = allocateImageId();
+						return renderImage(data, dimensions, {
+							maxWidthCells: maxWidth,
+							maxHeightCells: maxHeight,
+							imageId: this.imageId,
+							moveCursor: false,
+						});
+					})()
+				: undefined;
+		if (result) {
+			if (result.imageId) this.imageId = result.imageId;
+			if (caps.images === "kitty") {
+				lines = [result.sequence];
+				for (let i = 0; i < result.rows - 1; i++) lines.push("");
+			} else {
+				lines = [];
+				for (let i = 0; i < result.rows - 1; i++) lines.push("");
+				const rowOffset = result.rows - 1;
+				const moveUp = rowOffset > 0 ? `\x1b[${rowOffset}A` : "";
+				lines.push(moveUp + result.sequence);
+			}
+		} else {
+			const fallback = imageFallback(this.mimeType, this.dimensions, this.options.filename);
+			lines = [truncateToWidth(this.theme.fallbackColor(fallback), width)];
+		}
+		this.cachedLines = lines;
+		this.cachedWidth = width;
 		return lines;
 	}
 }
 
-export class VStack extends Container {}
+// Stacks, scroll views and mouse regions (TS components/stack.ts, h-stack.ts, v-stack.ts,
+// scroll-view.ts, mouse-region.ts). The `[LAYOUT_NODE]()` protocol is what pi's viewport TUI uses to
+// lay these out; inside pi-rs they render through `render()`.
 
-export class ScrollView extends Container {
-	constructor(child) {
-		super();
-		if (child) this.addChild(child);
-	}
+function isStackEntry(child) {
+  return !("render" in child);
+}
+function normalizeSize(value, fallback) {
+  return value === void 0 || !Number.isFinite(value) ? fallback : Math.max(0, Math.floor(value));
+}
+export class Stack extends Container {
+  entries = [];
+  gap;
+  align;
+  constructor(children = [], options = {}) {
+    super();
+    this.gap = normalizeSize(options.gap, 0);
+    this.align = options.align ?? "stretch";
+    for (const child of children) {
+      if (isStackEntry(child)) this.addChild(child.component, child);
+      else this.addChild(child);
+    }
+  }
+  addChild(component, options = {}) {
+    super.addChild(component);
+    this.entries.push({
+      component,
+      ...options.basis === void 0 ? {} : { basis: options.basis },
+      ...options.grow === void 0 ? {} : { grow: normalizeSize(options.grow, 0) },
+      ...options.shrink === void 0 ? {} : { shrink: normalizeSize(options.shrink, 1) },
+      ...options.minSize === void 0 ? {} : { minSize: normalizeSize(options.minSize, 0) },
+      ...options.maxSize === void 0 ? {} : { maxSize: normalizeSize(options.maxSize, Number.MAX_SAFE_INTEGER) },
+      ...options.visible === void 0 ? {} : { visible: options.visible }
+    });
+  }
+  removeChild(component) {
+    super.removeChild(component);
+    const index = this.entries.findIndex((entry) => entry.component === component);
+    if (index !== -1) this.entries.splice(index, 1);
+  }
+  clear() {
+    super.clear();
+    this.entries.length = 0;
+  }
+  [LAYOUT_NODE]() {
+    return {
+      type: this.layoutType,
+      entries: this.entries,
+      gap: this.gap,
+      align: this.align
+    };
+  }
+}
+export function visibleStackEntries(entries, viewport) {
+  return entries.filter((entry) => entry.visible?.(viewport) ?? true);
+}
+function clampSize(size, entry) {
+  const min = Math.max(0, Math.floor(entry.minSize ?? 0));
+  const max = Math.max(min, Math.floor(entry.maxSize ?? Number.MAX_SAFE_INTEGER));
+  return Math.max(min, Math.min(max, Math.max(0, Math.floor(size))));
+}
+function distribute(sizes, entries, amount, mode) {
+  let remaining = amount;
+  while (remaining > 0) {
+    const candidates = entries.map((entry, index) => ({ entry, index })).filter(({ entry, index }) => {
+      if (mode === "grow") {
+        return (entry.grow ?? 0) > 0 && sizes[index] < (entry.maxSize ?? Number.MAX_SAFE_INTEGER);
+      }
+      return (entry.shrink ?? 1) > 0 && sizes[index] > (entry.minSize ?? 0);
+    });
+    if (candidates.length === 0) return;
+    const totalWeight = candidates.reduce((sum, { entry, index }) => {
+      return sum + (mode === "grow" ? entry.grow ?? 0 : (entry.shrink ?? 1) * Math.max(1, sizes[index]));
+    }, 0);
+    let distributed = 0;
+    for (const { entry, index } of candidates) {
+      if (remaining <= 0) break;
+      const weight = mode === "grow" ? entry.grow ?? 0 : (entry.shrink ?? 1) * Math.max(1, sizes[index]);
+      const proposed = Math.max(1, Math.floor(remaining * weight / totalWeight));
+      const capacity = mode === "grow" ? (entry.maxSize ?? Number.MAX_SAFE_INTEGER) - sizes[index] : sizes[index] - (entry.minSize ?? 0);
+      const delta = Math.min(remaining, proposed, capacity);
+      if (delta <= 0) continue;
+      sizes[index] = sizes[index] + (mode === "grow" ? delta : -delta);
+      remaining -= delta;
+      distributed += delta;
+    }
+    if (distributed === 0) return;
+  }
+}
+export function allocateStackSizes(entries, intrinsicSizes, availableSize, gap) {
+  const sizes = entries.map(
+    (entry, index) => clampSize(
+      entry.basis === void 0 || entry.basis === "auto" ? intrinsicSizes[index] ?? 0 : entry.basis,
+      entry
+    )
+  );
+  if (availableSize === void 0) return sizes;
+  const contentSize = Math.max(0, Math.floor(availableSize) - Math.max(0, entries.length - 1) * gap);
+  const total = sizes.reduce((sum, size) => sum + size, 0);
+  if (total < contentSize) distribute(sizes, entries, contentSize - total, "grow");
+  else if (total > contentSize) distribute(sizes, entries, total - contentSize, "shrink");
+  return sizes;
 }
 
-export class MouseRegion extends Container {
-	constructor(child) {
-		super();
-		if (child) this.addChild(child);
-	}
+export class HStack extends Stack {
+  layoutType = "hstack";
+  constructor(children = [], options = {}) {
+    super(children, options);
+  }
+  render(width) {
+    const safeWidth = Math.max(1, width);
+    const viewport = { width: safeWidth, height: Number.MAX_SAFE_INTEGER };
+    const entries = visibleStackEntries(this.entries, viewport);
+    if (entries.length === 0) return [];
+    const intrinsicWidths = entries.map((entry) => {
+      const lines = entry.component.render(safeWidth);
+      return lines.reduce((max, line) => Math.max(max, visibleWidth(line)), 0);
+    });
+    const widths = allocateStackSizes(entries, intrinsicWidths, safeWidth, this.gap);
+    const rendered = entries.map(
+      (entry, index) => widths[index] === 0 ? [] : entry.component.render(widths[index])
+    );
+    const height = rendered.reduce((max, lines) => Math.max(max, lines.length), 0);
+    const result = Array.from({ length: height }, () => "");
+    let x = 0;
+    for (let index = 0; index < rendered.length; index++) {
+      const lines = rendered[index];
+      const childWidth = widths[index];
+      let offset = 0;
+      if (this.align === "center") offset = Math.floor((height - lines.length) / 2);
+      else if (this.align === "end") offset = height - lines.length;
+      for (let row = 0; row < lines.length; row++) {
+        const target = row + offset;
+        if (target < 0 || target >= result.length) continue;
+        result[target] = compositeTuiLine(result[target], lines[row], x, childWidth, safeWidth);
+      }
+      x += childWidth + this.gap;
+    }
+    return result;
+  }
+}
+
+export class VStack extends Stack {
+  layoutType = "vstack";
+  constructor(children = [], options = {}) {
+    super(children, options);
+  }
+  render(width) {
+    const viewport = { width: Math.max(1, width), height: Number.MAX_SAFE_INTEGER };
+    const entries = visibleStackEntries(this.entries, viewport);
+    const rendered = entries.map((entry) => entry.component.render(viewport.width));
+    const sizes = allocateStackSizes(
+      entries,
+      rendered.map((lines2) => lines2.length),
+      void 0,
+      this.gap
+    );
+    const lines = [];
+    for (let index = 0; index < entries.length; index++) {
+      if (index > 0) {
+        for (let gap = 0; gap < this.gap; gap++) lines.push("");
+      }
+      const childLines = rendered[index].slice(0, sizes[index]);
+      lines.push(...childLines);
+      for (let padding = childLines.length; padding < sizes[index]; padding++) lines.push("");
+    }
+    return lines;
+  }
+}
+
+export class ScrollView extends Container {
+  child;
+  followEnd;
+  primary;
+  overscroll;
+  scrollbarTrackStyle;
+  scrollbarThumbStyle;
+  currentScrollbar;
+  scrollbarHideDelayMs;
+  currentScrollTop = 0;
+  contentHeight = 0;
+  currentViewportHeight = 0;
+  followingEnd;
+  followSuppressedAtEnd = false;
+  requestRenderCallback;
+  transientScrollbarVisible = false;
+  scrollbarActive = false;
+  scrollbarHideTimer;
+  constructor(component, options = {}) {
+    super();
+    if (options.axis !== void 0 && options.axis !== "vertical") {
+      throw new Error(`Unsupported ScrollView axis: ${options.axis}`);
+    }
+    this.child = component;
+    this.children.push(component);
+    this.followEnd = (options.follow ?? "none") === "end";
+    this.followingEnd = this.followEnd;
+    this.primary = options.primary ?? false;
+    this.overscroll = options.overscroll ?? "chain";
+    this.currentScrollbar = options.scrollbar ?? "hidden";
+    this.scrollbarTrackStyle = options.scrollbarTrackStyle ?? ((text) => `\x1B[90m${text}\x1B[39m`);
+    this.scrollbarThumbStyle = options.scrollbarThumbStyle ?? ((text) => `\x1B[37m${text}\x1B[39m`);
+    this.scrollbarHideDelayMs = Math.max(0, Math.floor(options.scrollbarHideDelayMs ?? 1e3));
+  }
+  get scrollTop() {
+    return this.currentScrollTop;
+  }
+  get isFollowingEnd() {
+    return this.followingEnd;
+  }
+  get viewportHeight() {
+    return this.currentViewportHeight;
+  }
+  get scrollbar() {
+    return this.currentScrollbar;
+  }
+  get isScrollbarVisible() {
+    if (this.scrollbar === "always") return this.currentViewportHeight > 0;
+    return this.scrollbar === "auto" && this.contentHeight > this.currentViewportHeight && this.transientScrollbarVisible;
+  }
+  get isScrollbarActive() {
+    return this.scrollbarActive;
+  }
+  setScrollbar(scrollbar) {
+    if (scrollbar === this.currentScrollbar) return;
+    this.currentScrollbar = scrollbar;
+    if (scrollbar !== "auto") this.hideTransientScrollbar();
+    else if (this.scrollbarActive) this.markScrollbarActivity();
+    this.requestRenderCallback?.();
+  }
+  getContentWidth(width) {
+    return this.scrollbar === "always" && width > 1 ? width - 1 : width;
+  }
+  markScrollbarActivity() {
+    if (this.scrollbar !== "auto" || this.contentHeight <= this.currentViewportHeight) return;
+    this.transientScrollbarVisible = true;
+    if (this.scrollbarHideTimer) {
+      clearTimeout(this.scrollbarHideTimer);
+      this.scrollbarHideTimer = void 0;
+    }
+    if (this.scrollbarActive) return;
+    this.scrollbarHideTimer = setTimeout(() => {
+      this.scrollbarHideTimer = void 0;
+      this.transientScrollbarVisible = false;
+      this.requestRenderCallback?.();
+    }, this.scrollbarHideDelayMs);
+    this.scrollbarHideTimer?.unref?.();
+  }
+  hideTransientScrollbar() {
+    this.transientScrollbarVisible = false;
+    if (!this.scrollbarHideTimer) return;
+    clearTimeout(this.scrollbarHideTimer);
+    this.scrollbarHideTimer = void 0;
+  }
+  setScrollbarActive(active) {
+    if (active === this.scrollbarActive) return;
+    this.scrollbarActive = active;
+    this.markScrollbarActivity();
+    this.requestRenderCallback?.();
+  }
+  scrollTo(scrollTop, options = {}) {
+    const requested = Number.isFinite(scrollTop) ? Math.trunc(scrollTop) : this.currentScrollTop;
+    const maxScrollTop = Math.max(0, this.contentHeight - this.currentViewportHeight);
+    const next = Math.max(0, Math.min(maxScrollTop, requested));
+    const nextFollowSuppressedAtEnd = options.disableFollow === true && next === maxScrollTop;
+    const nextFollowingEnd = !nextFollowSuppressedAtEnd && this.followEnd && next === maxScrollTop;
+    if (next === this.currentScrollTop && nextFollowingEnd === this.followingEnd && nextFollowSuppressedAtEnd === this.followSuppressedAtEnd) {
+      return;
+    }
+    const moved = next !== this.currentScrollTop;
+    this.currentScrollTop = next;
+    this.followingEnd = nextFollowingEnd;
+    this.followSuppressedAtEnd = nextFollowSuppressedAtEnd;
+    if (moved) this.markScrollbarActivity();
+    this.requestRenderCallback?.();
+  }
+  scrollBy(lines) {
+    const requested = Number.isFinite(lines) ? Math.trunc(lines) : 0;
+    if (requested === 0) return 0;
+    const maxScrollTop = Math.max(0, this.contentHeight - this.currentViewportHeight);
+    const start = this.followingEnd ? maxScrollTop : this.currentScrollTop;
+    const next = Math.max(0, Math.min(maxScrollTop, start + requested));
+    const moved = next - start;
+    const wasFollowingEnd = this.followingEnd;
+    this.currentScrollTop = next;
+    this.followingEnd = this.followEnd && next === maxScrollTop;
+    this.followSuppressedAtEnd = false;
+    if (moved !== 0) this.markScrollbarActivity();
+    if (moved !== 0 || this.followingEnd !== wasFollowingEnd) this.requestRenderCallback?.();
+    return requested - moved;
+  }
+  scrollToStart() {
+    const changed = this.currentScrollTop !== 0 || this.followingEnd !== (this.followEnd && this.contentHeight <= this.currentViewportHeight);
+    this.currentScrollTop = 0;
+    this.followingEnd = this.followEnd && this.contentHeight <= this.currentViewportHeight;
+    this.followSuppressedAtEnd = false;
+    if (changed) {
+      this.markScrollbarActivity();
+      this.requestRenderCallback?.();
+    }
+  }
+  scrollToEnd() {
+    const next = Math.max(0, this.contentHeight - this.currentViewportHeight);
+    const changed = this.currentScrollTop !== next || this.followingEnd !== this.followEnd;
+    this.currentScrollTop = next;
+    this.followingEnd = this.followEnd;
+    this.followSuppressedAtEnd = false;
+    if (changed) {
+      this.markScrollbarActivity();
+      this.requestRenderCallback?.();
+    }
+  }
+  updateLayout(contentHeight, viewportHeight, requestRender) {
+    this.contentHeight = Math.max(0, Math.floor(contentHeight));
+    this.currentViewportHeight = Math.max(0, Math.floor(viewportHeight));
+    this.requestRenderCallback = requestRender;
+    const maxScrollTop = Math.max(0, this.contentHeight - this.currentViewportHeight);
+    if (this.followingEnd) this.currentScrollTop = maxScrollTop;
+    else this.currentScrollTop = Math.max(0, Math.min(this.currentScrollTop, maxScrollTop));
+    if (this.currentScrollTop < maxScrollTop) this.followSuppressedAtEnd = false;
+    if (this.followEnd && this.currentScrollTop === maxScrollTop && !this.followSuppressedAtEnd) {
+      this.followingEnd = true;
+    }
+    if (this.contentHeight <= this.currentViewportHeight) this.hideTransientScrollbar();
+  }
+  addChild(_component) {
+    throw new Error("ScrollView has exactly one child");
+  }
+  removeChild(_component) {
+    throw new Error("ScrollView child cannot be removed");
+  }
+  clear() {
+    throw new Error("ScrollView child cannot be cleared");
+  }
+  render(width) {
+    const contentWidth = this.getContentWidth(width);
+    const lines = this.child.render(contentWidth);
+    return contentWidth === width ? lines : lines.map((line) => `${line} `);
+  }
+  [LAYOUT_NODE]() {
+    return { type: "scroll", component: this.child, state: this };
+  }
+}
+
+export class MouseRegion {
+  child;
+  onMouse;
+  constructor(child, onMouse) {
+    this.child = child;
+    this.onMouse = onMouse;
+  }
+  render(width) {
+    return this.child.render(width);
+  }
+  handleMouse(event) {
+    const childResult = dispatchMouseEvent(this.child, event);
+    return childResult ?? this.onMouse(event);
+  }
+  invalidate() {
+    this.child.invalidate();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Autocomplete (TS autocomplete.ts) and stdin buffering (TS stdin-buffer.ts)
+// ---------------------------------------------------------------------------
+
+// TS utils.ts: autocomplete token boundaries.
+export const cjkBreakRegex =
+	/[\p{Script_Extensions=Han}\p{Script_Extensions=Hiragana}\p{Script_Extensions=Katakana}\p{Script_Extensions=Hangul}\p{Script_Extensions=Bopomofo}]/u;
+export const cjkPunctuationRegex = new RegExp(
+	`(?:(?=\\p{Punctuation})${cjkBreakRegex.source}|[，．：；！？（）［］｛｝“”‘’…—])`,
+	"u",
+);
+export const autocompleteSeparatorRegex = new RegExp(`(?:\\s|${cjkPunctuationRegex.source})`, "u");
+export const autocompleteBoundaryRegex = new RegExp(`(?:^|${autocompleteSeparatorRegex.source})`, "u");
+
+const PATH_DELIMITERS = /* @__PURE__ */ new Set([" ", "	", '"', "'", "="]);
+const tokenStartRegex = new RegExp(`${autocompleteBoundaryRegex.source}$`, "u");
+const PATH_WRAPPERS = { "(": ")", "[": "]", "{": "}", "<": ">", "`": "`" };
+function toDisplayPath(value) {
+  return value.replace(/\\/g, "/");
+}
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+function buildFdPathQuery(query) {
+  const normalized = toDisplayPath(query);
+  if (!normalized.includes("/")) {
+    return escapeRegex(normalized);
+  }
+  const hasTrailingSeparator = normalized.endsWith("/");
+  const trimmed = normalized.replace(/^\/+|\/+$/g, "");
+  if (!trimmed) {
+    return normalized;
+  }
+  const separatorPattern = "[\\\\/]";
+  const segments = trimmed.split("/").filter(Boolean).map((segment) => escapeRegex(segment));
+  let pattern = segments.join(separatorPattern);
+  if (hasTrailingSeparator) {
+    pattern += separatorPattern;
+  }
+  return pattern;
+}
+function findLastDelimiter(text) {
+  let lastDelimiter = -1;
+  let index = 0;
+  for (const character of text) {
+    index += character.length;
+    if (PATH_DELIMITERS.has(character) || autocompleteSeparatorRegex.test(character)) {
+      lastDelimiter = index - 1;
+    }
+  }
+  return lastDelimiter;
+}
+function stripLeadingWrappers(token) {
+  let result = token;
+  while (result.length > 0) {
+    const closer = PATH_WRAPPERS[result[0]];
+    if (!closer || result.includes(closer, 1)) {
+      break;
+    }
+    result = result.slice(1);
+  }
+  return result;
+}
+function findUnclosedQuoteStart(text) {
+  let inQuotes = false;
+  let quoteStart = -1;
+  for (let i = 0; i < text.length; i += 1) {
+    if (text[i] === '"') {
+      inQuotes = !inQuotes;
+      if (inQuotes) {
+        quoteStart = i;
+      }
+    }
+  }
+  return inQuotes ? quoteStart : null;
+}
+function isTokenStart(text, index) {
+  let start = index;
+  while (start > 0 && PATH_WRAPPERS[text[start - 1]]) {
+    start -= 1;
+  }
+  return PATH_DELIMITERS.has(text[start - 1] ?? "") || tokenStartRegex.test(text.slice(0, start));
+}
+function extractQuotedPrefix(text) {
+  const quoteStart = findUnclosedQuoteStart(text);
+  if (quoteStart === null) {
+    return null;
+  }
+  if (quoteStart > 0 && text[quoteStart - 1] === "@") {
+    if (!isTokenStart(text, quoteStart - 1)) {
+      return null;
+    }
+    return text.slice(quoteStart - 1);
+  }
+  if (!isTokenStart(text, quoteStart)) {
+    return null;
+  }
+  return text.slice(quoteStart);
+}
+function parsePathPrefix(prefix) {
+  if (prefix.startsWith('@"')) {
+    return { rawPrefix: prefix.slice(2), isAtPrefix: true, isQuotedPrefix: true };
+  }
+  if (prefix.startsWith('"')) {
+    return { rawPrefix: prefix.slice(1), isAtPrefix: false, isQuotedPrefix: true };
+  }
+  if (prefix.startsWith("@")) {
+    return { rawPrefix: prefix.slice(1), isAtPrefix: true, isQuotedPrefix: false };
+  }
+  return { rawPrefix: prefix, isAtPrefix: false, isQuotedPrefix: false };
+}
+function buildCompletionValue(path, options) {
+  const needsQuotes = options.isQuotedPrefix || autocompleteSeparatorRegex.test(path);
+  const prefix = options.isAtPrefix ? "@" : "";
+  if (!needsQuotes) {
+    return `${prefix}${path}`;
+  }
+  const openQuote = `${prefix}"`;
+  const closeQuote = '"';
+  return `${openQuote}${path}${closeQuote}`;
+}
+async function walkDirectoryWithFd(baseDir, fdPath, query, maxResults, signal, maxDepth) {
+  const args = [
+    "--base-directory",
+    baseDir,
+    "--max-results",
+    String(maxResults),
+    "--type",
+    "f",
+    "--type",
+    "d",
+    "--follow",
+    "--hidden",
+    "--exclude",
+    ".git",
+    "--exclude",
+    ".git/*",
+    "--exclude",
+    ".git/**"
+  ];
+  if (maxDepth !== void 0) {
+    args.push("--max-depth", String(maxDepth));
+  }
+  if (toDisplayPath(query).includes("/")) {
+    args.push("--full-path");
+  }
+  if (query) {
+    args.push(buildFdPathQuery(query));
+  }
+  return await new Promise((resolve) => {
+    if (signal.aborted) {
+      resolve([]);
+      return;
+    }
+    const child = spawn(fdPath, args, {
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    let stdout = "";
+    let resolved = false;
+    const finish = (results) => {
+      if (resolved) return;
+      resolved = true;
+      signal.removeEventListener("abort", onAbort);
+      resolve(results);
+    };
+    const onAbort = () => {
+      if (child.exitCode === null) {
+        child.kill("SIGKILL");
+      }
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    child.stdout.setEncoding("utf-8");
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.on("error", () => {
+      finish([]);
+    });
+    child.on("close", (code) => {
+      if (signal.aborted || code !== 0 || !stdout) {
+        finish([]);
+        return;
+      }
+      const lines = stdout.trim().split("\n").filter(Boolean);
+      const results = [];
+      for (const line of lines) {
+        const displayLine = toDisplayPath(line);
+        const hasTrailingSeparator = displayLine.endsWith("/");
+        const normalizedPath = hasTrailingSeparator ? displayLine.slice(0, -1) : displayLine;
+        if (normalizedPath === ".git" || normalizedPath.startsWith(".git/") || normalizedPath.includes("/.git/")) {
+          continue;
+        }
+        results.push({
+          path: displayLine,
+          isDirectory: hasTrailingSeparator
+        });
+      }
+      finish(results);
+    });
+  });
+}
+export class CombinedAutocompleteProvider {
+  commands;
+  basePath;
+  fdPath;
+  constructor(commands = [], basePath, fdPath = null) {
+    this.commands = commands;
+    this.basePath = basePath;
+    this.fdPath = fdPath;
+  }
+  async getSuggestions(lines, cursorLine, cursorCol, options) {
+    const currentLine = lines[cursorLine] || "";
+    const textBeforeCursor = currentLine.slice(0, cursorCol);
+    const atPrefix = this.extractAtPrefix(textBeforeCursor);
+    if (atPrefix) {
+      const { rawPrefix, isQuotedPrefix } = parsePathPrefix(atPrefix);
+      const suggestions2 = await this.getFuzzyFileSuggestions(rawPrefix, {
+        isQuotedPrefix,
+        signal: options.signal
+      });
+      if (suggestions2.length === 0) return null;
+      return {
+        items: suggestions2,
+        prefix: atPrefix
+      };
+    }
+    const commandText = textBeforeCursor.trimStart();
+    if (!options.force && commandText.startsWith("/")) {
+      const spaceIndex = commandText.indexOf(" ");
+      if (spaceIndex === -1) {
+        const prefix = commandText.slice(1);
+        const commandItems = this.commands.map((cmd) => {
+          const name = "name" in cmd ? cmd.name : cmd.value;
+          const hint = "argumentHint" in cmd && cmd.argumentHint ? cmd.argumentHint : void 0;
+          const desc = cmd.description ?? "";
+          const fullDesc = hint ? desc ? `${hint} \u2014 ${desc}` : hint : desc;
+          return {
+            name,
+            label: name,
+            description: fullDesc || void 0
+          };
+        });
+        const bareNameMatches = fuzzyFilter(
+          commandItems,
+          prefix,
+          (item) => item.name.startsWith("skill:") ? item.name.slice("skill:".length) : item.name
+        );
+        const bareNameMatchSet = new Set(bareNameMatches);
+        const fullNameOnlyMatches = fuzzyFilter(
+          commandItems.filter((item) => item.name.startsWith("skill:") && !bareNameMatchSet.has(item)),
+          prefix,
+          (item) => item.name
+        );
+        const filtered = [...bareNameMatches, ...fullNameOnlyMatches].map((item) => ({
+          value: item.name,
+          label: item.label,
+          ...item.description && { description: item.description }
+        }));
+        if (filtered.length === 0) return null;
+        return {
+          items: filtered,
+          prefix: commandText
+        };
+      }
+      const commandName = commandText.slice(1, spaceIndex);
+      const argumentText = commandText.slice(spaceIndex + 1);
+      const command = this.commands.find((cmd) => {
+        const name = "name" in cmd ? cmd.name : cmd.value;
+        return name === commandName;
+      });
+      if (!command || !("getArgumentCompletions" in command) || !command.getArgumentCompletions) {
+        return null;
+      }
+      const argumentSuggestions = await command.getArgumentCompletions(argumentText);
+      if (!Array.isArray(argumentSuggestions) || argumentSuggestions.length === 0) {
+        return null;
+      }
+      return {
+        items: argumentSuggestions,
+        prefix: argumentText
+      };
+    }
+    const pathMatch = this.extractPathPrefix(textBeforeCursor, options.force ?? false);
+    if (pathMatch === null) {
+      return null;
+    }
+    const suggestions = this.getFileSuggestions(pathMatch);
+    if (suggestions.length === 0) return null;
+    return {
+      items: suggestions,
+      prefix: pathMatch
+    };
+  }
+  applyCompletion(lines, cursorLine, cursorCol, item, prefix) {
+    const currentLine = lines[cursorLine] || "";
+    const beforePrefix = currentLine.slice(0, cursorCol - prefix.length);
+    const afterCursor = currentLine.slice(cursorCol);
+    const isQuotedPrefix = prefix.startsWith('"') || prefix.startsWith('@"');
+    const hasLeadingQuoteAfterCursor = afterCursor.startsWith('"');
+    const hasTrailingQuoteInItem = item.value.endsWith('"');
+    const adjustedAfterCursor = isQuotedPrefix && hasTrailingQuoteInItem && hasLeadingQuoteAfterCursor ? afterCursor.slice(1) : afterCursor;
+    const isSlashCommand = prefix.startsWith("/") && beforePrefix.trim() === "" && !prefix.slice(1).includes("/");
+    if (isSlashCommand) {
+      const newLine2 = `${beforePrefix}/${item.value} ${adjustedAfterCursor}`;
+      const newLines2 = [...lines];
+      newLines2[cursorLine] = newLine2;
+      return {
+        lines: newLines2,
+        cursorLine,
+        cursorCol: beforePrefix.length + item.value.length + 2
+        // +2 for "/" and space
+      };
+    }
+    if (prefix.startsWith("@")) {
+      const isDirectory2 = item.label.endsWith("/");
+      const suffix = isDirectory2 ? "" : " ";
+      const newLine2 = `${beforePrefix + item.value}${suffix}${adjustedAfterCursor}`;
+      const newLines2 = [...lines];
+      newLines2[cursorLine] = newLine2;
+      const hasTrailingQuote2 = item.value.endsWith('"');
+      const cursorOffset2 = isDirectory2 && hasTrailingQuote2 ? item.value.length - 1 : item.value.length;
+      return {
+        lines: newLines2,
+        cursorLine,
+        cursorCol: beforePrefix.length + cursorOffset2 + suffix.length
+      };
+    }
+    const textBeforeCursor = currentLine.slice(0, cursorCol);
+    if (textBeforeCursor.includes("/") && textBeforeCursor.includes(" ")) {
+      const newLine2 = beforePrefix + item.value + adjustedAfterCursor;
+      const newLines2 = [...lines];
+      newLines2[cursorLine] = newLine2;
+      const isDirectory2 = item.label.endsWith("/");
+      const hasTrailingQuote2 = item.value.endsWith('"');
+      const cursorOffset2 = isDirectory2 && hasTrailingQuote2 ? item.value.length - 1 : item.value.length;
+      return {
+        lines: newLines2,
+        cursorLine,
+        cursorCol: beforePrefix.length + cursorOffset2
+      };
+    }
+    const newLine = beforePrefix + item.value + adjustedAfterCursor;
+    const newLines = [...lines];
+    newLines[cursorLine] = newLine;
+    const isDirectory = item.label.endsWith("/");
+    const hasTrailingQuote = item.value.endsWith('"');
+    const cursorOffset = isDirectory && hasTrailingQuote ? item.value.length - 1 : item.value.length;
+    return {
+      lines: newLines,
+      cursorLine,
+      cursorCol: beforePrefix.length + cursorOffset
+    };
+  }
+  // Extract @ prefix for fuzzy file suggestions
+  extractAtPrefix(text) {
+    const quotedPrefix = extractQuotedPrefix(text);
+    if (quotedPrefix?.startsWith('@"')) {
+      return quotedPrefix;
+    }
+    const lastDelimiterIndex = findLastDelimiter(text);
+    const token = stripLeadingWrappers(lastDelimiterIndex === -1 ? text : text.slice(lastDelimiterIndex + 1));
+    if (token.startsWith("@")) {
+      return token;
+    }
+    return null;
+  }
+  // Extract a path-like prefix from the text before cursor
+  extractPathPrefix(text, forceExtract = false) {
+    const quotedPrefix = extractQuotedPrefix(text);
+    if (quotedPrefix) {
+      return quotedPrefix;
+    }
+    const lastDelimiterIndex = findLastDelimiter(text);
+    const pathPrefix = stripLeadingWrappers(lastDelimiterIndex === -1 ? text : text.slice(lastDelimiterIndex + 1));
+    if (forceExtract) {
+      return pathPrefix;
+    }
+    if (pathPrefix.includes("/") || pathPrefix.startsWith(".") || pathPrefix.startsWith("~/")) {
+      return pathPrefix;
+    }
+    if (pathPrefix === "" && text !== "" && tokenStartRegex.test(text)) {
+      return pathPrefix;
+    }
+    return null;
+  }
+  // Expand home directory (~/) to actual home path
+  expandHomePath(path) {
+    if (path.startsWith("~/")) {
+      const expandedPath = join(homedir(), path.slice(2));
+      return path.endsWith("/") && !expandedPath.endsWith("/") ? `${expandedPath}/` : expandedPath;
+    } else if (path === "~") {
+      return homedir();
+    }
+    return path;
+  }
+  resolveScopedFuzzyQuery(rawQuery) {
+    const normalizedQuery = toDisplayPath(rawQuery);
+    const slashIndex = normalizedQuery.lastIndexOf("/");
+    if (slashIndex === -1) {
+      return null;
+    }
+    const displayBase = normalizedQuery.slice(0, slashIndex + 1);
+    const query = normalizedQuery.slice(slashIndex + 1);
+    let baseDir;
+    if (displayBase.startsWith("~/")) {
+      baseDir = this.expandHomePath(displayBase);
+    } else if (displayBase.startsWith("/")) {
+      baseDir = displayBase;
+    } else {
+      baseDir = join(this.basePath, displayBase);
+    }
+    try {
+      if (!statSync(baseDir).isDirectory()) {
+        return null;
+      }
+    } catch {
+      return null;
+    }
+    return { baseDir, query, displayBase };
+  }
+  scopedPathForDisplay(displayBase, relativePath) {
+    const normalizedRelativePath = toDisplayPath(relativePath);
+    if (displayBase === "/") {
+      return `/${normalizedRelativePath}`;
+    }
+    return `${toDisplayPath(displayBase)}${normalizedRelativePath}`;
+  }
+  // Get file/directory suggestions for a given path prefix
+  getFileSuggestions(prefix) {
+    try {
+      let searchDir;
+      let searchPrefix;
+      const { rawPrefix, isAtPrefix, isQuotedPrefix } = parsePathPrefix(prefix);
+      let expandedPrefix = rawPrefix;
+      if (expandedPrefix.startsWith("~")) {
+        expandedPrefix = this.expandHomePath(expandedPrefix);
+      }
+      const isRootPrefix = rawPrefix === "" || rawPrefix === "./" || rawPrefix === "../" || rawPrefix === "~" || rawPrefix === "~/" || rawPrefix === "/" || isAtPrefix && rawPrefix === "";
+      if (isRootPrefix) {
+        if (rawPrefix.startsWith("~") || expandedPrefix.startsWith("/")) {
+          searchDir = expandedPrefix;
+        } else {
+          searchDir = join(this.basePath, expandedPrefix);
+        }
+        searchPrefix = "";
+      } else if (rawPrefix.endsWith("/")) {
+        if (rawPrefix.startsWith("~") || expandedPrefix.startsWith("/")) {
+          searchDir = expandedPrefix;
+        } else {
+          searchDir = join(this.basePath, expandedPrefix);
+        }
+        searchPrefix = "";
+      } else {
+        const dir = dirname(expandedPrefix);
+        const file = basename(expandedPrefix);
+        if (rawPrefix.startsWith("~") || expandedPrefix.startsWith("/")) {
+          searchDir = dir;
+        } else {
+          searchDir = join(this.basePath, dir);
+        }
+        searchPrefix = file;
+      }
+      const entries = readdirSync(searchDir, { withFileTypes: true });
+      const suggestions = [];
+      for (const entry of entries) {
+        if (!entry.name.toLowerCase().startsWith(searchPrefix.toLowerCase())) {
+          continue;
+        }
+        let isDirectory = entry.isDirectory();
+        if (!isDirectory && entry.isSymbolicLink()) {
+          try {
+            const fullPath = join(searchDir, entry.name);
+            isDirectory = statSync(fullPath).isDirectory();
+          } catch {
+          }
+        }
+        let relativePath;
+        const name = entry.name;
+        const displayPrefix = rawPrefix;
+        if (displayPrefix.endsWith("/")) {
+          relativePath = displayPrefix + name;
+        } else if (displayPrefix.includes("/") || displayPrefix.includes("\\")) {
+          if (displayPrefix.startsWith("~/")) {
+            const homeRelativeDir = displayPrefix.slice(2);
+            const dir = dirname(homeRelativeDir);
+            relativePath = `~/${dir === "." ? name : join(dir, name)}`;
+          } else if (displayPrefix.startsWith("/")) {
+            const dir = dirname(displayPrefix);
+            if (dir === "/") {
+              relativePath = `/${name}`;
+            } else {
+              relativePath = `${dir}/${name}`;
+            }
+          } else {
+            relativePath = join(dirname(displayPrefix), name);
+            if (displayPrefix.startsWith("./") && !relativePath.startsWith("./")) {
+              relativePath = `./${relativePath}`;
+            }
+          }
+        } else {
+          if (displayPrefix.startsWith("~")) {
+            relativePath = `~/${name}`;
+          } else {
+            relativePath = name;
+          }
+        }
+        relativePath = toDisplayPath(relativePath);
+        const pathValue = isDirectory ? `${relativePath}/` : relativePath;
+        const value = buildCompletionValue(pathValue, {
+          isDirectory,
+          isAtPrefix,
+          isQuotedPrefix
+        });
+        suggestions.push({
+          value,
+          label: name + (isDirectory ? "/" : "")
+        });
+      }
+      suggestions.sort((a, b) => {
+        const aIsDir = a.label.endsWith("/");
+        const bIsDir = b.label.endsWith("/");
+        if (aIsDir && !bIsDir) return -1;
+        if (!aIsDir && bIsDir) return 1;
+        return a.label.localeCompare(b.label);
+      });
+      return suggestions;
+    } catch (_e) {
+      return [];
+    }
+  }
+  // Score an entry against the query (higher = better match)
+  // isDirectory adds bonus to prioritize folders
+  scoreEntry(filePath, query, isDirectory) {
+    const fileName = basename(filePath);
+    const lowerFileName = fileName.toLowerCase();
+    const lowerQuery = query.toLowerCase();
+    let score = 0;
+    if (lowerFileName === lowerQuery) score = 100;
+    else if (lowerFileName.startsWith(lowerQuery)) score = 80;
+    else if (lowerFileName.includes(lowerQuery)) score = 50;
+    else if (filePath.toLowerCase().includes(lowerQuery)) score = 30;
+    if (isDirectory && score > 0) score += 10;
+    return score;
+  }
+  async getBaseDirSuggestions(baseDir, query, signal) {
+    if (!this.fdPath || signal.aborted) {
+      return [];
+    }
+    return await walkDirectoryWithFd(baseDir, this.fdPath, query, 100, signal, 1);
+  }
+  // Fuzzy file search using fd (fast, respects .gitignore)
+  async getFuzzyFileSuggestions(query, options) {
+    if (!this.fdPath || options.signal.aborted) {
+      return [];
+    }
+    try {
+      const scopedQuery = this.resolveScopedFuzzyQuery(query);
+      const fdBaseDir = scopedQuery?.baseDir ?? this.basePath;
+      const fdQuery = scopedQuery?.query ?? query;
+      const baseDirEntries = await this.getBaseDirSuggestions(fdBaseDir, fdQuery, options.signal);
+      const recursiveEntries = await walkDirectoryWithFd(fdBaseDir, this.fdPath, fdQuery, 100, options.signal);
+      const seenPaths = new Set(baseDirEntries.map((entry) => entry.path));
+      const entries = [
+        ...baseDirEntries,
+        ...recursiveEntries.filter((entry) => {
+          if (seenPaths.has(entry.path)) return false;
+          seenPaths.add(entry.path);
+          return true;
+        })
+      ];
+      if (options.signal.aborted) {
+        return [];
+      }
+      const scoredEntries = entries.map((entry) => ({
+        ...entry,
+        score: fdQuery ? this.scoreEntry(entry.path, fdQuery, entry.isDirectory) : 1
+      })).filter((entry) => entry.score > 0);
+      scoredEntries.sort((a, b) => {
+        const scoreDiff = b.score - a.score;
+        if (scoreDiff !== 0) return scoreDiff;
+        const aDepth = toDisplayPath(a.path).split("/").filter(Boolean).length;
+        const bDepth = toDisplayPath(b.path).split("/").filter(Boolean).length;
+        const depthDiff = aDepth - bDepth;
+        if (depthDiff !== 0) return depthDiff;
+        const lengthDiff = a.path.length - b.path.length;
+        if (lengthDiff !== 0) return lengthDiff;
+        return a.path.localeCompare(b.path);
+      });
+      const topEntries = scoredEntries.slice(0, 20);
+      const suggestions = [];
+      for (const { path: entryPath, isDirectory } of topEntries) {
+        const pathWithoutSlash = isDirectory ? entryPath.slice(0, -1) : entryPath;
+        const displayPath = scopedQuery ? this.scopedPathForDisplay(scopedQuery.displayBase, pathWithoutSlash) : pathWithoutSlash;
+        const entryName = basename(pathWithoutSlash);
+        const completionPath = isDirectory ? `${displayPath}/` : displayPath;
+        const value = buildCompletionValue(completionPath, {
+          isDirectory,
+          isAtPrefix: true,
+          isQuotedPrefix: options.isQuotedPrefix
+        });
+        suggestions.push({
+          value,
+          label: entryName + (isDirectory ? "/" : ""),
+          description: displayPath
+        });
+      }
+      return suggestions;
+    } catch {
+      return [];
+    }
+  }
+  // Check if we should trigger file completion (called on Tab key)
+  shouldTriggerFileCompletion(lines, cursorLine, cursorCol) {
+    const currentLine = lines[cursorLine] || "";
+    const textBeforeCursor = currentLine.slice(0, cursorCol);
+    if (textBeforeCursor.trim().startsWith("/") && !textBeforeCursor.trim().includes(" ")) {
+      return false;
+    }
+    return true;
+  }
+}
+
+const ESC = "\x1B";
+const DEFAULT_SEQUENCE_TIMEOUT_MS = 50;
+const DEFAULT_ESCAPE_TIMEOUT_MS = 10;
+const BRACKETED_PASTE_START = "\x1B[200~";
+const BRACKETED_PASTE_END = "\x1B[201~";
+const TERMINAL_REPLY_HEADER_PATTERN = /^\x1b(?:\](?:1[01];|4;\d{1,3};|7501;\?)|P>\||_G(?:[a-z]=\d+,)*[a-z]=\d+;)/;
+function isControlString(data) {
+  return data.startsWith(`${ESC}]`) || data.startsWith(`${ESC}P`) || data.startsWith(`${ESC}_`);
+}
+function isCompleteSequence(data) {
+  if (!data.startsWith(ESC)) {
+    return "not-escape";
+  }
+  if (data.length === 1) {
+    return "incomplete";
+  }
+  const afterEsc = data.slice(1);
+  if (afterEsc.startsWith("[")) {
+    if (afterEsc.startsWith("[M")) {
+      return data.length >= 6 ? "complete" : "incomplete";
+    }
+    return isCompleteCsiSequence(data);
+  }
+  if (afterEsc.startsWith("]")) {
+    return isCompleteOscSequence(data);
+  }
+  if (afterEsc.startsWith("P")) {
+    return isCompleteDcsSequence(data);
+  }
+  if (afterEsc.startsWith("_")) {
+    return isCompleteApcSequence(data);
+  }
+  if (afterEsc.startsWith("O")) {
+    return afterEsc.length >= 2 ? "complete" : "incomplete";
+  }
+  if (afterEsc.length === 1) {
+    return "complete";
+  }
+  return "complete";
+}
+function isCompleteCsiSequence(data) {
+  if (!data.startsWith(`${ESC}[`)) {
+    return "complete";
+  }
+  if (data.length < 3) {
+    return "incomplete";
+  }
+  const payload = data.slice(2);
+  const lastChar = payload[payload.length - 1];
+  const lastCharCode = lastChar.charCodeAt(0);
+  if (lastCharCode >= 64 && lastCharCode <= 126) {
+    if (payload.startsWith("<")) {
+      const mouseMatch = /^<\d+;\d+;\d+[Mm]$/.test(payload);
+      if (mouseMatch) {
+        return "complete";
+      }
+      if (lastChar === "M" || lastChar === "m") {
+        const parts = payload.slice(1, -1).split(";");
+        if (parts.length === 3 && parts.every((p) => /^\d+$/.test(p))) {
+          return "complete";
+        }
+      }
+      return "incomplete";
+    }
+    return "complete";
+  }
+  return "incomplete";
+}
+function isCompleteOscSequence(data) {
+  if (!data.startsWith(`${ESC}]`)) {
+    return "complete";
+  }
+  if (data.endsWith(`${ESC}\\`) || data.endsWith("\x07")) {
+    return "complete";
+  }
+  return "incomplete";
+}
+function isCompleteDcsSequence(data) {
+  if (!data.startsWith(`${ESC}P`)) {
+    return "complete";
+  }
+  if (data.endsWith(`${ESC}\\`)) {
+    return "complete";
+  }
+  return "incomplete";
+}
+function isCompleteApcSequence(data) {
+  if (!data.startsWith(`${ESC}_`)) {
+    return "complete";
+  }
+  if (data.endsWith(`${ESC}\\`)) {
+    return "complete";
+  }
+  return "incomplete";
+}
+function parseUnmodifiedKittyPrintableCodepoint(sequence) {
+  const match = sequence.match(/^\x1b\[(\d+)(?::\d*)?(?::\d+)?u$/);
+  if (!match) return void 0;
+  const codepoint = parseInt(match[1], 10);
+  return codepoint >= 32 ? codepoint : void 0;
+}
+function extractCompleteSequences(buffer) {
+  const sequences = [];
+  let pos = 0;
+  while (pos < buffer.length) {
+    const remaining = buffer.slice(pos);
+    if (remaining.startsWith(ESC)) {
+      const terminalReply = isControlString(remaining) && TERMINAL_REPLY_HEADER_PATTERN.test(remaining);
+      let seqEnd = 1;
+      while (seqEnd <= remaining.length) {
+        if (terminalReply && seqEnd > 2) {
+          const char = remaining[seqEnd - 1];
+          if (char === "" || char === "") {
+            pos += seqEnd;
+            break;
+          }
+          if (char === ESC && seqEnd < remaining.length && remaining[seqEnd] !== "\\") {
+            pos += seqEnd - 1;
+            break;
+          }
+        }
+        const candidate = remaining.slice(0, seqEnd);
+        const status = isCompleteSequence(candidate);
+        if (status === "complete") {
+          if (candidate === "\x1B\x1B") {
+            const nextChar = remaining[seqEnd];
+            if (nextChar === "[" || // CSI
+            nextChar === "]" || // OSC
+            nextChar === "O" || // SS3
+            nextChar === "P" || // DCS
+            nextChar === "_") {
+              sequences.push(ESC);
+              pos += 1;
+              break;
+            }
+          }
+          sequences.push(candidate);
+          pos += seqEnd;
+          break;
+        } else if (status === "incomplete") {
+          seqEnd++;
+        } else {
+          sequences.push(candidate);
+          pos += seqEnd;
+          break;
+        }
+      }
+      if (seqEnd > remaining.length) {
+        return { sequences, remainder: remaining };
+      }
+    } else {
+      sequences.push(remaining[0]);
+      pos++;
+    }
+  }
+  return { sequences, remainder: "" };
+}
+export class StdinBuffer extends EventEmitter {
+  buffer = "";
+  timeout = null;
+  timeoutMs;
+  escapeTimeoutMs;
+  pasteMode = false;
+  pasteBuffer = "";
+  pendingKittyPrintableCodepoint;
+  constructor(options = {}) {
+    super();
+    this.timeoutMs = options.timeout ?? DEFAULT_SEQUENCE_TIMEOUT_MS;
+    this.escapeTimeoutMs = options.escapeTimeout ?? DEFAULT_ESCAPE_TIMEOUT_MS;
+  }
+  process(data) {
+    if (this.timeout) {
+      clearTimeout(this.timeout);
+      this.timeout = null;
+    }
+    let str;
+    if (Buffer.isBuffer(data)) {
+      if (data.length === 1 && data[0] > 127) {
+        const byte = data[0] - 128;
+        str = `\x1B${String.fromCharCode(byte)}`;
+      } else {
+        str = data.toString();
+      }
+    } else {
+      str = data;
+    }
+    if (str.length === 0 && this.buffer.length === 0) {
+      this.emitDataSequence("");
+      return;
+    }
+    this.buffer += str;
+    if (this.pasteMode) {
+      this.pasteBuffer += this.buffer;
+      this.buffer = "";
+      const endIndex = this.pasteBuffer.indexOf(BRACKETED_PASTE_END);
+      if (endIndex !== -1) {
+        const pastedContent = this.pasteBuffer.slice(0, endIndex);
+        const remaining = this.pasteBuffer.slice(endIndex + BRACKETED_PASTE_END.length);
+        this.pasteMode = false;
+        this.pasteBuffer = "";
+        this.pendingKittyPrintableCodepoint = void 0;
+        this.emit("paste", pastedContent);
+        if (remaining.length > 0) {
+          this.process(remaining);
+        }
+      }
+      return;
+    }
+    const startIndex = this.buffer.indexOf(BRACKETED_PASTE_START);
+    if (startIndex !== -1) {
+      if (startIndex > 0) {
+        const beforePaste = this.buffer.slice(0, startIndex);
+        const result2 = extractCompleteSequences(beforePaste);
+        for (const sequence of result2.sequences) {
+          this.emitDataSequence(sequence);
+        }
+      }
+      this.pendingKittyPrintableCodepoint = void 0;
+      this.buffer = this.buffer.slice(startIndex + BRACKETED_PASTE_START.length);
+      this.pasteMode = true;
+      this.pasteBuffer = this.buffer;
+      this.buffer = "";
+      const endIndex = this.pasteBuffer.indexOf(BRACKETED_PASTE_END);
+      if (endIndex !== -1) {
+        const pastedContent = this.pasteBuffer.slice(0, endIndex);
+        const remaining = this.pasteBuffer.slice(endIndex + BRACKETED_PASTE_END.length);
+        this.pasteMode = false;
+        this.pasteBuffer = "";
+        this.pendingKittyPrintableCodepoint = void 0;
+        this.emit("paste", pastedContent);
+        if (remaining.length > 0) {
+          this.process(remaining);
+        }
+      }
+      return;
+    }
+    const result = extractCompleteSequences(this.buffer);
+    this.buffer = result.remainder;
+    for (const sequence of result.sequences) {
+      this.emitDataSequence(sequence);
+    }
+    if (this.buffer.length > 0) {
+      if (TERMINAL_REPLY_HEADER_PATTERN.test(this.buffer)) return;
+      const timeoutMs = this.buffer === ESC ? this.escapeTimeoutMs : this.timeoutMs;
+      this.timeout = setTimeout(() => {
+        const flushed = this.flush();
+        for (const sequence of flushed) {
+          if (sequence.length > 2 && isControlString(sequence)) {
+            this.emitDataSequence(sequence.slice(0, 2));
+            this.process(sequence.slice(2));
+          } else {
+            this.emitDataSequence(sequence);
+          }
+        }
+      }, timeoutMs);
+    }
+  }
+  emitDataSequence(sequence) {
+    const rawCodepoint = sequence.length === 1 ? sequence.codePointAt(0) : void 0;
+    if (rawCodepoint !== void 0 && rawCodepoint === this.pendingKittyPrintableCodepoint) {
+      this.pendingKittyPrintableCodepoint = void 0;
+      return;
+    }
+    this.pendingKittyPrintableCodepoint = parseUnmodifiedKittyPrintableCodepoint(sequence);
+    this.emit("data", sequence);
+  }
+  flush() {
+    if (this.timeout) {
+      clearTimeout(this.timeout);
+      this.timeout = null;
+    }
+    if (this.buffer.length === 0) {
+      return [];
+    }
+    const sequences = [this.buffer];
+    this.buffer = "";
+    this.pendingKittyPrintableCodepoint = void 0;
+    return sequences;
+  }
+  clear() {
+    if (this.timeout) {
+      clearTimeout(this.timeout);
+      this.timeout = null;
+    }
+    this.buffer = "";
+    this.pasteMode = false;
+    this.pasteBuffer = "";
+    this.pendingKittyPrintableCodepoint = void 0;
+  }
+  getBuffer() {
+    return this.buffer;
+  }
+  destroy() {
+    this.clear();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1153,11 +2618,7 @@ function unavailable(name) {
 export const TUI = unavailable("TUI");
 export const TuiMainScreen = unavailable("TuiMainScreen");
 export const ProcessTerminal = unavailable("ProcessTerminal");
-export const StdinBuffer = unavailable("StdinBuffer");
-export const CombinedAutocompleteProvider = unavailable("CombinedAutocompleteProvider");
-export const Marked = unavailable("Marked");
 
-export function setImageTranscoder(_transcoder) {}
 export function isAppleTerminalSession() {
 	return false;
 }
@@ -1176,5 +2637,62 @@ export function styleText(text) {
 export function styleTextWithAnsi(text) {
 	return String(text);
 }
+
+
+// ---------------------------------------------------------------------------
+// Colors and terminal images (pi_tui::colors / pi_tui::terminal_image)
+// ---------------------------------------------------------------------------
+
+export const indexedColor = (...args) => util("indexedColor", ...args);
+export const rgbColor = (...args) => util("rgbColor", ...args);
+export const oklchColor = (...args) => util("oklchColor", ...args);
+export const okhslColor = (...args) => util("okhslColor", ...args);
+export const parseColor = (...args) => util("parseColor", ...args);
+export const colorToRgb = (...args) => util("colorToRgb", ...args);
+export const colorToOklch = (...args) => util("colorToOklch", ...args);
+export const colorToOkhsl = (...args) => util("colorToOkhsl", ...args);
+export const colorToHex = (...args) => util("colorToHex", ...args);
+export const mixColors = (...args) => util("mixColors", ...args);
+export const foregroundAnsi = (...args) => util("foregroundAnsi", ...args);
+export const backgroundAnsi = (...args) => util("backgroundAnsi", ...args);
+export const oklabToOkhslLightness = (...args) => util("oklabToOkhslLightness", ...args);
+export const parseTerminalColorSchemeReport = (...args) => util("parseTerminalColorSchemeReport", ...args) ?? undefined;
+export const getOsc8LinkAtColumn = (...args) => util("getOsc8LinkAtColumn", ...args) ?? undefined;
+export const compositeTuiLine = (...args) => util("compositeTuiLine", ...args);
+export const getCellDimensions = (...args) => util("getCellDimensions", ...args);
+export const setCellDimensions = (...args) => util("setCellDimensions", ...args);
+export const detectCapabilities = (...args) => util("detectCapabilities", ...args);
+export const getCapabilities = (...args) => util("getCapabilities", ...args);
+export const setCapabilities = (...args) => util("setCapabilities", ...args);
+export const resetCapabilitiesCache = (...args) => util("resetCapabilitiesCache", ...args);
+export const setCapabilityOverrides = (...args) => util("setCapabilityOverrides", ...args);
+export const getTerminalColorMode = (...args) => util("getTerminalColorMode", ...args);
+export const allocateImageId = (...args) => util("allocateImageId", ...args);
+export const encodeKitty = (...args) => util("encodeKitty", ...args);
+export const encodeITerm2 = (...args) => util("encodeITerm2", ...args);
+export const deleteKittyImage = (...args) => util("deleteKittyImage", ...args);
+export const deleteAllKittyImages = (...args) => util("deleteAllKittyImages", ...args);
+export const calculateImageRows = (...args) => util("calculateImageRows", ...args);
+export const getPngDimensions = (...args) => util("getPngDimensions", ...args) ?? undefined;
+export const getJpegDimensions = (...args) => util("getJpegDimensions", ...args) ?? undefined;
+export const getGifDimensions = (...args) => util("getGifDimensions", ...args) ?? undefined;
+export const getWebpDimensions = (...args) => util("getWebpDimensions", ...args) ?? undefined;
+export const getImageDimensions = (...args) => util("getImageDimensions", ...args) ?? undefined;
+export const renderImage = (...args) => util("renderImage", ...args) ?? undefined;
+export const hyperlink = (...args) => util("hyperlink", ...args);
+export const imageFallback = (...args) => util("imageFallback", ...args);
+
+export function isViewportTUI(tui) {
+	return tui?.[VIEWPORT_TUI] === true;
+}
+
+/** The alternate-screen TUI is created by pi's interactive mode; extensions use the TUI they are given. */
+export class TuiAltScreen {
+	constructor() {
+		throw new Error("TuiAltScreen is not available to extensions in pi-rs");
+	}
+}
+
+export { Marked } from "pi-rs:marked";
 
 export { tuiProxy as __tuiProxy, componentRef as __componentRef, rustCallback as __rustCallback };

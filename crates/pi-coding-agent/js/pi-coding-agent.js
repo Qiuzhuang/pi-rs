@@ -20,6 +20,13 @@ import {
 import { CancellableLoader, Container, Editor, Loader, Spacer, Text, getKeybindings } from "@earendil-works/pi-tui";
 
 const host = (fn, ...args) => u(call("ca", { fn, args }));
+const image = async (fn, ...args) => u(await callAsync("ca.image", { fn, args })) ?? null;
+const compaction = async (options) => {
+	const payload = { ...options, signal: tokenFor(options.signal) ?? null, callbacks: options.callbacks ?? null, streamFn: options.streamFn ?? null };
+	for (const key of Object.keys(payload)) if (payload[key] === undefined) payload[key] = null;
+	return u(await callAsync("ca.compaction", payload));
+};
+const leafArg = (leafId) => (leafId === undefined ? { set: false } : { set: true, id: leafId });
 
 // ---------------------------------------------------------------------------
 // Config
@@ -506,48 +513,116 @@ export const wrapRegisteredTools = unavailableFn("wrapRegisteredTools");
 export const createCodemodeExtension = unavailableFn("createCodemodeExtension");
 export const createMcpExtension = unavailableFn("createMcpExtension");
 export const createToolSearchExtension = unavailableFn("createToolSearchExtension");
-export const createEventBus = unavailableFn("createEventBus");
+// TS: core/event-bus.ts (EventEmitter semantics: handlers run in registration order, async errors are logged).
+export function createEventBus() {
+	let listeners = new Map();
+	return {
+		emit: (channel, data) => {
+			for (const handler of [...(listeners.get(channel) ?? [])]) handler(data);
+		},
+		on: (channel, handler) => {
+			const safeHandler = async (data) => {
+				try {
+					await handler(data);
+				} catch (err) {
+					console.error(`Event handler error (${channel}):`, err);
+				}
+			};
+			if (!listeners.has(channel)) listeners.set(channel, []);
+			listeners.get(channel).push(safeHandler);
+			return () => {
+				const list = listeners.get(channel);
+				const index = list ? list.lastIndexOf(safeHandler) : -1;
+				if (index >= 0) list.splice(index, 1);
+			};
+		},
+		clear: () => {
+			listeners = new Map();
+		},
+	};
+}
 export const main = unavailableFn("main");
 export const runPrintMode = unavailableFn("runPrintMode");
 export const runRpcMode = unavailableFn("runRpcMode");
-export const parseArgs = unavailableFn("parseArgs");
-export const readStoredCredential = unavailableFn("readStoredCredential");
+export const parseArgs = (args) => {
+	const result = host("parseArgs", args);
+	result.unknownFlags = new Map(Object.entries(result.unknownFlags ?? {}));
+	return result;
+};
+export const readStoredCredential = (providerId, authPath) => host("readStoredCredential", providerId, authPath ?? null) ?? undefined;
 export const resolveCliModel = unavailableFn("resolveCliModel");
 export const resolveModelScopeWithDiagnostics = unavailableFn("resolveModelScopeWithDiagnostics");
-export const loadProjectContextFiles = unavailableFn("loadProjectContextFiles");
-export const loadSkills = unavailableFn("loadSkills");
-export const loadSkillsFromDir = unavailableFn("loadSkillsFromDir");
-export const formatSkillsForPrompt = unavailableFn("formatSkillsForPrompt");
-export const hasTrustRequiringProjectResources = unavailableFn("hasTrustRequiringProjectResources");
+export const loadProjectContextFiles = (options) => host("loadProjectContextFiles", { cwd: options?.cwd ?? process.cwd(), agentDir: options?.agentDir ?? getAgentDir() });
+export const loadSkills = (options = {}) =>
+	host("loadSkills", {
+		cwd: options.cwd ?? process.cwd(),
+		agentDir: options.agentDir ?? getAgentDir(),
+		skillPaths: options.skillPaths ?? [],
+		includeDefaults: options.includeDefaults ?? false,
+	});
+export const loadSkillsFromDir = (options) => host("loadSkillsFromDir", { dir: options.dir, source: options.source });
+export const formatSkillsForPrompt = (skills, fileReadTool = "read") => host("formatSkillsForPrompt", skills, fileReadTool);
+export const hasTrustRequiringProjectResources = (cwd) => host("hasTrustRequiringProjectResources", String(cwd));
 export const copyToClipboard = (text) => callAsync("ca.copyToClipboard", { text: String(text) });
-export const convertToPng = unavailableFn("convertToPng");
-export const resizeImage = unavailableFn("resizeImage");
-export const formatDimensionNote = unavailableFn("formatDimensionNote");
-export const detectSupportedImageMimeTypeFromFile = unavailableFn("detectSupportedImageMimeTypeFromFile");
-export const getShellConfig = unavailableFn("getShellConfig");
-export const getPowerShellConfig = unavailableFn("getPowerShellConfig");
-export const renderDiff = unavailableFn("renderDiff");
-export const truncateToVisualLines = unavailableFn("truncateToVisualLines");
-export const generateUnifiedPatch = unavailableFn("generateUnifiedPatch");
-export const calculateContextTokens = unavailableFn("calculateContextTokens");
-export const collectEntriesForBranchSummary = unavailableFn("collectEntriesForBranchSummary");
-export const compact = unavailableFn("compact");
+export const convertToPng = (base64Data, mimeType) => image("convertToPng", base64Data, mimeType);
+export const resizeImage = (inputBytes, mimeType, options) => image("resizeImage", Array.from(inputBytes), mimeType, options ?? null);
+export const formatDimensionNote = (result) => host("formatDimensionNote", result) ?? undefined;
+export const detectSupportedImageMimeTypeFromFile = (filePath) => image("detectSupportedImageMimeTypeFromFile", String(filePath));
+export const getShellConfig = (customShellPath) => host("getShellConfig", customShellPath ?? null);
+export const getPowerShellConfig = () => host("getPowerShellConfig");
+export const renderDiff = (diffText, _options = {}) => host("renderDiff", String(diffText));
+export const truncateToVisualLines = (text, maxVisualLines, width, paddingX = 0, keep = "end") =>
+	host("truncateToVisualLines", String(text), maxVisualLines, width, paddingX, keep);
+export const generateUnifiedPatch = (path, oldContent, newContent, contextLines = 4) =>
+	host("generateUnifiedPatch", path, oldContent, newContent, contextLines);
+export const calculateContextTokens = (usage) => host("calculateContextTokens", usage);
+// TS: core/compaction/branch-summarization.ts
+export function collectEntriesForBranchSummary(session, oldLeafId, targetId) {
+	if (!oldLeafId) return { entries: [], commonAncestorId: null };
+	const oldPath = new Set(session.getBranch(oldLeafId).map((e) => e.id));
+	const targetPath = session.getBranch(targetId);
+	let commonAncestorId = null;
+	for (let i = targetPath.length - 1; i >= 0; i--) {
+		if (oldPath.has(targetPath[i].id)) {
+			commonAncestorId = targetPath[i].id;
+			break;
+		}
+	}
+	const entries = [];
+	let current = oldLeafId;
+	while (current && current !== commonAncestorId) {
+		const entry = session.getEntry(current);
+		if (!entry) break;
+		entries.push(entry);
+		current = entry.parentId;
+	}
+	entries.reverse();
+	return { entries, commonAncestorId };
+}
+export const compact = (preparation, model, apiKey, headers, customInstructions, signal, thinkingLevel, streamFn, env, retry, callbacks, sessionId) =>
+	compaction({ fn: "compact", preparation, model, apiKey, headers, customInstructions, signal, thinkingLevel, streamFn, env, retry, callbacks, sessionId });
 export const DEFAULT_COMPACTION_SETTINGS = { enabled: true, reserveTokens: 16384, keepRecentTokens: 20000 };
-export const findCutPoint = unavailableFn("findCutPoint");
-export const findTurnStartIndex = unavailableFn("findTurnStartIndex");
-export const generateBranchSummary = unavailableFn("generateBranchSummary");
-export const generateSummary = unavailableFn("generateSummary");
-export const generateSummaryWithUsage = unavailableFn("generateSummaryWithUsage");
-export const getLastAssistantUsage = unavailableFn("getLastAssistantUsage");
-export const prepareBranchEntries = unavailableFn("prepareBranchEntries");
-export const shouldCompact = unavailableFn("shouldCompact");
-export const buildContextEntries = unavailableFn("buildContextEntries");
-export const buildSessionContext = unavailableFn("buildSessionContext");
-export const buildSessionProjection = unavailableFn("buildSessionProjection");
+export const findCutPoint = (entries, startIndex, endIndex, keepRecentTokens) =>
+	host("findCutPoint", entries, startIndex, endIndex, keepRecentTokens);
+export const findTurnStartIndex = (entries, entryIndex, startIndex) => host("findTurnStartIndex", entries, entryIndex, startIndex);
+export const generateBranchSummary = (entries, options) => compaction({ ...options, fn: "generateBranchSummary", entries });
+export const generateSummary = (messages, model, reserveTokens, apiKey, headers, signal, customInstructions, previousSummary, thinkingLevel, streamFn, env, retry, callbacks, sessionId) =>
+	compaction({ fn: "generateSummary", messages, model, reserveTokens, apiKey, headers, signal, customInstructions, previousSummary, thinkingLevel, streamFn, env, retry, callbacks, sessionId });
+export const generateSummaryWithUsage = (messages, model, reserveTokens, apiKey, headers, signal, customInstructions, previousSummary, thinkingLevel, streamFn, env, retry, callbacks, sessionId) =>
+	compaction({ fn: "generateSummaryWithUsage", messages, model, reserveTokens, apiKey, headers, signal, customInstructions, previousSummary, thinkingLevel, streamFn, env, retry, callbacks, sessionId });
+export const getLastAssistantUsage = (entries) => host("getLastAssistantUsage", entries) ?? undefined;
+export const prepareBranchEntries = (entries, tokenBudget = 0) => host("prepareBranchEntries", entries, tokenBudget);
+export const shouldCompact = (contextTokens, contextWindow, settings) => host("shouldCompact", contextTokens, contextWindow, settings);
+export const buildContextEntries = (entries, leafId, _byId) => host("buildContextEntries", entries, leafArg(leafId));
+export const buildSessionContext = (entries, leafId, _byId) => host("buildSessionContext", entries, leafArg(leafId));
+export const buildSessionProjection = (entries, leafId, _byId) => host("buildSessionProjection", entries, leafArg(leafId));
 export const CURRENT_SESSION_VERSION = 3;
-export const getLatestCompactionEntry = unavailableFn("getLatestCompactionEntry");
-export const migrateSessionEntries = unavailableFn("migrateSessionEntries");
-export const parseSessionEntries = unavailableFn("parseSessionEntries");
-export const sessionEntryToContextMessages = unavailableFn("sessionEntryToContextMessages");
+export const getLatestCompactionEntry = (entries) => host("getLatestCompactionEntry", entries);
+export const migrateSessionEntries = (entries) => {
+	const migrated = host("migrateSessionEntries", entries);
+	entries.splice(0, entries.length, ...migrated);
+};
+export const parseSessionEntries = (content) => host("parseSessionEntries", String(content));
+export const sessionEntryToContextMessages = (entry) => host("sessionEntryToContextMessages", entry);
 
 export { makeContext as __makeContext, keybindingsProxy as __keybindingsProxy, RustComponent as __RustComponent };

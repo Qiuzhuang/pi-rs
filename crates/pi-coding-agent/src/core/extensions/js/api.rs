@@ -116,7 +116,7 @@ pub(crate) async fn dispatch_async(bridge: Arc<Bridge>, _rt: JsRuntime, op: Stri
         }
         "ctx.async" | "mr.async" | "ui.async" | "mr.stream" => context::dispatch_async(bridge, &op, payload).await,
         "ac.async" => component::dispatch_async(bridge, &op, payload).await,
-        "builtin.execute" | "ca.localBashExec" | "ca.copyToClipboard" => builtin::dispatch_async(bridge, &op, payload).await,
+        "builtin.execute" | "ca.localBashExec" | "ca.copyToClipboard" | "ca.image" | "ca.compaction" => builtin::dispatch_async(bridge, &op, payload).await,
         "ai.stream" | "stream.next" => provider::dispatch_async(bridge, &op, payload).await,
         _ if op.starts_with("aip.") => native::dispatch_async(bridge, &op, payload).await,
         _ => Err(anyhow::anyhow!("unknown async host call {op}")),

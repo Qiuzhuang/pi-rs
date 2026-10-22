@@ -243,14 +243,14 @@ impl ToolRanker for Bm25Ranker {
 pub static TOOL_SEARCH_SCHEMA: LazyLock<Value> = LazyLock::new(|| {
     json!({
         "type": "object",
+        "required": ["query"],
         "properties": {
             "query": { "type": "string", "description": "Search query for deferred tools." },
             "limit": {
                 "type": "number",
                 "description": format!("Maximum number of tools to return. Defaults to {DEFAULT_TOOL_SEARCH_LIMIT}.")
             }
-        },
-        "required": ["query"]
+        }
     })
 });
 

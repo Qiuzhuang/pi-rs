@@ -1,0 +1,281 @@
+{
+ "stringFormat": {
+  "json": "{\"type\":\"string\",\"format\":\"uri\"}",
+  "full": "{\"type\":\"string\",\"format\":\"uri\",\"(hidden)~kind\":\"String\"}"
+ },
+ "optionalUnionDefault": {
+  "json": "{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"number\"}],\"default\":1}",
+  "full": "{\"anyOf\":[{\"type\":\"string\",\"(hidden)~kind\":\"String\"},{\"type\":\"number\",\"(hidden)~kind\":\"Number\"}],\"default\":1,\"(hidden)~kind\":\"Union\",\"(hidden)~optional\":true}"
+ },
+ "arrayOfObjects": {
+  "json": "{\"type\":\"array\",\"items\":{\"type\":\"object\",\"required\":[\"id\"],\"properties\":{\"id\":{\"type\":\"integer\",\"minimum\":1}},\"additionalProperties\":false}}",
+  "full": "{\"type\":\"array\",\"items\":{\"type\":\"object\",\"required\":[\"id\"],\"properties\":{\"id\":{\"type\":\"integer\",\"minimum\":1,\"(hidden)~kind\":\"Integer\"}},\"additionalProperties\":false,\"(hidden)~kind\":\"Object\"},\"(hidden)~kind\":\"Array\"}"
+ },
+ "index": {
+  "json": "{\"type\":\"string\"}",
+  "full": "{\"type\":\"string\",\"(hidden)~kind\":\"String\"}"
+ },
+ "mapped": {
+  "json": "{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"string\"}}}",
+  "full": "{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"string\",\"(hidden)~kind\":\"String\",\"(hidden)~optional\":true}},\"(hidden)~kind\":\"Object\"}"
+ },
+ "string": {
+  "json": "{\"type\":\"string\"}",
+  "full": "{\"type\":\"string\",\"(hidden)~kind\":\"String\"}"
+ },
+ "stringOpts": {
+  "json": "{\"type\":\"string\",\"description\":\"d\",\"minLength\":1}",
+  "full": "{\"type\":\"string\",\"description\":\"d\",\"minLength\":1,\"(hidden)~kind\":\"String\"}"
+ },
+ "number": {
+  "json": "{\"type\":\"number\",\"minimum\":0,\"description\":\"n\"}",
+  "full": "{\"type\":\"number\",\"minimum\":0,\"description\":\"n\",\"(hidden)~kind\":\"Number\"}"
+ },
+ "integer": {
+  "json": "{\"type\":\"integer\"}",
+  "full": "{\"type\":\"integer\",\"(hidden)~kind\":\"Integer\"}"
+ },
+ "boolean": {
+  "json": "{\"type\":\"boolean\",\"default\":false}",
+  "full": "{\"type\":\"boolean\",\"default\":false,\"(hidden)~kind\":\"Boolean\"}"
+ },
+ "null": {
+  "json": "{\"type\":\"null\"}",
+  "full": "{\"type\":\"null\",\"(hidden)~kind\":\"Null\"}"
+ },
+ "any": {
+  "json": "{\"description\":\"x\"}",
+  "full": "{\"description\":\"x\",\"(hidden)~kind\":\"Any\"}"
+ },
+ "unknown": {
+  "json": "{}",
+  "full": "{\"(hidden)~kind\":\"Unknown\"}"
+ },
+ "never": {
+  "json": "{\"not\":{}}",
+  "full": "{\"not\":{},\"(hidden)~kind\":\"Never\"}"
+ },
+ "undef": {
+  "json": "{\"type\":\"undefined\"}",
+  "full": "{\"type\":\"undefined\",\"(hidden)~kind\":\"Undefined\"}"
+ },
+ "void": {
+  "json": "{\"type\":\"void\"}",
+  "full": "{\"type\":\"void\",\"(hidden)~kind\":\"Void\"}"
+ },
+ "bigint": {
+  "json": "{\"type\":\"bigint\"}",
+  "full": "{\"type\":\"bigint\",\"(hidden)~kind\":\"BigInt\"}"
+ },
+ "litS": {
+  "json": "{\"type\":\"string\",\"const\":\"a\"}",
+  "full": "{\"type\":\"string\",\"const\":\"a\",\"(hidden)~kind\":\"Literal\"}"
+ },
+ "litN": {
+  "json": "{\"type\":\"number\",\"const\":1,\"description\":\"one\"}",
+  "full": "{\"type\":\"number\",\"const\":1,\"description\":\"one\",\"(hidden)~kind\":\"Literal\"}"
+ },
+ "litB": {
+  "json": "{\"type\":\"boolean\",\"const\":true}",
+  "full": "{\"type\":\"boolean\",\"const\":true,\"(hidden)~kind\":\"Literal\"}"
+ },
+ "object": {
+  "json": "{\"type\":\"object\",\"required\":[\"a\"],\"properties\":{\"a\":{\"type\":\"string\"},\"b\":{\"type\":\"number\"}}}",
+  "full": "{\"type\":\"object\",\"required\":[\"a\"],\"properties\":{\"a\":{\"type\":\"string\",\"(hidden)~kind\":\"String\"},\"b\":{\"type\":\"number\",\"(hidden)~kind\":\"Number\",\"(hidden)~optional\":true}},\"(hidden)~kind\":\"Object\"}"
+ },
+ "objectOpts": {
+  "json": "{\"type\":\"object\",\"required\":[\"a\"],\"properties\":{\"a\":{\"type\":\"string\"}},\"additionalProperties\":false,\"description\":\"o\"}",
+  "full": "{\"type\":\"object\",\"required\":[\"a\"],\"properties\":{\"a\":{\"type\":\"string\",\"(hidden)~kind\":\"String\"}},\"additionalProperties\":false,\"description\":\"o\",\"(hidden)~kind\":\"Object\"}"
+ },
+ "objectEmpty": {
+  "json": "{\"type\":\"object\",\"properties\":{}}",
+  "full": "{\"type\":\"object\",\"properties\":{},\"(hidden)~kind\":\"Object\"}"
+ },
+ "objectAllOpt": {
+  "json": "{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"string\",\"description\":\"a\"}}}",
+  "full": "{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"string\",\"description\":\"a\",\"(hidden)~kind\":\"String\",\"(hidden)~optional\":true}},\"(hidden)~kind\":\"Object\"}"
+ },
+ "array": {
+  "json": "{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"minItems\":1,\"description\":\"arr\"}",
+  "full": "{\"type\":\"array\",\"items\":{\"type\":\"string\",\"(hidden)~kind\":\"String\"},\"minItems\":1,\"description\":\"arr\",\"(hidden)~kind\":\"Array\"}"
+ },
+ "tuple": {
+  "json": "{\"type\":\"array\",\"additionalItems\":false,\"items\":[{\"type\":\"string\"},{\"type\":\"number\"}],\"minItems\":2}",
+  "full": "{\"type\":\"array\",\"additionalItems\":false,\"items\":[{\"type\":\"string\",\"(hidden)~kind\":\"String\"},{\"type\":\"number\",\"(hidden)~kind\":\"Number\"}],\"minItems\":2,\"(hidden)~kind\":\"Tuple\"}"
+ },
+ "tupleEmpty": {
+  "json": "{\"type\":\"array\",\"additionalItems\":false,\"items\":[],\"minItems\":0}",
+  "full": "{\"type\":\"array\",\"additionalItems\":false,\"items\":[],\"minItems\":0,\"(hidden)~kind\":\"Tuple\"}"
+ },
+ "union": {
+  "json": "{\"anyOf\":[{\"type\":\"string\",\"const\":\"a\"},{\"type\":\"string\",\"const\":\"b\"}],\"description\":\"u\"}",
+  "full": "{\"anyOf\":[{\"type\":\"string\",\"const\":\"a\",\"(hidden)~kind\":\"Literal\"},{\"type\":\"string\",\"const\":\"b\",\"(hidden)~kind\":\"Literal\"}],\"description\":\"u\",\"(hidden)~kind\":\"Union\"}"
+ },
+ "intersect": {
+  "json": "{\"allOf\":[{\"type\":\"object\",\"required\":[\"a\"],\"properties\":{\"a\":{\"type\":\"string\"}}},{\"type\":\"object\",\"required\":[\"b\"],\"properties\":{\"b\":{\"type\":\"number\"}}}]}",
+  "full": "{\"allOf\":[{\"type\":\"object\",\"required\":[\"a\"],\"properties\":{\"a\":{\"type\":\"string\",\"(hidden)~kind\":\"String\"}},\"(hidden)~kind\":\"Object\"},{\"type\":\"object\",\"required\":[\"b\"],\"properties\":{\"b\":{\"type\":\"number\",\"(hidden)~kind\":\"Number\"}},\"(hidden)~kind\":\"Object\"}],\"(hidden)~kind\":\"Intersect\"}"
+ },
+ "enumArr": {
+  "json": "{\"enum\":[\"a\",\"b\"]}",
+  "full": "{\"enum\":[\"a\",\"b\"],\"(hidden)~kind\":\"Enum\"}"
+ },
+ "enumObj": {
+  "json": "{\"enum\":[\"a\",\"b\"]}",
+  "full": "{\"enum\":[\"a\",\"b\"],\"(hidden)~kind\":\"Enum\"}"
+ },
+ "enumNum": {
+  "json": "{\"enum\":[0,1]}",
+  "full": "{\"enum\":[0,1],\"(hidden)~kind\":\"Enum\"}"
+ },
+ "recordS": {
+  "json": "{\"type\":\"object\",\"patternProperties\":{\"^.*$\":{\"type\":\"number\"}}}",
+  "full": "{\"type\":\"object\",\"patternProperties\":{\"^.*$\":{\"type\":\"number\",\"(hidden)~kind\":\"Number\"}},\"(hidden)~kind\":\"Record\"}"
+ },
+ "recordN": {
+  "json": "{\"type\":\"object\",\"patternProperties\":{\"^-?(?:0|[1-9][0-9]*)(?:\\\\.[0-9]+)?$\":{\"type\":\"number\"}}}",
+  "full": "{\"type\":\"object\",\"patternProperties\":{\"^-?(?:0|[1-9][0-9]*)(?:\\\\.[0-9]+)?$\":{\"type\":\"number\",\"(hidden)~kind\":\"Number\"}},\"(hidden)~kind\":\"Record\"}"
+ },
+ "recordI": {
+  "json": "{\"type\":\"object\",\"patternProperties\":{\"^-?(?:0|[1-9][0-9]*)$\":{\"type\":\"number\"}}}",
+  "full": "{\"type\":\"object\",\"patternProperties\":{\"^-?(?:0|[1-9][0-9]*)$\":{\"type\":\"number\",\"(hidden)~kind\":\"Number\"}},\"(hidden)~kind\":\"Record\"}"
+ },
+ "recordU": {
+  "json": "{\"type\":\"object\",\"required\":[\"x\",\"y\"],\"properties\":{\"x\":{\"type\":\"number\"},\"y\":{\"type\":\"number\"}}}",
+  "full": "{\"type\":\"object\",\"required\":[\"x\",\"y\"],\"properties\":{\"x\":{\"type\":\"number\",\"(hidden)~kind\":\"Number\"},\"y\":{\"type\":\"number\",\"(hidden)~kind\":\"Number\"}},\"(hidden)~kind\":\"Object\"}"
+ },
+ "recordL": {
+  "json": "{\"type\":\"object\",\"required\":[\"x\"],\"properties\":{\"x\":{\"type\":\"boolean\"}}}",
+  "full": "{\"type\":\"object\",\"required\":[\"x\"],\"properties\":{\"x\":{\"type\":\"boolean\",\"(hidden)~kind\":\"Boolean\"}},\"(hidden)~kind\":\"Object\"}"
+ },
+ "ref": {
+  "json": "{\"$ref\":\"Foo\"}",
+  "full": "{\"$ref\":\"Foo\",\"(hidden)~kind\":\"Ref\"}"
+ },
+ "unsafe": {
+  "json": "{\"type\":\"string\",\"enum\":[\"a\"]}",
+  "full": "{\"type\":\"string\",\"enum\":[\"a\"],\"(hidden)~unsafe\":null}"
+ },
+ "optional": {
+  "json": "{\"type\":\"string\"}",
+  "full": "{\"type\":\"string\",\"(hidden)~kind\":\"String\",\"(hidden)~optional\":true}"
+ },
+ "optionalOff": {
+  "json": "{\"type\":\"string\"}",
+  "full": "{\"type\":\"string\",\"(hidden)~kind\":\"String\",\"(hidden)~optional\":true}"
+ },
+ "readonly": {
+  "json": "{\"type\":\"string\"}",
+  "full": "{\"type\":\"string\",\"(hidden)~kind\":\"String\",\"(hidden)~readonly\":true}"
+ },
+ "readonlyOptional": {
+  "error": true
+ },
+ "partial": {
+  "json": "{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"string\"},\"b\":{\"type\":\"number\"}}}",
+  "full": "{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"string\",\"(hidden)~kind\":\"String\",\"(hidden)~optional\":true},\"b\":{\"type\":\"number\",\"(hidden)~kind\":\"Number\",\"(hidden)~optional\":true}},\"(hidden)~kind\":\"Object\"}"
+ },
+ "required": {
+  "json": "{\"type\":\"object\",\"required\":[\"a\",\"b\"],\"properties\":{\"a\":{\"type\":\"string\"},\"b\":{\"type\":\"number\"}}}",
+  "full": "{\"type\":\"object\",\"required\":[\"a\",\"b\"],\"properties\":{\"a\":{\"type\":\"string\",\"(hidden)~kind\":\"String\"},\"b\":{\"type\":\"number\",\"(hidden)~kind\":\"Number\"}},\"(hidden)~kind\":\"Object\"}"
+ },
+ "pick": {
+  "json": "{\"type\":\"object\",\"required\":[\"a\",\"c\"],\"properties\":{\"a\":{\"type\":\"string\"},\"c\":{\"type\":\"boolean\"}}}",
+  "full": "{\"type\":\"object\",\"required\":[\"a\",\"c\"],\"properties\":{\"a\":{\"type\":\"string\",\"(hidden)~kind\":\"String\"},\"c\":{\"type\":\"boolean\",\"(hidden)~kind\":\"Boolean\"}},\"(hidden)~kind\":\"Object\"}"
+ },
+ "pickU": {
+  "json": "{\"type\":\"object\",\"required\":[\"b\"],\"properties\":{\"b\":{\"type\":\"number\"}}}",
+  "full": "{\"type\":\"object\",\"required\":[\"b\"],\"properties\":{\"b\":{\"type\":\"number\",\"(hidden)~kind\":\"Number\"}},\"(hidden)~kind\":\"Object\"}"
+ },
+ "omit": {
+  "json": "{\"type\":\"object\",\"properties\":{\"b\":{\"type\":\"number\"}}}",
+  "full": "{\"type\":\"object\",\"properties\":{\"b\":{\"type\":\"number\",\"(hidden)~kind\":\"Number\",\"(hidden)~optional\":true}},\"(hidden)~kind\":\"Object\"}"
+ },
+ "keyof": {
+  "json": "{\"anyOf\":[{\"type\":\"string\",\"const\":\"a\"},{\"type\":\"string\",\"const\":\"b\"}]}",
+  "full": "{\"anyOf\":[{\"type\":\"string\",\"const\":\"a\",\"(hidden)~kind\":\"Literal\"},{\"type\":\"string\",\"const\":\"b\",\"(hidden)~kind\":\"Literal\"}],\"(hidden)~kind\":\"Union\"}"
+ },
+ "composite": {
+  "error": true
+ },
+ "regexp": {
+  "error": true
+ },
+ "regexpS": {
+  "error": true
+ },
+ "templ": {
+  "json": "{\"type\":\"string\",\"pattern\":\"^a.*$\"}",
+  "full": "{\"type\":\"string\",\"pattern\":\"^a.*$\",\"(hidden)~kind\":\"TemplateLiteral\"}"
+ },
+ "not": {
+  "error": true
+ },
+ "exclude": {
+  "json": "{\"type\":\"string\",\"const\":\"b\"}",
+  "full": "{\"type\":\"string\",\"const\":\"b\",\"(hidden)~kind\":\"Literal\"}"
+ },
+ "extract": {
+  "json": "{\"type\":\"string\",\"const\":\"a\"}",
+  "full": "{\"type\":\"string\",\"const\":\"a\",\"(hidden)~kind\":\"Literal\"}"
+ },
+ "date": {
+  "error": true
+ },
+ "u8": {
+  "error": true
+ },
+ "func": {
+  "json": "{\"type\":\"function\",\"parameters\":[{\"type\":\"string\"}],\"returnType\":{\"type\":\"number\"}}",
+  "full": "{\"type\":\"function\",\"parameters\":[{\"type\":\"string\",\"(hidden)~kind\":\"String\"}],\"returnType\":{\"type\":\"number\",\"(hidden)~kind\":\"Number\"},\"(hidden)~kind\":\"Function\"}"
+ },
+ "promise": {
+  "error": true
+ },
+ "symbol": {
+  "json": "{\"type\":\"symbol\"}",
+  "full": "{\"type\":\"symbol\",\"(hidden)~kind\":\"Symbol\"}"
+ },
+ "immutable": {
+  "json": "{\"type\":\"object\",\"required\":[\"a\"],\"properties\":{\"a\":{\"type\":\"string\"}}}",
+  "full": "{\"type\":\"object\",\"required\":[\"a\"],\"properties\":{\"a\":{\"type\":\"string\",\"(hidden)~kind\":\"String\"}},\"(hidden)~kind\":\"Object\",\"(hidden)~immutable\":true}"
+ },
+ "nested": {
+  "json": "{\"type\":\"object\",\"required\":[\"path\",\"edits\"],\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"Path\"},\"edits\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"required\":[\"oldText\",\"newText\"],\"properties\":{\"oldText\":{\"type\":\"string\"},\"newText\":{\"type\":\"string\"}}},\"description\":\"E\"},\"mode\":{\"anyOf\":[{\"type\":\"string\",\"const\":\"a\"},{\"type\":\"string\",\"const\":\"b\"}]},\"meta\":{\"type\":\"object\",\"patternProperties\":{\"^.*$\":{}}}}}",
+  "full": "{\"type\":\"object\",\"required\":[\"path\",\"edits\"],\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"Path\",\"(hidden)~kind\":\"String\"},\"edits\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"required\":[\"oldText\",\"newText\"],\"properties\":{\"oldText\":{\"type\":\"string\",\"(hidden)~kind\":\"String\"},\"newText\":{\"type\":\"string\",\"(hidden)~kind\":\"String\"}},\"(hidden)~kind\":\"Object\"},\"description\":\"E\",\"(hidden)~kind\":\"Array\"},\"mode\":{\"anyOf\":[{\"type\":\"string\",\"const\":\"a\",\"(hidden)~kind\":\"Literal\"},{\"type\":\"string\",\"const\":\"b\",\"(hidden)~kind\":\"Literal\"}],\"(hidden)~kind\":\"Union\",\"(hidden)~optional\":true},\"meta\":{\"type\":\"object\",\"patternProperties\":{\"^.*$\":{\"(hidden)~kind\":\"Any\"}},\"(hidden)~kind\":\"Record\",\"(hidden)~optional\":true}},\"(hidden)~kind\":\"Object\"}"
+ },
+ "stringEnumLike": {
+  "json": "{\"type\":\"string\",\"enum\":[\"a\",\"b\"],\"description\":\"x\"}",
+  "full": "{\"type\":\"string\",\"enum\":[\"a\",\"b\"],\"description\":\"x\",\"(hidden)~unsafe\":null}"
+ },
+ "literalOptsOrder": {
+  "json": "{\"type\":\"string\",\"const\":\"a\",\"description\":\"d\",\"default\":\"a\"}",
+  "full": "{\"type\":\"string\",\"const\":\"a\",\"description\":\"d\",\"default\":\"a\",\"(hidden)~kind\":\"Literal\"}"
+ },
+ "cyclic": {
+  "json": "{\"$defs\":{\"A\":{\"type\":\"object\",\"properties\":{\"a\":{\"$ref\":\"A\"}},\"$id\":\"A\"}},\"$ref\":\"A\"}",
+  "full": "{\"$defs\":{\"A\":{\"type\":\"object\",\"properties\":{\"a\":{\"$ref\":\"A\",\"(hidden)~kind\":\"Ref\",\"(hidden)~optional\":true}},\"(hidden)~kind\":\"Object\",\"$id\":\"A\"}},\"$ref\":\"A\",\"(hidden)~kind\":\"Cyclic\"}"
+ },
+ "evaluate": {
+  "json": "{\"type\":\"object\",\"required\":[\"a\",\"b\"],\"properties\":{\"a\":{\"type\":\"string\"},\"b\":{\"type\":\"number\"}}}",
+  "full": "{\"type\":\"object\",\"required\":[\"a\",\"b\"],\"properties\":{\"a\":{\"type\":\"string\",\"(hidden)~kind\":\"String\"},\"b\":{\"type\":\"number\",\"(hidden)~kind\":\"Number\"}},\"(hidden)~kind\":\"Object\"}"
+ },
+ "valueCheck": [
+  true,
+  true,
+  false,
+  false,
+  false,
+  false
+ ],
+ "compileCheck": [
+  true,
+  true,
+  false,
+  false,
+  false,
+  false
+ ],
+ "valueErrors": 1,
+ "valueCreate": "{\"a\":\"\"}",
+ "valueDefault": "{\"n\":3}"
+}

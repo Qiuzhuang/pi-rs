@@ -19,6 +19,7 @@ mod component;
 mod context;
 mod native;
 mod provider;
+mod tui_helpers;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -36,7 +37,16 @@ use crate::core::extensions::types::*;
 pub use component::{JsComponent, JsEditorComponent};
 
 const BRIDGE_JS: &str = include_str!("../../../../js/bridge.js");
-const TYPEBOX_JS: &str = include_str!("../../../../js/typebox.js");
+/// The real `typebox` 1.3.27 (`scripts/vendor-typebox.mjs`): entry points and shared chunks.
+const TYPEBOX_MODULES: &[(&str, &str)] = &[
+    ("typebox", include_str!("../../../../js/vendor/typebox/index.js")),
+    ("typebox/value", include_str!("../../../../js/vendor/typebox/value.js")),
+    ("typebox/compile", include_str!("../../../../js/vendor/typebox/compile.js")),
+    ("pi-rs:typebox/chunk-1", include_str!("../../../../js/vendor/typebox/chunk-1.js")),
+    ("pi-rs:typebox/chunk-2", include_str!("../../../../js/vendor/typebox/chunk-2.js")),
+];
+/// The real `marked` 18.0.11 (`scripts/vendor-marked.mjs`), re-exported by pi-tui as `Marked`.
+const MARKED_JS: &str = include_str!("../../../../js/vendor/marked.js");
 const PI_TUI_JS: &str = include_str!("../../../../js/pi-tui.js");
 const PI_AI_JS: &str = include_str!("../../../../js/pi-ai.js");
 const PI_AI_CORE_JS: &str = include_str!("../../../../js/pi-ai/core.js");
@@ -365,7 +375,10 @@ impl JsExtensionHost {
     pub async fn new(cwd: &str) -> anyhow::Result<JsExtensionHost> {
         let mut virtual_modules = HashMap::new();
         virtual_modules.insert(BRIDGE_SPECIFIER.to_string(), VirtualModule::Esm(BRIDGE_JS.to_string()));
-        virtual_modules.insert("typebox".to_string(), VirtualModule::Esm(TYPEBOX_JS.to_string()));
+        virtual_modules.insert("pi-rs:marked".to_string(), VirtualModule::Esm(MARKED_JS.to_string()));
+        for (specifier, source) in TYPEBOX_MODULES {
+            virtual_modules.insert(specifier.to_string(), VirtualModule::Esm(source.to_string()));
+        }
         virtual_modules.insert("@earendil-works/pi-tui".to_string(), VirtualModule::Esm(PI_TUI_JS.to_string()));
         virtual_modules.insert("@earendil-works/pi-ai".to_string(), VirtualModule::Esm(PI_AI_JS.to_string()));
         virtual_modules.insert("pi-rs:ai-core".to_string(), VirtualModule::Esm(PI_AI_CORE_JS.to_string()));
@@ -383,10 +396,9 @@ impl JsExtensionHost {
         let mut aliases = HashMap::new();
         for (from, to) in [
             ("@sinclair/typebox", "typebox"),
-            ("@sinclair/typebox/value", "typebox"),
-            ("@sinclair/typebox/compiler", "typebox"),
-            ("typebox/value", "typebox"),
-            ("typebox/compile", "typebox"),
+            ("@sinclair/typebox/value", "typebox/value"),
+            ("@sinclair/typebox/compile", "typebox/compile"),
+            ("@sinclair/typebox/compiler", "typebox/compile"),
             ("typebox/type", "typebox"),
             ("@earendil-works/pi-ai/compat", "@earendil-works/pi-ai"),
 

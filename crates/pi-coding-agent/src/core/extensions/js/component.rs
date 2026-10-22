@@ -13,7 +13,10 @@ use pi_tui::components::editor::{Editor, EditorComponent, EditorOptions, EditorT
 use pi_tui::components::input::{Input, InputOptions};
 use pi_tui::components::markdown::{DefaultTextStyle, Markdown, MarkdownTheme};
 use pi_tui::components::select_list::SelectListTheme;
-use pi_tui::tui::{Component, ComponentRef, OverlayAnchor, OverlayHandle, OverlayMargin, OverlayOptions, SizeValue, Tui};
+use pi_tui::tui::{
+    Component, ComponentRef, MouseButton, MouseDispatchTarget, MouseEvent, MouseEventType, MouseResult, OverlayAnchor, OverlayHandle,
+    OverlayMargin, OverlayOptions, SizeValue, Tui,
+};
 use pi_tui::StyleFn;
 use serde_json::{Value, json};
 
@@ -130,6 +133,7 @@ pub struct JsComponent {
     wants_key_release: bool,
     has_invalidate: bool,
     has_dispose: bool,
+    has_mouse: bool,
     /// Rust component behind a JS subclass of a Rust-backed class (e.g. CustomEditor).
     rust_id: Option<u64>,
     focused: AtomicBool,
@@ -146,6 +150,7 @@ impl JsComponent {
             wants_key_release: desc["wantsKeyRelease"].as_bool().unwrap_or(false),
             has_invalidate: desc["hasInvalidate"].as_bool().unwrap_or(false),
             has_dispose: desc["hasDispose"].as_bool().unwrap_or(false),
+            has_mouse: desc["hasMouse"].as_bool().unwrap_or(false),
             rust_id: desc["rid"].as_u64(),
             focused: AtomicBool::new(false),
             last_lines: Mutex::new(Vec::new()),
@@ -203,6 +208,14 @@ impl Component for JsComponent {
 
     fn wants_key_release(&self) -> bool {
         self.wants_key_release
+    }
+
+    fn handle_mouse(&self, event: &MouseEvent) -> Option<MouseResult> {
+        if !self.has_mouse {
+            return None;
+        }
+        let result = self.bridge.glue_call_blocking("invokeHandleMouse", vec![self.handle.to_value(), mouse_event_json(event)]).ok()?;
+        mouse_result_from(&self.bridge, &result)
     }
 
     fn invalidate(&self) {
@@ -331,6 +344,9 @@ impl Component for JsEditorComponent {
     fn wants_key_release(&self) -> bool {
         self.inner.wants_key_release()
     }
+    fn handle_mouse(&self, event: &MouseEvent) -> Option<MouseResult> {
+        self.inner.handle_mouse(event)
+    }
     fn invalidate(&self) {
         self.inner.invalidate()
     }
@@ -435,6 +451,93 @@ pub(crate) fn component_from_value(bridge: &Arc<Bridge>, value: &Value) -> Optio
     }
     let handle = bridge.handle(&value["$piJsComponent"])?;
     Some(Arc::new(JsComponent::new(bridge.clone(), handle, value)))
+}
+
+/// TS `TuiMouseEvent` for a pi-tui mouse event.
+fn mouse_event_json(event: &MouseEvent) -> Value {
+    let kind = match event.kind {
+        MouseEventType::Press => "press",
+        MouseEventType::Release => "release",
+        MouseEventType::Move => "move",
+        MouseEventType::Drag => "drag",
+        MouseEventType::Click => "click",
+        MouseEventType::Wheel => "wheel",
+    };
+    let button = match event.button {
+        MouseButton::Left => "left",
+        MouseButton::Middle => "middle",
+        MouseButton::Right => "right",
+        MouseButton::None => "none",
+    };
+    let mut out = json!({
+        "type": kind, "button": button, "x": event.x, "y": event.y, "screenX": event.screen_x,
+        "screenY": event.screen_y, "width": event.width, "height": event.height,
+        "shift": event.shift, "alt": event.alt, "ctrl": event.ctrl,
+    });
+    if let Some(delta) = event.wheel_delta {
+        out["wheelDelta"] = json!(delta);
+    }
+    if let Some(count) = event.click_count {
+        out["clickCount"] = json!(count);
+    }
+    out
+}
+
+fn mouse_event_from(value: &Value) -> MouseEvent {
+    let i = |k: &str| value[k].as_f64().unwrap_or(0.0) as i64;
+    let b = |k: &str| value[k].as_bool().unwrap_or(false);
+    MouseEvent {
+        kind: match value["type"].as_str() {
+            Some("release") => MouseEventType::Release,
+            Some("move") => MouseEventType::Move,
+            Some("drag") => MouseEventType::Drag,
+            Some("click") => MouseEventType::Click,
+            Some("wheel") => MouseEventType::Wheel,
+            _ => MouseEventType::Press,
+        },
+        button: match value["button"].as_str() {
+            Some("left") => MouseButton::Left,
+            Some("middle") => MouseButton::Middle,
+            Some("right") => MouseButton::Right,
+            _ => MouseButton::None,
+        },
+        x: i("x"),
+        y: i("y"),
+        screen_x: i("screenX"),
+        screen_y: i("screenY"),
+        width: i("width"),
+        height: i("height"),
+        shift: b("shift"),
+        alt: b("alt"),
+        ctrl: b("ctrl"),
+        wheel_delta: value["wheelDelta"].as_f64().map(|v| v as i64),
+        click_count: value["clickCount"].as_f64().map(|v| v as u32),
+    }
+}
+
+/// A JS `handleMouse()` result (`invokeHandleMouse` in bridge.js): flags, plus the dispatch
+/// target and focus target when a JS container forwarded the event to a child.
+fn mouse_result_from(bridge: &Arc<Bridge>, value: &Value) -> Option<MouseResult> {
+    if !value.is_object() {
+        return None;
+    }
+    let target = value.get("target").filter(|t| t.is_object()).and_then(|t| {
+        Some(MouseDispatchTarget {
+            component: component_from_value(bridge, &t["component"])?,
+            origin_x: t["originX"].as_f64().unwrap_or(0.0) as i64,
+            origin_y: t["originY"].as_f64().unwrap_or(0.0) as i64,
+            width: t["width"].as_f64().unwrap_or(0.0) as i64,
+            height: t["height"].as_f64().unwrap_or(0.0) as i64,
+        })
+    });
+    Some(MouseResult {
+        handled: value["handled"].as_bool().unwrap_or(false),
+        capture: value["capture"].as_bool().unwrap_or(false),
+        focus: value["focus"].as_bool().unwrap_or(false),
+        render: value["render"].as_bool(),
+        target,
+        focus_target: value.get("focusTarget").and_then(|f| component_from_value(bridge, f)),
+    })
 }
 
 fn render_error(err: anyhow::Error) -> ComponentRef {
@@ -1157,6 +1260,7 @@ fn tui_call(bridge: &Arc<Bridge>, payload: &Value) -> anyhow::Result<Value> {
             bridge.ui_dispatch(move || tui.invalidate());
             Value::Null
         }
+        "isViewport" => json!(tui.is_viewport_tui()),
         "columns" => json!(tui.terminal().columns()),
         "rows" => json!(tui.terminal().rows()),
         "write" => {
@@ -1282,6 +1386,13 @@ fn rust_component_call(bridge: &Arc<Bridge>, payload: &Value) -> anyhow::Result<
         "invalidate" => {
             component.invalidate();
             return Ok(Value::Null);
+        }
+        "handleMouse" => {
+            let event = mouse_event_from(&a(0));
+            return Ok(match component.handle_mouse(&event) {
+                Some(r) => json!({ "handled": r.handled, "capture": r.capture, "focus": r.focus, "render": r.render }),
+                None => Value::Null,
+            });
         }
         "getFocused" => return Ok(json!(component.focused())),
         "setFocused" => {
@@ -1451,6 +1562,9 @@ fn tui_util(bridge: &Arc<Bridge>, payload: &Value) -> anyhow::Result<Value> {
         }
         "imageFallback" => json!(pi_tui::terminal_image::image_fallback(&s(0), None, a(2).as_str())),
         "utf16ToByte" => json!(utf16_to_byte(&s(0), n(1))),
-        _ => return Err(anyhow::anyhow!("pi-tui {f} is not available")),
+        _ => match super::tui_helpers::dispatch(&f, &args) {
+            Some(result) => result?,
+            None => return Err(anyhow::anyhow!("pi-tui {f} is not available")),
+        },
     })
 }

@@ -968,7 +968,8 @@ async fn shutdown_command_exits_the_interactive_mode() {
         panic!("process.exit({c})");
     })));
 
-    fx.submit("/quit");
+    // `/quit` may reach `process.exit()` synchronously from the input handler.
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| fx.submit("/quit")));
     fx.wait_until("process.exit", || exit_code.lock().is_some()).await;
     pi_coding_agent::utils::process_exit::set_exit_hook(None);
     assert_eq!(*exit_code.lock(), Some(0));
@@ -1011,5 +1012,46 @@ async fn structured_output_terminates_with_a_rendered_result() {
     // `terminate: true` ends the run without another model call.
     assert_eq!(fx.harness.get_pending_response_count(), 0);
     assert_eq!(fx.harness.assistant_texts().len(), 1);
+    fx.cleanup();
+}
+
+const MOUSE_EXTENSION: &str = r#"
+import { getSelectListTheme } from "@earendil-works/pi-coding-agent";
+import { Box, SelectList, Text } from "@earendil-works/pi-tui";
+
+export default function (pi) {
+	pi.registerCommand("pick", {
+		description: "Pick with the mouse",
+		handler: async (_args, ctx) => {
+			const picked = await ctx.ui.custom((_tui, _theme, _kb, done) => {
+				const items = ["alpha", "beta", "gamma"].map((value) => ({ value, label: `item-${value}` }));
+				const list = new SelectList(items, 5, getSelectListTheme());
+				list.onSelect = (item) => done(item.value);
+				const box = new Box(1, 0);
+				box.addChild(new Text("Pick one", 0, 0));
+				box.addChild(list);
+				return box;
+			});
+			ctx.ui.notify(`picked ${picked}`);
+		},
+	});
+}
+"#;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn js_components_receive_mouse_events() {
+    let _lock = LOCK.lock().await;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mouse.ts");
+    std::fs::write(&path, MOUSE_EXTENSION).unwrap();
+    let mut fx = Fixture::new(dir.path(), &[path.to_str().unwrap()]).await;
+    fx.submit("/pick");
+    let screen = fx.wait_text("item-gamma").await;
+    // Click "item-gamma": a JS Box routes the event to its JS SelectList child, whose click selects it.
+    let (row, line) = screen.lines().enumerate().find(|(_, l)| l.contains("item-gamma")).unwrap();
+    let column = line.find("item-gamma").unwrap() + 1;
+    fx.terminal.send_input(&format!("\x1b[<0;{column};{}M", row + 1));
+    fx.terminal.send_input(&format!("\x1b[<0;{column};{}m", row + 1));
+    fx.wait_text("picked gamma").await;
     fx.cleanup();
 }

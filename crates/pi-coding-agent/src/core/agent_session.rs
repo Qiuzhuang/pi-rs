@@ -1208,9 +1208,23 @@ impl AgentSession {
         } else {
             (selected_model.clone(), self.thinking_level())
         };
-        // TS uses the strict variant only when the agent streams through the default
-        // `streamSimple`; sessions always install their own stream function, so auth problems fall
-        // back to an unauthenticated request here (the stream function reports them).
+        // The strict variant applies when the agent streams through pi-ai's global
+        // `streamSimple`; a custom stream function (the SDK installs one) resolves auth itself, so
+        // auth problems fall back to an unauthenticated request here.
+        if self
+            .agent
+            .stream_fn()
+            .is_some_and(|stream_fn| pi_agent::is_compat_stream_simple_fn(&stream_fn))
+        {
+            let auth = self.get_required_request_auth(&model, signal).await?;
+            return Ok(SummarizationRequestAuth {
+                model: auth.model,
+                api_key: auth.api_key,
+                headers: auth.headers,
+                env: auth.env,
+                thinking_level,
+            });
+        }
         match self
             .model_runtime
             .get_auth(

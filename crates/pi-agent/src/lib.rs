@@ -15,5 +15,8 @@ pub use agent::*;
 pub use agent_loop::*;
 pub use error::AgentError;
 pub use proxy::*;
-pub use stream_fn::{get_default_stream_fn, models_stream_fn, set_default_stream_fn};
+pub use stream_fn::{
+    compat_stream_simple_fn, get_default_stream_fn, is_compat_stream_simple_fn, models_stream_fn,
+    set_default_stream_fn,
+};
 pub use types::*;

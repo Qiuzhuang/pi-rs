@@ -22,7 +22,7 @@ use pi_ai::auth::types::{ApiKeyCredential, Credential};
 use pi_ai::compat::{FauxProviderRegistration, register_faux_provider};
 use pi_ai::providers::faux::{FauxModelDefinition, FauxResponseStep, RegisterFauxProviderOptions};
 use pi_ai::types::{
-    Context, Model, SimpleStreamOptions, ToolResultMessage, TranscriptContext, UserContent,
+    Model, ToolResultMessage, UserContent,
 };
 use pi_coding_agent::core::agent_session::{
     AgentSession, AgentSessionConfig, AgentSessionConfigExtensionRunnerRef, AgentSessionEvent,
@@ -428,17 +428,8 @@ pub async fn create_harness(options: HarnessOptions) -> anyhow::Result<Harness> 
             let key = with_configured_auth.then(|| "faux-key".to_string());
             Box::pin(async move { key })
         })),
-        stream_fn: Some(Arc::new(
-            |model: Model, context: TranscriptContext, options: SimpleStreamOptions| {
-                let context = Context {
-                    system_prompt: None,
-                    messages: context.messages,
-                    tools: None,
-                };
-                let stream = pi_ai::compat::stream_simple(&model, &context, options);
-                Box::pin(async move { Ok(stream) })
-            },
-        )),
+        // TS harness: `streamFn: streamSimple`.
+        stream_fn: Some(pi_agent::compat_stream_simple_fn()),
         initial_state: Some(AgentInitialState {
             model: Some(model.clone()),
             system_prompt: Some(String::new()),

@@ -49,7 +49,6 @@ use crate::utils::transcript::{collapse_system_messages, get_current_tools, get_
 
 /// Version of `@aws-sdk/client-bedrock-runtime` whose request shape this module reproduces.
 pub const AWS_SDK_VERSION: &str = "3.1127.0";
-const NODE_VERSION_LABEL: &str = "22.19.0";
 const EMPTY_TEXT_PLACEHOLDER: &str = "<empty>";
 const THINKING_BINDING_CONTROLS_BETA: &str = "thinking-binding-controls-2026-08-01";
 const REDACTED_THINKING_PLACEHOLDER: &str = "[Reasoning redacted]";
@@ -767,34 +766,21 @@ fn default_endpoint(region: &str) -> String {
     format!("https://{service}.{region}.{suffix}")
 }
 
-fn sdk_user_agent(config: &BedrockClientConfig) -> String {
-    let os = std::env::consts::OS;
-    let mut parts = vec![
-        format!("aws-sdk-js/{AWS_SDK_VERSION}"),
-        "ua/2.1".to_string(),
-        format!("os/{os}"),
-        "lang/js".to_string(),
-        format!("md/nodejs#{NODE_VERSION_LABEL}"),
-        format!("api/bedrock-runtime#{AWS_SDK_VERSION}"),
-        "m/E".to_string(),
-    ];
-    for (name, version) in &config.custom_user_agent {
-        parts.push(match version {
-            Some(version) => format!("{name}/{version}"),
-            None => name.clone(),
-        });
+/// `user-agent` and `x-amz-user-agent` of the `BedrockRuntimeClient` (`customUserAgent` from the
+/// client identity; a custom string becomes a single-name section).
+fn sdk_user_agent(config: &BedrockClientConfig, app_id: Option<&str>) -> (String, String) {
+    let mut custom = config.custom_user_agent.clone();
+    if let Some(text) = &config.custom_user_agent_string {
+        custom.push((text.clone(), None));
     }
-    if let Some(custom) = &config.custom_user_agent_string {
-        parts.push(custom.clone());
-    }
-    parts.join(" ")
+    super::aws_credentials::aws_sdk_user_agent(AWS_SDK_VERSION, "Bedrock Runtime", &custom, app_id)
 }
 
 // ---------------------------------------------------------------------------
 // HTTP and retries
 // ---------------------------------------------------------------------------
 
-const THROTTLING_CODES: [&str; 13] = [
+pub(crate) const THROTTLING_CODES: [&str; 13] = [
     "BandwidthLimitExceeded",
     "EC2ThrottledException",
     "LimitExceededException",
@@ -809,8 +795,8 @@ const THROTTLING_CODES: [&str; 13] = [
     "TooManyRequestsException",
     "TransactionInProgressException",
 ];
-const TRANSIENT_CODES: [&str; 4] = ["TimeoutError", "RequestTimeout", "RequestTimeoutException", "InternalServerException"];
-const TRANSIENT_STATUSES: [u16; 4] = [500, 502, 503, 504];
+pub(crate) const TRANSIENT_CODES: [&str; 4] = ["TimeoutError", "RequestTimeout", "RequestTimeoutException", "InternalServerException"];
+pub(crate) const TRANSIENT_STATUSES: [u16; 4] = [500, 502, 503, 504];
 
 enum Attempt {
     Ok(reqwest::Response),
@@ -818,7 +804,7 @@ enum Attempt {
 }
 
 fn max_attempts() -> u32 {
-    std::env::var("AWS_MAX_ATTEMPTS").ok().and_then(|v| v.parse::<u32>().ok()).filter(|v| *v > 0).unwrap_or(3)
+    super::aws_credentials::aws_max_attempts()
 }
 
 fn parse_service_error(status: u16, headers: &reqwest::header::HeaderMap, body: &str) -> BedrockError {
@@ -1272,22 +1258,29 @@ async fn run_stream(model: Model, context: TranscriptContext, options: StreamOpt
             }
             builder.build()?
         };
+        let app_id = super::aws_credentials::user_agent_app_id(config.profile.as_deref());
         let auth = if let Some(token) = &config.bearer_token {
             RequestAuth::Bearer(token.clone())
         } else if let Some(credentials) = &config.credentials {
             RequestAuth::SigV4(credentials.clone())
         } else {
-            let context = CredentialContext { client: client.clone(), region: Some(region.clone()) };
+            let context = CredentialContext {
+                client: client.clone(),
+                region: Some(region.clone()),
+                app_id: app_id.clone(),
+                role_assumer_region: None,
+            };
             RequestAuth::SigV4(default_provider(config.profile.as_deref(), &context).await?)
         };
         let host = match url.port() {
             Some(port) => format!("{}:{port}", url.host_str().unwrap_or_default()),
             None => url.host_str().unwrap_or_default().to_string(),
         };
+        let (user_agent, x_amz_user_agent) = sdk_user_agent(&config, app_id.as_deref());
         let mut headers: Vec<(String, String)> = vec![
             ("content-type".into(), "application/json".into()),
-            ("x-amz-user-agent".into(), format!("aws-sdk-js/{AWS_SDK_VERSION}")),
-            ("user-agent".into(), sdk_user_agent(&config)),
+            ("x-amz-user-agent".into(), x_amz_user_agent),
+            ("user-agent".into(), user_agent),
             ("host".into(), host),
             ("amz-sdk-invocation-id".into(), uuid::Uuid::new_v4().to_string()),
         ];

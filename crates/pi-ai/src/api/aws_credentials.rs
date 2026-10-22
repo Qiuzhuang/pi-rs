@@ -26,10 +26,140 @@ use super::aws_sigv4::{AwsCredentials, SignableRequest, sign_request};
 
 /// Error raised when no source produced credentials.
 pub const NO_CREDENTIALS: &str = "Could not load credentials from any providers";
-/// Refresh temporary credentials this long before they expire.
-const EXPIRY_WINDOW_MS: i64 = 5 * 60 * 1000;
 
-static CACHE: Lazy<Mutex<HashMap<String, AwsCredentials>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+/// `@smithy/shared-ini-file-loader`'s `readFile` cache: config and credentials file contents are
+/// read once per path and process (failed reads included), as the SDK clients never pass
+/// `ignoreCache`.
+static INI_FILE_CACHE: Lazy<Mutex<HashMap<PathBuf, Option<String>>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+
+fn read_ini_file_cached(path: &std::path::Path) -> Option<String> {
+    if let Some(cached) = INI_FILE_CACHE.lock().get(path) {
+        return cached.clone();
+    }
+    let text = std::fs::read_to_string(path).ok();
+    INI_FILE_CACHE.lock().insert(path.to_path_buf(), text.clone());
+    text
+}
+
+/// Forget the cached shared config/credentials file contents (`ignoreCache: true`).
+#[doc(hidden)]
+pub fn clear_shared_ini_file_cache() {
+    INI_FILE_CACHE.lock().clear();
+}
+
+/// Node's `os.platform()`.
+pub(crate) fn node_platform() -> &'static str {
+    match std::env::consts::OS {
+        "macos" => "darwin",
+        "windows" => "win32",
+        "solaris" | "illumos" => "sunos",
+        other => other,
+    }
+}
+
+/// Node's `os.release()` (the kernel release; empty where it cannot be read).
+pub(crate) fn node_os_release() -> String {
+    static RELEASE: Lazy<String> = Lazy::new(|| {
+        if let Ok(text) = std::fs::read_to_string("/proc/sys/kernel/osrelease") {
+            return text.trim().to_string();
+        }
+        if cfg!(unix)
+            && let Ok(output) = std::process::Command::new("uname").arg("-r").output()
+        {
+            return String::from_utf8_lossy(&output.stdout).trim().to_string();
+        }
+        String::new()
+    });
+    RELEASE.clone()
+}
+
+/// `escapeUserAgent` of `@aws-sdk/middleware-user-agent`.
+pub(crate) fn escape_user_agent(name: &str, version: Option<&str>) -> String {
+    let escape = |text: &str, allow_hash: bool| -> String {
+        text.chars()
+            .map(|c| {
+                let ok = c.is_ascii_alphanumeric() || "!$%&'*+-.^_`|~".contains(c) || (allow_hash && c == '#');
+                if ok { c } else { '-' }
+            })
+            .collect()
+    };
+    let name = name.split('/').map(|part| escape(part, false)).collect::<Vec<_>>().join("/");
+    let version = version.map(|v| escape(v, true));
+    let (prefix, ua_name) = match name.find('/') {
+        Some(index) => (name[..index].to_string(), name[index + 1..].to_string()),
+        // `name.substring(0, -1)` is "" and `substring(0)` the whole name.
+        None => (String::new(), name.clone()),
+    };
+    let ua_name = if prefix == "api" { ua_name.to_lowercase() } else { ua_name };
+    let parts: Vec<String> = [Some(prefix), Some(ua_name), version].into_iter().flatten().filter(|p| !p.is_empty()).collect();
+    let mut out = String::new();
+    for (index, part) in parts.iter().enumerate() {
+        match index {
+            0 => out.push_str(part),
+            1 => {
+                out.push('/');
+                out.push_str(part);
+            }
+            _ => {
+                out.push('#');
+                out.push_str(part);
+            }
+        }
+    }
+    out
+}
+
+/// `userAgentAppId`: `AWS_SDK_UA_APP_ID`, else the profile's `sdk_ua_app_id` (`sdk-ua-app-id`).
+pub(crate) fn user_agent_app_id(profile: Option<&str>) -> Option<String> {
+    if let Some(id) = std::env::var("AWS_SDK_UA_APP_ID").ok() {
+        return Some(id).filter(|i| !i.is_empty());
+    }
+    let name = profile.map(str::to_string).or_else(|| env("AWS_PROFILE")).unwrap_or_else(|| "default".into());
+    let shared = SharedConfig::load();
+    let profile = shared.profile(&name)?;
+    profile.get("sdk_ua_app_id").or_else(|| profile.get("sdk-ua-app-id")).cloned().filter(|i| !i.is_empty())
+}
+
+/// The `user-agent` and `x-amz-user-agent` headers of an AWS SDK v3 client
+/// (`createDefaultUserAgentProvider` + `userAgentMiddleware`) with the standard retry mode
+/// feature (`m/E`). `custom` are the client's `customUserAgent` pairs.
+pub(crate) fn aws_sdk_user_agent(
+    client_version: &str,
+    service_id: &str,
+    custom: &[(String, Option<String>)],
+    app_id: Option<&str>,
+) -> (String, String) {
+    let release = node_os_release();
+    let mut defaults = vec![
+        escape_user_agent("aws-sdk-js", Some(client_version)),
+        escape_user_agent("ua", Some("2.1")),
+        escape_user_agent(&format!("os/{}", node_platform()), Some(&release)),
+        escape_user_agent("lang/js", None),
+        escape_user_agent("md/nodejs", Some(AWS_SDK_NODE_VERSION)),
+        escape_user_agent(&format!("api/{service_id}"), Some(client_version)),
+    ];
+    if let Some(exec_env) = std::env::var("AWS_EXECUTION_ENV").ok().filter(|e| !e.is_empty()) {
+        defaults.push(escape_user_agent(&format!("exec-env/{exec_env}"), None));
+    }
+    defaults.push("m/E".to_string());
+    if let Some(app) = app_id {
+        defaults.push(escape_user_agent("app", Some(app)));
+    }
+    let custom: Vec<String> = custom.iter().map(|(name, version)| escape_user_agent(name, version.as_deref())).collect();
+    let user_agent = defaults.iter().chain(custom.iter()).cloned().collect::<Vec<_>>().join(" ");
+    let x_amz = defaults.iter().filter(|s| s.starts_with("aws-sdk-")).chain(custom.iter()).cloned().collect::<Vec<_>>().join(" ");
+    (user_agent, x_amz)
+}
+
+/// `maxAttempts` of the SDK clients' standard retry strategy (`AWS_MAX_ATTEMPTS`, default 3).
+pub(crate) fn aws_max_attempts() -> u32 {
+    std::env::var("AWS_MAX_ATTEMPTS").ok().and_then(|v| v.parse::<u32>().ok()).filter(|v| *v > 0).unwrap_or(3)
+}
+
+/// `process.versions.node` reported in AWS SDK user agents.
+pub(crate) const AWS_SDK_NODE_VERSION: &str = "22.19.0";
+/// Version of `@aws-sdk/nested-clients` (STS, SSO, Signin clients used by credential providers).
+pub(crate) const AWS_NESTED_CLIENTS_VERSION: &str = "3.997.44";
 
 /// `CredentialsProviderError`: a chain link failure. With `try_next_link` the default chain moves
 /// on to the next link; otherwise it stops with this error.
@@ -136,7 +266,7 @@ impl SharedConfig {
         let credentials_path = env("AWS_SHARED_CREDENTIALS_FILE")
             .map(|p| expand_home(&p))
             .or_else(|| home_dir().map(|h| h.join(".aws/credentials")));
-        let read = |path: Option<PathBuf>| path.and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
+        let read = |path: Option<PathBuf>| path.and_then(|p| read_ini_file_cached(&p)).unwrap_or_default();
         SharedConfig::from_texts(&read(config_path), &read(credentials_path))
     }
 
@@ -241,9 +371,132 @@ fn sts_endpoint(region: &str) -> String {
     }
 }
 
-fn form(pairs: &[(&str, &str)]) -> String {
-    url::form_urlencoded::Serializer::new(String::new()).extend_pairs(pairs.iter()).finish()
+/// `extendedEncodeURIComponent`: `encodeURIComponent` plus `!'()*`.
+fn extended_encode_uri_component(text: &str) -> String {
+    let mut out = String::new();
+    for byte in text.bytes() {
+        if byte.is_ascii_alphanumeric() || b"-_.~".contains(&byte) {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
 }
+
+/// An AWS Query request body: `Action=..&Version=..` then the members in schema order.
+fn query_body(action: &str, members: &[(&str, &str)]) -> String {
+    let mut body = format!("Action={action}&Version=2011-06-15");
+    for (key, value) in members {
+        body.push('&');
+        body.push_str(&extended_encode_uri_component(key));
+        body.push('=');
+        body.push_str(&extended_encode_uri_component(value));
+    }
+    body
+}
+
+/// `parseInt(text, 10)` printed with `String()`: the leading integer, or `NaN`.
+fn js_parse_int_string(text: &str) -> String {
+    let trimmed = text.trim_start();
+    let (sign, digits) = match trimmed.strip_prefix('-') {
+        Some(rest) => ("-", rest),
+        None => ("", trimmed.strip_prefix('+').unwrap_or(trimmed)),
+    };
+    let digits: String = digits.chars().take_while(|c| c.is_ascii_digit()).collect();
+    if digits.is_empty() {
+        return "NaN".into();
+    }
+    let trimmed_digits = digits.trim_start_matches('0');
+    let number = if trimmed_digits.is_empty() { "0" } else { trimmed_digits };
+    if number == "0" { "0".into() } else { format!("{sign}{number}") }
+}
+
+/// Send an STS (AWS Query) request the way the SDK's nested `STSClient` does: SDK user agent,
+/// invocation id, `amz-sdk-request`, optional SigV4 signing, and standard retries. Returns the
+/// response XML.
+async fn sts_request(
+    context: &CredentialContext,
+    region: &str,
+    body: String,
+    signing: Option<&AwsCredentials>,
+) -> anyhow::Result<String> {
+    let url = url::Url::parse(&sts_endpoint(region))?;
+    let host = match url.port() {
+        Some(port) => format!("{}:{port}", url.host_str().unwrap_or_default()),
+        None => url.host_str().unwrap_or_default().to_string(),
+    };
+    let (user_agent, x_amz_user_agent) = aws_sdk_user_agent(AWS_NESTED_CLIENTS_VERSION, "STS", &[], context.app_id.as_deref());
+    let invocation_id = uuid::Uuid::new_v4().to_string();
+    let max = aws_max_attempts();
+    let mut attempt = 1u32;
+    loop {
+        let mut headers = vec![
+            ("content-type".to_string(), "application/x-www-form-urlencoded".to_string()),
+            ("x-amz-user-agent".to_string(), x_amz_user_agent.clone()),
+            ("user-agent".to_string(), user_agent.clone()),
+            ("host".to_string(), host.clone()),
+            ("amz-sdk-invocation-id".to_string(), invocation_id.clone()),
+            ("amz-sdk-request".to_string(), format!("attempt={attempt}; max={max}")),
+        ];
+        if let Some(credentials) = signing {
+            let signed = sign_request(
+                &SignableRequest { method: "POST", url: &url, headers: &headers, body: body.as_bytes() },
+                credentials,
+                region,
+                "sts",
+                crate::utils::now_ms(),
+            );
+            headers.extend(signed);
+        }
+        let mut request = context.client.post(url.clone()).body(body.clone());
+        for (name, value) in &headers {
+            if name != "host" {
+                request = request.header(name.as_str(), value.as_str());
+            }
+        }
+        let (error, retryable, throttling) = match request.send().await {
+            Err(error) => (anyhow::Error::new(error), true, false),
+            Ok(response) => {
+                let status = response.status().as_u16();
+                let text = response.text().await.unwrap_or_default();
+                if (200..300).contains(&status) {
+                    return Ok(text);
+                }
+                let code = xml_tag(&text, "Code").unwrap_or_default();
+                let throttling = status == 429 || STS_THROTTLING_CODES.contains(&code.as_str());
+                let transient = [500, 502, 503, 504].contains(&status)
+                    || ["TimeoutError", "RequestTimeout", "RequestTimeoutException"].contains(&code.as_str());
+                (sts_error(status, &text), throttling || transient, throttling)
+            }
+        };
+        if !retryable || attempt >= max {
+            return Err(error);
+        }
+        let base = if throttling { 500.0 } else { 100.0 };
+        let delay = (rand::random::<f64>() * (base * 2f64.powi(attempt as i32 - 1)).min(20_000.0)).floor();
+        tokio::time::sleep(Duration::from_millis(delay as u64)).await;
+        attempt += 1;
+    }
+}
+
+/// `THROTTLING_ERROR_CODES` of `@smithy/service-error-classification`.
+const STS_THROTTLING_CODES: [&str; 14] = [
+    "BandwidthLimitExceeded",
+    "EC2ThrottledException",
+    "LimitExceededException",
+    "PriorRequestNotComplete",
+    "ProvisionedThroughputExceededException",
+    "RequestLimitExceeded",
+    "RequestThrottled",
+    "RequestThrottledException",
+    "SlowDown",
+    "ThrottledException",
+    "Throttling",
+    "ThrottlingException",
+    "TooManyRequestsException",
+    "TransactionInProgressException",
+];
 
 /// Inputs shared by every credential source.
 #[derive(Clone)]
@@ -251,6 +504,11 @@ pub struct CredentialContext {
     pub client: reqwest::Client,
     /// The region of the calling client, used for STS when the profile names none.
     pub region: Option<String>,
+    /// The calling client's `userAgentAppId` (nested clients inherit it).
+    pub app_id: Option<String>,
+    /// The region of the chain's role assumer, fixed by the first assume-role profile resolved
+    /// (`None` until then).
+    pub role_assumer_region: Option<String>,
 }
 
 async fn assume_role(
@@ -259,41 +517,35 @@ async fn assume_role(
     role_arn: &str,
     context: &CredentialContext,
 ) -> anyhow::Result<AwsCredentials> {
-    let region = profile.get("region").cloned().or_else(|| context.region.clone()).unwrap_or_else(|| "us-east-1".into());
-    let session_name = profile.get("role_session_name").cloned().unwrap_or_else(|| format!("aws-sdk-js-{}", crate::utils::now_ms()));
-    let mut pairs: Vec<(&str, &str)> =
-        vec![("Action", "AssumeRole"), ("Version", "2011-06-15"), ("RoleArn", role_arn), ("RoleSessionName", &session_name)];
+    // `fromIni` creates one role assumer for the whole chain, configured with the region of the
+    // first assume-role profile it resolves (`role_assumer_region`), then the calling client's.
+    let region = context
+        .role_assumer_region
+        .clone()
+        .or_else(|| profile.get("region").cloned())
+        .or_else(|| context.region.clone())
+        .unwrap_or_else(|| sts_default_region(None));
+    let session_name = profile
+        .get("role_session_name")
+        .filter(|s| !s.is_empty())
+        .cloned()
+        .unwrap_or_else(|| format!("aws-sdk-js-{}", crate::utils::now_ms()));
+    // `parseInt(profileData.duration_seconds || "3600", 10)`: always sent.
+    let duration = js_parse_int_string(profile.get("duration_seconds").filter(|d| !d.is_empty()).map(String::as_str).unwrap_or("3600"));
+    // `AssumeRoleRequest` member order: RoleArn, RoleSessionName, ..., DurationSeconds, ..., ExternalId.
+    let mut members: Vec<(&str, &str)> = vec![("RoleArn", role_arn), ("RoleSessionName", &session_name), ("DurationSeconds", &duration)];
     if let Some(external) = profile.get("external_id") {
-        pairs.push(("ExternalId", external));
+        members.push(("ExternalId", external));
     }
-    if let Some(duration) = profile.get("duration_seconds") {
-        pairs.push(("DurationSeconds", duration));
-    }
-    let body = form(&pairs);
-    let url = url::Url::parse(&sts_endpoint(&region))?;
-    let host = url.host_str().unwrap_or_default().to_string();
-    let headers =
-        vec![("host".to_string(), host), ("content-type".to_string(), "application/x-www-form-urlencoded".to_string())];
-    let signed = sign_request(
-        &SignableRequest { method: "POST", url: &url, headers: &headers, body: body.as_bytes() },
-        source,
-        &region,
-        "sts",
-        crate::utils::now_ms(),
-    );
-    let mut request = context.client.post(url.clone()).body(body);
-    for (name, value) in headers.iter().chain(signed.iter()) {
-        if name != "host" {
-            request = request.header(name.as_str(), value.as_str());
-        }
-    }
-    let response = request.send().await?;
-    let status = response.status().as_u16();
-    let text = response.text().await.unwrap_or_default();
-    if !(200..300).contains(&status) {
-        return Err(sts_error(status, &text));
-    }
+    let text = sts_request(context, &region, query_body("AssumeRole", &members), Some(source)).await?;
     sts_credentials(&text)
+}
+
+/// `stsRegionDefaultResolver`: `AWS_REGION`, the profile's region, else us-east-1.
+fn sts_default_region(profile: Option<&str>) -> String {
+    env("AWS_REGION")
+        .or_else(|| profile_region(profile))
+        .unwrap_or_else(|| "us-east-1".into())
 }
 
 async fn assume_role_with_web_identity(
@@ -308,26 +560,14 @@ async fn assume_role_with_web_identity(
         .map_err(|e| anyhow::anyhow!(node_fs_error(&e, "open", std::path::Path::new(token_file))))?;
     let token: String = token.iter().map(|b| (b & 0x7f) as char).collect();
     let session = session_name.map(str::to_string).unwrap_or_else(|| format!("aws-sdk-js-session-{}", crate::utils::now_ms()));
-    let region = region.map(str::to_string).or_else(|| context.region.clone()).unwrap_or_else(|| "us-east-1".into());
-    let body = form(&[
-        ("Action", "AssumeRoleWithWebIdentity"),
-        ("Version", "2011-06-15"),
-        ("RoleArn", role_arn),
-        ("RoleSessionName", &session),
-        ("WebIdentityToken", token.as_str()),
-    ]);
-    let response = context
-        .client
-        .post(sts_endpoint(&region))
-        .header("content-type", "application/x-www-form-urlencoded")
-        .body(body)
-        .send()
-        .await?;
-    let status = response.status().as_u16();
-    let text = response.text().await.unwrap_or_default();
-    if !(200..300).contains(&status) {
-        return Err(sts_error(status, &text));
-    }
+    // `fromWebToken` builds its own STS client: the calling client's region (`callerClientConfig`),
+    // never the profile's.
+    let region = region.map(str::to_string).or_else(|| context.region.clone()).unwrap_or_else(|| sts_default_region(None));
+    let body = query_body(
+        "AssumeRoleWithWebIdentity",
+        &[("RoleArn", role_arn), ("RoleSessionName", &session), ("WebIdentityToken", token.as_str())],
+    );
+    let text = sts_request(context, &region, body, None).await?;
     sts_credentials(&text)
 }
 
@@ -744,20 +984,57 @@ async fn from_login(profile: &Profile, context: &CredentialContext) -> anyhow::R
     }
     let region = profile.get("region").cloned().or_else(|| context.region.clone()).or_else(|| env("AWS_REGION")).unwrap_or_default();
     let endpoint = format!("{}/v1/token", signin_endpoint(&region));
-    let dpop = dpop_proof(fresh["dpopKey"].as_str().unwrap_or_default(), "POST", &endpoint)?;
     let body = serde_json::json!({
         "clientId": fresh["clientId"],
         "grantType": "refresh_token",
         "refreshToken": fresh["refreshToken"],
     });
-    let response = context
-        .client
-        .post(&endpoint)
-        .header("content-type", "application/json")
-        .header("DPoP", dpop)
-        .body(body.to_string())
-        .send()
-        .await;
+    // The `SigninClient` request: SDK user agent, invocation id, standard retries, and a new
+    // DPoP proof per attempt (the interceptor runs inside the retry middleware).
+    let (user_agent, x_amz_user_agent) =
+        aws_sdk_user_agent(AWS_NESTED_CLIENTS_VERSION, "Signin", &[], context.app_id.as_deref());
+    let invocation_id = uuid::Uuid::new_v4().to_string();
+    let max = aws_max_attempts();
+    let mut attempt = 1u32;
+    let response = loop {
+        let dpop = dpop_proof(fresh["dpopKey"].as_str().unwrap_or_default(), "POST", &endpoint)?;
+        let result = context
+            .client
+            .post(&endpoint)
+            .header("content-type", "application/json")
+            .header("x-amz-user-agent", &x_amz_user_agent)
+            .header("user-agent", &user_agent)
+            .header("amz-sdk-invocation-id", &invocation_id)
+            .header("amz-sdk-request", format!("attempt={attempt}; max={max}"))
+            .header("DPoP", dpop)
+            .body(body.to_string())
+            .send()
+            .await;
+        let (retryable, throttling) = match &result {
+            Err(_) => (true, false),
+            Ok(response) if response.status().is_success() => (false, false),
+            Ok(response) => {
+                let status = response.status().as_u16();
+                let name = response
+                    .headers()
+                    .get("x-amzn-errortype")
+                    .and_then(|v| v.to_str().ok())
+                    .map(|t| t.split(':').next().unwrap_or_default().to_string())
+                    .unwrap_or_default();
+                let throttling = status == 429 || super::bedrock_converse_stream::THROTTLING_CODES.contains(&name.as_str());
+                let transient = super::bedrock_converse_stream::TRANSIENT_STATUSES.contains(&status)
+                    || super::bedrock_converse_stream::TRANSIENT_CODES.contains(&name.as_str());
+                (throttling || transient, throttling)
+            }
+        };
+        if !retryable || attempt >= max {
+            break result;
+        }
+        let base = if throttling { 500.0 } else { 100.0 };
+        let delay = (rand::random::<f64>() * 2f64.powi(attempt as i32 - 1) * base).min(20_000.0);
+        tokio::time::sleep(Duration::from_millis(delay as u64)).await;
+        attempt += 1;
+    };
     let fresh_unexpired = |error: String| -> anyhow::Result<AwsCredentials> {
         if expiry(&fresh) > crate::utils::now_ms() {
             return Ok(login_credentials(&fresh["accessToken"]));
@@ -951,6 +1228,24 @@ async fn resolve_assume_role(
     visited: Vec<String>,
     top: &str,
 ) -> anyhow::Result<AwsCredentials> {
+    // `options.roleAssumer ??= getDefaultRoleAssumer({ parentClientConfig: { region: profile.region
+    // ?? callerClientConfig.region } })`: the first assume-role profile fixes the STS region.
+    let fixed_context;
+    let context = if context.role_assumer_region.is_none() {
+        fixed_context = CredentialContext {
+            role_assumer_region: Some(
+                profile
+                    .get("region")
+                    .cloned()
+                    .or_else(|| context.region.clone())
+                    .unwrap_or_else(|| sts_default_region(None)),
+            ),
+            ..context.clone()
+        };
+        &fixed_context
+    } else {
+        context
+    };
     let source_profile = profile.get("source_profile").cloned();
     if let Some(source) = &source_profile
         && visited.contains(source)
@@ -1058,16 +1353,6 @@ pub async fn from_imds(client: &reqwest::Client) -> anyhow::Result<AwsCredential
     parse_metadata_credentials(&data)
 }
 
-fn cached(key: &str) -> Option<AwsCredentials> {
-    CACHE.lock().get(key).filter(|c| c.expiration_ms.is_some_and(|e| e - EXPIRY_WINDOW_MS > crate::utils::now_ms())).cloned()
-}
-
-fn store(key: &str, credentials: &AwsCredentials) {
-    if credentials.expiration_ms.is_some() {
-        CACHE.lock().insert(key.to_string(), credentials.clone());
-    }
-}
-
 /// Continue with the next chain link unless the error stops the chain.
 fn next_link(error: anyhow::Error) -> anyhow::Result<()> {
     match error.downcast_ref::<CredentialsProviderError>() {
@@ -1091,15 +1376,10 @@ pub async fn default_provider(profile: Option<&str>, context: &CredentialContext
     let profile_name = configured_profile.clone().unwrap_or_else(|| "default".into());
     let shared = SharedConfig::load();
 
-    let key = format!("profile:{profile_name}");
-    if let Some(credentials) = cached(&key) {
-        return Ok(credentials);
-    }
+    // TS builds a new client (and credential chain) per request: nothing is cached across
+    // requests except the shared config file contents.
     match resolve_profile(&profile_name, &shared, context, Vec::new(), false, &profile_name).await {
-        Ok(credentials) => {
-            store(&key, &credentials);
-            return Ok(credentials);
-        }
+        Ok(credentials) => return Ok(credentials),
         Err(error) => next_link(error)?,
     }
 
@@ -1119,32 +1399,14 @@ pub async fn default_provider(profile: Option<&str>, context: &CredentialContext
     // `fromTokenFile`.
     match (env("AWS_WEB_IDENTITY_TOKEN_FILE"), env("AWS_ROLE_ARN")) {
         (Some(token_file), Some(role_arn)) => {
-            let key = format!("web-identity:{role_arn}");
-            if let Some(credentials) = cached(&key) {
-                return Ok(credentials);
-            }
-            let credentials =
-                assume_role_with_web_identity(&role_arn, &token_file, env("AWS_ROLE_SESSION_NAME").as_deref(), None, context)
-                    .await?;
-            store(&key, &credentials);
-            return Ok(credentials);
+            return assume_role_with_web_identity(&role_arn, &token_file, env("AWS_ROLE_SESSION_NAME").as_deref(), None, context)
+                .await;
         }
         _ => next_link(provider_error("Web identity configuration not specified"))?,
     }
 
-    let remote_key = if env("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI").is_some() || env("AWS_CONTAINER_CREDENTIALS_FULL_URI").is_some() {
-        "container"
-    } else {
-        "imds"
-    };
-    if let Some(credentials) = cached(remote_key) {
-        return Ok(credentials);
-    }
     match remote_provider(&context.client).await {
-        Ok(credentials) => {
-            store(remote_key, &credentials);
-            return Ok(credentials);
-        }
+        Ok(credentials) => return Ok(credentials),
         Err(error) => next_link(error)?,
     }
     Err(terminal(NO_CREDENTIALS))
@@ -1213,7 +1475,7 @@ mod tests {
     }
 
     fn context() -> CredentialContext {
-        CredentialContext { client: reqwest::Client::new(), region: Some("us-east-1".into()) }
+        CredentialContext { client: reqwest::Client::new(), region: Some("us-east-1".into()), app_id: None, role_assumer_region: None }
     }
 
     fn chain_error(error: anyhow::Error) -> (String, Option<bool>) {

@@ -1113,3 +1113,38 @@ fn tool_list_helpers() {
         vec!["read".to_string(), "grep".to_string()]
     );
 }
+
+// suite/regressions/8337-utf8-bom-parsing.test.ts
+#[tokio::test]
+async fn loads_frontmatter_and_settings_with_a_leading_bom() {
+    let split = crate::utils::text::split_bom("\u{FEFF}content");
+    assert_eq!((split.bom.as_str(), split.text.as_str()), ("\u{FEFF}", "content"));
+    let parsed = crate::utils::frontmatter::parse_frontmatter("\u{FEFF}---\nname: demo\ndescription: Test\n---\nBody").unwrap();
+    assert_eq!(parsed.frontmatter, json!({ "name": "demo", "description": "Test" }));
+    assert_eq!(parsed.body, "Body");
+
+    let dirs = Dirs::new();
+    std::fs::write(dirs.global_path(), format!("\u{FEFF}{}", json!({ "defaultModel": "global-model" }))).unwrap();
+    std::fs::write(dirs.project_path(), format!("\u{FEFF}{}", json!({ "defaultProvider": "project-provider" }))).unwrap();
+    let settings = dirs.manager();
+    assert_eq!(settings.get_default_model().as_deref(), Some("global-model"));
+    assert_eq!(settings.get_default_provider().as_deref(), Some("project-provider"));
+
+    settings.set_theme("dark");
+    settings.flush().await.unwrap();
+    assert!(!std::fs::read_to_string(dirs.global_path()).unwrap().starts_with('\u{FEFF}'));
+}
+
+// suite/regressions/7572-provider-retry-settings-merge.test.ts
+#[test]
+fn preserves_global_provider_retry_settings_not_overridden_by_the_project() {
+    let storage = storage_with(
+        Some(json!({ "retry": { "provider": { "timeoutMs": 30000, "maxRetryDelayMs": 45000 } } })),
+        Some(json!({ "retry": { "provider": { "maxRetries": 2 } } })),
+    );
+    let settings = SettingsManager::from_storage(storage, None);
+    let retry = settings.get_provider_retry_settings();
+    assert_eq!(retry.timeout_ms, Some(30000));
+    assert_eq!(retry.max_retries, Some(2));
+    assert_eq!(retry.max_retry_delay_ms, 45000);
+}

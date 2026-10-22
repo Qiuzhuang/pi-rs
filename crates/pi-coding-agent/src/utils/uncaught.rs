@@ -174,3 +174,72 @@ pub async fn supervise<F: Future>(future: F) -> F::Output {
         Err(payload) => report_uncaught(payload),
     }
 }
+
+/// `tokio::spawn` for a detached task: a panic in it is reported as uncaught (see [`supervise`]).
+/// Use it whenever the `JoinHandle` is dropped or only used to abort the task; keep plain
+/// `tokio::spawn` where the handle is awaited and its `JoinError` handled.
+pub fn spawn<F>(future: F) -> tokio::task::JoinHandle<F::Output>
+where
+    F: Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    tokio::spawn(supervise(future))
+}
+
+/// [`spawn`] on a specific runtime handle.
+pub fn spawn_on<F>(handle: &tokio::runtime::Handle, future: F) -> tokio::task::JoinHandle<F::Output>
+where
+    F: Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    handle.spawn(supervise(future))
+}
+
+/// Wrap a thread body so that a panic escaping it is reported as uncaught (TS: an exception
+/// thrown from a timer or I/O callback reaches `uncaughtException`).
+pub fn supervise_fn<F, T>(f: F) -> impl FnOnce() -> T + Send + 'static
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: 'static,
+{
+    move || match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+        Ok(value) => value,
+        Err(payload) => report_uncaught(payload),
+    }
+}
+
+/// `std::thread::spawn` for a detached thread whose panics are reported as uncaught.
+pub fn spawn_thread<F, T>(f: F) -> std::thread::JoinHandle<T>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    std::thread::spawn(supervise_fn(f))
+}
+
+#[cfg(test)]
+mod spawn_tests {
+    use super::*;
+
+    static REPORTS: parking_lot::Mutex<Vec<String>> = parking_lot::Mutex::new(Vec::new());
+
+    fn reported(message: &str) -> bool {
+        REPORTS.lock().iter().any(|m| m == message)
+    }
+
+    #[test]
+    fn detached_task_and_thread_panics_reach_the_uncaught_handler() {
+        const OWNER: u64 = 0x5eed_0001;
+        set_uncaught_handler(OWNER, Some(Arc::new(|error| REPORTS.lock().push(error.to_string()))), true);
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let result = rt.block_on(async { spawn(async { panic!("task boom") }).await });
+        assert!(result.is_err());
+        assert!(reported("task boom"));
+        let joined = spawn_thread(|| panic!("thread boom")).join();
+        assert!(joined.is_err());
+        assert!(reported("thread boom"));
+        // Ordinary results pass through.
+        assert_eq!(spawn_thread(|| 7).join().unwrap(), 7);
+        set_uncaught_handler(OWNER, None, false);
+    }
+}

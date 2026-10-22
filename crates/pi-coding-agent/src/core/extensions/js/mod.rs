@@ -292,10 +292,10 @@ impl Drop for SignalGuard {
 pub(crate) fn tokio_spawn(fut: impl std::future::Future<Output = ()> + Send + 'static) {
     match tokio::runtime::Handle::try_current() {
         Ok(handle) => {
-            handle.spawn(fut);
+            crate::utils::uncaught::spawn_on(&handle, fut);
         }
         Err(_) => {
-            std::thread::spawn(move || futures::executor::block_on(fut));
+            crate::utils::uncaught::spawn_thread(move || futures::executor::block_on(fut));
         }
     }
 }

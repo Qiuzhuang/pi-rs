@@ -529,7 +529,7 @@ impl LlamaClient {
         };
         let client = self.clone();
         let token = watcher.clone();
-        tokio::spawn(async move {
+        crate::utils::uncaught::spawn(async move {
             let _ = client.watch(on_event, Some(token)).await;
         });
         watcher

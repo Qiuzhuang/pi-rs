@@ -365,7 +365,7 @@ impl ArminComponent {
             let ui = Arc::downgrade(&ui);
             std::thread::Builder::new()
                 .name("armin".into())
-                .spawn(move || {
+                .spawn(crate::utils::uncaught::supervise_fn(move || {
                     let frame = Duration::from_micros(1_000_000 / fps);
                     loop {
                         std::thread::sleep(frame);
@@ -386,7 +386,7 @@ impl ArminComponent {
                             break;
                         }
                     }
-                })
+                }))
                 .ok();
         }
 

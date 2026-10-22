@@ -547,10 +547,10 @@ fn normalized_to_options(options: &NormalizedBuildSystemPromptOptions) -> BuildS
 fn spawn_detached(fut: BoxFuture<'static, ()>) {
     match tokio::runtime::Handle::try_current() {
         Ok(handle) => {
-            handle.spawn(fut);
+            crate::utils::uncaught::spawn_on(&handle, fut);
         }
         Err(_) => {
-            std::thread::spawn(move || futures::executor::block_on(fut));
+            crate::utils::uncaught::spawn_thread(move || futures::executor::block_on(fut));
         }
     }
 }

@@ -1290,7 +1290,7 @@ impl Inner {
             self.spawn(async move {
                 let signal = tokio_util::sync::CancellationToken::new();
                 let timeout_signal = signal.clone();
-                let timer = tokio::spawn(async move {
+                let timer = crate::utils::uncaught::spawn(async move {
                     tokio::time::sleep(std::time::Duration::from_secs(15)).await;
                     timeout_signal.cancel();
                 });
@@ -2202,6 +2202,15 @@ impl Inner {
                 this.handle_terminal_error(error);
             }
         })));
+        // stdout/stderr: once the terminal is gone, writes fail with EIO/EPIPE/ENOTCONN.
+        let weak = self.weak.clone();
+        pi_tui::terminal::set_output_error_handler(Some(Arc::new(move |error: &std::io::Error| {
+            if let Some(this) = weak.upgrade()
+                && this.signal_generation.load(Ordering::SeqCst) == generation
+            {
+                this.handle_terminal_error(error);
+            }
+        })));
 
         // Restore the terminal before the process dies on any uncaught panic (see
         // `utils::uncaught`). Without this, a panic leaves the terminal in raw mode with no cursor.
@@ -2223,12 +2232,13 @@ impl Inner {
         let generation = self.signal_generation.swap(0, Ordering::SeqCst);
         if generation != 0 {
             pi_tui::terminal::set_stdin_error_handler(None);
+            pi_tui::terminal::set_output_error_handler(None);
             crate::utils::uncaught::set_uncaught_handler(generation, None, false);
         }
     }
 
-    /// TS `terminalErrorHandler` for stdin errors: a dead terminal exits with 129; anything else is
-    /// rethrown and ends in the uncaught-exception handler.
+    /// TS `terminalErrorHandler` for stdin/stdout/stderr errors: a dead terminal exits with 129;
+    /// anything else is rethrown and ends in the uncaught-exception handler.
     pub(crate) fn handle_terminal_error(&self, error: &std::io::Error) {
         if is_dead_terminal_error(error) {
             self.emergency_terminal_exit();

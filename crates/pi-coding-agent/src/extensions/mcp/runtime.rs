@@ -755,7 +755,7 @@ impl McpServerConnection {
         let on_shutdown = {
             let shutdown = self.shutdown.clone();
             let close_client = close_client.clone();
-            tokio::spawn(async move {
+            crate::utils::uncaught::spawn(async move {
                 shutdown.cancelled().await;
                 close_client.await;
             })
@@ -777,7 +777,7 @@ impl McpServerConnection {
                 let _ = client.on_notification("notifications/tools/list_changed", move |_| {
                     if let Some(this) = this.upgrade() {
                         let client = notified.clone();
-                        tokio::spawn(async move { this.refresh_tools(id, client).await });
+                        crate::utils::uncaught::spawn(async move { this.refresh_tools(id, client).await });
                     }
                 });
             }

@@ -140,7 +140,7 @@ fn query_startup_terminal_colors(ui: Arc<Tui>, on_colors: Arc<dyn Fn() + Send + 
             ui.request_render(false);
         }
     });
-    tokio::spawn(async move {
+    crate::utils::uncaught::spawn(async move {
         let _ = request_terminal_colors(ui, apply).await;
     });
 }

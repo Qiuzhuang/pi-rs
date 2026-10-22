@@ -519,7 +519,7 @@ fn any_token(a: &CancellationToken, b: &CancellationToken) -> CancellationToken 
         return combined;
     }
     let (b, watcher) = (b.clone(), combined.clone());
-    tokio::spawn(async move {
+    crate::utils::uncaught::spawn(async move {
         tokio::select! {
             _ = b.cancelled() => watcher.cancel(),
             _ = watcher.cancelled() => {}
@@ -593,7 +593,7 @@ fn ptr_in(servers: &[ServerRef], server: &ServerRef) -> bool {
 fn ready_future(future: impl std::future::Future<Output = ()> + Send + 'static) -> McpReady {
     let shared = future.boxed().shared();
     // Promises run whether or not anyone awaits them.
-    tokio::spawn(shared.clone());
+    crate::utils::uncaught::spawn(shared.clone());
     shared
 }
 
@@ -784,7 +784,7 @@ impl McpExtension {
         .shared();
         self.background.lock().insert(id, done);
         let this = self.this.clone();
-        tokio::spawn(async move {
+        crate::utils::uncaught::spawn(async move {
             let result = work.await;
             if let Some(this) = this.upgrade() {
                 this.background.lock().remove(&id);

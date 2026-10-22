@@ -333,7 +333,7 @@ impl IntervalHandle {
     pub fn start(period: std::time::Duration, tick: Arc<dyn Fn() + Send + Sync>) -> Self {
         let stopped = Arc::new(AtomicBool::new(false));
         let flag = stopped.clone();
-        std::thread::spawn(move || {
+        crate::utils::uncaught::spawn_thread(move || {
             loop {
                 std::thread::sleep(period);
                 if flag.load(Ordering::SeqCst) {

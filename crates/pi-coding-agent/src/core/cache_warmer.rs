@@ -564,7 +564,7 @@ impl CacheWarmer {
             // No runtime to run the timer on: warming cannot proceed.
             return;
         }
-        run.timer = Some(tokio::spawn(async move {
+        run.timer = Some(crate::utils::uncaught::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(wait)).await;
             if let Some(warmer) = weak.upgrade() {
                 warmer.refresh(run_id).await;
@@ -1019,7 +1019,7 @@ mod tests {
                     calls.lock().push((model.clone(), stream_options));
                     let (sender, stream) = AssistantMessageEventStream::new();
                     let result = result.clone();
-                    tokio::spawn(async move {
+                    crate::utils::uncaught::spawn(async move {
                         let message = result(model).await;
                         sender.end(Some(message));
                     });

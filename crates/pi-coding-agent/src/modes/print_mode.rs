@@ -251,7 +251,7 @@ impl PrintModeState {
 /// Register SIGTERM (and SIGHUP on Unix) handlers that kill detached children, dispose the
 /// runtime and exit with 143 / 129. Returns the handler task (abort it to unregister).
 fn register_signal_handlers(state: Arc<PrintModeState>) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(async move {
+    crate::utils::uncaught::spawn(async move {
         #[cfg(unix)]
         {
             use tokio::signal::unix::{SignalKind, signal};

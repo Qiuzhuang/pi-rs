@@ -476,7 +476,7 @@ impl ShellRun {
         let mut updates = self.updates.lock();
         if updates.timer.is_none() {
             let run = Arc::downgrade(self);
-            updates.timer = Some(tokio::spawn(async move {
+            updates.timer = Some(crate::utils::uncaught::spawn(async move {
                 tokio::time::sleep(Duration::from_millis(delay as u64)).await;
                 if let Some(run) = run.upgrade() {
                     run.updates.lock().timer = None;

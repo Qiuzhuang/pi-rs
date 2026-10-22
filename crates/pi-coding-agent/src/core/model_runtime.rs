@@ -238,7 +238,7 @@ fn to_provider_env(env: &IndexMap<String, String>) -> pi_ai::types::ProviderEnv 
 
 fn spawn_detached(future: futures::future::BoxFuture<'static, ()>) {
     if let Ok(handle) = tokio::runtime::Handle::try_current() {
-        handle.spawn(future);
+        crate::utils::uncaught::spawn_on(&handle, future);
     }
 }
 
@@ -399,7 +399,7 @@ impl ModelRuntime {
                 let combined = CancellationToken::new();
                 let target = combined.clone();
                 let caller = options.signal.clone();
-                let watcher = tokio::spawn(async move {
+                let watcher = crate::utils::uncaught::spawn(async move {
                     let caller_cancelled = async {
                         match caller {
                             Some(caller) => caller.cancelled().await,

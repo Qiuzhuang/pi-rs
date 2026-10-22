@@ -816,7 +816,7 @@ fn spawn_detached(future: impl std::future::Future<Output = ()> + Send + 'static
         return;
     }
     // The task polls again with a real waker before anything can be missed.
-    handle.spawn(future);
+    crate::utils::uncaught::spawn_on(&handle, future);
 }
 
 /// Request auth for one provider request.

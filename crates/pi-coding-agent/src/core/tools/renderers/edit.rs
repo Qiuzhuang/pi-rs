@@ -285,7 +285,7 @@ where
             handle.spawn(future);
         }
         Err(_) => {
-            std::thread::spawn(move || {
+            crate::utils::uncaught::spawn_thread(move || {
                 if let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build() {
                     runtime.block_on(future);
                 }

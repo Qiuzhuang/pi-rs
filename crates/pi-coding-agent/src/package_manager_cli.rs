@@ -713,7 +713,7 @@ fn update_target_includes_extensions(target: &UpdateTarget) -> bool {
 async fn refresh_model_catalogs(agent_dir: &str) -> anyhow::Result<()> {
     let signal = tokio_util::sync::CancellationToken::new();
     let timer_signal = signal.clone();
-    let timer = tokio::spawn(async move {
+    let timer = crate::utils::uncaught::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_millis(15_000)).await;
         timer_signal.cancel();
     });

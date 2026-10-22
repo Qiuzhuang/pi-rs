@@ -949,7 +949,7 @@ async fn login(
     let timer = {
         let signal = signal.clone();
         let duration = Duration::from_millis(timeout_ms.max(0.0) as u64);
-        tokio::spawn(async move {
+        crate::utils::uncaught::spawn(async move {
             tokio::time::sleep(duration).await;
             signal.cancel();
         })

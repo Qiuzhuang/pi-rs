@@ -43,7 +43,7 @@ pub fn open_browser(target: &str) {
     }
     if let Ok(mut child) = command.spawn() {
         // Reap the launcher in the background so it does not linger as a zombie.
-        std::thread::spawn(move || {
+        crate::utils::uncaught::spawn_thread(move || {
             let _ = child.wait();
         });
     }

@@ -315,7 +315,7 @@ impl Component for LoginDialogComponent {
             && kb.matches(data, "app.message.copy")
         {
             if let Ok(handle) = tokio::runtime::Handle::try_current() {
-                handle.spawn(async move {
+                crate::utils::uncaught::spawn_on(&handle, async move {
                     let _ = auth_url.copy().await;
                 });
             }

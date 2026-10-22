@@ -366,7 +366,7 @@ impl RpcClient {
         // Collect stderr for debugging
         if let Some(mut stderr) = stderr {
             let inner = self.inner.clone();
-            tokio::spawn(async move {
+            crate::utils::uncaught::spawn(async move {
                 let mut buf = vec![0u8; 8192];
                 loop {
                     match stderr.read(&mut buf).await {
@@ -385,7 +385,7 @@ impl RpcClient {
         // Set up strict JSONL reader for stdout.
         if let Some(stdout) = stdout {
             let inner = self.inner.clone();
-            tokio::spawn(async move {
+            crate::utils::uncaught::spawn(async move {
                 let mut reader = JsonlLineReader::new(stdout);
                 while let Ok(Some(line)) = reader.next_line().await {
                     if inner.generation.load(Ordering::SeqCst) != generation {
@@ -403,7 +403,7 @@ impl RpcClient {
         // Watch for process exit.
         {
             let inner = self.inner.clone();
-            tokio::spawn(async move {
+            crate::utils::uncaught::spawn(async move {
                 loop {
                     let status = {
                         let mut process = inner.process.lock().await;

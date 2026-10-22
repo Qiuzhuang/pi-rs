@@ -1023,7 +1023,7 @@ fn start_theme_watcher() {
             let generation = THEME_RELOAD_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
             let watched_theme_name = watched_theme_name.clone();
             let theme_file = theme_file.clone();
-            std::thread::spawn(move || {
+            crate::utils::uncaught::spawn_thread(move || {
                 std::thread::sleep(std::time::Duration::from_millis(100));
                 if THEME_RELOAD_GENERATION.load(Ordering::SeqCst) != generation {
                     return;

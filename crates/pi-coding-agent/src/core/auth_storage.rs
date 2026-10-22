@@ -269,7 +269,7 @@ fn spawn_lock_updater(
 ) -> CancellationToken {
     let token = CancellationToken::new();
     let stop = token.clone();
-    tokio::spawn(async move {
+    crate::utils::uncaught::spawn(async move {
         let interval = stale / 2;
         let mut last = Instant::now();
         loop {

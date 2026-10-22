@@ -1088,9 +1088,9 @@ pub async fn play_easter_egg3d(tui: Arc<Tui>, screen: &[String], egg: &EasterEgg
 
 fn spawn_detached(future: BoxFuture<'static, ()>) {
     if let Ok(handle) = tokio::runtime::Handle::try_current() {
-        handle.spawn(future);
+        crate::utils::uncaught::spawn_on(&handle, future);
     } else {
-        std::thread::spawn(move || futures::executor::block_on(future));
+        crate::utils::uncaught::spawn_thread(move || futures::executor::block_on(future));
     }
 }
 
@@ -1684,7 +1684,7 @@ impl EasterEgg3dAnimation {
         let weak = Arc::downgrade(&inner);
         std::thread::Builder::new()
             .name("easter-egg-3d".into())
-            .spawn(move || {
+            .spawn(crate::utils::uncaught::supervise_fn(move || {
                 let frame = Duration::from_micros((FRAME_MS * 1000.0) as u64);
                 loop {
                     std::thread::sleep(frame);
@@ -1709,7 +1709,7 @@ impl EasterEgg3dAnimation {
                         tui.request_render(false);
                     }
                 }
-            })
+            }))
             .ok();
 
         Self { inner }

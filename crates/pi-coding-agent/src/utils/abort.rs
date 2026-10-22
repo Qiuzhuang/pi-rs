@@ -37,7 +37,7 @@ where
         return operation.await;
     };
     if signal.is_cancelled() {
-        tokio::spawn(async move {
+        crate::utils::uncaught::spawn(async move {
             let _ = operation.await;
         });
         return Err(OperationAbortedError.into());
@@ -47,7 +47,7 @@ where
         biased;
         result = &mut operation => result,
         _ = signal.cancelled() => {
-            tokio::spawn(async move {
+            crate::utils::uncaught::spawn(async move {
                 let _ = operation.await;
             });
             Err(OperationAbortedError.into())

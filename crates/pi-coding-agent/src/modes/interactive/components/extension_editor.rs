@@ -39,10 +39,10 @@ where
 {
     match tokio::runtime::Handle::try_current() {
         Ok(handle) => {
-            handle.spawn(future);
+            crate::utils::uncaught::spawn_on(&handle, future);
         }
         Err(_) => {
-            std::thread::spawn(move || {
+            crate::utils::uncaught::spawn_thread(move || {
                 if let Ok(rt) = tokio::runtime::Builder::new_current_thread().enable_all().build() {
                     rt.block_on(future);
                 }

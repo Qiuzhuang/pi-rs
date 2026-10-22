@@ -270,7 +270,7 @@ pub fn watch_file(path: &str, interval_ms: u64, listener: WatchFileListener) -> 
     let closed = watcher.closed.clone();
     let path = PathBuf::from(path);
     let mut previous = WatchFileStats::read(&path);
-    let spawned = std::thread::Builder::new().name("pi-watch-file".into()).spawn(move || {
+    let spawned = std::thread::Builder::new().name("pi-watch-file".into()).spawn(crate::utils::uncaught::supervise_fn(move || {
         loop {
             std::thread::sleep(Duration::from_millis(interval_ms.max(1)));
             if closed.load(Ordering::SeqCst) {
@@ -284,7 +284,7 @@ pub fn watch_file(path: &str, interval_ms: u64, listener: WatchFileListener) -> 
                 }
             }
         }
-    });
+    }));
     if spawned.is_err() {
         watcher.close();
     }

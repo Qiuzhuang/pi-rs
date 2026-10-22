@@ -202,6 +202,28 @@ async fn dead_terminal_stdin_errors_exit_with_129_without_recording_a_crash() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn dead_terminal_output_errors_exit_with_129_without_recording_a_crash() {
+    // TS registers the same `terminalErrorHandler` on stdout and stderr.
+    let _lock = LOCK.lock().await;
+    for code in [libc::EIO, libc::EPIPE, libc::ENOTCONN] {
+        let fx = Fixture::new(true).await;
+        // What `ProcessTerminal` reports when a write to stdout/stderr fails.
+        let _ = std::panic::catch_unwind(|| {
+            assert!(pi_tui::terminal::notify_output_error(&std::io::Error::from_raw_os_error(code)));
+        });
+        assert_eq!(*fx.exit_code.lock(), Some(129), "errno {code}");
+        assert!(fx.crashes().is_empty());
+        fx.cleanup();
+    }
+    // Other write errors end in the uncaught-exception handler.
+    let fx = Fixture::new(true).await;
+    assert!(pi_tui::terminal::notify_output_error(&std::io::Error::from_raw_os_error(libc::ENOSPC)));
+    assert_eq!(fx.wait_for_exit().await, 1);
+    assert_eq!(fx.crashes().len(), 1);
+    fx.cleanup();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn shortcut_context_shutdown_only_sets_the_shutdown_flag() {
     let _lock = LOCK.lock().await;
     let fx = Fixture::new(true).await;

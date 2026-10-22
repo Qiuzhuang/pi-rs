@@ -345,7 +345,7 @@ impl HuggingFaceSearch {
         let debounce = CancellationToken::new();
         self.state.lock().debounce = Some(debounce.clone());
         let this = self.this.clone();
-        tokio::spawn(async move {
+        crate::utils::uncaught::spawn(async move {
             tokio::select! {
                 _ = tokio::time::sleep(std::time::Duration::from_millis(500)) => {}
                 _ = debounce.cancelled() => return,
@@ -844,7 +844,7 @@ pub async fn show_llama_ui(ctx: &ExtensionCommandContext, run: LlamaUiRun) -> an
             let run = run.clone();
             let notify_ui = notify_ui.clone();
             let task_view = view.clone();
-            tokio::spawn(async move {
+            crate::utils::uncaught::spawn(async move {
                 if let Err(error) = run(task_view).await {
                     notify_ui.notify(&error.to_string(), NotifyType::Error);
                 }

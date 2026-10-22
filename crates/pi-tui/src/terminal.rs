@@ -81,6 +81,31 @@ pub fn notify_stdin_error(error: &std::io::Error) -> bool {
     }
 }
 
+/// Called when writing terminal output (stdout/stderr) fails (Node's `process.stdout` /
+/// `process.stderr` `"error"` event), e.g. `EIO` after a hangup or `EPIPE`/`ENOTCONN` for a
+/// closed pty. The write is abandoned after the handler returns.
+pub type OutputErrorHandler = Arc<dyn Fn(&std::io::Error) + Send + Sync>;
+
+static OUTPUT_ERROR_HANDLER: std::sync::Mutex<Option<OutputErrorHandler>> = std::sync::Mutex::new(None);
+
+/// Install (or clear) the handler run when writing terminal output fails.
+pub fn set_output_error_handler(handler: Option<OutputErrorHandler>) {
+    *OUTPUT_ERROR_HANDLER.lock().unwrap_or_else(|e| e.into_inner()) = handler;
+}
+
+/// Report a terminal output write error to the [`set_output_error_handler`] handler. Returns
+/// whether a handler was installed.
+pub fn notify_output_error(error: &std::io::Error) -> bool {
+    let handler = OUTPUT_ERROR_HANDLER.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    match handler {
+        Some(handler) => {
+            handler(error);
+            true
+        }
+        None => false,
+    }
+}
+
 #[cfg_attr(not(unix), allow(dead_code))]
 fn notify_stdin_end() {
     let handler = STDIN_END_HANDLER.lock().unwrap_or_else(|e| e.into_inner()).clone();
@@ -286,7 +311,13 @@ mod process {
                     let mut pfd = libc::pollfd { fd, events: libc::POLLOUT, revents: 0 };
                     unsafe { libc::poll(&mut pfd, 1, 100) };
                 }
-                _ => return,
+                _ => {
+                    // Like a Node stream "error" event on stdout/stderr.
+                    if n < 0 && (fd == libc::STDOUT_FILENO || fd == libc::STDERR_FILENO) {
+                        super::notify_output_error(&err);
+                    }
+                    return;
+                }
             }
         }
     }

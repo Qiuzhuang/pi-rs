@@ -114,9 +114,9 @@ fn canonicalize_path(path: Option<&str>) -> Option<String> {
 /// Run a future without awaiting it (TS: `void promise`).
 fn spawn_detached(future: BoxFuture<'static, ()>) {
     if let Ok(handle) = tokio::runtime::Handle::try_current() {
-        handle.spawn(future);
+        crate::utils::uncaught::spawn_on(&handle, future);
     } else {
-        std::thread::spawn(move || futures::executor::block_on(future));
+        crate::utils::uncaught::spawn_thread(move || futures::executor::block_on(future));
     }
 }
 
@@ -212,7 +212,7 @@ impl SessionSelectorHeader {
         let state = self.state.clone();
         let current = self.status_generation.clone();
         let request_render = self.request_render.clone();
-        std::thread::spawn(move || {
+        crate::utils::uncaught::spawn_thread(move || {
             std::thread::sleep(Duration::from_millis(auto_hide_ms));
             if current.load(Ordering::SeqCst) != generation {
                 return;

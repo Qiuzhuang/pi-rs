@@ -94,7 +94,7 @@ fn extension_load_failure_hint() -> String {
 fn timeout_signal(ms: u64) -> CancellationToken {
     let token = CancellationToken::new();
     let cancel = token.clone();
-    tokio::spawn(async move {
+    crate::utils::uncaught::spawn(async move {
         tokio::time::sleep(Duration::from_millis(ms)).await;
         cancel.cancel();
     });
@@ -1245,7 +1245,7 @@ pub async fn main(args: &[String], options: Option<&MainOptions>) -> anyhow::Res
     // RPC refreshes catalogs here in the background; interactive mode starts its refresh after TUI initialization.
     if !offline_mode && app_mode == AppMode::Rpc {
         let model_runtime = model_runtime.clone();
-        tokio::spawn(async move {
+        crate::utils::uncaught::spawn(async move {
             let _ = model_runtime
                 .refresh(Some(pi_ai::models::ModelsRefreshOptions {
                     signal: Some(timeout_signal(15_000)),

@@ -68,7 +68,7 @@ async fn configured_client(ctx: &ExtensionCommandContext) -> anyhow::Result<Opti
 fn timeout_signal(duration: Duration) -> CancellationToken {
     let token = CancellationToken::new();
     let timer = token.clone();
-    tokio::spawn(async move {
+    crate::utils::uncaught::spawn(async move {
         tokio::select! {
             _ = tokio::time::sleep(duration) => timer.cancel(),
             _ = timer.cancelled() => {}

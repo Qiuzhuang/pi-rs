@@ -359,7 +359,7 @@ impl RefreshLock {
             }
         }
         let renewed = path.clone();
-        let renew = tokio::spawn(async move {
+        let renew = crate::utils::uncaught::spawn(async move {
             loop {
                 tokio::time::sleep(Duration::from_millis(REFRESH_LOCK_STALE_MS / 2)).await;
                 if let Ok(dir) = std::fs::File::open(&renewed) {

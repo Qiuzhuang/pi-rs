@@ -107,7 +107,7 @@ impl RadiusLoginMenuComponent {
             let tui = Arc::downgrade(&tui);
             std::thread::Builder::new()
                 .name("radius-login-shimmer".into())
-                .spawn(move || {
+                .spawn(crate::utils::uncaught::supervise_fn(move || {
                     loop {
                         std::thread::sleep(Duration::from_millis(ANIMATION_FRAME_MS));
                         if stopped.load(Ordering::SeqCst) {
@@ -118,7 +118,7 @@ impl RadiusLoginMenuComponent {
                             tui.request_render(false);
                         }
                     }
-                })
+                }))
                 .ok();
         }
 

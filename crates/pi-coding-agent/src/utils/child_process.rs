@@ -99,7 +99,7 @@ pub async fn wait_for_child_process(
     where
         R: tokio::io::AsyncRead + Unpin + Send + 'static,
     {
-        tokio::spawn(async move {
+        crate::utils::uncaught::spawn(async move {
             let mut buf = vec![0u8; 64 * 1024];
             loop {
                 match reader.read(&mut buf).await {

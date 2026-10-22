@@ -419,7 +419,7 @@ impl McpUi for McpManagerView {
                 }
                 if matches_key(data, "app.message.copy") {
                     if let Some(link) = link.clone() {
-                        tokio::spawn(async move {
+                        crate::utils::uncaught::spawn(async move {
                             let _ = link.copy().await;
                         });
                     }
@@ -517,7 +517,7 @@ pub async fn show_mcp_manager(
         let manage = manage.clone();
         let notify_ui = notify_ui.clone();
         let managed: Arc<dyn McpUi> = view.clone();
-        tokio::spawn(async move {
+        crate::utils::uncaught::spawn(async move {
             if let Err(error) = manage(managed).await {
                 notify_ui.notify(&error.to_string(), NotifyType::Error);
             }

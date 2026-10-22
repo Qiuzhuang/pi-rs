@@ -150,7 +150,7 @@ fn get_sorted_ids(enabled_ids: &EnabledIds, all_ids: &[String]) -> Vec<String> {
 /// Run a callback future without awaiting it (TS: fire-and-forget promise).
 fn fire_and_forget(future: BoxFuture<'static, anyhow::Result<()>>) {
     if let Ok(handle) = tokio::runtime::Handle::try_current() {
-        handle.spawn(future);
+        crate::utils::uncaught::spawn_on(&handle, future);
     } else {
         let _ = future.now_or_never();
     }

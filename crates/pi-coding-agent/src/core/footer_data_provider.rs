@@ -147,10 +147,10 @@ static NEXT_TIMER_ID: AtomicU64 = AtomicU64::new(1);
 /// Start a timer thread that runs `fire(id)` after `delay`; `fire` checks the slot holds `id`.
 fn spawn_timer(delay: Duration, fire: impl FnOnce(u64) + Send + 'static) -> Timer {
     let id = NEXT_TIMER_ID.fetch_add(1, Ordering::SeqCst);
-    let _ = std::thread::Builder::new().name("pi-footer-timer".into()).spawn(move || {
+    let _ = std::thread::Builder::new().name("pi-footer-timer".into()).spawn(crate::utils::uncaught::supervise_fn(move || {
         std::thread::sleep(delay);
         fire(id);
-    });
+    }));
     Timer { id }
 }
 

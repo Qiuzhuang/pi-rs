@@ -371,7 +371,7 @@ impl InteractiveThemeController {
 /// on the pi-tui event loop.
 pub(crate) fn spawn_detached(future: impl std::future::Future<Output = ()> + Send + 'static) {
     if let Ok(handle) = tokio::runtime::Handle::try_current() {
-        handle.spawn(future);
+        crate::utils::uncaught::spawn_on(&handle, future);
     } else {
         pi_tui::event_loop::current().spawn_future(future);
     }

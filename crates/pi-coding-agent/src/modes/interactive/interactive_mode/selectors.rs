@@ -242,6 +242,10 @@ impl Inner {
                 (Some(provider), Some(model)) => format!("{provider}/{model}"),
                 _ => "not set".to_string(),
             };
+            // Read mode state up front: a guard temporary inside the struct literal would stay locked
+            // until the end of the statement and deadlock on the next `this.state` access.
+            let hide_thinking_block = this.state.lock().hide_thinking_block;
+            let tui_mode = this.tui_mode();
             let config = SettingsConfig {
                 auto_compact: session.auto_compaction_enabled(),
                 default_model,
@@ -270,7 +274,7 @@ impl Inner {
                     .unwrap_or_else(|| crate::modes::interactive::theme::theme::SYSTEM_THEME_NAME.to_string()),
                 terminal_theme: this.theme_controller.get_terminal_theme(),
                 available_themes: crate::modes::interactive::theme::theme::get_available_themes(),
-                hide_thinking_block: this.state.lock().hide_thinking_block,
+                hide_thinking_block,
                 mermaid_rendering_mode: settings.get_mermaid_rendering_mode(),
                 show_cache_miss_notices: settings.get_show_cache_miss_notices(),
                 collapse_changelog: settings.get_collapse_changelog(),
@@ -285,7 +289,7 @@ impl Inner {
                 default_project_trust: settings.get_default_project_trust(),
                 clear_on_shrink: settings.get_clear_on_shrink(),
                 show_terminal_progress: settings.get_show_terminal_progress(),
-                tui_mode: this.tui_mode(),
+                tui_mode,
                 fullscreen_exit_output: settings.get_fullscreen_exit_output(),
                 fullscreen_scrollbar: settings.get_fullscreen_scrollbar(),
                 fullscreen_copy_on_select: settings.get_fullscreen_copy_on_select(),
@@ -629,7 +633,7 @@ impl Inner {
         let timer = {
             let signal = signal.clone();
             let timed_out = timed_out.clone();
-            tokio::spawn(async move {
+            crate::utils::uncaught::spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_secs(15)).await;
                 timed_out.store(true, Ordering::SeqCst);
                 signal.cancel();
@@ -897,7 +901,7 @@ impl Inner {
                     let timer = {
                         let signal = signal.clone();
                         let timed_out = timed_out.clone();
-                        tokio::spawn(async move {
+                        crate::utils::uncaught::spawn(async move {
                             tokio::time::sleep(std::time::Duration::from_secs(15)).await;
                             timed_out.store(true, Ordering::SeqCst);
                             signal.cancel();
@@ -1298,7 +1302,7 @@ impl Inner {
         let signal = CancellationToken::new();
         let timer = {
             let signal = signal.clone();
-            tokio::spawn(async move {
+            crate::utils::uncaught::spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_secs(15)).await;
                 signal.cancel();
             })
@@ -1594,7 +1598,7 @@ impl Inner {
                         let signal = CancellationToken::new();
                         let timer = {
                             let signal = signal.clone();
-                            tokio::spawn(async move {
+                            crate::utils::uncaught::spawn(async move {
                                 tokio::time::sleep(std::time::Duration::from_secs(15)).await;
                                 signal.cancel();
                             })
@@ -1768,7 +1772,7 @@ impl Inner {
             let signal = CancellationToken::new();
             let timer = {
                 let signal = signal.clone();
-                tokio::spawn(async move {
+                crate::utils::uncaught::spawn(async move {
                     tokio::time::sleep(std::time::Duration::from_secs(15)).await;
                     signal.cancel();
                 })

@@ -1802,7 +1802,7 @@ impl TreeSelectorComponent {
         })));
 
         if tree.is_empty() {
-            std::thread::spawn(move || {
+            crate::utils::uncaught::spawn_thread(move || {
                 std::thread::sleep(Duration::from_millis(100));
                 on_cancel();
             });

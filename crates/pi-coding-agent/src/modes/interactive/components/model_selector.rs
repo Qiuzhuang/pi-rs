@@ -310,7 +310,7 @@ impl Inner {
         let timer = {
             let timed_out = timed_out.clone();
             let controller = self.refresh_abort_controller.clone();
-            tokio::spawn(async move {
+            crate::utils::uncaught::spawn(async move {
                 tokio::time::sleep(timeout).await;
                 timed_out.store(true, Ordering::SeqCst);
                 controller.cancel();
@@ -512,7 +512,7 @@ impl ModelSelectorComponent {
         }
         inner.tui.request_render(false);
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            handle.spawn(inner.clone().refresh_models());
+            crate::utils::uncaught::spawn_on(&handle, inner.clone().refresh_models());
         }
         Self { inner }
     }

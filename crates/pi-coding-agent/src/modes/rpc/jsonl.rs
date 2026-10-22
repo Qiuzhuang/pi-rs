@@ -111,7 +111,7 @@ where
 {
     let token = tokio_util::sync::CancellationToken::new();
     let task_token = token.clone();
-    tokio::spawn(async move {
+    crate::utils::uncaught::spawn(async move {
         let mut reader = JsonlLineReader::new(stream);
         loop {
             let line = tokio::select! {

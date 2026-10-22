@@ -260,6 +260,68 @@ pub(crate) fn dispatch(f: &str, args: &[Value]) -> Option<anyhow::Result<Value>>
                 Some(transcode) => json!(transcode(&s(0), &s(1))),
                 None => json!(false),
             },
+            "tuiKeybindings" => {
+                let mut out = Map::new();
+                for (id, definition) in pi_tui::keybindings::TUI_KEYBINDINGS.iter() {
+                    let keys = match &definition.default_keys {
+                        pi_tui::keybindings::KeySpec::One(k) => json!(k),
+                        pi_tui::keybindings::KeySpec::Many(k) => json!(k),
+                    };
+                    let mut entry = json!({ "defaultKeys": keys });
+                    if let Some(description) = &definition.description {
+                        entry["description"] = json!(description);
+                    }
+                    out.insert(id.clone(), entry);
+                }
+                Value::Object(out)
+            }
+            "renderLatex" => json!(pi_tui::latex::render_latex(
+                &s(0),
+                pi_tui::latex::RenderLatexOptions { display: a(1)["display"].as_bool() == Some(true) }
+            )),
+            "formatProgramStatus" => {
+                use pi_tui::program_status::{BlockedKind, ProgramState, ProgramStatus};
+                let o = a(0);
+                let state = match o["state"].as_str() {
+                    Some("working") => ProgramState::Working,
+                    Some("blocked") => ProgramState::Blocked,
+                    Some("done") => ProgramState::Done,
+                    Some("error") => ProgramState::Error,
+                    Some("clear") => ProgramState::Clear,
+                    _ => ProgramState::Idle,
+                };
+                let kind = match o["kind"].as_str() {
+                    Some("permission") => Some(BlockedKind::Permission),
+                    Some("question") => Some(BlockedKind::Question),
+                    Some("auth") => Some(BlockedKind::Auth),
+                    _ => None,
+                };
+                json!(pi_tui::program_status::format_program_status(&ProgramStatus {
+                    state,
+                    app: o["app"].as_str().map(str::to_string),
+                    kind,
+                    message: o["message"].as_str().map(str::to_string),
+                }))
+            }
+            "styleText" | "styleTextWithAnsi" => {
+                let o = if f == "styleText" { a(1) } else { a(3) };
+                let attrs = colors::TextAttributes {
+                    bold: o["bold"].as_bool().unwrap_or(false),
+                    dim: o["dim"].as_bool().unwrap_or(false),
+                    italic: o["italic"].as_bool().unwrap_or(false),
+                    underline: o["underline"].as_bool().unwrap_or(false),
+                    inverse: o["inverse"].as_bool().unwrap_or(false),
+                    strikethrough: o["strikethrough"].as_bool().unwrap_or(false),
+                };
+                if f == "styleText" {
+                    let color = |v: &Value| if v.is_object() { color_from(v).map(Some) } else { Ok(None) };
+                    let style = colors::TextStyle { attrs, fg: color(&o["fg"])?, bg: color(&o["bg"])? };
+                    json!(colors::style_text(&s(0), &style, mode_from(&a(2))))
+                } else {
+                    json!(colors::style_text_with_ansi(&s(0), a(1).as_str(), a(2).as_str(), &attrs))
+                }
+            }
+            "isAppleTerminalSession" => json!(pi_tui::terminal::is_apple_terminal_session()),
             "hyperlink" => json!(ti::hyperlink(&s(0), &s(1))),
             "imageFallback" => {
                 let dims = a(1);
@@ -277,7 +339,8 @@ pub(crate) fn dispatch(f: &str, args: &[Value]) -> Option<anyhow::Result<Value>>
         "setCapabilityOverrides", "getTerminalColorMode", "allocateImageId", "encodeKitty", "encodeITerm2",
         "deleteKittyImage", "deleteAllKittyImages", "calculateImageRows", "getPngDimensions", "getJpegDimensions",
         "getGifDimensions", "getWebpDimensions", "getImageDimensions", "renderImage", "hyperlink", "imageFallback",
-        "hostTranscodeToPng",
+        "hostTranscodeToPng", "tuiKeybindings", "renderLatex", "formatProgramStatus", "styleText", "styleTextWithAnsi",
+        "isAppleTerminalSession",
     ];
     NAMES.contains(&f).then(run)
 }

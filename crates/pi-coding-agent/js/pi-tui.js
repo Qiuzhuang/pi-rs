@@ -241,15 +241,107 @@ export function fuzzyFilter(items, query, getText) {
 // Keybindings
 // ---------------------------------------------------------------------------
 
-export const TUI_KEYBINDINGS = {};
+/** pi-tui's built-in keybinding definitions (from `pi_tui::keybindings::TUI_KEYBINDINGS`). */
+export const TUI_KEYBINDINGS = util("tuiKeybindings");
 
-export function getKeybindings() {
-	return keybindingsProxy(null);
+function normalizeKeys(keys) {
+	if (keys === undefined) return [];
+	const keyList = Array.isArray(keys) ? keys : [keys];
+	const seen = new Set();
+	const result = [];
+	for (const key of keyList) {
+		if (!seen.has(key)) {
+			seen.add(key);
+			result.push(key);
+		}
+	}
+	return result;
 }
 
-export function setKeybindings(_keybindings) {}
+// TS keybindings.ts
+export class KeybindingsManager {
+	keysById = new Map();
+	conflicts = [];
 
-export { KeybindingsProxy as KeybindingsManager };
+	constructor(definitions, userBindings = {}) {
+		this.definitions = definitions;
+		this.userBindings = userBindings;
+		this.rebuild();
+	}
+
+	rebuild() {
+		this.keysById.clear();
+		this.conflicts = [];
+		const userClaims = new Map();
+		for (const [keybinding, keys] of Object.entries(this.userBindings)) {
+			if (!(keybinding in this.definitions)) continue;
+			for (const key of normalizeKeys(keys)) {
+				const claimants = userClaims.get(key) ?? new Set();
+				claimants.add(keybinding);
+				userClaims.set(key, claimants);
+			}
+		}
+		for (const [key, keybindings] of userClaims) {
+			if (keybindings.size > 1) this.conflicts.push({ key, keybindings: [...keybindings] });
+		}
+		for (const [id, definition] of Object.entries(this.definitions)) {
+			const userKeys = this.userBindings[id];
+			const keys = userKeys === undefined ? normalizeKeys(definition.defaultKeys) : normalizeKeys(userKeys);
+			this.keysById.set(id, keys);
+		}
+	}
+
+	matches(data, keybinding) {
+		const keys = this.keysById.get(keybinding) ?? [];
+		for (const key of keys) {
+			if (matchesKey(data, key)) return true;
+		}
+		return false;
+	}
+
+	getKeys(keybinding) {
+		return [...(this.keysById.get(keybinding) ?? [])];
+	}
+
+	getDefinition(keybinding) {
+		return this.definitions[keybinding];
+	}
+
+	getConflicts() {
+		return this.conflicts.map((conflict) => ({ ...conflict, keybindings: [...conflict.keybindings] }));
+	}
+
+	setUserBindings(userBindings) {
+		this.userBindings = userBindings;
+		this.rebuild();
+	}
+
+	getUserBindings() {
+		return { ...this.userBindings };
+	}
+
+	getResolvedBindings() {
+		const resolved = {};
+		for (const id of Object.keys(this.definitions)) {
+			const keys = this.keysById.get(id) ?? [];
+			resolved[id] = keys.length === 1 ? keys[0] : [...keys];
+		}
+		return resolved;
+	}
+}
+
+// The global manager defaults to pi's live keybindings (the host's, with user configuration), as
+// extensions in TS share pi-tui's module state with pi. `setKeybindings()` replaces it for
+// JavaScript components; Rust-backed components keep using the host's bindings.
+let globalKeybindings = null;
+
+export function setKeybindings(keybindings) {
+	globalKeybindings = keybindings;
+}
+
+export function getKeybindings() {
+	return globalKeybindings ?? keybindingsProxy(null);
+}
 
 // ---------------------------------------------------------------------------
 // Components
@@ -2619,24 +2711,14 @@ export const TUI = unavailable("TUI");
 export const TuiMainScreen = unavailable("TuiMainScreen");
 export const ProcessTerminal = unavailable("ProcessTerminal");
 
-export function isAppleTerminalSession() {
-	return false;
-}
-export function getNativeClipboard() {
-	return undefined;
-}
-export function renderLatex(text) {
-	return String(text);
-}
-export function formatProgramStatus() {
-	return "";
-}
-export function styleText(text) {
-	return String(text);
-}
-export function styleTextWithAnsi(text) {
-	return String(text);
-}
+export const isAppleTerminalSession = () => util("isAppleTerminalSession");
+/** pi-rs has no native platform helper (`pi_tui::native_platform::get_native_clipboard()` is `None`). */
+export const getNativeClipboard = () => undefined;
+export const renderLatex = (source, options = {}) => util("renderLatex", String(source), options) ?? undefined;
+export const formatProgramStatus = (status) => util("formatProgramStatus", status);
+export const styleText = (text, options, mode) => util("styleText", String(text), options ?? {}, mode);
+export const styleTextWithAnsi = (text, fgAnsi, bgAnsi, options) =>
+	util("styleTextWithAnsi", String(text), fgAnsi ?? null, bgAnsi ?? null, options ?? {});
 
 
 // ---------------------------------------------------------------------------

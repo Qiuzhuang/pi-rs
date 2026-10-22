@@ -4,6 +4,7 @@
 //! missing or the npm registry is unreachable.
 
 mod extensions_support;
+mod support;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -12,6 +13,7 @@ use extensions_support::*;
 use pi_coding_agent::core::extensions::loader::load_extensions;
 use pi_coding_agent::core::extensions::runner::ExtensionRunner;
 use pi_coding_agent::core::package_manager::install_dependencies_with_builtin_npm;
+use pi_coding_agent::core::resource_loader::{DefaultResourceLoader, DefaultResourceLoaderOptions, ResourceLoader};
 use serde_json::{Value, json};
 
 fn copy_dir(from: &Path, to: &Path) {
@@ -70,4 +72,60 @@ async fn with_deps_resolves_its_own_node_modules() {
     assert_eq!(text_of(&result), "2 days = 172800000 milliseconds");
     let error = execute(&runner, "parse_duration", json!({ "duration": "soon" })).await.unwrap_err();
     assert!(error.to_string().contains("Invalid duration: \"soon\""), "{error:#}");
+}
+
+/// `custom-provider-anthropic`: the example's own Anthropic SDK client (`@anthropic-ai/sdk` from its
+/// `node_modules`) streams a reply through pi's model runtime. The example's base URL is pointed at
+/// a local mock of the Messages API.
+///
+/// Ignored: Boa 0.22's scope analyzer does not visit the computed name of a class method
+/// (`boa_ast::scope_analyzer`, `visit_class_element_mut`, `ClassElement::MethodDefinition`), so
+/// functions created in a computed method key (`[(_x = function () { ... }, Symbol.asyncIterator)]()`,
+/// which tsc emits for private methods, e.g. the SDK's `MessageStream`) cannot see module bindings
+/// and throw `ReferenceError: __classPrivateFieldSet is not defined`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "Boa 0.22 bug: closures in class computed method keys cannot see module bindings"]
+async fn custom_provider_anthropic_streams_with_the_sdk() {
+    let Some(dir) = prepare("custom-provider-anthropic").await else { return };
+    assert!(dir.join("node_modules/@anthropic-ai/sdk/package.json").is_file());
+    let (base_url, requests) = mock_anthropic_server("hello from the sdk").await;
+    let index = dir.join("index.ts");
+    let source = std::fs::read_to_string(&index).unwrap();
+    assert!(source.contains(r#"baseUrl: "https://api.anthropic.com""#));
+    std::fs::write(&index, source.replace(r#"baseUrl: "https://api.anthropic.com""#, &format!("baseUrl: {base_url:?}"))).unwrap();
+    // SAFETY: the variable is only read by this test's provider.
+    unsafe { std::env::set_var("CUSTOM_ANTHROPIC_API_KEY", "sk-ant-api-test") };
+
+    let cwd = dir.display().to_string();
+    let loader = Arc::new(DefaultResourceLoader::new(&DefaultResourceLoaderOptions {
+        cwd: cwd.clone(),
+        agent_dir: cwd.clone(),
+        additional_extension_paths: Some(vec![index.display().to_string()]),
+        no_skills: Some(true),
+        no_prompt_templates: Some(true),
+        no_context_files: Some(true),
+        ..Default::default()
+    }));
+    loader.reload(None).await.unwrap();
+    assert!(loader.get_extensions().errors.is_empty(), "{:#?}", loader.get_extensions().errors);
+    let harness = support::create_harness(support::HarnessOptions { resource_loader: Some(loader), ..Default::default() }).await.unwrap();
+    let runtime = &harness.model_runtime;
+    let model = runtime.get_model("custom-anthropic", "claude-sonnet-4-5").expect("the example registers its models");
+    let context = pi_ai::types::Context {
+        system_prompt: Some("Be brief.".into()),
+        messages: vec![pi_ai::types::Message::User(pi_ai::types::UserMessage {
+            content: pi_ai::types::UserContent::Text("hi".into()),
+            timestamp: 0,
+            ..Default::default()
+        })],
+        tools: None,
+    };
+    let message = runtime.complete_simple(model, context, None).await;
+    assert_eq!(message.stop_reason, pi_ai::types::StopReason::Stop, "{:?}", message.error_message);
+    let text: String = message.content.iter().filter_map(|c| c.as_text().map(|t| t.text.clone())).collect();
+    assert_eq!(text, "hello from the sdk");
+    let request = requests.lock().first().cloned().expect("the SDK called the mock server");
+    assert!(request.starts_with("POST /v1/messages"), "{request}");
+    assert!(request.to_ascii_lowercase().contains("x-api-key: sk-ant-api-test"), "{request}");
+    harness.cleanup();
 }

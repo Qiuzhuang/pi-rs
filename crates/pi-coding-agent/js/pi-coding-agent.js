@@ -294,11 +294,15 @@ export function getEditorTheme() {
 	};
 }
 
-export const initTheme = () => {};
+/** Sets pi's global theme, as TS `initTheme()` does for the pi-tui module extensions share. */
+export const initTheme = (themeName, enableWatcher = false) => {
+	host("initTheme", themeName ?? null, !!enableWatcher);
+};
 
 export class Theme {
-	constructor() {
-		throw new Error("Theme instances are provided by pi (ctx.ui.theme)");
+	/** TS `new Theme(fgColors, bgColors, mode, options)`: a Rust theme behind the usual theme proxy. */
+	constructor(fgColors, bgColors, mode, options = {}) {
+		return themeProxy(host("newTheme", fgColors, bgColors, mode, options));
 	}
 }
 
@@ -446,6 +450,8 @@ export class CustomEditor extends Editor {
 		this.actionHandlers.set(action, handler);
 	}
 
+	// The working indicator is supplied by pi's interactive mode, which sets it on the Rust
+	// CustomEditor behind this class (`as_custom_editor`); there is nothing to store in JS.
 	setWorkingStatusIndicator(_indicator) {}
 }
 

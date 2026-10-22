@@ -359,6 +359,22 @@ fn helper(bridge: &Arc<Bridge>, payload: &Value) -> anyhow::Result<Value> {
             &s(1),
             a(2).as_f64().map(|v| v as i64),
         ))?,
+        "initTheme" => {
+            crate::modes::interactive::theme::theme::init_theme(a(0).as_str(), a(1).as_bool());
+            Value::Null
+        }
+        "newTheme" => {
+            use crate::modes::interactive::theme::theme::{Theme, ThemeBgColors, ThemeFgColors, ThemeOptions};
+            let fg: ThemeFgColors = serde_json::from_value(a(0))?;
+            let bg: ThemeBgColors = serde_json::from_value(a(1))?;
+            let mode = match a(2).as_str() {
+                Some("truecolor") => pi_tui::colors::TerminalColorMode::Truecolor,
+                _ => pi_tui::colors::TerminalColorMode::Color256,
+            };
+            let options: Option<ThemeOptions> = opt(&a(3))?;
+            let theme = Arc::new(Theme::try_new(&fg, &bg, mode, options.as_ref())?);
+            json!(component::theme_id(bridge, &theme))
+        }
         "parseSkillBlock" => serde_json::to_value(crate::core::agent_session::parse_skill_block(&s(0)))?,
         "mutationQueueKey" => {
             let resolved = crate::utils::paths::node_resolve(&[&bridge.cwd, &s(0)]);

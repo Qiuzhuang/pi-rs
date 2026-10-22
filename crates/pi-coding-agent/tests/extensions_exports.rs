@@ -69,6 +69,23 @@ export default async function (pi) {
 	stdin.on("data", (seq) => sequences.push(seq));
 	stdin.process("a\x1b[Ab");
 	stdin.destroy?.();
+	const km = new tui.KeybindingsManager(tui.TUI_KEYBINDINGS, { "tui.select.up": "k", "tui.select.down": "k" });
+	out.theme = (() => {
+		try {
+			const theme = new ca.Theme({ accent: "#ff0000" }, {}, "truecolor", { name: "mine" });
+			return theme.fg("accent", "x");
+		} catch (e) {
+			return "error: " + e.message;
+		}
+	})();
+	out.tuiMore = {
+		selectUp: tui.TUI_KEYBINDINGS["tui.select.up"].defaultKeys,
+		km: [km.matches("k", "tui.select.up"), km.getConflicts().length, km.getResolvedBindings()["tui.select.up"]],
+		latex: tui.renderLatex("x^2"),
+		status: tui.formatProgramStatus({ state: "working" }),
+		styled: tui.styleText("a", { bold: true }, "truecolor"),
+		apple: tui.isAppleTerminalSession(),
+	};
 	out.tuiExtra = {
 		marked: new tui.Marked().lexer("# Title\n\ntext").map((t) => t.type).filter((t) => t !== "space"),
 		suggestions: suggestions?.items.map((i) => i.value),
@@ -157,6 +174,19 @@ async fn coding_agent_helpers_are_backed_by_rust() {
     );
     assert_eq!(out["png"], json!({ "data": "AAAA", "mimeType": "image/png" }));
     assert_eq!(out["bus"], json!([1]));
+    // Built by the Rust theme, which validates token fallbacks like TS.
+    assert_eq!(out["theme"], json!("error: Theme token scrollbarTrack has unresolved fallback muted"));
+    assert_eq!(
+        out["tuiMore"],
+        json!({
+            "selectUp": "up",
+            "km": [true, 1, "k"],
+            "latex": "x²",
+            "status": "\u{1b}]7501;state=working\u{1b}\\",
+            "styled": "\u{1b}[1ma\u{1b}[22m",
+            "apple": false,
+        })
+    );
     assert_eq!(
         out["tuiExtra"],
         json!({ "marked": ["heading", "paragraph"], "suggestions": ["model", "mode"], "sequences": ["a", "\u{1b}[A", "b"] })

@@ -1006,7 +1006,13 @@ async fn structured_output_terminates_with_a_rendered_result() {
         json!({ "headline": "Release plan", "summary": "Ship on Friday.", "actionItems": ["Freeze", "Tag"] }),
     )]);
     fx.submit("structure it");
-    let screen = fx.wait_text("Release plan").await;
+    // The headline can render (from the streamed arguments) before the full result: wait for
+    // the final rendering.
+    let screen = fx
+        .wait_for("the rendered structured output", |s| {
+            ["Release plan", "Ship on Friday.", "1. Freeze", "2. Tag"].iter().all(|text| s.contains(text))
+        })
+        .await;
     assert!(screen.contains("Ship on Friday.") && screen.contains("1. Freeze") && screen.contains("2. Tag"), "{screen}");
     fx.wait_idle().await;
     // `terminate: true` ends the run without another model call.
@@ -1044,7 +1050,7 @@ async fn js_components_receive_mouse_events() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("mouse.ts");
     std::fs::write(&path, MOUSE_EXTENSION).unwrap();
-    let mut fx = Fixture::new(dir.path(), &[path.to_str().unwrap()]).await;
+    let fx = Fixture::new(dir.path(), &[path.to_str().unwrap()]).await;
     fx.submit("/pick");
     let screen = fx.wait_text("item-gamma").await;
     // Click "item-gamma": a JS Box routes the event to its JS SelectList child, whose click selects it.

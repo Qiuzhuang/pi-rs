@@ -69,14 +69,6 @@ impl PhotonImage {
         )?;
         Ok(out)
     }
-
-    pub(crate) fn inner(&self) -> &RgbaImage {
-        &self.image
-    }
-
-    pub(crate) fn inner_mut(&mut self) -> &mut RgbaImage {
-        &mut self.image
-    }
 }
 
 /// Resampling filters (`SamplingFilter`).

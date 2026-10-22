@@ -334,10 +334,6 @@ impl LoaderExtensionApi {
         }
         self.clear_pending();
     }
-
-    fn hooks(&self) -> Arc<dyn ExtensionRuntimeHooks> {
-        self.runtime.hooks.read().clone()
-    }
 }
 
 /// `pi.events`: the shared bus with stale checks and subscription tracking.

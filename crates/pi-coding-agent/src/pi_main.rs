@@ -1165,7 +1165,6 @@ pub async fn main(args: &[String], options: Option<&MainOptions>) -> anyhow::Res
     .await?;
     time("createAgentSessionRuntime", None);
     let services = runtime.services();
-    let session = runtime.session();
     let model_fallback_message = runtime.model_fallback_message();
     let settings_manager = services.settings_manager.clone();
     let model_runtime = services.model_runtime.clone();

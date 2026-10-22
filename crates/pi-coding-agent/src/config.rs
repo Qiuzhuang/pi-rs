@@ -113,17 +113,17 @@ pub fn detect_install_method() -> InstallMethod {
 /// The command that updates this installation, if a package manager manages it. Never for the
 /// native executable.
 pub fn get_self_update_command(
-    package_name: &str,
-    npm_command: Option<&[String]>,
-    update_package_target: Option<&SelfUpdatePackageTarget>,
+    _package_name: &str,
+    _npm_command: Option<&[String]>,
+    _update_package_target: Option<&SelfUpdatePackageTarget>,
 ) -> Option<SelfUpdateCommand> {
     None
 }
 
 pub fn get_self_update_unavailable_instruction(
-    package_name: &str,
-    npm_command: Option<&[String]>,
-    update_package_target: Option<&SelfUpdatePackageTarget>,
+    _package_name: &str,
+    _npm_command: Option<&[String]>,
+    _update_package_target: Option<&SelfUpdatePackageTarget>,
 ) -> String {
     "Download from: https://github.com/earendil-works/pi/releases/latest".to_string()
 }
@@ -338,7 +338,7 @@ pub enum InstallChange {
 
 /// Detect that the package this process runs from changed on disk. The native executable embeds
 /// its code, so replacing it does not affect this process: always `None` (as for the Bun binary).
-pub fn detect_install_change(package_json_path: Option<&str>) -> Option<InstallChange> {
+pub fn detect_install_change(_package_json_path: Option<&str>) -> Option<InstallChange> {
     None
 }
 

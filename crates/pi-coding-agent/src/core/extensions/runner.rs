@@ -610,10 +610,6 @@ impl ExtensionRunner {
         })
     }
 
-    fn arc(&self) -> Arc<ExtensionRunner> {
-        self.weak.upgrade().expect("ExtensionRunner used after drop")
-    }
-
     /// The shared extension runtime.
     pub fn runtime(&self) -> &Arc<ExtensionRuntime> {
         &self.runtime

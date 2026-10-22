@@ -8,7 +8,7 @@ use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
-use super::{Bridge, CtxEntry, builtin, component, context, js_error, native, provider};
+use super::{Bridge, CtxEntry, builtin, component, context, native, provider};
 use crate::compat::AutocompleteItem;
 use crate::core::bash_executor::BashResult;
 use crate::core::exec::ExecOptions;
@@ -691,7 +691,3 @@ pub(crate) fn custom_entry_json(entry: &CustomEntry) -> Value {
     value
 }
 
-/// Convert a JS error of a glue call into an anyhow error (re-export for submodules).
-pub(crate) fn js_err(err: pi_jsrt::Error) -> anyhow::Error {
-    js_error(err)
-}

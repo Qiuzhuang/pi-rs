@@ -29,7 +29,9 @@ pub(crate) enum Cls {
     Edge,
     /// Text sitting on an edge.
     EdgeLabel,
-    /// The `mermaid: <kind>` header of a source box.
+    /// The `mermaid: <kind>` header of a source box. Only grok-mermaid's `sourceBox` emits it,
+    /// which pi does not use; kept so the component's styling matches the TS class switch.
+    #[allow(dead_code)]
     Title,
     /// Blank filler.
     None,

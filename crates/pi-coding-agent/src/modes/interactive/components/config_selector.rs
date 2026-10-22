@@ -635,10 +635,6 @@ impl ResourceList {
         }
     }
 
-    fn write_scope(&self) -> ConfigWriteScope {
-        self.state.lock().write_scope
-    }
-
     fn get_top_level_base_dir(&self, scope: SettingsScope) -> String {
         if scope == SettingsScope::Project { node_join(&[&self.cwd, CONFIG_DIR_NAME]) } else { self.agent_dir.clone() }
     }

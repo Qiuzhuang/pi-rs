@@ -667,11 +667,6 @@ impl ThemeSubmenuInner {
         if mode == ThemeMode::Automatic { self.get_automatic_theme_setting() } else { self.state.lock().single_theme.clone() }
     }
 
-    fn get_active_automatic_theme(&self) -> String {
-        let s = self.state.lock();
-        if self.terminal_theme == TerminalTheme::Light { s.light_theme.clone() } else { s.dark_theme.clone() }
-    }
-
     fn get_automatic_theme_setting(&self) -> String {
         let s = self.state.lock();
         format!("{}/{}", s.light_theme, s.dark_theme)

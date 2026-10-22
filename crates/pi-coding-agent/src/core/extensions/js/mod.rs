@@ -87,16 +87,6 @@ pub(crate) enum CtxEntry {
 }
 
 impl CtxEntry {
-    pub(crate) fn kind(&self) -> &'static str {
-        match self {
-            Self::Base(_) => "base",
-            Self::Tool(_) => "tool",
-            Self::Command(_) => "command",
-            Self::Replaced(_) => "replaced",
-            Self::Trust(_) => "trust",
-        }
-    }
-
     pub(crate) fn base(&self) -> Option<&ExtensionContext> {
         match self {
             Self::Base(c) => Some(c),

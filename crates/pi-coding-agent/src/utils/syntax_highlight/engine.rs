@@ -257,12 +257,10 @@ pub enum SubLanguage {
 
 pub struct CompiledMode {
     class_name: Option<String>,
-    begin_re: Option<fancy_regex::Regex>,
     end_re: Option<fancy_regex::Regex>,
     keywords: Option<Arc<KeywordDict>>,
     keyword_pattern_re: Option<fancy_regex::Regex>,
     relevance: f64,
-    contains: Vec<usize>,
     starts: Option<usize>,
     ends_with_parent: bool,
     ends_parent: bool,
@@ -467,14 +465,11 @@ impl Compiler {
         .unwrap_or_else(|| "\\w+".to_string());
         let keyword_pattern_re = self.lang_re(&keyword_pattern_source);
 
-        let mut begin_re = None;
         let mut end_re = None;
         if let Some(parent) = parent {
             if !self.heap.truthy(mode, "begin") {
                 self.heap.set(mode, "begin", V::Re("\\B|\\b".into()));
             }
-            let begin = self.heap.get(mode, "begin").source().unwrap_or_default();
-            begin_re = self.lang_re(&begin);
             if self.heap.truthy(mode, "endSameAsBegin") {
                 let b = self.heap.get(mode, "begin");
                 self.heap.set(mode, "end", b);
@@ -553,7 +548,6 @@ impl Compiler {
         };
         let compiled = CompiledMode {
             class_name: self.heap.get(mode, "className").as_str().map(str::to_string).filter(|s| !s.is_empty()),
-            begin_re,
             end_re,
             keywords,
             keyword_pattern_re,
@@ -561,7 +555,6 @@ impl Compiler {
                 V::Num(n) => n,
                 _ => 1.0,
             },
-            contains: expanded,
             starts,
             ends_with_parent: self.heap.truthy(mode, "endsWithParent"),
             ends_parent: self.heap.truthy(mode, "endsParent"),

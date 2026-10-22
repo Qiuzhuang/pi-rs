@@ -794,12 +794,6 @@ impl McpExtension {
         })
     }
 
-    fn connections(&self) -> Vec<Arc<McpServerConnection>> {
-        self.servers()
-            .iter()
-            .filter_map(|server| server.lock().connection.clone())
-            .collect()
-    }
 
     fn find_server(&self, name: &str) -> Option<ServerRef> {
         self.servers()

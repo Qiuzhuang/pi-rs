@@ -2,9 +2,6 @@
 //!
 //! See `ARCHITECTURE.md` in the crate root for the module map and design notes.
 
-// Skeleton phase: many items are declared but not yet used or implemented.
-#![allow(dead_code, unused_variables)]
-
 pub mod cli;
 pub mod compat;
 pub mod config;

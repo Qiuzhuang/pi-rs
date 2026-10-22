@@ -67,8 +67,11 @@ pub fn parse_command_args(args_string: &str) -> Vec<String> {
 
 /// JS `\s`.
 fn is_js_whitespace(c: char) -> bool {
-    c.is_whitespace() || c == '\u{FEFF}'
+    crate::core::tools::js_util::is_js_whitespace(c)
 }
+
+/// The characters of JS `\s`, for use inside a regex character class.
+const JS_WS_CLASS: &str = r"\t\n\x0B\x0C\r \u{00A0}\u{1680}\u{2000}-\u{200A}\u{2028}\u{2029}\u{202F}\u{205F}\u{3000}\u{FEFF}";
 
 static SUBSTITUTE_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\$\{([0-9]+|ARGUMENTS|@):-([^}]*)\}|\$\{@:([0-9]+)(?::([0-9]+))?\}|\$(ARGUMENTS|@|[0-9]+)")
@@ -421,7 +424,7 @@ pub fn load_prompt_templates(options: &LoadPromptTemplatesOptions) -> LoadPrompt
 /// Returns the expanded content or the original text if not a template.
 pub fn expand_prompt_template(text: &str, templates: &[PromptTemplate]) -> String {
     static COMMAND_RE: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"^/(\S+)(?:\s+([\s\S]*))?$").unwrap());
+        LazyLock::new(|| Regex::new(&format!(r"^/([^{JS_WS_CLASS}]+)(?:[{JS_WS_CLASS}]+((?s:.*)))?$")).unwrap());
     if !text.starts_with('/') {
         return text.to_string();
     }

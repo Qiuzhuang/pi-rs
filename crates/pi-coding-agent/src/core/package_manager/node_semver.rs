@@ -430,6 +430,70 @@ pub fn is_valid_range(range: &str) -> bool {
     Range::parse(range).is_some()
 }
 
+impl Comparator {
+    /// `comparator.value`: the operator (none for `=`) and the version.
+    fn value(&self) -> String {
+        let op = match self.op {
+            Op::Lt => "<",
+            Op::Le => "<=",
+            Op::Gt => ">",
+            Op::Ge => ">=",
+            Op::Eq => "",
+        };
+        format!("{op}{}", self.version)
+    }
+}
+
+/// `semver.validRange(range)`: the normalized range string (`^1.2` -> `>=1.2.0 <2.0.0-0`), `*` for
+/// a range that allows anything, `None` for an invalid range.
+pub fn valid_range(range: &str) -> Option<String> {
+    const NULL_SET: &str = "<0.0.0-0";
+    let parsed = Range::parse(range)?;
+    // `parseRange`: `>=0.0.0` means any, a null-set comparator replaces its whole set, duplicates
+    // collapse, and "any" is dropped next to other comparators.
+    let mut sets: Vec<Vec<String>> = parsed
+        .sets
+        .iter()
+        .map(|set| {
+            let values: Vec<String> = if set.is_empty() {
+                vec![String::new()]
+            } else {
+                set.iter()
+                    .map(|c| c.value())
+                    .map(|v| if v == ">=0.0.0" { String::new() } else { v })
+                    .collect()
+            };
+            if values.iter().any(|v| v == NULL_SET) {
+                return vec![NULL_SET.to_string()];
+            }
+            let mut unique: Vec<String> = Vec::new();
+            for value in values {
+                if !unique.contains(&value) {
+                    unique.push(value);
+                }
+            }
+            if unique.len() > 1 {
+                unique.retain(|v| !v.is_empty());
+            }
+            unique
+        })
+        .collect();
+    // The constructor: null sets go when other sets exist, and a lone "any" set wins.
+    if sets.len() > 1 {
+        let first = sets[0].clone();
+        sets.retain(|set| set[0] != NULL_SET);
+        if sets.is_empty() {
+            sets = vec![first];
+        } else if sets.len() > 1
+            && let Some(any) = sets.iter().find(|set| set.len() == 1 && set[0].is_empty()).cloned()
+        {
+            sets = vec![any];
+        }
+    }
+    let formatted = sets.iter().map(|set| set.join(" ")).collect::<Vec<_>>().join("||");
+    Some(if formatted.is_empty() { "*".to_string() } else { formatted })
+}
+
 /// `semver.satisfies(version, range)`.
 pub fn satisfies(version: &str, range: &str) -> bool {
     let (Some(v), Some(r)) = (parse_version(version), Range::parse(range)) else {
@@ -538,6 +602,31 @@ mod tests {
         ];
         for (v, r, expected) in cases {
             assert_eq!(satisfies(v, r), *expected, "{v} satisfies {r}");
+        }
+    }
+
+    #[test]
+    fn formats_valid_ranges_like_node_semver() {
+        let cases: &[(&str, Option<&str>)] = &[
+            ("^1.2.0", Some(">=1.2.0 <2.0.0-0")),
+            (">=1 <3", Some(">=1.0.0 <3.0.0-0")),
+            ("~1.0", Some(">=1.0.0 <1.1.0-0")),
+            ("v1.0.0", Some("1.0.0")),
+            ("x", Some("*")),
+            ("*", Some("*")),
+            ("", Some("*")),
+            ("latest", None),
+            ("1.2.3 - 2", Some(">=1.2.3 <3.0.0-0")),
+            ("^0.0.0", Some("<0.0.1-0")),
+            ("* || 1", Some("*")),
+            ("1 || 2", Some(">=1.0.0 <2.0.0-0||>=2.0.0 <3.0.0-0")),
+            ("<0.0.0-0 || 1.2.3", Some("1.2.3")),
+            (">1.x <0.x", Some("<0.0.0-0")),
+            ("1.2.3 1.2.3", Some("1.2.3")),
+            ("^1.2.3-beta.1", Some(">=1.2.3-beta.1 <2.0.0-0")),
+        ];
+        for (range, expected) in cases {
+            assert_eq!(valid_range(range).as_deref(), *expected, "{range}");
         }
     }
 

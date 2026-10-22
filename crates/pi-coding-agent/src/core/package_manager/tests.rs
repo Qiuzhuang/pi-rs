@@ -1136,7 +1136,8 @@ fn parses_package_source_types_from_docs_examples() {
     let parsed = npm(&f.pm, "npm:@scope/pkg@^1.2.3");
     assert_eq!(parsed.name, "@scope/pkg");
     assert_eq!(parsed.version.as_deref(), Some("^1.2.3"));
-    assert_eq!(parsed.range.as_deref(), Some("^1.2.3"));
+    // `semver.validRange` normalizes the range.
+    assert_eq!(parsed.range.as_deref(), Some(">=1.2.3 <2.0.0-0"));
     let latest = npm(&f.pm, "npm:pkg@latest");
     assert_eq!((latest.range, latest.pinned), (None, false));
 

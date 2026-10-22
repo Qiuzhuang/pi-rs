@@ -154,8 +154,13 @@ fn number_u64(value: Option<&Value>, default: u64) -> u64 {
     }
 }
 
+/// `value ?? default` read as a boolean: settings files are not validated, and callers test the
+/// value for truthiness.
 fn bool_or(value: Option<&Value>, default: bool) -> bool {
-    value.and_then(Value::as_bool).unwrap_or(default)
+    match value {
+        None | Some(Value::Null) => default,
+        Some(value) => is_truthy(Some(value)),
+    }
 }
 
 fn string_array(value: Option<&Value>) -> Vec<String> {
@@ -309,36 +314,11 @@ fn deep_merge_settings(base: &JsonMap, overrides: &JsonMap) -> JsonMap {
     merged
 }
 
-/// `parseHttpIdleTimeoutMs` from `http-dispatcher.ts`.
-fn parse_timeout_value(value: &Value) -> Option<i64> {
-    match value {
-        Value::String(s) => {
-            let trimmed = s.trim();
-            if trimmed.eq_ignore_ascii_case("disabled") {
-                return Some(0);
-            }
-            if trimmed.is_empty() {
-                return None;
-            }
-            let number = trimmed.parse::<f64>().ok()?;
-            parse_timeout_value(&serde_json::Number::from_f64(number).map(Value::Number)?)
-        }
-        Value::Number(n) => {
-            let f = n.as_f64()?;
-            if !f.is_finite() || f < 0.0 {
-                return None;
-            }
-            Some(f.floor() as i64)
-        }
-        _ => None,
-    }
-}
-
 fn parse_timeout_setting(value: Option<&Value>, setting_name: &str) -> anyhow::Result<Option<i64>> {
     let Some(value) = value else {
         return Ok(None);
     };
-    if let Some(timeout_ms) = parse_timeout_value(value) {
+    if let Some(timeout_ms) = crate::core::http_dispatcher::parse_http_idle_timeout_ms(value.clone()) {
         return Ok(Some(timeout_ms));
     }
     anyhow::bail!("Invalid {setting_name} setting: {}", js_string(value))
@@ -776,7 +756,7 @@ impl SettingsManager {
     ) -> Arc<SettingsManager> {
         let storage = Arc::new(InMemorySettingsStorage::new());
         let initial_settings = Self::migrate_settings(settings);
-        let content = serde_json::to_string_pretty(&initial_settings).unwrap_or_default();
+        let content = crate::utils::js_json::js_json_stringify_pretty(&Value::Object(initial_settings), "  ");
         let _ = storage.with_lock(SettingsScope::Global, &mut |_| Ok(Some(content.clone())));
         Self::from_storage(storage, options)
     }
@@ -806,6 +786,11 @@ impl SettingsManager {
         let parsed: Value = crate::utils::js_json::js_json_parse(&strip_bom(content)).map_err(anyhow::Error::msg)?;
         match parsed {
             Value::Object(map) => Ok(map),
+            // Arrays are objects in JS: the migrations find nothing and the merge spreads the
+            // entries by index.
+            Value::Array(items) => {
+                Ok(items.into_iter().enumerate().map(|(i, v)| (i.to_string(), v)).collect())
+            }
             other => anyhow::bail!(
                 "Cannot use 'in' operator to search for 'queueMode' in {}",
                 js_string(&other)
@@ -1086,9 +1071,10 @@ impl SettingsManager {
                     }
                 }
             }
-            Ok(Some(serde_json::to_string_pretty(&Value::Object(
-                merged_settings,
-            ))?))
+            Ok(Some(crate::utils::js_json::js_json_stringify_pretty(
+                &Value::Object(merged_settings),
+                "  ",
+            )))
         })
     }
 

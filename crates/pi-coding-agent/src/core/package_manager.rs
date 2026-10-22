@@ -82,7 +82,7 @@ fn get_npm_version_range(version: Option<&str>) -> Option<String> {
     if version.is_empty() {
         return None;
     }
-    node_semver::is_valid_range(version).then(|| version.to_string())
+    node_semver::valid_range(version)
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -645,11 +645,12 @@ fn split_patterns(entries: &[String]) -> (Vec<String>, Vec<String>) {
 }
 
 /// `readdirSync(dir, { withFileTypes: true })` resolved through symlinks: `(name, path, isDir, isFile)`.
-/// Broken symlinks are skipped.
+/// Broken symlinks are skipped. Entries come in libuv's scandir order (sorted by byte value).
 fn read_dir_entries(dir: &str) -> Option<Vec<(String, String, bool, bool)>> {
-    let entries = std::fs::read_dir(dir).ok()?;
+    let mut entries: Vec<_> = std::fs::read_dir(dir).ok()?.flatten().collect();
+    entries.sort_by_key(|entry| entry.file_name());
     let mut out = Vec::new();
-    for entry in entries.flatten() {
+    for entry in entries {
         let name = entry.file_name().to_string_lossy().into_owned();
         let full_path = node_join(&[dir, &name]);
         let Ok(file_type) = entry.file_type() else {
@@ -2250,7 +2251,7 @@ impl DefaultPackageManager {
         }
     }
 
-    fn get_source_match_key_for_input(&self, source: &str) -> String {
+    pub(crate) fn get_source_match_key_for_input(&self, source: &str) -> String {
         match self.parse_source(source) {
             ParsedSource::NpmSource(parsed) => format!("npm:{}", parsed.name),
             ParsedSource::GitSource(parsed) => format!("git:{}/{}", parsed.host, parsed.path),
@@ -2269,7 +2270,7 @@ impl DefaultPackageManager {
         })
     }
 
-    fn build_no_matching_package_message(&self, source: &str, configured_packages: &[PackageSource]) -> String {
+    pub(crate) fn build_no_matching_package_message(&self, source: &str, configured_packages: &[PackageSource]) -> String {
         match self.find_suggested_configured_source(source, configured_packages) {
             Some(suggestion) => {
                 format!("No matching package found for {source}. Did you mean {suggestion}?")
@@ -2318,7 +2319,7 @@ impl DefaultPackageManager {
         Ok(left == right)
     }
 
-    fn normalize_package_source_for_settings(&self, source: &str, scope: SourceScope) -> anyhow::Result<String> {
+    pub(crate) fn normalize_package_source_for_settings(&self, source: &str, scope: SourceScope) -> anyhow::Result<String> {
         let ParsedSource::LocalSource(parsed) = self.parse_source(source) else {
             return Ok(source.to_string());
         };
@@ -2634,8 +2635,25 @@ impl DefaultPackageManager {
         Ok(result)
     }
 
+    /// `spec.match(/^(@?[^@]+(?:\/[^@]+)?)(?:@(.+))?$/)`: the name and the version after the first
+    /// `@` that follows the name. Without a match (`foo@`, `@`, a version with a line break) the
+    /// whole spec is the name.
     fn parse_npm_spec(spec: &str) -> (String, Option<String>) {
-        npm_registry::split_name_spec(spec)
+        let rest = spec.strip_prefix('@').unwrap_or(spec);
+        let scope_len = spec.len() - rest.len();
+        let whole = || (spec.to_string(), None);
+        match rest.find('@') {
+            None if !rest.is_empty() => whole(),
+            Some(index) if index > 0 => {
+                let version = &rest[index + 1..];
+                // `.` does not match JS line terminators.
+                if version.is_empty() || version.contains(['\n', '\r', '\u{2028}', '\u{2029}']) {
+                    return whole();
+                }
+                (spec[..scope_len + index].to_string(), Some(version.to_string()))
+            }
+            _ => whole(),
+        }
     }
 
     fn assert_project_trusted_for_scope(&self, scope: SourceScope) -> anyhow::Result<()> {
@@ -2756,7 +2774,7 @@ impl DefaultPackageManager {
         self.runner.run_sync(&npm_command.command, &full_args)
     }
 
-    fn get_npm_install_args(&self, specs: &[String], install_root: &str) -> anyhow::Result<Vec<String>> {
+    pub(crate) fn get_npm_install_args(&self, specs: &[String], install_root: &str) -> anyhow::Result<Vec<String>> {
         let package_manager_name = self.get_package_manager_name()?;
         // Extension packages run inside pi and resolve pi APIs through loader aliases/virtual modules.
         // Disable peer dependency resolution for managed installs (npm's --legacy-peer-deps, and

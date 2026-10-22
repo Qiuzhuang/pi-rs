@@ -63,6 +63,9 @@ pub mod trust_manager;
 pub mod usage_totals;
 pub mod virtual_models;
 
+#[cfg(test)]
+mod golden_config_tests;
+
 pub use crate::core::agent_session::AgentSession;
 pub use crate::core::agent_session::AgentSessionConfig;
 pub use crate::core::agent_session::AgentSessionEvent;

@@ -288,6 +288,75 @@ impl Scanner<'_> {
     }
 }
 
+/// `JSON.stringify(value, null, indent)`: JavaScript number formatting (`1.0` is `1`, `1e21` is
+/// `1e+21`, integers beyond 2^53 are rounded like doubles) and property order (array-index keys
+/// first, ascending, then insertion order).
+pub fn js_json_stringify_pretty(value: &Value, indent: &str) -> String {
+    fn write(value: &Value, indent: &str, depth: usize, out: &mut String) {
+        let newline = |out: &mut String, depth: usize| {
+            if !indent.is_empty() {
+                out.push('\n');
+                for _ in 0..depth {
+                    out.push_str(indent);
+                }
+            }
+        };
+        match value {
+            Value::Null => out.push_str("null"),
+            Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+            Value::Number(n) => {
+                let f = n.as_f64().unwrap_or(f64::NAN);
+                if f.is_finite() {
+                    out.push_str(&pi_codemode::js::number_to_string(f));
+                } else {
+                    out.push_str("null");
+                }
+            }
+            Value::String(s) => out.push_str(&pi_codemode::js::quote(s)),
+            Value::Array(items) => {
+                if items.is_empty() {
+                    out.push_str("[]");
+                    return;
+                }
+                out.push('[');
+                for (index, item) in items.iter().enumerate() {
+                    if index > 0 {
+                        out.push(',');
+                    }
+                    newline(out, depth + 1);
+                    write(item, indent, depth + 1, out);
+                }
+                newline(out, depth);
+                out.push(']');
+            }
+            Value::Object(map) => {
+                if map.is_empty() {
+                    out.push_str("{}");
+                    return;
+                }
+                out.push('{');
+                for (index, key) in pi_codemode::js::object_keys(map).into_iter().enumerate() {
+                    if index > 0 {
+                        out.push(',');
+                    }
+                    newline(out, depth + 1);
+                    out.push_str(&pi_codemode::js::quote(key));
+                    out.push(':');
+                    if !indent.is_empty() {
+                        out.push(' ');
+                    }
+                    write(&map[key.as_str()], indent, depth + 1, out);
+                }
+                newline(out, depth);
+                out.push('}');
+            }
+        }
+    }
+    let mut out = String::new();
+    write(value, indent, 0, &mut out);
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

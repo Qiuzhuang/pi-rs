@@ -956,7 +956,16 @@ pub(crate) fn js_autocomplete_factory(bridge: Arc<Bridge>, factory: JsHandle) ->
         let id = bridge.components.autocomplete.insert(current.clone());
         match bridge.glue_call_blocking("makeAutocompleteProvider", vec![factory.to_value(), json!(id)]) {
             Ok(v) => match bridge.handle(&v) {
-                Some(handle) => Arc::new(JsAutocompleteProvider { bridge: bridge.clone(), handle }) as Arc<dyn AutocompleteProvider>,
+                Some(handle) => {
+                    // TS: `provider.shouldTriggerFileCompletion?.(...)`; only an implemented method gates
+                    // forced (Tab) file completion.
+                    let has_should_trigger = bridge
+                        .glue_call_blocking("hasMethod", vec![handle.to_value(), json!("shouldTriggerFileCompletion")])
+                        .ok()
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                    Arc::new(JsAutocompleteProvider { bridge: bridge.clone(), handle, has_should_trigger }) as Arc<dyn AutocompleteProvider>
+                }
                 None => current,
             },
             Err(_) => current,
@@ -968,6 +977,7 @@ pub(crate) fn js_autocomplete_factory(bridge: Arc<Bridge>, factory: JsHandle) ->
 struct JsAutocompleteProvider {
     bridge: Arc<Bridge>,
     handle: JsHandle,
+    has_should_trigger: bool,
 }
 
 fn completion_result(value: &Value, lines: &[String], cursor_line: usize, cursor_col: usize) -> CompletionResult {
@@ -1033,6 +1043,23 @@ impl AutocompleteProvider for JsAutocompleteProvider {
             Ok(v) => completion_result(&v, lines, cursor_line, cursor_col),
             Err(_) => CompletionResult { lines: lines.to_vec(), cursor_line, cursor_col },
         }
+    }
+
+    fn should_trigger_file_completion(&self, lines: &[String], cursor_line: usize, cursor_col: usize) -> bool {
+        if !self.has_should_trigger {
+            return true;
+        }
+        let args = json!([lines, cursor_line, cursor_col]);
+        // Like TS, a throwing provider propagates no completion (the request is dropped).
+        self.bridge
+            .glue_call_blocking("callMethodTruthy", vec![self.handle.to_value(), json!("shouldTriggerFileCompletion"), args])
+            .ok()
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+    }
+
+    fn has_should_trigger_file_completion(&self) -> bool {
+        self.has_should_trigger
     }
 }
 

@@ -1061,3 +1061,48 @@ async fn js_components_receive_mouse_events() {
     fx.wait_text("picked gamma").await;
     fx.cleanup();
 }
+
+const FILE_COMPLETION_EXTENSION: &str = r#"
+export default function (pi) {
+	pi.on("session_start", (_event, ctx) => {
+		ctx.ui.addAutocompleteProvider((current) => ({
+			triggerCharacters: current.triggerCharacters,
+			async getSuggestions(lines, cursorLine, cursorCol, options) {
+				if (options?.force) return { items: [{ value: "zzz-forced-item", label: "zzz-forced-item" }], prefix: "" };
+				return current.getSuggestions(lines, cursorLine, cursorCol, options);
+			},
+			applyCompletion: (...args) => current.applyCompletion(...args),
+			// TS calls this before forced (Tab) file completion; returning false skips the request.
+			shouldTriggerFileCompletion(lines, cursorLine, cursorCol) {
+				return !lines[cursorLine].slice(0, cursorCol).startsWith("nofile");
+			},
+		}));
+	});
+}
+"#;
+
+/// A JS autocomplete provider's `shouldTriggerFileCompletion` gates Tab completion like TS.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn js_autocomplete_should_trigger_file_completion_gates_tab() {
+    let _lock = LOCK.lock().await;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("complete.ts");
+    std::fs::write(&path, FILE_COMPLETION_EXTENSION).unwrap();
+    let fx = Fixture::new(dir.path(), &[path.to_str().unwrap()]).await;
+    fx.type_text("nofile").await;
+    fx.wait_text("nofile").await;
+    fx.keys("\t");
+    // Give a (wrong) completion request time to land, then check nothing was offered.
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    let screen = fx.wait_text("nofile").await;
+    assert!(!screen.contains("zzz-forced-item"), "{screen}");
+    // Other text passes the gate: the forced request reaches the provider.
+    for _ in 0.."nofile".len() {
+        fx.keys("\x7f");
+    }
+    fx.wait_gone("nofile").await;
+    fx.type_text("yes").await;
+    fx.keys("\t");
+    fx.wait_text("zzz-forced-item").await;
+    fx.cleanup();
+}

@@ -1396,6 +1396,16 @@ export function autocompleteProxy(id) {
 	};
 }
 
+/** Whether `target[method]` is a function (optional provider methods). */
+export function hasMethod(target, method) {
+	return typeof target?.[method] === "function";
+}
+
+/** `!!target[method](...args)` (JavaScript truthiness of a predicate). */
+export function callMethodTruthy(target, method, args) {
+	return !!target[method](...(args ?? []));
+}
+
 export function makeAutocompleteProvider(factory, currentId) {
 	return ref(factory(autocompleteProxy(currentId)));
 }

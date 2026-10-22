@@ -440,3 +440,93 @@ fn strict_sampling_for_builtin_tools() {
     let names: Vec<&str> = tools.values().map(|t| t.name()).collect();
     assert_eq!(names, vec!["read", "bash", "powershell", "edit", "write", "grep", "find", "ls"]);
 }
+
+// ---------------------------------------------------------------------------
+// truncate-to-width.test.ts (pi-tui `truncateToWidth` with wide and multi-byte characters)
+// ---------------------------------------------------------------------------
+
+mod truncate_to_width {
+    use pi_tui::utils::{truncate_to_width, visible_width};
+
+    fn truncate(text: &str, width: usize) -> String {
+        truncate_to_width(text, width, "...", false)
+    }
+
+    #[test]
+    fn truncates_messages_with_unicode_characters_correctly() {
+        let max = 67 - 2;
+        assert!(visible_width(&truncate("✔ script to run › dev $ concurrently \"vite\" \"node --import tsx ./", max)) <= max);
+    }
+
+    #[test]
+    fn handles_emoji_characters() {
+        let max = 40 - 2;
+        assert!(visible_width(&truncate("🎉 Celebration! 🚀 Launch 📦 Package ready for deployment now", max)) <= max);
+    }
+
+    #[test]
+    fn handles_mixed_ascii_and_wide_characters() {
+        let max = 30 - 2;
+        assert!(visible_width(&truncate("Hello 世界 Test 你好 More text here that is long", max)) <= max);
+    }
+
+    #[test]
+    fn does_not_truncate_messages_that_fit() {
+        let truncated = truncate("Short message", 48);
+        assert_eq!(truncated, "Short message");
+        assert!(visible_width(&truncated) <= 48);
+    }
+
+    #[test]
+    fn adds_ellipsis_when_truncating() {
+        let truncated = truncate("This is a very long message that needs to be truncated", 28);
+        assert!(truncated.contains("..."));
+        assert!(visible_width(&truncated) <= 28);
+    }
+
+    #[test]
+    fn handles_the_exact_crash_case_from_issue_report() {
+        let (terminal_width, cursor_width) = (67, 2);
+        let truncated = truncate(
+            "✔ script to run › dev $ concurrently \"vite\" \"node --import tsx ./server.ts\"",
+            terminal_width - cursor_width,
+        );
+        assert!(visible_width(&truncated) + cursor_width <= terminal_width);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// max-thinking.test.ts
+// ---------------------------------------------------------------------------
+
+mod max_thinking {
+    use pi_agent::types::ThinkingLevel;
+    use pi_coding_agent::cli::args::is_valid_thinking_level;
+    use pi_coding_agent::core::settings_manager::SettingsManager;
+    use pi_coding_agent::modes::interactive::theme::theme::load_theme_from_path;
+
+    #[tokio::test]
+    async fn is_accepted_by_cli_and_settings() {
+        assert!(is_valid_thinking_level("max"));
+        let settings = SettingsManager::in_memory(None, None);
+        settings.set_default_thinking_level(ThinkingLevel::Max);
+        settings.flush().await.unwrap();
+        assert_eq!(settings.get_default_thinking_level(), Some(ThinkingLevel::Max));
+    }
+
+    #[test]
+    fn falls_back_to_thinking_xhigh_for_legacy_themes() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut dark: serde_json::Value =
+            serde_json::from_str(include_str!("../src/modes/interactive/theme/dark.json")).unwrap();
+        dark["name"] = serde_json::json!("legacy-theme");
+        dark["colors"].as_object_mut().unwrap().remove("thinkingMax");
+        let path = dir.path().join("legacy-theme.json");
+        std::fs::write(&path, dark.to_string()).unwrap();
+        let theme = load_theme_from_path(&path.to_string_lossy(), None).unwrap();
+        assert_eq!(
+            theme.get_thinking_border_color(ThinkingLevel::Max)("border".to_string()),
+            theme.get_thinking_border_color(ThinkingLevel::Xhigh)("border".to_string())
+        );
+    }
+}

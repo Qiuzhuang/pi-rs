@@ -71,10 +71,10 @@ impl Text {
 impl Component for Text {
     fn render(&self, width: usize) -> Vec<String> {
         let mut s = self.lock();
-        if let Some((text, w, lines)) = &s.cache {
-            if *text == s.text && *w == width {
-                return lines.clone();
-            }
+        if let Some((text, w, lines)) = &s.cache
+            && *text == s.text && *w == width
+        {
+            return lines.clone();
         }
         if s.text.is_empty() || js_trim(&s.text).is_empty() {
             s.cache = Some((s.text.clone(), width, Vec::new()));

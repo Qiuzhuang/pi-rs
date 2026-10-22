@@ -95,14 +95,13 @@ pub fn parse_osc_color_response(data: &str) -> Option<OscColorResponse> {
         (OscColorTarget::Foreground, rest)
     } else if let Some(rest) = body.strip_prefix("11;") {
         (OscColorTarget::Background, rest)
-    } else if let Some(rest) = body.strip_prefix("4;") {
+    } else {
+        let rest = body.strip_prefix("4;")?;
         let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
         if digits.is_empty() || digits.len() > 3 || rest.as_bytes().get(digits.len()) != Some(&b';') {
             return None;
         }
         (OscColorTarget::Palette(digits.parse().ok()?), &rest[digits.len() + 1..])
-    } else {
-        return None;
     };
     if rest.contains('\x07') || rest.contains('\x1b') {
         return None;

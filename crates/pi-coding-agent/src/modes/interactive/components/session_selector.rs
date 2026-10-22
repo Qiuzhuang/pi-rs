@@ -647,10 +647,10 @@ impl SessionList {
         s.filter_sessions(&query);
         if !s.selection_touched {
             s.selected_index = 0;
-        } else if let Some(selected_path) = selected_path {
-            if let Some(index) = s.filtered_sessions.iter().position(|n| n.session.path == selected_path) {
-                s.selected_index = index;
-            }
+        } else if let Some(selected_path) = selected_path
+            && let Some(index) = s.filtered_sessions.iter().position(|n| n.session.path == selected_path)
+        {
+            s.selected_index = index;
         }
     }
 
@@ -1212,10 +1212,10 @@ impl SelectorInner {
                     }
                     s.scope
                 };
-                if let Some(partial) = partial_sessions {
-                    if scope == current_scope {
-                        inner.session_list.set_sessions(&partial, show_cwd);
-                    }
+                if let Some(partial) = partial_sessions
+                    && scope == current_scope
+                {
+                    inner.session_list.set_sessions(&partial, show_cwd);
                 }
                 if scope != current_scope {
                     return;

@@ -341,7 +341,7 @@ impl Inner {
                 }),
                 on_transport_change: cb!(|this, transport: pi_ai::types::Transport| {
                     this.settings_manager().set_transport(&convert(&transport));
-                    this.session().agent().set_transport(transport.clone());
+                    this.session().agent().set_transport(transport);
                 }),
                 on_session_share_destination_change: cb!(|this, destination: crate::core::settings_schema::SessionShareDestination| {
                     this.settings_manager().set_session_share_destination(&destination)
@@ -366,7 +366,7 @@ impl Inner {
                             this.settings_manager().set_model_thinking_level(&provider, &model_id, level);
                             // If the override is for the current model, apply it to the session too
                             if let Some(current) = this.session().model()
-                                && current.provider.to_string() == provider
+                                && current.provider == provider
                                 && current.id == model_id
                             {
                                 this.session().set_thinking_level(level, None);
@@ -384,7 +384,7 @@ impl Inner {
                             let settings = this.settings_manager();
                             settings.remove_model_thinking_level(&provider, &model_id);
                             if let Some(current) = this.session().model()
-                                && current.provider.to_string() == provider
+                                && current.provider == provider
                                 && current.id == model_id
                             {
                                 let global = settings.get_default_thinking_level().unwrap_or(DEFAULT_THINKING_LEVEL);
@@ -1660,7 +1660,7 @@ impl Inner {
                     .model_runtime()
                     .get_available_snapshot()
                     .iter()
-                    .any(|m| m.provider.to_string() == provider_id && &m.id == default_id)
+                    .any(|m| m.provider == provider_id && &m.id == default_id)
             });
 
         let finish = {
@@ -1682,7 +1682,7 @@ impl Inner {
                             .model_runtime()
                             .get_available_snapshot()
                             .into_iter()
-                            .filter(|m| m.provider.to_string() == provider_id)
+                            .filter(|m| m.provider == provider_id)
                             .collect();
                         if provider_id == "llama.cpp" {
                             selection_error = Some(llama_cpp_post_login_guidance(&action_label, provider_models.len()));

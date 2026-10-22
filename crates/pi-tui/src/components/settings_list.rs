@@ -313,13 +313,13 @@ impl Component for SettingsList {
         if display.is_empty() {
             return None;
         }
-        if event.kind == MouseEventType::Wheel {
-            if let Some(delta) = event.wheel_delta.filter(|d| *d != 0) {
-                let d = if delta < 0 { -1 } else { 1 };
-                let prev = s.selected_index;
-                s.selected_index = (s.selected_index + d).clamp(0, display.len() as i64 - 1);
-                return Some(MouseResult { handled: true, render: Some(s.selected_index != prev), ..Default::default() });
-            }
+        if event.kind == MouseEventType::Wheel
+            && let Some(delta) = event.wheel_delta.filter(|d| *d != 0)
+        {
+            let d = if delta < 0 { -1 } else { 1 };
+            let prev = s.selected_index;
+            s.selected_index = (s.selected_index + d).clamp(0, display.len() as i64 - 1);
+            return Some(MouseResult { handled: true, render: Some(s.selected_index != prev), ..Default::default() });
         }
         if event.button != MouseButton::Left || (event.kind != MouseEventType::Press && event.kind != MouseEventType::Click) {
             return None;

@@ -748,10 +748,10 @@ fn home_dir() -> Option<String> {
 }
 
 fn shorten_image_path(filename: &str) -> String {
-    if let Some(home) = home_dir() {
-        if filename == home || filename.starts_with(&format!("{home}/")) || filename.starts_with(&format!("{home}\\")) {
-            return format!("~{}", &filename[home.len()..]);
-        }
+    if let Some(home) = home_dir()
+        && (filename == home || filename.starts_with(&format!("{home}/")) || filename.starts_with(&format!("{home}\\")))
+    {
+        return format!("~{}", &filename[home.len()..]);
     }
     filename.to_string()
 }

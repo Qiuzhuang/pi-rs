@@ -65,10 +65,10 @@ fn single(spec: KeybindingDefinitions) -> KeybindingDefinitions {
     // Definitions declared with exactly one key use the single-key form, like the TS table.
     spec.into_iter()
         .map(|(id, mut d)| {
-            if let KeySpec::Many(v) = &d.default_keys {
-                if v.len() == 1 {
-                    d.default_keys = KeySpec::One(v[0].clone());
-                }
+            if let KeySpec::Many(v) = &d.default_keys
+                && v.len() == 1
+            {
+                d.default_keys = KeySpec::One(v[0].clone());
             }
             (id, d)
         })

@@ -18,11 +18,11 @@ impl KillRing {
         if text.is_empty() {
             return;
         }
-        if accumulate {
-            if let Some(last) = self.ring.pop() {
-                self.ring.push(if prepend { format!("{text}{last}") } else { format!("{last}{text}") });
-                return;
-            }
+        if accumulate
+            && let Some(last) = self.ring.pop()
+        {
+            self.ring.push(if prepend { format!("{text}{last}") } else { format!("{last}{text}") });
+            return;
         }
         self.ring.push(text.to_string());
     }

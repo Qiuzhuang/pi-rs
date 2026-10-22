@@ -672,8 +672,8 @@ async fn zero_usage_check(user_text: String) -> Vec<(pi_coding_agent::core::exte
     harness.session.check_compaction_for_test(&assistant, true).await;
 
     harness.cleanup();
-    let calls = calls.lock().clone();
-    calls
+    
+    calls.lock().clone()
 }
 
 #[tokio::test]
@@ -1856,7 +1856,7 @@ mod auto_compaction_cancellation {
             .append_message(user_blocks(&"x".repeat(500), 1))
             .unwrap();
         let mut assistant = create_assistant(harness, StopReason::Stop, None, 100, 2);
-        assistant.content = vec![faux_text(&"y".repeat(200))];
+        assistant.content = vec![faux_text("y".repeat(200))];
         harness
             .session_manager
             .append_message(AgentMessage::Assistant(assistant))

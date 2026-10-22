@@ -1146,7 +1146,7 @@ impl Component for ResourceList {
             // Jump down by maxVisible, then find nearest item
             let mut s = self.state.lock();
             let mut target =
-                ((s.filtered_items.len() as i64 - 1).min((s.selected_index + self.max_visible) as i64)) as i64;
+                (s.filtered_items.len() as i64 - 1).min((s.selected_index + self.max_visible) as i64);
             while target >= 0 && !matches!(s.filtered_items[target as usize], EntryRef::Item(..)) {
                 target -= 1;
             }
@@ -1173,17 +1173,16 @@ impl Component for ResourceList {
                 let entry = s.filtered_items.get(s.selected_index).copied();
                 (entry.and_then(|e| s.item(e).cloned()), s.write_scope)
             };
-            if let Some(item) = item {
-                if write_scope == ConfigWriteScope::Project || get_item_scope(&item) == SettingsScope::User {
-                    if let Some(new_enabled) = self.toggle_resource(&item, write_scope) {
-                        self.update_item(&item, new_enabled);
-                        let mut updated = item.clone();
-                        updated.enabled = new_enabled;
-                        let cb = self.callbacks.lock().on_toggle.clone();
-                        if let Some(cb) = cb {
-                            cb(updated, new_enabled);
-                        }
-                    }
+            if let Some(item) = item
+                && (write_scope == ConfigWriteScope::Project || get_item_scope(&item) == SettingsScope::User)
+                && let Some(new_enabled) = self.toggle_resource(&item, write_scope)
+            {
+                self.update_item(&item, new_enabled);
+                let mut updated = item.clone();
+                updated.enabled = new_enabled;
+                let cb = self.callbacks.lock().on_toggle.clone();
+                if let Some(cb) = cb {
+                    cb(updated, new_enabled);
                 }
             }
             return;

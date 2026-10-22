@@ -369,15 +369,15 @@ fn refresh_opts(allow_network: bool, providers: &[&str]) -> Option<ModelsRefresh
 fn auth_options(runtime: &ModelRuntime, filter: Option<AuthType>) -> Vec<(AuthType, String, String, String)> {
     let mut out = Vec::new();
     for provider in runtime.get_providers() {
-        if filter.is_none() || filter == Some(AuthType::OAuth) {
-            if let Some(oauth) = &provider.auth().oauth {
-                out.push((AuthType::OAuth, provider.id().to_string(), provider.name().to_string(), oauth.name().to_string()));
-            }
+        if (filter.is_none() || filter == Some(AuthType::OAuth))
+            && let Some(oauth) = &provider.auth().oauth
+        {
+            out.push((AuthType::OAuth, provider.id().to_string(), provider.name().to_string(), oauth.name().to_string()));
         }
-        if filter.is_none() || filter == Some(AuthType::ApiKey) {
-            if let Some(api_key) = &provider.auth().api_key {
-                out.push((AuthType::ApiKey, provider.id().to_string(), provider.name().to_string(), api_key.name().to_string()));
-            }
+        if (filter.is_none() || filter == Some(AuthType::ApiKey))
+            && let Some(api_key) = &provider.auth().api_key
+        {
+            out.push((AuthType::ApiKey, provider.id().to_string(), provider.name().to_string(), api_key.name().to_string()));
         }
     }
     out

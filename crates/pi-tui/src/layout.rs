@@ -148,12 +148,11 @@ fn layout_component(
             Some(h) => h.max(0),
         };
         let mut line_offset = 0;
-        if lines.len() as i64 > allocated && allocated > 0 {
-            if let Some(cursor_line) = lines.iter().position(|l| l.contains(CURSOR_MARKER)) {
-                if cursor_line as i64 >= allocated {
-                    line_offset = (cursor_line as i64 - allocated + 1) as usize;
-                }
-            }
+        if lines.len() as i64 > allocated && allocated > 0
+            && let Some(cursor_line) = lines.iter().position(|l| l.contains(CURSOR_MARKER))
+            && cursor_line as i64 >= allocated
+        {
+            line_offset = (cursor_line as i64 - allocated + 1) as usize;
         }
         let rect = LayoutRect { x, y, width: safe_width, height: allocated };
         return LayoutBox {
@@ -551,10 +550,10 @@ pub fn get_scroll_views_at(frame: &LayoutFrame, x: i64, y: i64) -> Vec<Arc<Scrol
         if !contains_point(&b.clip, x, y) {
             return;
         }
-        if let Some(sv) = &b.scroll_view {
-            if contains_point(&b.rect, x, y) {
-                out.push((sv.clone(), depth));
-            }
+        if let Some(sv) = &b.scroll_view
+            && contains_point(&b.rect, x, y)
+        {
+            out.push((sv.clone(), depth));
         }
         for c in &b.children {
             visit(c, depth + 1, x, y, out);

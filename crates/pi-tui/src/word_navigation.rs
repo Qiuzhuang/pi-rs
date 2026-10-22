@@ -54,7 +54,7 @@ pub fn find_word_backward(text: &str, cursor: usize, options: &WordNavigationOpt
         new_cursor -= last.segment.len();
     } else if last.is_word_like {
         let seg = &last.segment;
-        match seg.char_indices().filter(|(_, c)| is_punctuation_ch(*c)).last() {
+        match seg.char_indices().filter(|(_, c)| is_punctuation_ch(*c)).next_back() {
             None => new_cursor -= seg.len(),
             Some((idx, c)) => new_cursor -= seg.len() - (idx + c.len_utf8()),
         }

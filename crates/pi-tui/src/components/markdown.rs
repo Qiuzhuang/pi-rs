@@ -283,10 +283,10 @@ impl Renderer<'_> {
     }
 
     fn render_latex_text(&self, token: &Token, display: bool) -> String {
-        if !token.pending && self.options.render_latex != Some(false) {
-            if let Some(r) = render_latex(&token.text, RenderLatexOptions { display }) {
-                return r;
-            }
+        if !token.pending && self.options.render_latex != Some(false)
+            && let Some(r) = render_latex(&token.text, RenderLatexOptions { display })
+        {
+            return r;
         }
         if display { js_trim(&token.raw).to_string() } else { token.raw.clone() }
     }

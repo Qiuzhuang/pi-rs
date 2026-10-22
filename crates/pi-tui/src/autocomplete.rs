@@ -450,10 +450,10 @@ impl CombinedAutocompleteProvider {
     }
 
     fn extract_at_prefix(&self, text: &str) -> Option<String> {
-        if let Some(q) = extract_quoted_prefix(text) {
-            if q.starts_with("@\"") {
-                return Some(q);
-            }
+        if let Some(q) = extract_quoted_prefix(text)
+            && q.starts_with("@\"")
+        {
+            return Some(q);
         }
         let token = strip_leading_wrappers(after_delimiter(text, find_last_delimiter(text)));
         if token.starts_with('@') { Some(token.to_string()) } else { None }

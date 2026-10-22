@@ -244,7 +244,7 @@ impl AutocompleteProvider for ReentrantProvider {
             }
             _ => Vec::new(),
         };
-        event_loop::ready((!items.is_empty()).then(|| AutocompleteSuggestions { prefix: before, items }))
+        event_loop::ready((!items.is_empty()).then_some(AutocompleteSuggestions { prefix: before, items }))
     }
 
     fn apply_completion(

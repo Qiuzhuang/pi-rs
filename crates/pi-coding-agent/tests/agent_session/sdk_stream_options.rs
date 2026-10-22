@@ -205,8 +205,8 @@ async fn capture_stream_options(
     }
     session.dispose();
     runtime.unregister_provider(&model.provider);
-    let options = captured.lock().clone();
-    options
+    
+    captured.lock().clone()
 }
 
 async fn create_cache_warming_session(

@@ -290,8 +290,8 @@ pub fn build(kind: &str, input: &Value) -> Option<Built> {
                 hints
                     .iter()
                     .map(|h| match h[0].as_str() {
-                        "keyHint" => key_hint(h[1].clone().into(), &h[2]),
-                        "keyText" => key_text(h[1].clone().into()),
+                        "keyHint" => key_hint(h[1].clone(), &h[2]),
+                        "keyText" => key_text(h[1].clone()),
                         _ => raw_key_hint(&h[1], &h[2]),
                     })
                     .collect()

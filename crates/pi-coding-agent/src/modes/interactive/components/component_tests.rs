@@ -464,7 +464,7 @@ fn custom_message_provides_output_padding_to_renderers() {
     let seen = Arc::new(Mutex::new(Vec::<MessageRenderOptions>::new()));
     let s = seen.clone();
     let renderer: MessageRenderer = Arc::new(move |_message: &CustomMessage, options: &MessageRenderOptions, _theme: &Arc<Theme>| {
-        s.lock().push(options.clone());
+        s.lock().push(*options);
         Some(Arc::new(Text::new("custom", options.output_pad, 0, None)) as ComponentRef)
     });
     let message: CustomMessage = serde_json::from_value(json!({

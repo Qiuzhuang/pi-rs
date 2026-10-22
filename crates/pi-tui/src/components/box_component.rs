@@ -120,10 +120,10 @@ impl Component for BoxComponent {
             return Vec::new();
         }
         let bg_sample = bg_fn.as_ref().map(|f| f("test"));
-        if let Some(cache) = &s.cache {
-            if cache.width == width && cache.bg_sample == bg_sample && cache.child_lines == child_lines {
-                return cache.lines.clone();
-            }
+        if let Some(cache) = &s.cache
+            && cache.width == width && cache.bg_sample == bg_sample && cache.child_lines == child_lines
+        {
+            return cache.lines.clone();
         }
         let mut result = Vec::new();
         for _ in 0..padding_y {

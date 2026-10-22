@@ -845,7 +845,7 @@ async fn bookmark_labels_the_last_assistant_message() {
         .filter_map(|e| serde_json::to_value(e).ok())
         .filter(|e| e["type"] == "message" && e["message"]["role"] == "assistant")
         .map(|e| e["id"].as_str().unwrap().to_string())
-        .last()
+        .next_back()
         .unwrap();
     assert_eq!(fx.harness.session_manager.get_label(&assistant_id).as_deref(), Some("keeper"));
     fx.submit("/unbookmark");

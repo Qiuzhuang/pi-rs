@@ -443,7 +443,7 @@ pub fn is_key_repeat(data: &str) -> bool {
 }
 
 fn parse_event_type(s: Option<&str>) -> KeyEventType {
-    match s.filter(|s| !s.is_empty()).and_then(|s| parse_int(s)) {
+    match s.filter(|s| !s.is_empty()).and_then(parse_int) {
         Some(2) => KeyEventType::Repeat,
         Some(3) => KeyEventType::Release,
         _ => KeyEventType::Press,
@@ -758,10 +758,10 @@ fn matches_kitty_sequence(data: &str, expected_codepoint: i64, expected_modifier
         return true;
     }
 
-    if let Some((cp, m)) = get_logical_shifted_symbol_candidate(parsed.shifted_key, actual_mod, SYMBOL_KEYS) {
-        if (m & !LOCK_MASK) == expected_mod && cp == normalize_kitty_functional_codepoint(expected_codepoint) {
-            return true;
-        }
+    if let Some((cp, m)) = get_logical_shifted_symbol_candidate(parsed.shifted_key, actual_mod, SYMBOL_KEYS)
+        && (m & !LOCK_MASK) == expected_mod && cp == normalize_kitty_functional_codepoint(expected_codepoint)
+    {
+        return true;
     }
 
     if actual_mod != expected_mod {
@@ -1105,21 +1105,20 @@ pub fn matches_key(data: &str, key_id: &str) -> bool {
         let codepoint = key.chars().next().unwrap() as i64;
         let raw_ctrl = raw_ctrl_char(key);
 
-        if modifier == MOD_CTRL + MOD_ALT && !kitty_active {
-            if let Some(rc) = &raw_ctrl {
-                if data == format!("\x1b{rc}") {
-                    return true;
-                }
-            }
+        if modifier == MOD_CTRL + MOD_ALT && !kitty_active
+            && let Some(rc) = &raw_ctrl
+            && data == format!("\x1b{rc}")
+        {
+            return true;
         }
         if modifier == MOD_ALT && !kitty_active && data == format!("\x1b{key}") {
             return true;
         }
         if modifier == MOD_CTRL {
-            if let Some(rc) = &raw_ctrl {
-                if data == rc {
-                    return true;
-                }
+            if let Some(rc) = &raw_ctrl
+                && data == rc
+            {
+                return true;
             }
             return matches_kitty_sequence(data, codepoint, MOD_CTRL)
                 || matches_printable_modify_other_keys(data, codepoint, MOD_CTRL);
@@ -1246,10 +1245,10 @@ pub fn parse_key(data: &str) -> Option<String> {
         if (1..=26).contains(&code) {
             return Some(format!("ctrl+alt+{}", char::from_u32(code + 96).unwrap()));
         }
-        if let Some(c) = char::from_u32(code) {
-            if (97..=122).contains(&code) || (48..=57).contains(&code) || (code < 128 && SYMBOL_KEYS.contains(c)) {
-                return Some(format!("alt+{c}"));
-            }
+        if let Some(c) = char::from_u32(code)
+            && ((97..=122).contains(&code) || (48..=57).contains(&code) || (code < 128 && SYMBOL_KEYS.contains(c)))
+        {
+            return Some(format!("alt+{c}"));
         }
     }
     match data {
@@ -1299,10 +1298,10 @@ pub fn decode_kitty_printable(data: &str) -> Option<String> {
         return None;
     }
     let mut effective = codepoint;
-    if modifier & MOD_SHIFT != 0 {
-        if let Some(sk) = shifted_key {
-            effective = sk;
-        }
+    if modifier & MOD_SHIFT != 0
+        && let Some(sk) = shifted_key
+    {
+        effective = sk;
     }
     effective = normalize_kitty_functional_codepoint(effective);
     if effective < 32 {

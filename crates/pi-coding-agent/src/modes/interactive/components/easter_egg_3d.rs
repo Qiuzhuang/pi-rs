@@ -1575,14 +1575,14 @@ impl AnimationInner {
                         _ => None,
                     },
                 );
-                if let Some(hint) = &hint {
-                    if row == hint.row && column >= hint.start && column < hint.start + hint.text.len() {
-                        let offset = column - hint.start;
-                        let color = if offset < hint.key_length { hint.key_color } else { hint.color };
-                        emit(&hint.text[offset].to_string(), Some(color), cell_bg, &mut line);
-                        column += 1;
-                        continue;
-                    }
+                if let Some(hint) = &hint
+                    && row == hint.row && column >= hint.start && column < hint.start + hint.text.len()
+                {
+                    let offset = column - hint.start;
+                    let color = if offset < hint.key_length { hint.key_color } else { hint.color };
+                    emit(&hint.text[offset].to_string(), Some(color), cell_bg, &mut line);
+                    column += 1;
+                    continue;
                 }
                 let dots = raster.bits[index];
                 if dots != 0 {

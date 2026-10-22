@@ -23,7 +23,7 @@ fn keys_match_typescript_reference() {
         if printable != case["printable"] {
             failures.push(format!("[kitty={kitty}] printable({d:?}) = {printable:?}, want {:?}", case["printable"]));
         }
-        if Value::from(is_key_release(d)) != case["rel"] || Value::from(is_key_repeat(d)) != case["rep"] {
+        if is_key_release(d) != case["rel"] || is_key_repeat(d) != case["rep"] {
             failures.push(format!("[kitty={kitty}] release/repeat mismatch for {d:?}"));
         }
         let want: Vec<u64> = case["m"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();

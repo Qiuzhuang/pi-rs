@@ -304,7 +304,7 @@ pub(crate) fn is_anthropic_subscription_auth_key(api_key: Option<&str>) -> bool 
 }
 
 pub(crate) fn is_unknown_model(model: Option<&pi_ai::types::Model>) -> bool {
-    model.is_some_and(|m| m.provider.to_string() == "unknown" && m.id == "unknown" && m.api.to_string() == "unknown")
+    model.is_some_and(|m| m.provider == "unknown" && m.id == "unknown" && m.api == "unknown")
 }
 
 pub(crate) fn quote_if_needed(value: &str) -> String {
@@ -922,8 +922,8 @@ impl Inner {
     }
 
     pub(crate) fn editor_ref(&self) -> ComponentRef {
-        let editor = self.editor();
-        editor
+        
+        (self.editor()) as _
     }
 
     pub(crate) fn output_pad(&self) -> i64 {
@@ -995,7 +995,7 @@ impl Inner {
                 })
                 .collect::<Vec<_>>()
                 .join(", ");
-            let cycle_keys = self.keybindings.get_keys(&"app.model.cycleForward".to_string());
+            let cycle_keys = self.keybindings.get_keys("app.model.cycleForward");
             let cycle_hint = if cycle_keys.is_empty() {
                 String::new()
             } else {
@@ -2162,30 +2162,31 @@ impl Inner {
                 let _guard = self.rt.enter();
                 let Ok(mut stream) = signal(kind) else { continue };
                 self.spawn(async move {
-                    while stream.recv().await.is_some() {
-                        let this = weak.upgrade();
-                        let active = this.as_ref().map(|t| t.signal_generation.load(Ordering::SeqCst));
-                        if active == Some(generation) {
-                            // SIGHUP no longer hard-exits: graceful shutdown emits session_shutdown first,
-                            // then attempts terminal restore.
-                            crate::utils::shell::kill_tracked_detached_children();
-                            if let Some(this) = this {
-                                this.shutdown(true).await;
-                            }
-                            return;
-                        }
-                        if active.is_some_and(|g| g != 0) {
-                            // A newer registration handles it.
-                            return;
-                        }
-                        // Unregistered (TS removed its listener): tokio keeps the process handler
-                        // installed, so restore the default action and re-raise the signal.
-                        // SAFETY: resets the disposition and re-sends the signal to this process.
-                        unsafe {
-                            libc::signal(raw, libc::SIG_DFL);
-                            libc::raise(raw);
+                    // One signal is handled; every path below ends the task.
+                    if stream.recv().await.is_none() {
+                        return;
+                    }
+                    let this = weak.upgrade();
+                    let active = this.as_ref().map(|t| t.signal_generation.load(Ordering::SeqCst));
+                    if active == Some(generation) {
+                        // SIGHUP no longer hard-exits: graceful shutdown emits session_shutdown first,
+                        // then attempts terminal restore.
+                        crate::utils::shell::kill_tracked_detached_children();
+                        if let Some(this) = this {
+                            this.shutdown(true).await;
                         }
                         return;
+                    }
+                    if active.is_some_and(|g| g != 0) {
+                        // A newer registration handles it.
+                        return;
+                    }
+                    // Unregistered (TS removed its listener): tokio keeps the process handler
+                    // installed, so restore the default action and re-raise the signal.
+                    // SAFETY: resets the disposition and re-sends the signal to this process.
+                    unsafe {
+                        libc::signal(raw, libc::SIG_DFL);
+                        libc::raise(raw);
                     }
                 });
             }
@@ -2818,7 +2819,7 @@ impl Inner {
             return;
         }
         let Some(model) = model else { return };
-        if model.provider.to_string() != "anthropic" {
+        if model.provider != "anthropic" {
             return;
         }
         let runtime = session.model_runtime();

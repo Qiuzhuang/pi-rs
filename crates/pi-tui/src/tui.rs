@@ -327,10 +327,10 @@ fn parse_percent(s: &str) -> Option<f64> {
     if int.is_empty() || !int.bytes().all(|b| b.is_ascii_digit()) {
         return None;
     }
-    if let Some(f) = frac {
-        if f.is_empty() || !f.bytes().all(|b| b.is_ascii_digit()) {
-            return None;
-        }
+    if let Some(f) = frac
+        && (f.is_empty() || !f.bytes().all(|b| b.is_ascii_digit()))
+    {
+        return None;
     }
     num.parse().ok()
 }
@@ -607,11 +607,11 @@ impl Container {
             if event.y >= child_y && event.y < child_y + h {
                 let child_event = MouseEvent { y: event.y - child_y, height: h, ..*event };
                 let result = dispatch_mouse_event(&child, &child_event);
-                if let (Some(mut r), Some(owner)) = (result.clone(), focus_owner) {
-                    if r.focus {
-                        r.focus_target = Some(owner);
-                        return Some(r);
-                    }
+                if let (Some(mut r), Some(owner)) = (result.clone(), focus_owner)
+                    && r.focus
+                {
+                    r.focus_target = Some(owner);
+                    return Some(r);
                 }
                 return result;
             }
@@ -1087,14 +1087,14 @@ impl Tui {
                         }
                     }
                     _ => {
-                        if let (Some(pfo), Some(ro)) = (&previous_focused_overlay, restore_state.overlay()) {
-                            if same_entry(ro, pfo) && !self.is_overlay_focus_ancestor(&st, pfo, &nf) {
-                                st.focus_restore = FocusRestore::Blocked {
-                                    overlay: pfo.clone(),
-                                    blocked_by: nf.clone(),
-                                    resume: BlockedResume::RestoreOverlay,
-                                };
-                            }
+                        if let (Some(pfo), Some(ro)) = (&previous_focused_overlay, restore_state.overlay())
+                            && same_entry(ro, pfo) && !self.is_overlay_focus_ancestor(&st, pfo, &nf)
+                        {
+                            st.focus_restore = FocusRestore::Blocked {
+                                overlay: pfo.clone(),
+                                blocked_by: nf.clone(),
+                                resume: BlockedResume::RestoreOverlay,
+                            };
                         }
                     }
                 }
@@ -1150,20 +1150,20 @@ impl Tui {
             let in_stack = rs.overlay().is_some_and(|o| st.overlay_stack.iter().any(|e| same_entry(e, o)));
             (rs, in_stack)
         };
-        if let Some(overlay) = rs.overlay() {
-            if !in_stack || !self.is_overlay_visible(overlay) {
-                return FocusRestore::Inactive;
-            }
+        if let Some(overlay) = rs.overlay()
+            && (!in_stack || !self.is_overlay_visible(overlay))
+        {
+            return FocusRestore::Inactive;
         }
         rs
     }
 
     fn visible_focus_restore_with(st: &TuiState, is_visible: &dyn Fn(&EntryRef) -> bool) -> FocusRestore {
         let rs = st.focus_restore.clone();
-        if let Some(overlay) = rs.overlay() {
-            if !st.overlay_stack.iter().any(|e| same_entry(e, overlay)) || !is_visible(overlay) {
-                return FocusRestore::Inactive;
-            }
+        if let Some(overlay) = rs.overlay()
+            && (!st.overlay_stack.iter().any(|e| same_entry(e, overlay)) || !is_visible(overlay))
+        {
+            return FocusRestore::Inactive;
         }
         rs
     }
@@ -1332,20 +1332,20 @@ impl Tui {
             if !is_focused && !has_pending {
                 return;
             }
-            if let FocusRestore::Blocked { overlay, blocked_by, .. } = &restore {
-                if same_entry(overlay, entry) && st.focused.as_ref().is_some_and(|f| same_component(f, blocked_by)) {
-                    st.focus_restore = match &options {
-                        Some(opts) => FocusRestore::Blocked {
-                            overlay: entry.clone(),
-                            blocked_by: blocked_by.clone(),
-                            resume: BlockedResume::FocusTarget(opts.target.clone()),
-                        },
-                        None => FocusRestore::Inactive,
-                    };
-                    drop(st);
-                    self.request_render(false);
-                    return;
-                }
+            if let FocusRestore::Blocked { overlay, blocked_by, .. } = &restore
+                && same_entry(overlay, entry) && st.focused.as_ref().is_some_and(|f| same_component(f, blocked_by))
+            {
+                st.focus_restore = match &options {
+                    Some(opts) => FocusRestore::Blocked {
+                        overlay: entry.clone(),
+                        blocked_by: blocked_by.clone(),
+                        resume: BlockedResume::FocusTarget(opts.target.clone()),
+                    },
+                    None => FocusRestore::Inactive,
+                };
+                drop(st);
+                self.request_render(false);
+                return;
             }
             Self::clear_focus_restore_for(&mut st, entry);
             is_focused || options.is_some()
@@ -1841,11 +1841,11 @@ impl Tui {
         }
 
         let on_debug = self.on_debug.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        if let Some(cb) = on_debug {
-            if matches_key(&data, "shift+ctrl+d") {
-                cb();
-                return;
-            }
+        if let Some(cb) = on_debug
+            && matches_key(&data, "shift+ctrl+d")
+        {
+            cb();
+            return;
         }
 
         // If the focused component is an overlay, verify it's still visible.
@@ -1855,14 +1855,14 @@ impl Tui {
         };
         let focused_overlay =
             focused.as_ref().and_then(|f| stack.iter().find(|o| same_component(&o.component, f)).cloned());
-        if let Some(fo) = focused_overlay {
-            if !self.is_overlay_visible(&fo) {
-                match self.topmost_visible_overlay() {
-                    Some(top) => self.set_focus(Some(top.component.clone())),
-                    None => {
-                        let pre = fo.lock().pre_focus.clone();
-                        self.set_focus_internal(pre, FocusRestorePolicy::Preserve);
-                    }
+        if let Some(fo) = focused_overlay
+            && !self.is_overlay_visible(&fo)
+        {
+            match self.topmost_visible_overlay() {
+                Some(top) => self.set_focus(Some(top.component.clone())),
+                None => {
+                    let pre = fo.lock().pre_focus.clone();
+                    self.set_focus_internal(pre, FocusRestorePolicy::Preserve);
                 }
             }
         }
@@ -1892,14 +1892,14 @@ impl Tui {
         }
 
         let focused = self.state().focused.clone();
-        if let Some(f) = focused {
-            if f.handles_input() {
-                if is_key_release(&data) && !f.wants_key_release() {
-                    return;
-                }
-                f.handle_input(&data);
-                self.request_immediate_render();
+        if let Some(f) = focused
+            && f.handles_input()
+        {
+            if is_key_release(&data) && !f.wants_key_release() {
+                return;
             }
+            f.handle_input(&data);
+            self.request_immediate_render();
         }
     }
 
@@ -2116,10 +2116,10 @@ impl Tui {
         for entry in &visible {
             let (width, _, _, max_height) = Self::resolve_overlay_layout(entry.options.as_ref(), 0, tw, th);
             let mut overlay_lines = resolve_fake_cursors(entry.component.render(width.max(0) as usize), show_hw);
-            if let Some(mh) = max_height {
-                if overlay_lines.len() as i64 > mh {
-                    overlay_lines.truncate(mh.max(0) as usize);
-                }
+            if let Some(mh) = max_height
+                && overlay_lines.len() as i64 > mh
+            {
+                overlay_lines.truncate(mh.max(0) as usize);
             }
             let (_, row, col, _) =
                 Self::resolve_overlay_layout(entry.options.as_ref(), overlay_lines.len() as i64, tw, th);

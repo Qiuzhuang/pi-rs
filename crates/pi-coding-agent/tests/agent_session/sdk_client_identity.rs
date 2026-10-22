@@ -141,8 +141,8 @@ async fn capture_options(model: &Model, options: CaptureOptions) -> SimpleStream
     session.dispose();
     runtime.unregister_provider(&model.provider);
     let _ = std::fs::remove_dir_all(&temp_dir);
-    let options = captured.lock().clone().expect("provider was called");
-    options
+    
+    captured.lock().clone().expect("provider was called")
 }
 
 fn identity_json(options: &SimpleStreamOptions) -> Value {

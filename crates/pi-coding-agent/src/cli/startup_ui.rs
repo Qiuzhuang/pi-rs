@@ -64,10 +64,10 @@ fn load_themes(resources: &[ResolvedResource]) -> Vec<Arc<Theme>> {
         let Ok(Ok(loaded_theme)) = std::panic::catch_unwind(move || load_theme_from_path(&path, None)) else {
             continue;
         };
-        if let Some(name) = loaded_theme.name() {
-            if !seen.insert(name) {
-                continue;
-            }
+        if let Some(name) = loaded_theme.name()
+            && !seen.insert(name)
+        {
+            continue;
         }
         themes.push(loaded_theme);
     }

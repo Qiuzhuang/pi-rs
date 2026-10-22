@@ -930,7 +930,7 @@ impl Inner {
         let label = if miss.model_changed {
             "Cache miss after model switch".to_string()
         } else if miss.idle_ms as i64 >= CACHE_TTL_MS {
-            format!("Cache miss after {}m idle", (miss.idle_ms as f64 / 60_000.0).round() as i64)
+            format!("Cache miss after {}m idle", (miss.idle_ms / 60_000.0).round() as i64)
         } else {
             "Cache miss".to_string()
         };

@@ -256,7 +256,7 @@ fn fd_completes_quoted_cjk_attachments_after_prose() {
         );
         let line = format!("查看：@\"{directory}/说\"后文");
         let cursor = line.find("\"后文").unwrap();
-        let result = suggest(&provider, &[line.clone()], 0, cursor, false).expect("suggestions");
+        let result = suggest(&provider, std::slice::from_ref(&line), 0, cursor, false).expect("suggestions");
         assert_eq!(result.prefix, format!("@\"{directory}/说"));
         assert_eq!(values(&Some(result.clone())), vec![format!("@\"{directory}/说明.md\"")]);
         let (applied, col) = apply_line(&provider, &line, cursor, &result.items[0], &result.prefix);
@@ -525,7 +525,7 @@ fn completes_chinese_path_prefixes_after_separators() {
             let before = format!("查看𠮷{separator}");
             let line = format!("{before}{prefix} 后文");
             let cursor = before.len() + prefix.len();
-            let result = suggest(&provider, &[line.clone()], 0, cursor, true).unwrap_or_else(|| panic!("{line}"));
+            let result = suggest(&provider, std::slice::from_ref(&line), 0, cursor, true).unwrap_or_else(|| panic!("{line}"));
             assert_eq!(&result.prefix, prefix);
             assert_eq!(values(&Some(result.clone())), vec![value.clone()]);
             let (applied, col) = apply_line(&provider, &line, cursor, &result.items[0], &result.prefix);
@@ -551,7 +551,7 @@ fn treats_unquoted_separators_as_boundaries() {
         }
         let quoted = format!("查看，\"{directory}/说\"后文");
         let cursor = quoted.find("\"后文").unwrap();
-        let result = suggest(&provider, &[quoted.clone()], 0, cursor, true).expect("suggestions");
+        let result = suggest(&provider, std::slice::from_ref(&quoted), 0, cursor, true).expect("suggestions");
         assert_eq!(result.prefix, format!("\"{directory}/说"));
         assert_eq!(values(&Some(result.clone())), vec![format!("\"{directory}/说明.md\"")]);
         let (applied, _) = apply_line(&provider, &quoted, cursor, &result.items[0], &result.prefix);

@@ -141,9 +141,7 @@ impl Inner {
         let short_path = self.get_short_path(resource_path, source_info);
         let normalized = short_path.replace('\\', "/");
         normalized
-            .split('/')
-            .filter(|s| !s.is_empty() && *s != "~")
-            .next_back()
+            .split('/').rfind(|s| !s.is_empty() && *s != "~")
             .map(str::to_string)
             .unwrap_or(short_path)
     }

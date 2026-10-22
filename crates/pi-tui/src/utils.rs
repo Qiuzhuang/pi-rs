@@ -527,10 +527,10 @@ pub fn visible_width(s: &str) -> usize {
     WIDTH_CACHE.with(|c| {
         let mut c = c.borrow_mut();
         let (map, order) = &mut *c;
-        if map.len() >= WIDTH_CACHE_SIZE {
-            if let Some(first) = order.pop_front() {
-                map.remove(&first);
-            }
+        if map.len() >= WIDTH_CACHE_SIZE
+            && let Some(first) = order.pop_front()
+        {
+            map.remove(&first);
         }
         if map.insert(s.to_string(), width).is_none() {
             order.push_back(s.to_string());

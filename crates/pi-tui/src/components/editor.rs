@@ -269,23 +269,23 @@ fn matches_token_pattern(text: &str, body: &dyn Fn(&str) -> bool) -> bool {
 
 fn matches_trigger_pattern(text: &str, triggers: &[String]) -> bool {
     matches_token_pattern(text, &|rest: &str| {
-        if let Some(q) = rest.strip_prefix("@\"") {
-            if !q.contains('"') && !q.contains('\n') {
-                return true;
-            }
+        if let Some(q) = rest.strip_prefix("@\"")
+            && !q.contains('"') && !q.contains('\n')
+        {
+            return true;
         }
         let Some(first) = rest.chars().next() else { return false };
-        triggers.iter().any(|t| t.chars().next() == Some(first)) && is_unquoted_suffix(&rest[first.len_utf8()..])
+        triggers.iter().any(|t| t.starts_with(first)) && is_unquoted_suffix(&rest[first.len_utf8()..])
     })
 }
 
 fn matches_debounce_pattern(text: &str, triggers: &[String]) -> bool {
     matches_token_pattern(text, &|rest: &str| {
         if let Some(after_at) = rest.strip_prefix('@') {
-            if let Some(q) = after_at.strip_prefix('"') {
-                if !q.contains('"') && !q.contains('\n') {
-                    return true;
-                }
+            if let Some(q) = after_at.strip_prefix('"')
+                && !q.contains('"') && !q.contains('\n')
+            {
+                return true;
             }
             if is_unquoted_suffix(after_at) {
                 return true;
@@ -293,7 +293,7 @@ fn matches_debounce_pattern(text: &str, triggers: &[String]) -> bool {
         }
         let Some(first) = rest.chars().next() else { return false };
         first != '@'
-            && triggers.iter().any(|t| t != "@" && t.chars().next() == Some(first))
+            && triggers.iter().any(|t| t != "@" && t.starts_with(first))
             && is_unquoted_suffix(&rest[first.len_utf8()..])
     })
 }
@@ -1658,28 +1658,27 @@ impl Editor {
                 return s.ac_list.clone().map(|l| (l, data.to_string()));
             }
             if kb.matches(data, "tui.input.tab") {
-                if let Some(selected) = Self::selected_autocomplete_item(s) {
-                    if s.provider.is_some() {
-                        self.apply_selected_completion(s, &selected);
-                        self.cancel_autocomplete(s);
-                        emit_change(s);
-                    }
+                if let Some(selected) = Self::selected_autocomplete_item(s)
+                    && s.provider.is_some()
+                {
+                    self.apply_selected_completion(s, &selected);
+                    self.cancel_autocomplete(s);
+                    emit_change(s);
                 }
                 return None;
             }
-            if kb.matches(data, "tui.select.confirm") {
-                if let Some(selected) = Self::selected_autocomplete_item(s) {
-                    if s.provider.is_some() {
-                        self.apply_selected_completion(s, &selected);
-                        if s.ac_prefix.starts_with('/') {
-                            self.cancel_autocomplete(s);
-                            // Fall through to submit.
-                        } else {
-                            self.cancel_autocomplete(s);
-                            emit_change(s);
-                            return None;
-                        }
-                    }
+            if kb.matches(data, "tui.select.confirm")
+                && let Some(selected) = Self::selected_autocomplete_item(s)
+                && s.provider.is_some()
+            {
+                self.apply_selected_completion(s, &selected);
+                if s.ac_prefix.starts_with('/') {
+                    self.cancel_autocomplete(s);
+                    // Fall through to submit.
+                } else {
+                    self.cancel_autocomplete(s);
+                    emit_change(s);
+                    return None;
                 }
             }
         }
@@ -2157,14 +2156,14 @@ impl Component for Editor {
             let list = if s.ac_state.is_some() { s.ac_list.clone() } else { None };
             (list, s.rendered_visible_line_count as i64 + 2, s.rendered_autocomplete_height as i64, padding_x)
         };
-        if let Some(list) = list {
-            if event.y >= start_row && event.y < start_row + height {
-                let content_width = (event.width - padding_x * 2).max(1);
-                let local = MouseEvent { x: event.x - padding_x, y: event.y - start_row, width: content_width, height, ..*event };
-                let mut r = list.handle_mouse(&local)?;
-                r.focus = true;
-                return Some(r);
-            }
+        if let Some(list) = list
+            && event.y >= start_row && event.y < start_row + height
+        {
+            let content_width = (event.width - padding_x * 2).max(1);
+            let local = MouseEvent { x: event.x - padding_x, y: event.y - start_row, width: content_width, height, ..*event };
+            let mut r = list.handle_mouse(&local)?;
+            r.focus = true;
+            return Some(r);
         }
         if event.kind != MouseEventType::Click || event.button != MouseButton::Left {
             return None;

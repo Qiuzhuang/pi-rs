@@ -34,7 +34,7 @@ fn rules() -> &'static Rules {
 }
 
 /// `src.substring(n)` for a byte count that is a prefix length of `src`.
-fn advance<'a>(src: &'a str, n: usize) -> &'a str {
+fn advance(src: &str, n: usize) -> &str {
     let mut n = n.min(src.len());
     while !src.is_char_boundary(n) {
         n += 1;
@@ -1337,7 +1337,7 @@ impl Lexer {
                 return None;
             }
             let rtrim_slash = rtrim(&trimmed_url[..trimmed_url.len() - 1], '\\');
-            if (trimmed_url.len() - rtrim_slash.len()) % 2 == 0 {
+            if (trimmed_url.len() - rtrim_slash.len()).is_multiple_of(2) {
                 return None;
             }
         } else {
@@ -1399,7 +1399,7 @@ impl Lexer {
         let m0 = group(&m, 0);
         let l_length = m0.chars().count() - 1;
         let delim_char = m0.chars().next().unwrap();
-        let mid_run = prev_char.chars().next() == Some(delim_char) && prev_char.chars().count() == 1;
+        let mid_run = prev_char.starts_with(delim_char) && prev_char.chars().count() == 1;
         let end_reg = if delim_char == '*' { &r.inline.em_strong_r_delim_ast } else { &r.inline.em_strong_r_delim_und };
         let clipped = clip_masked(masked_src, src, l_length);
         let mut delim_total = l_length as isize;
@@ -1414,7 +1414,7 @@ impl Lexer {
                 delim_total += r_length;
                 continue;
             } else if has(&rm, 5) || has(&rm, 6) {
-                if l_length % 3 != 0 && (l_length as isize + r_length) % 3 == 0 {
+                if !l_length.is_multiple_of(3) && (l_length as isize + r_length) % 3 == 0 {
                     mid_delim_total += r_length;
                     continue;
                 }
@@ -1457,7 +1457,7 @@ impl Lexer {
         let m0 = group(&m, 0);
         let l_length = m0.chars().count() - 1;
         let delim_char = m0.chars().next().unwrap();
-        let prev_char_is_same_delimiter = prev_char.chars().next() == Some(delim_char) && prev_char.chars().count() == 1;
+        let prev_char_is_same_delimiter = prev_char.starts_with(delim_char) && prev_char.chars().count() == 1;
         let end_reg = if delim_char == '*' { &CJK_RULES.r_delim_ast_gfm } else { &CJK_RULES.r_delim_und };
         let clipped = clip_masked(masked_src, src, l_length);
         let mut delim_total = l_length as isize;
@@ -1476,7 +1476,7 @@ impl Lexer {
                 continue;
             }
             if is_both || is_cjk_adjacent {
-                if l_length % 3 != 0 && (l_length as isize + r_length) % 3 == 0 {
+                if !l_length.is_multiple_of(3) && (l_length as isize + r_length) % 3 == 0 {
                     mid_delim_total += r_length;
                     continue;
                 }

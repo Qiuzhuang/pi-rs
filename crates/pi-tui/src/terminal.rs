@@ -22,15 +22,15 @@ pub enum KeyboardProtocolNegotiationSequence {
 /// Parse a Kitty flags reply (`CSI ? flags u`) or a DA1 reply (`CSI ? ... c`).
 pub fn parse_keyboard_protocol_negotiation_sequence(sequence: &str) -> Option<KeyboardProtocolNegotiationSequence> {
     let body = sequence.strip_prefix("\x1b[?")?;
-    if let Some(digits) = body.strip_suffix('u') {
-        if !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()) {
-            return Some(KeyboardProtocolNegotiationSequence::KittyFlags(digits.parse().unwrap_or(u32::MAX)));
-        }
+    if let Some(digits) = body.strip_suffix('u')
+        && !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit())
+    {
+        return Some(KeyboardProtocolNegotiationSequence::KittyFlags(digits.parse().unwrap_or(u32::MAX)));
     }
-    if let Some(params) = body.strip_suffix('c') {
-        if params.bytes().all(|b| b.is_ascii_digit() || b == b';') {
-            return Some(KeyboardProtocolNegotiationSequence::DeviceAttributes);
-        }
+    if let Some(params) = body.strip_suffix('c')
+        && params.bytes().all(|b| b.is_ascii_digit() || b == b';')
+    {
+        return Some(KeyboardProtocolNegotiationSequence::DeviceAttributes);
     }
     None
 }
@@ -423,10 +423,10 @@ mod process {
         }
 
         fn write_program_status(&self, state: &State) {
-            if state.program_status_supported {
-                if let Some(status) = &state.program_status {
-                    self.raw_write(&format_program_status(status));
-                }
+            if state.program_status_supported
+                && let Some(status) = &state.program_status
+            {
+                self.raw_write(&format_program_status(status));
             }
         }
 
@@ -708,18 +708,18 @@ mod process {
             self.raw_write(&format!("{}{query}{DEVICE_ATTRIBUTES_QUERY}", kitty_keyboard_protocol_query()));
             self.write_program_status(&state);
 
-            if state.reader.is_none() {
-                if let Some((r, w)) = make_pipe() {
-                    let me = self.clone();
-                    let handle = std::thread::Builder::new()
-                        .name("pi-tui-stdin".into())
-                        .spawn(move || {
-                            crate::event_loop::run_thread_guarded(|| me.reader_loop(r));
-                            unsafe { libc::close(r) };
-                        })
-                        .expect("spawn stdin reader");
-                    state.reader = Some((w, handle));
-                }
+            if state.reader.is_none()
+                && let Some((r, w)) = make_pipe()
+            {
+                let me = self.clone();
+                let handle = std::thread::Builder::new()
+                    .name("pi-tui-stdin".into())
+                    .spawn(move || {
+                        crate::event_loop::run_thread_guarded(|| me.reader_loop(r));
+                        unsafe { libc::close(r) };
+                    })
+                    .expect("spawn stdin reader");
+                state.reader = Some((w, handle));
             }
         }
 
@@ -819,10 +819,10 @@ mod process {
 
         fn write(&self, data: &str) {
             self.raw_write(data);
-            if let Some(path) = &self.inner.write_log_path {
-                if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
-                    let _ = f.write_all(data.as_bytes());
-                }
+            if let Some(path) = &self.inner.write_log_path
+                && let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path)
+            {
+                let _ = f.write_all(data.as_bytes());
             }
         }
 

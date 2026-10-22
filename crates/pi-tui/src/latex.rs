@@ -877,7 +877,7 @@ impl<'a> LatexParser<'a> {
         }
         let middle = contents.len() / 2;
         let mut visual_rows: Vec<Option<String>> = contents.into_iter().map(Some).collect();
-        if visual_rows.len() % 2 == 0 {
+        if visual_rows.len().is_multiple_of(2) {
             visual_rows.insert(middle, None);
         }
         let n = visual_rows.len();

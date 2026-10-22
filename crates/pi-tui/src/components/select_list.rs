@@ -206,23 +206,23 @@ impl SelectList {
     fn render_item(&self, item: &SelectItem, is_selected: bool, width: usize, desc: Option<&str>, primary_width: usize) -> String {
         let prefix = if is_selected { "→ " } else { "  " };
         let prefix_width = visible_width(prefix);
-        if let Some(desc) = desc.filter(|d| !d.is_empty()) {
-            if width > 40 {
-                let effective = primary_width.min(width.saturating_sub(prefix_width + 4)).max(1);
-                let max_primary = effective.saturating_sub(PRIMARY_COLUMN_GAP).max(1);
-                let value = self.truncate_primary(item, is_selected, max_primary, effective);
-                let value_width = visible_width(&value);
-                let spacing = " ".repeat(effective.saturating_sub(value_width).max(1));
-                let description_start = prefix_width + value_width + spacing.len();
-                let remaining = width as i64 - description_start as i64 - 2;
-                if remaining > MIN_DESCRIPTION_WIDTH {
-                    let truncated_desc = truncate_to_width(desc, remaining as usize, "", false);
-                    if is_selected {
-                        return (self.theme.selected_text)(&format!("{prefix}{value}{spacing}{truncated_desc}"));
-                    }
-                    let desc_text = (self.theme.description)(&format!("{spacing}{truncated_desc}"));
-                    return format!("{prefix}{value}{desc_text}");
+        if let Some(desc) = desc.filter(|d| !d.is_empty())
+            && width > 40
+        {
+            let effective = primary_width.min(width.saturating_sub(prefix_width + 4)).max(1);
+            let max_primary = effective.saturating_sub(PRIMARY_COLUMN_GAP).max(1);
+            let value = self.truncate_primary(item, is_selected, max_primary, effective);
+            let value_width = visible_width(&value);
+            let spacing = " ".repeat(effective.saturating_sub(value_width).max(1));
+            let description_start = prefix_width + value_width + spacing.len();
+            let remaining = width as i64 - description_start as i64 - 2;
+            if remaining > MIN_DESCRIPTION_WIDTH {
+                let truncated_desc = truncate_to_width(desc, remaining as usize, "", false);
+                if is_selected {
+                    return (self.theme.selected_text)(&format!("{prefix}{value}{spacing}{truncated_desc}"));
                 }
+                let desc_text = (self.theme.description)(&format!("{spacing}{truncated_desc}"));
+                return format!("{prefix}{value}{desc_text}");
             }
         }
         let max_width = width.saturating_sub(prefix_width + 2);
@@ -270,18 +270,18 @@ impl Component for SelectList {
         if s.filtered.is_empty() {
             return None;
         }
-        if event.kind == MouseEventType::Wheel {
-            if let Some(delta) = event.wheel_delta.filter(|d| *d != 0) {
-                let d = if delta < 0 { -1 } else { 1 };
-                let prev = s.selected_index;
-                s.selected_index = (s.selected_index + d).clamp(0, s.filtered.len() as i64 - 1);
-                let changed = s.selected_index != prev;
-                drop(s);
-                if changed {
-                    self.notify_selection_change();
-                }
-                return Some(MouseResult { handled: true, render: Some(changed), ..Default::default() });
+        if event.kind == MouseEventType::Wheel
+            && let Some(delta) = event.wheel_delta.filter(|d| *d != 0)
+        {
+            let d = if delta < 0 { -1 } else { 1 };
+            let prev = s.selected_index;
+            s.selected_index = (s.selected_index + d).clamp(0, s.filtered.len() as i64 - 1);
+            let changed = s.selected_index != prev;
+            drop(s);
+            if changed {
+                self.notify_selection_change();
             }
+            return Some(MouseResult { handled: true, render: Some(changed), ..Default::default() });
         }
         if event.button != MouseButton::Left || (event.kind != MouseEventType::Press && event.kind != MouseEventType::Click) {
             return None;

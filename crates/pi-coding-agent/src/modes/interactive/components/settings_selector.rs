@@ -376,10 +376,10 @@ fn single_mode_theme_items(available_themes: &[String], current_theme: &str) -> 
 }
 
 fn preferred_theme(available_themes: &[String], preferred: Option<&str>, fallback: &str) -> String {
-    if let Some(preferred) = preferred.filter(|p| !p.is_empty()) {
-        if available_themes.iter().any(|t| t == preferred) {
-            return preferred.to_string();
-        }
+    if let Some(preferred) = preferred.filter(|p| !p.is_empty())
+        && available_themes.iter().any(|t| t == preferred)
+    {
+        return preferred.to_string();
     }
     if available_themes.iter().any(|t| t == fallback) {
         return fallback.to_string();
@@ -751,10 +751,10 @@ impl SettingsSelectorComponent {
         let current_model_key = config.current_model.as_ref().map(model_setting_key);
 
         let mut wheel_values: Vec<u32> = vec![1, 2, 3, 5, 10];
-        if let WheelScrollLines::Lines(n) = config.fullscreen_wheel_scroll_lines {
-            if !wheel_values.contains(&n) {
-                wheel_values.push(n);
-            }
+        if let WheelScrollLines::Lines(n) = config.fullscreen_wheel_scroll_lines
+            && !wheel_values.contains(&n)
+        {
+            wheel_values.push(n);
         }
         wheel_values.sort();
         let mut wheel_value_strs = vec!["auto".to_string()];

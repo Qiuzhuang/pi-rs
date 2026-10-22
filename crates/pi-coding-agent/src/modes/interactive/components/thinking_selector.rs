@@ -209,16 +209,16 @@ impl Component for ThinkingSelectorComponent {
     fn handle_input(&self, data: &str) {
         let inner = &self.inner;
         let kb = get_keybindings();
-        if kb.matches(data, "app.thinking.save") {
-            if let Some(on_default) = &inner.on_select_as_default {
-                let item = inner.select_list.lock().get_selected_item();
-                if let Some(item) = item {
-                    if let Some(level) = ThinkingLevel::parse(&item.value) {
-                        on_default(level);
-                    }
-                }
-                return;
+        if kb.matches(data, "app.thinking.save")
+            && let Some(on_default) = &inner.on_select_as_default
+        {
+            let item = inner.select_list.lock().get_selected_item();
+            if let Some(item) = item
+                && let Some(level) = ThinkingLevel::parse(&item.value)
+            {
+                on_default(level);
             }
+            return;
         }
 
         let is_nav = kb.matches(data, "tui.select.up")

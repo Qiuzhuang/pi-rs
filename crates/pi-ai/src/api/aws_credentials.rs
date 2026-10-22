@@ -111,7 +111,7 @@ pub(crate) fn escape_user_agent(name: &str, version: Option<&str>) -> String {
 
 /// `userAgentAppId`: `AWS_SDK_UA_APP_ID`, else the profile's `sdk_ua_app_id` (`sdk-ua-app-id`).
 pub(crate) fn user_agent_app_id(profile: Option<&str>) -> Option<String> {
-    if let Some(id) = std::env::var("AWS_SDK_UA_APP_ID").ok() {
+    if let Ok(id) = std::env::var("AWS_SDK_UA_APP_ID") {
         return Some(id).filter(|i| !i.is_empty());
     }
     let name = profile.map(str::to_string).or_else(|| env("AWS_PROFILE")).unwrap_or_else(|| "default".into());

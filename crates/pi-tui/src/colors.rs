@@ -191,13 +191,13 @@ impl From<String> for ColorValue {
 
 /// Parse a color string (`#rgb`, `#rrggbb`, `oklch(L C H)`, `okhsl(H S L)`).
 pub fn parse_color_str(value: &str) -> Result<Color, String> {
-    if let Some(hex) = value.strip_prefix('#') {
-        if (hex.len() == 3 || hex.len() == 6) && hex.chars().all(|c| c.is_ascii_hexdigit()) {
-            let digits: String =
-                if hex.len() == 3 { hex.chars().flat_map(|d| [d, d]).collect() } else { hex.to_string() };
-            let ch = |a: usize| i64::from_str_radix(&digits[a..a + 2], 16).unwrap() as f64;
-            return rgb_color(ch(0), ch(2), ch(4));
-        }
+    if let Some(hex) = value.strip_prefix('#')
+        && (hex.len() == 3 || hex.len() == 6) && hex.chars().all(|c| c.is_ascii_hexdigit())
+    {
+        let digits: String =
+            if hex.len() == 3 { hex.chars().flat_map(|d| [d, d]).collect() } else { hex.to_string() };
+        let ch = |a: usize| i64::from_str_radix(&digits[a..a + 2], 16).unwrap() as f64;
+        return rgb_color(ch(0), ch(2), ch(4));
     }
     if let Some(m) = OKLCH_PATTERN.captures(value) {
         let lightness = parse_float(&m[1]) / if m.get(2).is_some() { 100.0 } else { 1.0 };

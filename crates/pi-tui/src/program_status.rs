@@ -108,10 +108,10 @@ pub fn format_program_status(status: &ProgramStatus) -> String {
     if let Some(app) = status.app.as_deref().filter(|a| is_valid_app(a)) {
         pairs.push(format!("app={app}"));
     }
-    if status.state == ProgramState::Blocked {
-        if let Some(kind) = status.kind {
-            pairs.push(format!("kind={}", kind.as_str()));
-        }
+    if status.state == ProgramState::Blocked
+        && let Some(kind) = status.kind
+    {
+        pairs.push(format!("kind={}", kind.as_str()));
     }
     let raw = status.message.as_deref().unwrap_or("");
     let mut replaced = String::with_capacity(raw.len());

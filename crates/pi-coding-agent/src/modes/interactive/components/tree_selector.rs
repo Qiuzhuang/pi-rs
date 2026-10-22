@@ -108,15 +108,15 @@ fn render_horizontal_viewport(rows: &[HorizontalViewportRow], width: usize) -> V
 
     // Only pan horizontally when needed to keep enough selected-row content visible after its anchor.
     let mut horizontal_scroll = 0;
-    if let Some(selected_row) = selected_row {
-        if max_horizontal_scroll > 0 {
-            let min_visible_anchor_content_width =
-                MAX_VISIBLE_ANCHOR_CONTENT_WIDTH.min(MIN_VISIBLE_ANCHOR_CONTENT_WIDTH.max(viewport_width / 3));
-            if selected_row.anchor_col > viewport_width - min_visible_anchor_content_width {
-                let anchor_context_width =
-                    MAX_ANCHOR_CONTEXT_WIDTH.min(MIN_ANCHOR_CONTEXT_WIDTH.max(viewport_width / 4));
-                horizontal_scroll = max_horizontal_scroll.min(selected_row.anchor_col - anchor_context_width);
-            }
+    if let Some(selected_row) = selected_row
+        && max_horizontal_scroll > 0
+    {
+        let min_visible_anchor_content_width =
+            MAX_VISIBLE_ANCHOR_CONTENT_WIDTH.min(MIN_VISIBLE_ANCHOR_CONTENT_WIDTH.max(viewport_width / 3));
+        if selected_row.anchor_col > viewport_width - min_visible_anchor_content_width {
+            let anchor_context_width =
+                MAX_ANCHOR_CONTEXT_WIDTH.min(MIN_ANCHOR_CONTEXT_WIDTH.max(viewport_width / 4));
+            horizontal_scroll = max_horizontal_scroll.min(selected_row.anchor_col - anchor_context_width);
         }
     }
 
@@ -205,10 +205,10 @@ fn extract_full_content(content: Option<&Value>) -> String {
         Some(Value::Array(blocks)) => {
             let mut result = String::new();
             for block in blocks {
-                if block.get("type").and_then(Value::as_str) == Some("text") {
-                    if let Some(text) = block.get("text") {
-                        result.push_str(&js_string(text));
-                    }
+                if block.get("type").and_then(Value::as_str) == Some("text")
+                    && let Some(text) = block.get("text")
+                {
+                    result.push_str(&js_string(text));
                 }
             }
             result
@@ -419,20 +419,19 @@ impl TreeState {
                 SessionEntry::CustomMessage(m) => serde_json::to_value(&m.content).ok(),
                 _ => None,
             };
-            if let (SessionEntry::Message(_), Some(msg)) = (&node.entry, &message) {
-                if str_field(msg, "role") == Some("assistant") {
-                    if let Some(Value::Array(content)) = msg.get("content") {
-                        for block in content {
-                            if str_field(block, "type") == Some("toolCall") {
-                                let id = str_field(block, "id").unwrap_or_default().to_string();
-                                let name = str_field(block, "name").unwrap_or_default().to_string();
-                                let arguments = match block.get("arguments") {
-                                    Some(Value::Object(map)) => map.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
-                                    _ => IndexMap::new(),
-                                };
-                                self.tool_call_map.insert(id, ToolCallInfo { name, arguments });
-                            }
-                        }
+            if let (SessionEntry::Message(_), Some(msg)) = (&node.entry, &message)
+                && str_field(msg, "role") == Some("assistant")
+                && let Some(Value::Array(content)) = msg.get("content")
+            {
+                for block in content {
+                    if str_field(block, "type") == Some("toolCall") {
+                        let id = str_field(block, "id").unwrap_or_default().to_string();
+                        let name = str_field(block, "name").unwrap_or_default().to_string();
+                        let arguments = match block.get("arguments") {
+                            Some(Value::Object(map)) => map.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+                            _ => IndexMap::new(),
+                        };
+                        self.tool_call_map.insert(id, ToolCallInfo { name, arguments });
                     }
                 }
             }
@@ -548,10 +547,10 @@ impl TreeState {
     fn apply_filter(&mut self) {
         // Update lastSelectedId only when we have a valid selection (non-empty list)
         // This preserves the selection when switching through empty filter results
-        if !self.filtered_nodes.is_empty() {
-            if let Some(id) = self.selected_id() {
-                self.last_selected_id = Some(id);
-            }
+        if !self.filtered_nodes.is_empty()
+            && let Some(id) = self.selected_id()
+        {
+            self.last_selected_id = Some(id);
         }
 
         let lower = self.search_query.to_lowercase();
@@ -566,10 +565,10 @@ impl TreeState {
         if !self.folded_nodes.is_empty() {
             let mut skip_set: HashSet<String> = HashSet::new();
             for flat in &self.flat_nodes {
-                if let Some(parent_id) = flat.parent_id() {
-                    if self.folded_nodes.contains(parent_id) || skip_set.contains(parent_id) {
-                        skip_set.insert(flat.id().to_string());
-                    }
+                if let Some(parent_id) = flat.parent_id()
+                    && (self.folded_nodes.contains(parent_id) || skip_set.contains(parent_id))
+                {
+                    skip_set.insert(flat.id().to_string());
                 }
             }
             filtered.retain(|&i| !skip_set.contains(self.flat_nodes[i].id()));
@@ -588,10 +587,10 @@ impl TreeState {
         }
 
         // Update lastSelectedId to the actual selection (may have changed due to parent walk)
-        if !self.filtered_nodes.is_empty() {
-            if let Some(id) = self.selected_id() {
-                self.last_selected_id = Some(id);
-            }
+        if !self.filtered_nodes.is_empty()
+            && let Some(id) = self.selected_id()
+        {
+            self.last_selected_id = Some(id);
         }
     }
 
@@ -902,10 +901,10 @@ fn get_searchable_text(flat: &TreeEntry) -> String {
                 if js_truthy(msg.get("content")) {
                     parts.push(extract_content(msg.get("content")));
                 }
-                if role == "bashExecution" {
-                    if let Some(command) = str_field(msg, "command").filter(|c| !c.is_empty()) {
-                        parts.push(command.to_string());
-                    }
+                if role == "bashExecution"
+                    && let Some(command) = str_field(msg, "command").filter(|c| !c.is_empty())
+                {
+                    parts.push(command.to_string());
                 }
             }
         }

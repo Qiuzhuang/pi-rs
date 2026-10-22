@@ -435,10 +435,10 @@ impl ModelSelectorComponent {
             let w = weak.clone();
             search_input.set_on_submit(Some(Arc::new(move |_v: String| {
                 // Enter on search input selects the first filtered item
-                if let Some(inner) = w.upgrade() {
-                    if let Some(model) = inner.selected_model() {
-                        inner.handle_select(model);
-                    }
+                if let Some(inner) = w.upgrade()
+                    && let Some(model) = inner.selected_model()
+                {
+                    inner.handle_select(model);
                 }
             })));
             container.add_child(search_input.clone());

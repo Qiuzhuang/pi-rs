@@ -276,10 +276,10 @@ pub async fn read_clipboard_image(
             image = read_clipboard_image_via_xclip().await;
         }
         // Preserve Linux's empty/unavailable distinction if Windows has no image.
-        if !matches!(image, Some(Some(_))) && wsl {
-            if let Some(windows_image) = read_clipboard_image_via_power_shell().await {
-                image = Some(Some(windows_image));
-            }
+        if !matches!(image, Some(Some(_))) && wsl
+            && let Some(windows_image) = read_clipboard_image_via_power_shell().await
+        {
+            image = Some(Some(windows_image));
         }
         if image.is_none() {
             image = read_clipboard_image_via_native_clipboard().await;

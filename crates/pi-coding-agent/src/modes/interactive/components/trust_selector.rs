@@ -37,10 +37,10 @@ fn format_decision(trust_path: Option<&str>, decision: Option<&ProjectTrustStore
         return "none".to_string();
     };
     let label = if decision.decision { "trusted" } else { "untrusted" };
-    if let Some(trust_path) = trust_path {
-        if decision.path != trust_path {
-            return format!("{label} (inherited from {})", decision.path);
-        }
+    if let Some(trust_path) = trust_path
+        && decision.path != trust_path
+    {
+        return format!("{label} (inherited from {})", decision.path);
     }
     format!("{label} ({})", decision.path)
 }

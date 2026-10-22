@@ -497,10 +497,10 @@ impl Emulator {
         for buf in std::iter::once(&mut self.normal).chain(self.alt.iter_mut()) {
             for line in buf.lines.iter_mut() {
                 line.resize(cols, Cell::default());
-                if let Some(last) = line.last_mut() {
-                    if !last.continuation && grapheme_width(&last.text) == 2 {
-                        *last = Cell::default();
-                    }
+                if let Some(last) = line.last_mut()
+                    && !last.continuation && grapheme_width(&last.text) == 2
+                {
+                    *last = Cell::default();
                 }
             }
             if rows < old_rows {

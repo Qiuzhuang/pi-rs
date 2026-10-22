@@ -311,15 +311,15 @@ impl Component for LoginDialogComponent {
             return;
         }
         let auth_url = self.inner.auth_url.lock().clone();
-        if let Some(auth_url) = auth_url {
-            if kb.matches(data, "app.message.copy") {
-                if let Ok(handle) = tokio::runtime::Handle::try_current() {
-                    handle.spawn(async move {
-                        let _ = auth_url.copy().await;
-                    });
-                }
-                return;
+        if let Some(auth_url) = auth_url
+            && kb.matches(data, "app.message.copy")
+        {
+            if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                handle.spawn(async move {
+                    let _ = auth_url.copy().await;
+                });
             }
+            return;
         }
 
         // Pass to input

@@ -372,7 +372,7 @@ fn collects_host_dependency_warnings() {
             package_root: Some(package_root.clone()),
         },
     );
-    let warnings = collect_extension_package_warnings(&[extension_path.clone()], &metadata).unwrap();
+    let warnings = collect_extension_package_warnings(std::slice::from_ref(&extension_path), &metadata).unwrap();
     assert_eq!(warnings.len(), 1);
     assert_eq!(warnings[0].path, node_join(&[&package_root, "package.json"]));
     assert_eq!(

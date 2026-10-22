@@ -246,7 +246,7 @@ fn split_root(path: &str) -> (String, &str) {
         if bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
             let rest = &path[2..];
             if rest.starts_with('/') || rest.starts_with('\\') {
-                return (format!("{}\\", &path[..2].to_uppercase()), &rest[1..]);
+                return (format!("{}\\", path[..2].to_uppercase()), &rest[1..]);
             }
             return (path[..2].to_uppercase(), rest);
         }
@@ -322,7 +322,7 @@ pub fn node_join(segments: &[&str]) -> String {
         .filter(|s| !s.is_empty())
         .copied()
         .collect::<Vec<_>>()
-        .join(&std::path::MAIN_SEPARATOR.to_string());
+        .join(std::path::MAIN_SEPARATOR_STR);
     if joined.is_empty() {
         return ".".to_string();
     }
@@ -385,7 +385,7 @@ pub fn node_relative(from: &str, to: &str) -> String {
         parts.push("..");
     }
     parts.extend_from_slice(&to_parts[common..]);
-    parts.join(&std::path::MAIN_SEPARATOR.to_string())
+    parts.join(std::path::MAIN_SEPARATOR_STR)
 }
 
 #[cfg(test)]

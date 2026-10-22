@@ -92,6 +92,30 @@ pub struct UiLockGuard {
 pub fn lock_ui() -> UiLockGuard {
     let depth = DEPTH.with(Cell::get);
     if depth == 0 && !EXEMPT.with(Cell::get) {
+        acquire();
+    }
+    DEPTH.with(|d| d.set(depth + 1));
+    UiLockGuard { _not_send: PhantomData }
+}
+
+/// Run `f` with the lock released if this thread holds it, then take it back. For waits that
+/// must not block other threads' updates (a frame waiting for a one-time resource); state read
+/// before the call may be stale after it.
+pub fn unlocked<R>(f: impl FnOnce() -> R) -> R {
+    if !is_ui_locked_by_current_thread() {
+        return f();
+    }
+    OWNED.with(|o| o.set(false));
+    *OWNER.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    RELEASED.notify_one();
+    let r = f();
+    acquire();
+    r
+}
+
+/// Become the owner (waiting at most [`MAX_WAIT`]); records whether it succeeded in `OWNED`.
+fn acquire() {
+    {
         let me = std::thread::current().id();
         let deadline = Instant::now() + MAX_WAIT;
         let mut owner = OWNER.lock().unwrap_or_else(|e| e.into_inner());
@@ -117,8 +141,6 @@ pub fn lock_ui() -> UiLockGuard {
         }
         OWNED.with(|o| o.set(acquired));
     }
-    DEPTH.with(|d| d.set(depth + 1));
-    UiLockGuard { _not_send: PhantomData }
 }
 
 /// Whether the current thread holds the UI lock.
@@ -163,8 +185,15 @@ mod tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
+    /// The lock is process-wide: tests that take it must not overlap.
+    static SERIAL: Mutex<()> = Mutex::new(());
+    fn serial() -> std::sync::MutexGuard<'static, ()> {
+        SERIAL.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     #[test]
     fn reentrant_on_one_thread() {
+        let _serial = serial();
         let a = lock_ui();
         let b = lock_ui();
         assert!(is_ui_locked_by_current_thread());
@@ -176,6 +205,7 @@ mod tests {
 
     #[test]
     fn excludes_other_threads() {
+        let _serial = serial();
         let inside = Arc::new(AtomicUsize::new(0));
         let max = Arc::new(AtomicUsize::new(0));
         let handles: Vec<_> = (0..4)
@@ -202,6 +232,7 @@ mod tests {
 
     #[test]
     fn exempt_thread_never_blocks() {
+        let _serial = serial();
         let held = lock_ui();
         std::thread::spawn(|| {
             exempt_current_thread();
@@ -217,6 +248,7 @@ mod tests {
 
     #[test]
     fn atomic_futures_hold_the_lock_per_poll_only() {
+        let _serial = serial();
         use std::future::Future;
         use std::task::{Context, Poll, Waker};
         let mut yielded = false;
@@ -238,7 +270,28 @@ mod tests {
     }
 
     #[test]
+    fn unlocked_lets_other_threads_in_and_retakes_the_lock() {
+        let _serial = serial();
+        let held = lock_ui();
+        let other_got_it = unlocked(|| {
+            assert!(!is_ui_locked_by_current_thread());
+            std::thread::spawn(|| {
+                let start = Instant::now();
+                let _g = lock_ui();
+                is_ui_locked_by_current_thread() && start.elapsed() < MAX_WAIT
+            })
+            .join()
+            .unwrap()
+        });
+        assert!(other_got_it, "another thread takes the lock without waiting while it is released");
+        assert!(is_ui_locked_by_current_thread(), "the lock is held again afterwards");
+        drop(held);
+        assert!(!is_ui_locked_by_current_thread());
+    }
+
+    #[test]
     fn waiter_gives_up_instead_of_hanging() {
+        let _serial = serial();
         let held = lock_ui();
         std::thread::spawn(|| {
             let start = Instant::now();

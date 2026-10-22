@@ -174,7 +174,16 @@ impl MarkedOptions {
 
 /// Lex markdown into block tokens (with inline tokens resolved), like `marked.lexer()`.
 pub fn lexer(src: &str, options: MarkedOptions) -> Vec<Token> {
+    // A frame lexing while the grammar is still being compiled in the background would wait for it
+    // with the UI lock held (about a second in debug builds), stalling every agent-event update.
+    if !WARM_UP_THREAD.with(std::cell::Cell::get) {
+        crate::ui_lock::unlocked(wait_for_warm_up);
+    }
     Lexer::new(options).lex(src)
+}
+
+thread_local! {
+    static WARM_UP_THREAD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// Build the lexer's lazily compiled grammar on a background thread, once per process.
@@ -184,12 +193,43 @@ pub fn lexer(src: &str, options: MarkedOptions) -> Vec<Token> {
 pub fn warm_up_in_background() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
-        let _ = std::thread::Builder::new().name("pi-tui-marked-warmup".to_string()).spawn(|| {
+        *WARM_UP.0.lock().unwrap_or_else(|e| e.into_inner()) = WarmUp::Running;
+        let spawned = std::thread::Builder::new().name("pi-tui-marked-warmup".to_string()).spawn(|| {
+            struct Done;
+            impl Drop for Done {
+                fn drop(&mut self) {
+                    *WARM_UP.0.lock().unwrap_or_else(|e| e.into_inner()) = WarmUp::Done;
+                    WARM_UP.1.notify_all();
+                }
+            }
+            let _done = Done;
+            WARM_UP_THREAD.with(|w| w.set(true));
             const DOC: &str = "# Heading\n\nSome *emphasis*, **strong**, `code`, ~~strike~~, [link](https://example.com) \
                                <https://example.com> $x^2$ and a\\\nbreak.\n\n> quote\n\n- item\n  1. nested\n\n\
                                | a | b |\n|---|---|\n| 1 | 2 |\n\n```rust\nfn main() {}\n```\n\n$$\nx\n$$\n\n---\n\n<div>html</div>\n";
             let _ = lexer(DOC, MarkedOptions::pi());
             let _ = lexer(DOC, MarkedOptions::default());
         });
+        if spawned.is_err() {
+            *WARM_UP.0.lock().unwrap_or_else(|e| e.into_inner()) = WarmUp::Done;
+        }
     });
+}
+
+#[derive(PartialEq)]
+enum WarmUp {
+    NotStarted,
+    Running,
+    Done,
+}
+
+static WARM_UP: (std::sync::Mutex<WarmUp>, std::sync::Condvar) =
+    (std::sync::Mutex::new(WarmUp::NotStarted), std::sync::Condvar::new());
+
+/// Block until a running [`warm_up_in_background`] has finished (returns at once otherwise).
+pub fn wait_for_warm_up() {
+    let mut state = WARM_UP.0.lock().unwrap_or_else(|e| e.into_inner());
+    while *state == WarmUp::Running {
+        state = WARM_UP.1.wait(state).unwrap_or_else(|e| e.into_inner());
+    }
 }

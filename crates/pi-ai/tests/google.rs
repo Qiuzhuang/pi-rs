@@ -776,12 +776,12 @@ async fn vertex_adc_service_account_tokens() {
     let headers = google_auth::get_request_headers(&credentials, google_auth::VERTEX_AI_SCOPE, &reqwest::Client::new()).await.unwrap();
     assert_eq!(headers, vec![("authorization".to_string(), "Bearer user-token".to_string())]);
 
-    // Token endpoint errors surface as `error: error_description`.
+    // Refresh-token failures surface the Gaxios message (the OAuth `error` code).
     let failing = MockServer::sequence(vec![Response::json(400, json!({ "error": "invalid_grant", "error_description": "Bad Request" }))]).await;
     google_auth::set_google_token_url_override(Some(format!("{}/token", failing.url)));
     let other_user = google_auth::GoogleCredentials::from_json(&json!({ "type": "authorized_user", "client_id": "x", "client_secret": "y", "refresh_token": "z" })).unwrap();
     let error = google_auth::get_request_headers(&other_user, google_auth::VERTEX_AI_SCOPE, &reqwest::Client::new()).await.unwrap_err();
-    assert_eq!(error.to_string(), "invalid_grant: Bad Request");
+    assert_eq!(error.to_string(), "invalid_grant");
 
     google_auth::set_google_token_url_override(None);
     let _ = std::fs::remove_dir_all(&dir);

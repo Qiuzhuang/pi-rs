@@ -7,8 +7,9 @@
 //! (`GOOGLE_APPLICATION_CREDENTIALS` from the provider env), else the
 //! `GOOGLE_APPLICATION_CREDENTIALS` process env, the gcloud well-known file
 //! (`~/.config/gcloud/application_default_credentials.json`, `%APPDATA%\gcloud\...` on Windows),
-//! and finally the GCE metadata server. Workload identity federation (`external_account`)
-//! credential files are not supported and fail with an error naming the type.
+//! and finally the GCE metadata server. Workload and workforce identity federation
+//! (`external_account`, `external_account_authorized_user`) live in
+//! [`super::google_external_account`].
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -20,6 +21,11 @@ use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+
+use super::google_external_account::{
+    ExternalAccountAuthorizedUserConfig, ExternalAccountConfig, auth_api_client_header, auth_user_agent,
+    external_account_access_token, external_account_authorized_user_token, gaxios_error_message,
+};
 
 /// OAuth scope Vertex AI requires.
 pub const VERTEX_AI_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
@@ -74,6 +80,10 @@ pub enum GoogleCredentials {
         delegates: Vec<String>,
         quota_project_id: Option<String>,
     },
+    /// `"type": "external_account"` (workload/workforce identity federation).
+    ExternalAccount(Box<ExternalAccountConfig>),
+    /// `"type": "external_account_authorized_user"` (workforce identity federation user).
+    ExternalAccountAuthorizedUser(Box<ExternalAccountAuthorizedUserConfig>),
     /// The GCE metadata server.
     Compute,
 }
@@ -136,9 +146,12 @@ impl GoogleCredentials {
                     quota_project_id: str_field(json, "quota_project_id"),
                 })
             }
-            Some(kind @ ("external_account" | "external_account_authorized_user")) => {
-                anyhow::bail!("Google credential type \"{kind}\" (workload identity federation) is not supported")
+            Some("external_account") => {
+                Ok(GoogleCredentials::ExternalAccount(Box::new(ExternalAccountConfig::from_json(json)?)))
             }
+            Some("external_account_authorized_user") => Ok(GoogleCredentials::ExternalAccountAuthorizedUser(Box::new(
+                ExternalAccountAuthorizedUserConfig::from_json(json),
+            ))),
             _ => {
                 let Some(client_email) = str_field(json, "client_email") else {
                     anyhow::bail!("The incoming JSON object does not contain a client_email field");
@@ -162,10 +175,7 @@ impl GoogleCredentials {
         if path.as_os_str().is_empty() {
             anyhow::bail!("The file path is invalid.");
         }
-        let resolved = std::fs::canonicalize(path)
-            .ok()
-            .filter(|p| p.is_file())
-            .ok_or_else(|| anyhow::anyhow!("The file at {} does not exist, or it is not a file.", path.display()))?;
+        let resolved = super::google_external_account::resolve_regular_file(&path.to_string_lossy())?;
         let text = std::fs::read_to_string(&resolved)?;
         let json: Value = serde_json::from_str(&text)?;
         GoogleCredentials::from_json(&json)
@@ -176,6 +186,8 @@ impl GoogleCredentials {
             GoogleCredentials::ServiceAccount { quota_project_id, .. }
             | GoogleCredentials::AuthorizedUser { quota_project_id, .. }
             | GoogleCredentials::Impersonated { quota_project_id, .. } => quota_project_id.as_deref(),
+            GoogleCredentials::ExternalAccount(config) => config.quota_project_id.as_deref(),
+            GoogleCredentials::ExternalAccountAuthorizedUser(config) => config.quota_project_id.as_deref(),
             GoogleCredentials::Compute => None,
         }
     }
@@ -294,24 +306,62 @@ fn self_signed_jwt(client_email: &str, private_key: &str, key_id: Option<&str>, 
     sign_jwt_rs256(&header, &payload, private_key)
 }
 
-async fn post_token_form(client: &reqwest::Client, url: &str, form: &[(&str, &str)]) -> anyhow::Result<(String, Option<i64>)> {
+/// How a token endpoint failure is reported.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TokenErrorStyle {
+    /// `gtoken` (service accounts): `<error>: <error_description>`.
+    GToken,
+    /// `OAuth2Client.refreshTokenNoCache` (authorized users): the Gaxios message.
+    RefreshToken,
+}
+
+async fn post_token_form(
+    client: &reqwest::Client,
+    url: &str,
+    form: &[(&str, &str)],
+    style: TokenErrorStyle,
+) -> anyhow::Result<(String, Option<i64>)> {
     let body = url::form_urlencoded::Serializer::new(String::new()).extend_pairs(form.iter()).finish();
-    let response = client
+    let mut request = client
         .post(url)
-        .header("content-type", "application/x-www-form-urlencoded")
-        .body(body)
-        .send()
-        .await
-        .map_err(|e| anyhow::anyhow!("request to {url} failed, reason: {e}"))?;
+        .header("content-type", "application/x-www-form-urlencoded;charset=UTF-8")
+        .header("x-goog-api-client", auth_api_client_header())
+        .header("User-Agent", auth_user_agent());
+    if style == TokenErrorStyle::GToken {
+        request = request.header("accept", "application/json");
+    }
+    let response = request.body(body).send().await.map_err(|e| anyhow::anyhow!("request to {url} failed, reason: {e}"))?;
     let status = response.status();
     let text = response.text().await.unwrap_or_default();
     let data: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
     if !status.is_success() {
-        if let Some(error) = data.get("error").and_then(Value::as_str) {
-            let description = data.get("error_description").and_then(Value::as_str).unwrap_or("undefined");
-            anyhow::bail!("{error}: {description}");
+        let mut message = gaxios_error_message(status.as_u16(), &text, true);
+        match style {
+            TokenErrorStyle::GToken => {
+                if let Some(error) = data.get("error").filter(|e| !e.is_null() && *e != &json!(false) && *e != &json!("")) {
+                    let text = |v: Option<&Value>| match v {
+                        Some(Value::String(s)) => s.clone(),
+                        Some(other) => other.to_string(),
+                        None => "undefined".to_string(),
+                    };
+                    message = format!("{}: {}", text(Some(error)), text(data.get("error_description")));
+                }
+            }
+            TokenErrorStyle::RefreshToken => {
+                let reauth = data
+                    .get("error_description")
+                    .and_then(Value::as_str)
+                    .is_some_and(|d| d.to_lowercase().contains("reauth"));
+                if message == "invalid_grant" && reauth {
+                    message = data.to_string();
+                }
+            }
         }
-        anyhow::bail!("Request failed with status code {}", status.as_u16());
+        // `OAuth2Client.getRequestMetadataAsync`.
+        if matches!(status.as_u16(), 403 | 404) {
+            message = format!("Could not refresh access token: {message}");
+        }
+        anyhow::bail!(message);
     }
     let Some(token) = data.get("access_token").and_then(Value::as_str) else {
         anyhow::bail!("No access token in token response");
@@ -333,7 +383,13 @@ fn fetch_access_token<'a>(
                     return Ok((token, Some(crate::utils::now_ms() + 3600 * 1000)));
                 }
                 let assertion = service_account_assertion(client_email, private_key, scope)?;
-                post_token_form(client, &token_url(), &[("grant_type", JWT_BEARER_GRANT), ("assertion", &assertion)]).await
+                post_token_form(
+                    client,
+                    &token_url(),
+                    &[("grant_type", JWT_BEARER_GRANT), ("assertion", &assertion)],
+                    TokenErrorStyle::GToken,
+                )
+                .await
             }
             GoogleCredentials::AuthorizedUser { client_id, client_secret, refresh_token, .. } => {
                 post_token_form(
@@ -345,6 +401,7 @@ fn fetch_access_token<'a>(
                         ("client_secret", client_secret),
                         ("grant_type", "refresh_token"),
                     ],
+                    TokenErrorStyle::RefreshToken,
                 )
                 .await
             }
@@ -353,6 +410,8 @@ fn fetch_access_token<'a>(
                 let response = client
                     .post(service_account_impersonation_url)
                     .bearer_auth(source_token)
+                    .header("x-goog-api-client", auth_api_client_header())
+                    .header("User-Agent", auth_user_agent())
                     .json(&json!({ "delegates": delegates, "scope": [scope], "lifetime": "3600s" }))
                     .send()
                     .await?;
@@ -373,8 +432,12 @@ fn fetch_access_token<'a>(
                 let expires_at = data
                     .get("expireTime")
                     .and_then(Value::as_str)
-                    .and_then(chrono_like_parse);
+                    .and_then(parse_rfc3339_ms);
                 Ok((token.to_string(), expires_at))
+            }
+            GoogleCredentials::ExternalAccount(config) => external_account_access_token(config, scope, client).await,
+            GoogleCredentials::ExternalAccountAuthorizedUser(config) => {
+                external_account_authorized_user_token(config, client).await
             }
             GoogleCredentials::Compute => {
                 let url = format!(
@@ -399,7 +462,7 @@ fn fetch_access_token<'a>(
 }
 
 /// Parse an RFC 3339 UTC timestamp (`2026-01-01T00:00:00Z`, optional fraction) to epoch ms.
-fn chrono_like_parse(text: &str) -> Option<i64> {
+pub fn parse_rfc3339_ms(text: &str) -> Option<i64> {
     let text = text.trim_end_matches('Z');
     let (date, time) = text.split_once('T')?;
     let mut d = date.split('-').map(|p| p.parse::<i64>().ok());
@@ -464,12 +527,12 @@ mod tests {
         let missing = GoogleCredentials::from_json(&json!({ "type": "service_account", "private_key": "k" })).unwrap_err();
         assert_eq!(missing.to_string(), "The incoming JSON object does not contain a client_email field");
         let external = GoogleCredentials::from_json(&json!({ "type": "external_account" })).unwrap_err();
-        assert!(external.to_string().contains("not supported"));
+        assert_eq!(external.to_string(), "Cannot read properties of undefined (reading 'match')");
     }
 
     #[test]
     fn parses_rfc3339() {
-        assert_eq!(chrono_like_parse("1970-01-01T00:00:01.5Z"), Some(1500));
-        assert_eq!(chrono_like_parse("1970-01-02T00:00:00Z"), Some(86_400_000));
+        assert_eq!(parse_rfc3339_ms("1970-01-01T00:00:01.5Z"), Some(1500));
+        assert_eq!(parse_rfc3339_ms("1970-01-02T00:00:00Z"), Some(86_400_000));
     }
 }

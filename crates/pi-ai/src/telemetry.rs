@@ -199,8 +199,8 @@ fn create_instruments(adapter: MetricsRef) -> Instruments {
 }
 
 /// Instruments per metrics adapter object (TS: a `WeakMap`).
-static INSTRUMENT_CACHE: LazyLock<Mutex<Vec<(Weak<dyn TelemetryMetrics>, Instruments)>>> =
-    LazyLock::new(|| Mutex::new(Vec::new()));
+type InstrumentCache = Vec<(Weak<dyn TelemetryMetrics>, Instruments)>;
+static INSTRUMENT_CACHE: LazyLock<Mutex<InstrumentCache>> = LazyLock::new(|| Mutex::new(Vec::new()));
 
 fn instruments_for(adapter: MetricsRef) -> Instruments {
     let mut cache = INSTRUMENT_CACHE.lock();

@@ -456,7 +456,7 @@ async fn supports_a_tracing_only_span_without_metric_capabilities() {
 async fn defaults_to_no_op_telemetry() {
     let (models, _) = setup(message(StopReason::Stop));
     assert_eq!(models.complete_simple(&model(), &context(), StreamOptions::default()).await.stop_reason, StopReason::Stop);
-    assert_eq!(AI_TELEMETRY_SCHEMA.spans["pi.ai.request"].start_attributes["provider"].required, true);
+    assert!(AI_TELEMETRY_SCHEMA.spans["pi.ai.request"].start_attributes["provider"].required);
 }
 
 #[tokio::test]

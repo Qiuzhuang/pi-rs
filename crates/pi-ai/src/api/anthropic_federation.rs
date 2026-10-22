@@ -427,7 +427,8 @@ impl TokenCache {
 
 /// One cached federation client per config (TS: the module-level `federationClient`), so the
 /// token cache survives across requests.
-static FEDERATION_CLIENT: LazyLock<Mutex<Option<(String, Arc<TokenCache>)>>> = LazyLock::new(|| Mutex::new(None));
+type FederationClient = Option<(String, Arc<TokenCache>)>;
+static FEDERATION_CLIENT: LazyLock<Mutex<FederationClient>> = LazyLock::new(|| Mutex::new(None));
 
 /// The token cache for `config` against `base_url` (the model's base URL), creating it when the
 /// config changed. `client` performs the exchanges.

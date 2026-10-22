@@ -201,3 +201,21 @@ impl Drop for EnvGuard {
 pub fn live_env(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|v| !v.is_empty())
 }
+
+/// vitest `toMatchObject`: objects match by subset, arrays element-wise with equal length.
+pub fn json_matches(actual: &Value, expected: &Value) -> bool {
+    match (actual, expected) {
+        (Value::Object(actual), Value::Object(expected)) => {
+            expected.iter().all(|(key, value)| actual.get(key).is_some_and(|a| json_matches(a, value)))
+        }
+        (Value::Array(actual), Value::Array(expected)) => {
+            actual.len() == expected.len() && actual.iter().zip(expected).all(|(a, e)| json_matches(a, e))
+        }
+        _ => actual == expected,
+    }
+}
+
+#[track_caller]
+pub fn assert_json_matches(actual: &Value, expected: Value) {
+    assert!(json_matches(actual, &expected), "expected match\n  actual: {actual:#}\nexpected: {expected:#}");
+}

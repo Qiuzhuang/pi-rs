@@ -362,7 +362,7 @@ async fn manually_compacts_with_a_custom_stream_fn_when_registry_auth_is_absent(
 struct BearerAuth;
 
 /// TS `stream: () => createAssistantMessageEventStream()`: a stream that never ends.
-struct IdleStreams;
+pub struct IdleStreams;
 
 impl ProviderStreams for IdleStreams {
     fn stream(

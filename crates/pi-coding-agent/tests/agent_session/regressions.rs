@@ -1836,3 +1836,372 @@ async fn extension_command_wait_for_idle_waits_for_session_level_settlement() {
     assert_eq!(harness.events_of_type("agent_settled").len(), 1);
     harness.cleanup();
 }
+
+// #9340/#9777: automatic compaction cancellation.
+mod auto_compaction_cancellation {
+    use super::*;
+    use futures::future::BoxFuture;
+    use pi_ai::AnyModel;
+    use pi_ai::auth::types::{ApiKeyAuth, ApiKeyResolveInput, AuthResult, ProviderAuth};
+    use pi_ai::models::{CreateProviderOptions, ProviderApi, create_provider};
+    use pi_coding_agent::core::agent_session::{AgentSessionEvent, AgentSessionEventListener};
+    use pi_coding_agent::core::extensions::types::{
+        CompactionReason, SessionBeforeCompactEvent, SessionBeforeCompactResult,
+    };
+
+    /// The TS file's own `seedCompactableSession`.
+    fn seed(harness: &Harness) {
+        harness
+            .session_manager
+            .append_message(user_blocks(&"x".repeat(500), 1))
+            .unwrap();
+        let mut assistant = create_assistant(harness, StopReason::Stop, None, 100, 2);
+        assistant.content = vec![faux_text(&"y".repeat(200))];
+        harness
+            .session_manager
+            .append_message(AgentMessage::Assistant(assistant))
+            .unwrap();
+        harness
+            .session
+            .agent()
+            .set_messages(harness.session_manager.build_session_context().messages);
+    }
+
+    fn cancel_compaction() -> TestExtension {
+        ext(|pi| {
+            on_event::<SessionBeforeCompactEvent, _, _>(&*pi, |_event, _ctx| async {
+                Ok(Some(SessionBeforeCompactResult {
+                    cancel: Some(true),
+                    compaction: None,
+                }))
+            })?;
+            Ok(())
+        })
+    }
+
+    async fn harness(extension_factories: Vec<TestExtension>) -> Harness {
+        create_harness(HarnessOptions {
+            settings: Some(json!({"compaction": {"keepRecentTokens": 1}})),
+            extension_factories,
+            ..Default::default()
+        })
+        .await
+        .unwrap()
+    }
+
+    type ResolveFn = Arc<dyn Fn(ApiKeyResolveInput) -> BoxFuture<'static, anyhow::Result<Option<AuthResult>>> + Send + Sync>;
+
+    /// TS `vi.spyOn(modelRuntime, "getAuth")`: replace the faux provider's auth.
+    struct FnAuth(ResolveFn);
+
+    #[async_trait::async_trait]
+    impl ApiKeyAuth for FnAuth {
+        fn name(&self) -> &str {
+            "Mocked auth"
+        }
+        async fn resolve(&self, input: ApiKeyResolveInput) -> anyhow::Result<Option<AuthResult>> {
+            (self.0)(input).await
+        }
+    }
+
+    fn mock_auth(harness: &Harness, resolve: ResolveFn) {
+        let model = harness.get_model();
+        let provider = create_provider(CreateProviderOptions {
+            id: model.provider.clone(),
+            name: Some("Mocked auth provider".into()),
+            auth: ProviderAuth {
+                api_key: Some(Arc::new(FnAuth(resolve))),
+                oauth: None,
+            },
+            models: harness.models.iter().cloned().map(AnyModel::Chat).collect(),
+            api: Some(ProviderApi::Single(Arc::new(crate::compaction::IdleStreams))),
+            ..Default::default()
+        })
+        .unwrap();
+        harness.model_runtime.register_native_provider(provider).unwrap();
+    }
+
+    async fn run_auto_compaction(harness: &Harness) -> bool {
+        harness
+            .session
+            .run_auto_compaction_for_test(CompactionReason::Threshold, false)
+            .await
+    }
+
+    fn last_compaction_end(harness: &Harness) -> Value {
+        harness.events_of_type("compaction_end").last().cloned().expect("compaction_end")
+    }
+
+    // Regression test for #9340.
+    #[tokio::test]
+    async fn does_not_start_post_run_auto_compaction_after_abort() {
+        let harness = create_harness(HarnessOptions {
+            models: vec![pi_ai::providers::faux::FauxModelDefinition {
+                id: "faux-1".into(),
+                context_window: Some(200),
+                max_tokens: Some(50),
+                ..Default::default()
+            }],
+            settings: Some(json!({
+                "compaction": {"enabled": true, "reserveTokens": 50, "keepRecentTokens": 1},
+                "retry": {"enabled": false},
+            })),
+            extension_factories: vec![cancel_compaction()],
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        seed(&harness);
+        harness.set_responses(vec![error_response("Synthetic network failure")]);
+        let weak = Arc::downgrade(&harness.session);
+        let listener: AgentSessionEventListener = Arc::new(move |event| {
+            if let AgentSessionEvent::MessageEnd {
+                message: AgentMessage::Assistant(_),
+            } = &event
+                && let Some(session) = weak.upgrade()
+            {
+                session.abort_compaction();
+                // TS `void session.abort()`: run its synchronous part now.
+                let _ = session.abort().now_or_never();
+            }
+        });
+        harness.session.subscribe(&listener);
+
+        harness.session.prompt(&"z".repeat(1000), None).await.unwrap();
+
+        assert!(harness.events_of_type("compaction_start").is_empty());
+        harness.cleanup();
+    }
+
+    // Regression test for #9777.
+    #[tokio::test]
+    async fn cancels_summarization_authentication() {
+        let harness = harness(Vec::new()).await;
+        seed(&harness);
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel::<()>();
+        let started_tx = Arc::new(Mutex::new(Some(started_tx)));
+        let auth_signal = Arc::new(Mutex::new(None::<tokio_util::sync::CancellationToken>));
+        let signal = auth_signal.clone();
+        mock_auth(
+            &harness,
+            Arc::new(move |input| {
+                *signal.lock() = Some(input.signal.clone());
+                if let Some(tx) = started_tx.lock().take() {
+                    let _ = tx.send(());
+                }
+                Box::pin(async move {
+                    input.signal.cancelled().await;
+                    Err(anyhow::Error::new(pi_ai::utils::provider_retry::AbortError))
+                })
+            }),
+        );
+
+        let session = harness.session.clone();
+        let compaction = tokio::spawn(async move {
+            session
+                .run_auto_compaction_for_test(CompactionReason::Threshold, false)
+                .await
+        });
+        started_rx.await.unwrap();
+        let started = harness.events_of_type("compaction_start").len();
+        let was_compacting = harness.session.is_compacting();
+        let (result, aborted) = tokio::join!(compaction, harness.session.abort());
+        result.unwrap();
+        aborted.unwrap();
+
+        let auth_aborted = auth_signal.lock().as_ref().map(|s| s.is_cancelled());
+        assert_eq!((started, was_compacting, auth_aborted), (1, true, Some(true)));
+        assert_eq!(last_compaction_end(&harness)["aborted"], json!(true));
+        harness.cleanup();
+    }
+
+    // Regression test for #9777.
+    #[tokio::test]
+    async fn cancels_synchronously_from_compaction_start() {
+        let harness = harness(Vec::new()).await;
+        seed(&harness);
+        let weak = Arc::downgrade(&harness.session);
+        let listener: AgentSessionEventListener = Arc::new(move |event| {
+            if matches!(event, AgentSessionEvent::CompactionStart { .. })
+                && let Some(session) = weak.upgrade()
+            {
+                session.abort_compaction();
+            }
+        });
+        harness.session.subscribe(&listener);
+
+        run_auto_compaction(&harness).await;
+
+        assert_eq!(harness.faux.state().call_count, 0);
+        assert_eq!(last_compaction_end(&harness)["aborted"], json!(true));
+        harness.cleanup();
+    }
+
+    // Regression test for #9777.
+    async fn reports_as_a_failure(create_error: fn() -> anyhow::Error) {
+        let harness = harness(Vec::new()).await;
+        seed(&harness);
+        mock_auth(&harness, Arc::new(move |_input| Box::pin(async move { Err(create_error()) })));
+
+        run_auto_compaction(&harness).await;
+
+        let event = last_compaction_end(&harness);
+        assert_eq!(event["aborted"], json!(false));
+        let expected = create_error().to_string();
+        assert!(
+            event["errorMessage"].as_str().unwrap_or_default().contains(&expected),
+            "{event}"
+        );
+        harness.cleanup();
+    }
+
+    #[tokio::test]
+    async fn reports_matching_error_text_as_a_failure() {
+        reports_as_a_failure(|| anyhow::anyhow!("Compaction cancelled")).await;
+    }
+
+    #[tokio::test]
+    async fn reports_an_unrelated_abort_error_as_a_failure() {
+        reports_as_a_failure(|| anyhow::Error::new(pi_ai::utils::provider_retry::AbortError).context("auth failed"))
+            .await;
+    }
+
+    #[tokio::test]
+    async fn reports_extension_cancellation_as_aborted() {
+        let harness = harness(vec![cancel_compaction()]).await;
+        seed(&harness);
+
+        run_auto_compaction(&harness).await;
+
+        assert_eq!(last_compaction_end(&harness)["aborted"], json!(true));
+        harness.cleanup();
+    }
+}
+
+// #6647: compaction retries transient summarization failures.
+mod compaction_retries_transient_stream_drop {
+    use super::*;
+
+    async fn harness(retry: Value) -> Harness {
+        let harness = create_harness(HarnessOptions {
+            with_configured_auth: Some(false),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        seed_compactable_session(&harness);
+        harness
+            .settings_manager
+            .apply_overrides_json(json!({"retry": retry}).as_object().unwrap());
+        harness
+    }
+
+    fn error(harness: &Harness, message: &str) -> pi_ai::types::AssistantMessage {
+        create_assistant(harness, StopReason::Error, Some(message), 10, now_ms())
+    }
+
+    /// TS `useScriptedStreamFn`: answers with the scripted messages in order (repeating the last).
+    fn use_scripted_stream_fn(harness: &Harness, script: Vec<pi_ai::types::AssistantMessage>) -> Arc<Mutex<usize>> {
+        let calls = Arc::new(Mutex::new(0usize));
+        let c = calls.clone();
+        harness.session.agent().set_stream_fn(Some(stream_fn(move |model, _context, _options| {
+            let mut count = c.lock();
+            let mut message = script.get(*count).unwrap_or(script.last().unwrap()).clone();
+            *count += 1;
+            message.api = model.api.clone();
+            message.provider = model.provider.clone();
+            message.model = model.id.clone();
+            message
+        })));
+        calls
+    }
+
+    #[tokio::test]
+    async fn retries_a_transient_terminated_summarization_error_and_compacts_successfully() {
+        let harness = harness(json!({"enabled": true, "maxRetries": 3, "baseDelayMs": 0})).await;
+        let mut success = create_assistant(&harness, StopReason::Stop, None, 10, now_ms());
+        success.content = vec![faux_text("recovered summary")];
+        let calls = use_scripted_stream_fn(
+            &harness,
+            vec![error(&harness, "terminated"), error(&harness, "terminated"), success],
+        );
+
+        let result = harness.session.compact(None).await.unwrap();
+
+        assert!(result.summary.contains("recovered summary"));
+        assert_eq!(*calls.lock(), 3);
+        let starts = harness.events_of_type("summarization_retry_scheduled");
+        let ends = harness.events_of_type("summarization_retry_finished");
+        assert_eq!(starts.len(), 2);
+        assert_eq!(ends.len(), 1);
+        assert_eq!(
+            (&starts[0]["attempt"], &starts[0]["maxAttempts"], &starts[0]["errorMessage"]),
+            (&json!(1), &json!(3), &json!("terminated"))
+        );
+        assert_eq!((&starts[1]["attempt"], &starts[1]["maxAttempts"]), (&json!(2), &json!(3)));
+        assert_eq!(ends[0]["type"], json!("summarization_retry_finished"));
+        harness.cleanup();
+    }
+
+    async fn fails_without_retry(retry: Value, message: &str) {
+        let harness = harness(retry).await;
+        let calls = use_scripted_stream_fn(&harness, vec![error(&harness, message)]);
+
+        let error = harness.session.compact(None).await.unwrap_err();
+
+        assert!(error.to_string().contains(message), "{error}");
+        assert_eq!(*calls.lock(), 1);
+        assert!(harness.events_of_type("summarization_retry_scheduled").is_empty());
+        harness.cleanup();
+    }
+
+    #[tokio::test]
+    async fn does_not_retry_a_non_retryable_error() {
+        fails_without_retry(json!({"enabled": true, "maxRetries": 3, "baseDelayMs": 0}), "insufficient_quota").await;
+    }
+
+    #[tokio::test]
+    async fn does_not_retry_when_retry_is_disabled() {
+        fails_without_retry(json!({"enabled": false, "maxRetries": 3, "baseDelayMs": 0}), "terminated").await;
+    }
+
+    #[tokio::test]
+    async fn stops_retrying_after_max_retries_and_reports_failure() {
+        let harness = harness(json!({"enabled": true, "maxRetries": 2, "baseDelayMs": 0})).await;
+        let e = error(&harness, "terminated");
+        let calls = use_scripted_stream_fn(&harness, vec![e.clone(), e.clone(), e]);
+
+        let error = harness.session.compact(None).await.unwrap_err();
+
+        assert!(error.to_string().contains("terminated"), "{error}");
+        assert_eq!(*calls.lock(), 3);
+        assert_eq!(harness.events_of_type("summarization_retry_scheduled").len(), 2);
+        let ends = harness.events_of_type("summarization_retry_finished");
+        assert_eq!(ends.len(), 1);
+        assert_eq!(ends[0]["type"], json!("summarization_retry_finished"));
+        harness.cleanup();
+    }
+
+    #[tokio::test]
+    async fn aborts_an_in_flight_retry_backoff_via_abort_compaction() {
+        let harness = harness(json!({"enabled": true, "maxRetries": 5, "baseDelayMs": 30_000})).await;
+        let e = error(&harness, "terminated");
+        use_scripted_stream_fn(&harness, vec![e.clone(), e.clone(), e]);
+
+        let scheduled = wait_for_event(&harness, |event| {
+            matches!(event, pi_coding_agent::core::agent_session::AgentSessionEvent::SummarizationRetryScheduled { .. })
+        });
+        let session = harness.session.clone();
+        let compact = tokio::spawn(async move { session.compact(None).await });
+        // Let the first error resolve and the retry backoff sleep start.
+        scheduled.await.unwrap();
+        harness.session.abort_compaction();
+
+        assert!(compact.await.unwrap().is_err());
+        assert_eq!(
+            harness.events_of_type("compaction_end").last().unwrap()["aborted"],
+            json!(true)
+        );
+        harness.cleanup();
+    }
+}

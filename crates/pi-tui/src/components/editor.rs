@@ -9,7 +9,7 @@ use std::time::Duration;
 use regex::Regex;
 
 use crate::StyleFn;
-use crate::autocomplete::{AutocompleteItem, AutocompleteProvider, AutocompleteSuggestions, SuggestOptions};
+use crate::autocomplete::{AutocompleteItem, AutocompleteProvider, AutocompleteSuggestions, CompletionResult, SuggestOptions};
 use crate::components::select_list::{SelectItem, SelectList, SelectListLayoutOptions, SelectListTheme};
 use crate::event_loop::{self, AbortController, EventLoop, TimerId};
 use crate::keybindings::{KeybindingsManager, get_keybindings};
@@ -346,6 +346,44 @@ enum Event {
     RequestRender,
 }
 
+/// An `apply_completion` result computed without the editor lock. Providers may call into
+/// extension code (a JS provider blocks on the extension thread, which may read the editor back),
+/// so they must never run while the state lock is held. The result is used only when the editor
+/// still matches the snapshot it was computed from; otherwise the provider is asked again.
+struct PrecomputedCompletion {
+    lines: Vec<String>,
+    cursor_line: usize,
+    cursor_col: usize,
+    item: AutocompleteItem,
+    prefix: String,
+    result: CompletionResult,
+}
+
+impl PrecomputedCompletion {
+    fn compute(provider: &Arc<dyn AutocompleteProvider>, s: &Inner, item: AutocompleteItem, prefix: String) -> impl FnOnce() -> Self + use<> {
+        let (provider, lines, cursor_line, cursor_col) =
+            (provider.clone(), s.state.lines.clone(), s.state.cursor_line, s.state.cursor_col);
+        move || {
+            let result = provider.apply_completion(&lines, cursor_line, cursor_col, &item, &prefix);
+            Self { lines, cursor_line, cursor_col, item, prefix, result }
+        }
+    }
+}
+
+/// The completion for `item`: the precomputed one when it still applies, else ask the provider.
+fn completion_for(s: &mut Inner, provider: &Arc<dyn AutocompleteProvider>, item: &AutocompleteItem, prefix: &str) -> CompletionResult {
+    if let Some(p) = s.precomputed_completion.take()
+        && p.lines == s.state.lines
+        && p.cursor_line == s.state.cursor_line
+        && p.cursor_col == s.state.cursor_col
+        && p.item == *item
+        && p.prefix == prefix
+    {
+        return p.result;
+    }
+    provider.apply_completion(&s.state.lines, s.state.cursor_line, s.state.cursor_col, item, prefix)
+}
+
 struct Inner {
     state: EditorState,
     focused: bool,
@@ -360,6 +398,8 @@ struct Inner {
     ac_list: Option<Arc<SelectList>>,
     ac_state: Option<AcState>,
     ac_prefix: String,
+    /// Provider result computed before the state lock was taken (see [`PrecomputedCompletion`]).
+    precomputed_completion: Option<PrecomputedCompletion>,
     ac_max_visible: usize,
     ac_abort: Option<AbortController>,
     ac_debounce_timer: Option<TimerId>,
@@ -430,6 +470,7 @@ impl Editor {
                 ac_list: None,
                 ac_state: None,
                 ac_prefix: String::new(),
+                precomputed_completion: None,
                 ac_max_visible: max_visible,
                 ac_abort: None,
                 ac_debounce_timer: None,
@@ -563,9 +604,10 @@ impl Editor {
     }
 
     pub fn set_autocomplete_provider(&self, provider: Arc<dyn AutocompleteProvider>) {
+        // Provider methods may call into extension code: never under the state lock.
+        let triggers = provider.trigger_characters();
         self.with(|s| {
             self.cancel_autocomplete(s);
-            let triggers = provider.trigger_characters();
             s.provider = Some(provider);
             let mut next: Vec<String> = DEFAULT_TRIGGER_CHARACTERS.iter().map(|s| s.to_string()).collect();
             for c in triggers {
@@ -820,7 +862,20 @@ impl Editor {
         event_loop::spawn(&self.event_loop, async move {
             let suggestions = fut.await;
             if let Some(me) = weak.upgrade() {
-                me.with(|s| me.finish_autocomplete(s, request_id, &controller, &snapshot, suggestions, options));
+                // A single forced suggestion is applied directly: compute it without the lock.
+                let precompute = match &suggestions {
+                    Some(sg) if options.force && options.explicit_tab && sg.items.len() == 1 => {
+                        let s = me.lock();
+                        s.provider.as_ref().map(|p| PrecomputedCompletion::compute(p, &s, sg.items[0].clone(), sg.prefix.clone()))
+                    }
+                    _ => None,
+                };
+                let precomputed = precompute.map(|f| f());
+                me.with(|s| {
+                    s.precomputed_completion = precomputed;
+                    me.finish_autocomplete(s, request_id, &controller, &snapshot, suggestions, options);
+                    s.precomputed_completion = None;
+                });
             }
         });
     }
@@ -853,7 +908,7 @@ impl Editor {
             let item = suggestions.items[0].clone();
             push_undo_snapshot(s);
             s.last_action = None;
-            let r = provider.apply_completion(&s.state.lines, s.state.cursor_line, s.state.cursor_col, &item, &suggestions.prefix);
+            let r = completion_for(s, &provider, &item, &suggestions.prefix);
             s.state.lines = r.lines;
             s.state.cursor_line = r.cursor_line;
             set_cursor_col(s, r.cursor_col);
@@ -895,12 +950,18 @@ impl Editor {
                 .find(|i| i.value == selected.value && i.label == selected.label)
                 .cloned()
                 .unwrap_or(AutocompleteItem { value: selected.value, label: selected.label, description: selected.description });
+            let precompute = {
+                let s = me.lock();
+                s.provider.as_ref().map(|p| PrecomputedCompletion::compute(p, &s, item.clone(), s.ac_prefix.clone()))
+            };
+            let precomputed = precompute.map(|f| f());
             me.with(|s| {
+                s.precomputed_completion = precomputed;
                 let Some(provider) = s.provider.clone() else { return };
                 push_undo_snapshot(s);
                 s.last_action = None;
                 let prefix = s.ac_prefix.clone();
-                let r = provider.apply_completion(&s.state.lines, s.state.cursor_line, s.state.cursor_col, &item, &prefix);
+                let r = completion_for(s, &provider, &item, &prefix);
                 s.state.lines = r.lines;
                 s.state.cursor_line = r.cursor_line;
                 set_cursor_col(s, r.cursor_col);
@@ -1515,10 +1576,26 @@ impl Editor {
         push_undo_snapshot(s);
         s.last_action = None;
         let prefix = s.ac_prefix.clone();
-        let r = provider.apply_completion(&s.state.lines, s.state.cursor_line, s.state.cursor_col, selected, &prefix);
+        let r = completion_for(s, &provider, selected, &prefix);
         s.state.lines = r.lines;
         s.state.cursor_line = r.cursor_line;
         set_cursor_col(s, r.cursor_col);
+    }
+
+    /// When `data` will accept the selected autocomplete item (tab / confirm while the list is
+    /// shown), prepare the provider call to run before `handle_input_locked` takes the lock.
+    fn precompute_selected_completion(&self, data: &str) -> Option<impl FnOnce() -> PrecomputedCompletion + use<>> {
+        let kb = get_keybindings();
+        if !(kb.matches(data, "tui.input.tab") || kb.matches(data, "tui.select.confirm")) {
+            return None;
+        }
+        let s = self.lock();
+        if s.jump_mode.is_some() || s.is_in_paste || s.ac_state.is_none() || s.ac_list.is_none() {
+            return None;
+        }
+        let provider = s.provider.clone()?;
+        let item = Self::selected_autocomplete_item(&s)?;
+        Some(PrecomputedCompletion::compute(&provider, &s, item, s.ac_prefix.clone()))
     }
 
     /// Process input with the state locked. Returns an autocomplete list key to forward.
@@ -2136,7 +2213,13 @@ impl Component for Editor {
     }
 
     fn handle_input(&self, data: &str) {
-        let forward = self.with(|s| self.handle_input_locked(s, data));
+        let precomputed = self.precompute_selected_completion(data).map(|f| f());
+        let forward = self.with(|s| {
+            s.precomputed_completion = precomputed;
+            let forward = self.handle_input_locked(s, data);
+            s.precomputed_completion = None;
+            forward
+        });
         if let Some((list, key)) = forward {
             list.handle_input(&key);
         }

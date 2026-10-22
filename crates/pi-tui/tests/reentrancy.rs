@@ -8,7 +8,10 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
-use common::{Harness, TestComponent};
+use common::{Harness, TestComponent, chalk};
+use pi_tui::autocomplete::{AutocompleteItem, AutocompleteProvider, AutocompleteSuggestions, CompletionResult, SuggestOptions};
+use pi_tui::components::editor::{Editor, EditorOptions};
+use pi_tui::event_loop::{self, BoxFuture};
 use pi_tui::tui::{Component, ComponentRef, InputListenerResult, OverlayOptions, Tui};
 
 /// Run `f` on its own thread and fail (instead of hanging) when it does not finish.
@@ -196,5 +199,91 @@ fn input_listener_can_unsubscribe_itself_and_subscribe_another_during_dispatch()
         h.wait_for_render();
         assert_eq!(*seen.lock().unwrap(), vec!["first:a".to_string(), "second:b".to_string()]);
         h.tui.stop(Default::default());
+    });
+}
+
+/// An autocomplete provider that reads the editor back while being consulted, like a JS provider
+/// whose `applyCompletion` calls `ctx.ui.getEditorText()`.
+struct ReentrantProvider {
+    editor: Mutex<Weak<Editor>>,
+    reads: Mutex<usize>,
+}
+
+impl ReentrantProvider {
+    fn read_editor(&self) {
+        if let Some(editor) = self.editor.lock().unwrap().upgrade() {
+            let _ = editor.get_text();
+            *self.reads.lock().unwrap() += 1;
+        }
+    }
+}
+
+impl AutocompleteProvider for ReentrantProvider {
+    fn trigger_characters(&self) -> Vec<String> {
+        self.read_editor();
+        Vec::new()
+    }
+
+    fn get_suggestions(
+        &self,
+        lines: &[String],
+        cursor_line: usize,
+        cursor_col: usize,
+        options: SuggestOptions,
+    ) -> BoxFuture<Option<AutocompleteSuggestions>> {
+        let before = lines[cursor_line][..cursor_col].to_string();
+        let items: Vec<AutocompleteItem> = match before.as_str() {
+            "one" if options.force => vec![AutocompleteItem::new("one-only", "one-only")],
+            "two" if options.force => {
+                vec![AutocompleteItem::new("two-a", "two-a"), AutocompleteItem::new("two-b", "two-b")]
+            }
+            _ => Vec::new(),
+        };
+        event_loop::ready((!items.is_empty()).then(|| AutocompleteSuggestions { prefix: before, items }))
+    }
+
+    fn apply_completion(
+        &self,
+        lines: &[String],
+        cursor_line: usize,
+        cursor_col: usize,
+        item: &AutocompleteItem,
+        prefix: &str,
+    ) -> CompletionResult {
+        self.read_editor();
+        let line = &lines[cursor_line];
+        let start = cursor_col - prefix.len();
+        let mut new_lines = lines.to_vec();
+        new_lines[cursor_line] = format!("{}{}{}", &line[..start], item.value, &line[cursor_col..]);
+        CompletionResult { lines: new_lines, cursor_line, cursor_col: start + item.value.len() }
+    }
+}
+
+#[test]
+fn autocomplete_provider_can_read_the_editor_while_applying_a_completion() {
+    run_with_timeout("re-entrant autocomplete provider", || {
+        let h = Harness::new(80, 24);
+        let editor = Editor::new(&h.tui, chalk::editor_theme(), EditorOptions::default());
+        let provider = Arc::new(ReentrantProvider { editor: Mutex::new(Arc::downgrade(&editor)), reads: Mutex::new(0) });
+        editor.set_autocomplete_provider(provider.clone());
+        let flush = || {
+            for _ in 0..3 {
+                h.lp.run_pending();
+            }
+        };
+
+        // A single forced suggestion is applied directly (async completion path).
+        editor.set_text("one");
+        editor.handle_input("\t");
+        flush();
+        assert_eq!(editor.get_text(), "one-only");
+
+        // Several suggestions: the menu opens and Tab accepts the selection (input path).
+        editor.set_text("two");
+        editor.handle_input("\t");
+        flush();
+        editor.handle_input("\t");
+        assert_eq!(editor.get_text(), "two-a");
+        assert!(*provider.reads.lock().unwrap() >= 2, "the provider read the editor back");
     });
 }

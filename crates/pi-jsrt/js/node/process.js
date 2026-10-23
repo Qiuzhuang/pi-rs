@@ -370,6 +370,8 @@ internal.nodeMain = async ({ file, eval: code, print, ipcFd, serialization, uniq
   if (ipcFd !== null && ipcFd !== undefined) {
     internal.loadGlue("node/child_process.js");
     internal.setupProcessChannel(ipcFd, serialization);
+    // A cluster worker announces itself to the primary at startup (cluster._setupWorker).
+    if (internal.clusterUniqueId !== undefined) internal.loadGlue("node/cluster.js");
   }
   try {
     if (code !== null && code !== undefined) {

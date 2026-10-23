@@ -122,7 +122,6 @@ const LAZY_GLUE: &[LazyGlue] = &[
             "perf_hooks",
             "async_hooks",
             "console",
-            "cluster",
             "inspector",
             "diagnostics_channel",
             "constants",
@@ -133,6 +132,12 @@ const LAZY_GLUE: &[LazyGlue] = &[
         file: "node/worker_threads.js",
         src: include_str!("../../js/node/worker_threads.js"),
         builtins: &["worker_threads"],
+        globals: &[],
+    },
+    LazyGlue {
+        file: "node/cluster.js",
+        src: include_str!("../../js/node/cluster.js"),
+        builtins: &["cluster"],
         globals: &[],
     },
     LazyGlue {

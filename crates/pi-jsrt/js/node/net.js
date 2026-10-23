@@ -93,6 +93,13 @@ class Socket extends Duplex {
     this._timer = undefined;
     this._pendingWrites = [];
     this._loop = internal.loopHandle();
+    // A socket over a passed descriptor (child_process handle passing, cluster connections).
+    const fd = typeof options.fd === "number" ? options.fd : options.handle && typeof options.handle.fd === "number" ? options.handle.fd : undefined;
+    if (fd !== undefined) {
+      const r = ops.netAdoptFd(fd);
+      if (r.error) throw netError(r.error);
+      this._attach(r.id, r);
+    }
   }
 
   _attach(id, info) {
@@ -199,7 +206,7 @@ class Socket extends Duplex {
   _destroy(err, callback) {
     this._clearTimer();
     this._loop.deactivate();
-    if (this._id !== undefined && !this._remoteClosed) ops.netDestroy(this._id);
+    if (this._id !== undefined && !this._remoteClosed && !this._detached) ops.netDestroy(this._id);
     callback(err);
   }
 
@@ -275,7 +282,11 @@ class Server extends EventEmitter {
       if (typeof arg === "function") callback = arg;
     }
     const [first, second] = args;
-    if (first !== null && typeof first === "object") {
+    let fd;
+    if (first !== null && typeof first === "object" && (typeof first.fd === "number" || first._fdHandle)) {
+      // listen(handle) / listen({ fd }): a passed listening descriptor.
+      fd = first.fd;
+    } else if (first !== null && typeof first === "object") {
       if (first.path !== undefined) {
         throw Object.assign(new Error("Unix domain sockets are not supported in pi-jsrt"), { code: "ERR_NOT_SUPPORTED" });
       }
@@ -288,7 +299,11 @@ class Server extends EventEmitter {
       if (typeof second === "string") host = second;
     }
     if (callback) this.once("listening", callback);
-    const result = ops.netListen(String(host), Number(port) || 0);
+    // In a cluster worker, the primary owns the listening socket (cluster._getServer).
+    if (fd === undefined && !this._rawMode && internal.clusterListen && !(first && typeof first === "object" && first.exclusive)) {
+      if (internal.clusterListen(this, { address: host || null, port: Number(port) || 0, addressType: host && isIPv6(host) ? 6 : 4, fd: -1 })) return this;
+    }
+    const result = fd !== undefined ? ops.netListenFd(fd, Boolean(this._rawMode)) : ops.netListen(String(host), Number(port) || 0, Boolean(this._rawMode));
     if (result.error) {
       const err = netError(result.error);
       process.nextTick(() => this.emit("error", err));
@@ -303,7 +318,19 @@ class Server extends EventEmitter {
     return this;
   }
 
+  // A connection passed as a descriptor (cluster round-robin).
+  _acceptFd(fd) {
+    const r = ops.netAdoptFd(fd);
+    if (r.error) return false;
+    this._onNetEvent("connection", r.id, r);
+    return true;
+  }
+
   _onNetEvent(kind, socketId, info) {
+    if (kind === "rawconnection") {
+      this.emit("rawconnection", socketId, info);
+      return;
+    }
     if (kind === "connection") {
       const socket = new Socket({ allowHalfOpen: this._options.allowHalfOpen === true });
       socket._attach(socketId, info);
@@ -349,7 +376,21 @@ class Server extends EventEmitter {
     if (this.listening) {
       this.listening = false;
       this._closing = true;
-      ops.netServerClose(this._id);
+      if (this._clusterHandle && this._clusterHandle.rr) {
+        // Round-robin cluster worker: the primary owns the listener.
+        this._clusterHandle.close();
+        this._clusterHandle = null;
+        this._listenerClosed = true;
+        process.nextTick(() => this._maybeClosed());
+      } else {
+        if (this._clusterHandle) {
+          // Shared cluster handle: tell the primary; the descriptor closes with the listener.
+          const h = this._clusterHandle;
+          this._clusterHandle = null;
+          h.close();
+        }
+        ops.netServerClose(this._id);
+      }
     }
     return this;
   }

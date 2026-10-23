@@ -713,7 +713,6 @@ function stubModule(name, names, extra = {}) {
     return mod;
   });
 }
-stubModule("cluster", ["fork", "setupPrimary"], { isPrimary: true, isMaster: true, isWorker: false });
 stubModule("inspector", ["open", "close", "url", "Session"]);
 stubModule("diagnostics_channel", [], {
   channel: () => ({ hasSubscribers: false, publish() {}, subscribe() {}, unsubscribe() {} }),

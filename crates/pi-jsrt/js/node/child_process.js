@@ -137,23 +137,38 @@ internal.childEvent = (id, kind, a, b) => {
     case "stderr":
       child.stderr?.push(Buffer.from(a.buffer, a.byteOffset, a.byteLength));
       break;
-    case "exit":
-      child.exitCode = a;
-      child.signalCode = b;
-      child._alive = false;
-      child.unref();
-      if (child._timeout) clearTimeout(child._timeout);
-      // Node destroys the stdin pipe when the child exits.
-      if (child.stdin && !child.stdin.destroyed) child.stdin.destroy();
-      child.emit("exit", a, b);
+    case "exit": {
+      const emitExit = () => {
+        child.exitCode = a;
+        child.signalCode = b;
+        if (child._timeout) clearTimeout(child._timeout);
+        // Node destroys the stdin pipe when the child exits.
+        if (child.stdin && !child.stdin.destroyed) child.stdin.destroy();
+        child.emit("exit", a, b);
+        child._exitEmitted = true;
+        if (child._pendingClose) child._pendingClose();
+      };
+      // The IPC channel of an exited child reaches EOF right away; report the disconnect first,
+      // in the order Node's event loop observes them.
+      if (child.connected) child.once("disconnect", () => process.nextTick(emitExit));
+      else emitExit();
       break;
-    case "close":
-      children.delete(id);
-      child.stdout?.push(null);
-      child.stderr?.push(null);
-      // Let stream 'end' events flush before 'close'.
-      setImmediate(() => child.emit("close", a, b));
+    }
+    case "close": {
+      const emitClose = () => {
+        // The process and its stdio kept the loop alive until now (Node's handle + pipes).
+        child._alive = false;
+        child.unref();
+        children.delete(id);
+        child.stdout?.push(null);
+        child.stderr?.push(null);
+        // Let stream 'end' events flush before 'close'.
+        setImmediate(() => child.emit("close", a, b));
+      };
+      if (child._exitEmitted) emitClose();
+      else child._pendingClose = emitClose;
       break;
+    }
   }
 };
 
@@ -529,17 +544,28 @@ function setupChannel(target, id, serialization) {
       for (const m of held.splice(0)) deliver(m);
     });
   };
-  const deliver = (message) => {
-    if (channel.held) {
-      held.push(message);
-      return;
-    }
-    const handle = internal.ipcTakeHandle?.(message, pendingFds);
+  const emitMessage = (message, handle) => {
     if (message !== null && typeof message === "object" && typeof message.cmd === "string" && message.cmd.startsWith("NODE_")) {
       target.emit("internalMessage", message, handle);
     } else {
       target.emit("message", message, handle);
     }
+  };
+  const deliver = (message) => {
+    if (channel.held) {
+      held.push(message);
+      return;
+    }
+    // A message carrying a handle (Node's NODE_HANDLE protocol): acknowledge, rebuild the
+    // handle from the received descriptor, then deliver the wrapped message with it.
+    if (message !== null && typeof message === "object" && message.cmd === "NODE_HANDLE") {
+      const fd = pendingFds.shift();
+      if (target.connected) ops.ipcWrite(id, advanced ? internal.ipcFrame({ cmd: "NODE_HANDLE_ACK" }) : JSON.stringify({ cmd: "NODE_HANDLE_ACK" }) + "\n");
+      target.emit("internalMessage", message);
+      internal.ipcHandleGot(message, fd, (handle) => emitMessage(message.msg, handle));
+      return;
+    }
+    emitMessage(message, undefined);
   };
 
   const finish = () => {
@@ -613,23 +639,19 @@ function setupChannel(target, id, serialization) {
     }
     let fd;
     if (handle !== undefined && handle !== null) {
-      const packed = internal.ipcPackHandle ? internal.ipcPackHandle(message, handle, options) : null;
+      const packed = internal.ipcPackHandle(message, handle, options);
       if (!packed) {
         throw nodeError(TypeError, "ERR_INVALID_HANDLE_TYPE", "This handle type cannot be sent");
       }
       message = packed.message;
       fd = packed.fd;
+      this._packedAfter = packed.after;
     }
-    let payload;
-    if (advanced) {
-      const body = internal.ipcSerialize(message);
-      payload = Buffer.alloc(4 + body.length);
-      payload.writeUInt32BE(body.length, 0);
-      body.copy(payload, 4);
-    } else {
-      payload = JSON.stringify(message) + "\n";
-    }
+    let after;
+    if (handle !== undefined && handle !== null) after = this._packedAfter;
+    const payload = advanced ? internal.ipcFrame(message) : JSON.stringify(message) + "\n";
     const ok = ops.ipcWrite(id, payload, fd);
+    after?.();
     if (typeof callback === "function") process.nextTick(callback, ok ? null : nodeError(Error, "ERR_IPC_CHANNEL_CLOSED", "Channel closed"));
     return true;
   };
@@ -648,6 +670,68 @@ function setupChannel(target, id, serialization) {
   return channel;
 }
 internal.setupChannel = setupChannel;
+
+internal.ipcFrame = (message) => {
+  const body = internal.ipcSerialize(message);
+  const payload = Buffer.alloc(4 + body.length);
+  payload.writeUInt32BE(body.length, 0);
+  body.copy(payload, 4);
+  return payload;
+};
+
+// Handles that can be sent with `send(message, handle)` (Node's handleConversion).
+internal.ipcPackHandle = (message, handle, options = {}) => {
+  const net = internal.requireBuiltin("net");
+  let type;
+  let fd = -1;
+  let after;
+  if (handle instanceof net.Server) {
+    type = "net.Server";
+    fd = handle._id !== undefined ? ops.netFd(handle._id) : -1;
+  } else if (handle instanceof net.Socket) {
+    type = "net.Socket";
+    fd = handle._id !== undefined ? ops.netFd(handle._id) : -1;
+    if (!options.keepOpen) {
+      after = () => {
+        // The descriptor now belongs to the receiver: stop here without shutting it down.
+        ops.netDetach(handle._id);
+        handle._detached = true;
+        handle.destroy();
+      };
+    }
+  } else if (handle && handle._fdHandle) {
+    type = "net.Native";
+    fd = handle.fd;
+  } else {
+    return null;
+  }
+  if (fd < 0) return null;
+  return { message: { cmd: "NODE_HANDLE", type, msg: message }, fd, after };
+};
+
+internal.ipcHandleGot = (message, fd, emit) => {
+  if (fd === undefined) {
+    emit(undefined);
+    return;
+  }
+  const net = internal.requireBuiltin("net");
+  switch (message.type) {
+    case "net.Server": {
+      const server = new net.Server();
+      server.listen({ fd }, () => emit(server));
+      break;
+    }
+    case "net.Socket":
+      emit(new net.Socket({ fd, readable: true, writable: true }));
+      break;
+    case "net.Native":
+      emit({ fd, _fdHandle: true, close: () => ops.closeFd(fd) });
+      break;
+    default:
+      ops.closeFd(fd);
+      emit(undefined);
+  }
+};
 
 // The child's end (`process.send` & co.), set up at startup in Node mode (src/node.rs).
 internal.setupProcessChannel = (fd, serialization) => {

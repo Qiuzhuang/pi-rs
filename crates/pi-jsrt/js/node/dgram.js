@@ -274,12 +274,11 @@ class Socket extends EventEmitter {
       enqueue(this, () => this.send(list, port, address, callback));
       return;
     }
-    const doSend = () => {
+    const doSend = (ip) => {
       // The socket may have been closed while the address was looked up.
       if (!state.handle) return;
       const id = ++sendIds;
-      const host = connected ? null : address || (this.type === "udp4" ? "127.0.0.1" : "::1");
-      const r = ops.dgramSend(state.handle, Buffer.concat(list), host, connected ? 0 : port, id);
+      const r = ops.dgramSend(state.handle, Buffer.concat(list), connected ? null : ip, connected ? 0 : port, id);
       if (r === undefined) {
         if (callback) sendCallbacks.set(id, callback);
       } else if (callback) {
@@ -287,9 +286,26 @@ class Socket extends EventEmitter {
         else process.nextTick(callback, systemError(r));
       }
     };
-    // Node looks the address up first (dns.lookup answers IP addresses on the next tick).
-    if (connected) doSend();
-    else process.nextTick(doSend);
+    if (connected) {
+      doSend(null);
+      return;
+    }
+    // Like Node: look the address up first (dns.lookup answers IP literals on the next tick).
+    const host = address || (this.type === "udp4" ? "127.0.0.1" : "::1");
+    const family = this.type === "udp4" ? 4 : 6;
+    if (internal.requireBuiltin("net").isIP(host)) {
+      process.nextTick(doSend, host);
+      return;
+    }
+    internal.requireBuiltin("dns").lookup(host, { family }, (err, ip) => {
+      if (err) {
+        err.syscall = "getaddrinfo";
+        if (callback) callback(err);
+        else this.emit("error", err);
+        return;
+      }
+      doSend(ip);
+    });
   }
 
   close(callback) {

@@ -89,6 +89,7 @@ fn parse(args: Vec<String>) -> Parsed {
 /// Run in Node mode with `args` (everything after the program name and the marker) and return
 /// the exit code. Normally the process exits from inside (`process.exit`, uncaught errors).
 pub fn run(args: Vec<String>) -> i32 {
+    reset_signals();
     let parsed = parse(args);
     let tokio = match tokio::runtime::Builder::new_multi_thread().worker_threads(2).thread_name("pi-jsrt-io").enable_all().build() {
         Ok(t) => t,
@@ -161,6 +162,27 @@ pub fn run(args: Vec<String>) -> i32 {
     })
 }
 
+/// Like Node's `PlatformInit`: start from default signal dispositions (SIGPIPE and SIGXFSZ
+/// ignored) and an empty signal mask, whatever the parent left behind.
+fn reset_signals() {
+    // SAFETY: plain sigaction/sigprocmask calls at startup, before other threads exist.
+    unsafe {
+        let mut act: libc::sigaction = std::mem::zeroed();
+        libc::sigemptyset(&mut act.sa_mask);
+        for nr in 1..32 {
+            if nr == libc::SIGKILL || nr == libc::SIGSTOP {
+                continue;
+            }
+            act.sa_sigaction = if nr == libc::SIGPIPE || nr == libc::SIGXFSZ { libc::SIG_IGN } else { libc::SIG_DFL };
+            libc::sigaction(nr, &act, std::ptr::null_mut());
+        }
+        let mut set: libc::sigset_t = std::mem::zeroed();
+        libc::sigemptyset(&mut set);
+        libc::pthread_sigmask(libc::SIG_SETMASK, &set, std::ptr::null_mut());
+    }
+}
+
+/// Call `internal[name](arg)` (awaiting a returned promise).
 async fn call_internal(rt: &JsRuntime, name: &'static str, arg: Value) -> crate::Result<Value> {
     rt.call_internal(name, arg).await
 }

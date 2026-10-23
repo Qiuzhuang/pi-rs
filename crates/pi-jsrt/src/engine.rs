@@ -64,6 +64,8 @@ pub(crate) struct State {
     /// Handles that keep the event loop alive (sockets, servers, child processes, ports...),
     /// counted by the glue through `ops.loopRef(delta)`, like libuv's active handles.
     loop_refs: Cell<i64>,
+    /// Events posted by I/O tasks that have not run yet (see [`Poster`]).
+    queued: Arc<std::sync::atomic::AtomicUsize>,
     /// Waiters for [`State::alive`] to become false (see `JsRuntime::wait_idle`).
     idle_waiters: RefCell<Vec<futures::channel::oneshot::Sender<()>>>,
 }
@@ -119,7 +121,11 @@ impl State {
     /// Whether anything keeps the event loop alive: referenced timers, pending async ops or
     /// referenced handles (Node's `uv_loop_alive`).
     pub(crate) fn alive(&self) -> bool {
-        self.loop_refs.get() > 0 || !self.pending.borrow().is_empty() || self.timers.borrow().refed() > 0
+        self.loop_refs.get() > 0
+            || !self.pending.borrow().is_empty()
+            || self.timers.borrow().refed() > 0
+            || self.queued.load(std::sync::atomic::Ordering::SeqCst) > 0
+            || crate::ops::signal::in_flight()
     }
 
     pub(crate) fn loop_ref(&self, delta: i64) {
@@ -141,7 +147,7 @@ impl State {
 
     /// Post a task to this thread from anywhere (e.g. a tokio task).
     pub(crate) fn poster(&self) -> Poster {
-        Poster { tx: self.tx.clone() }
+        Poster { tx: self.tx.clone(), queued: self.queued.clone() }
     }
 }
 
@@ -149,11 +155,22 @@ impl State {
 #[derive(Clone)]
 pub(crate) struct Poster {
     tx: mpsc::Sender<Msg>,
+    /// Events posted but not yet run: they keep the loop alive (an I/O completion in flight).
+    queued: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl Poster {
     pub(crate) fn post(&self, f: impl FnOnce(&mut Context) + Send + 'static) -> bool {
-        self.tx.send(Msg::Task(Box::new(f))).is_ok()
+        self.queued.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let queued = self.queued.clone();
+        let ok = self.tx.send(Msg::Task(Box::new(move |ctx| {
+            queued.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+            f(ctx)
+        })));
+        if ok.is_err() {
+            self.queued.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        ok.is_ok()
     }
 }
 
@@ -916,6 +933,7 @@ pub(crate) fn thread_main(init: ThreadInit, ready: std::sync::mpsc::SyncSender<R
         cwd: RefCell::new(cwd),
         stopping: Cell::new(false),
         loop_refs: Cell::new(0),
+        queued: Arc::default(),
         idle_waiters: RefCell::default(),
     });
     ctx.insert_data(st.clone());

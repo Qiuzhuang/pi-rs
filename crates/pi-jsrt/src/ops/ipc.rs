@@ -25,8 +25,15 @@ enum Out {
     Close,
 }
 
+struct Channel {
+    tx: mpsc::UnboundedSender<Out>,
+    fd: RawFd,
+    /// Writes queued for the writer task and not yet written.
+    pending: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+}
+
 thread_local! {
-    static CHANNELS: RefCell<HashMap<u64, mpsc::UnboundedSender<Out>>> = RefCell::new(HashMap::new());
+    static CHANNELS: RefCell<HashMap<u64, Channel>> = RefCell::new(HashMap::new());
 }
 
 fn dispatch(ctx: &mut Context, id: u64, args: Vec<JsValue>) {
@@ -110,7 +117,8 @@ pub(crate) fn start(ctx: &mut Context, stream: std::os::unix::net::UnixStream) -
     let id = st.next_id();
     let poster = st.poster();
     let (tx, mut rx) = mpsc::unbounded_channel::<Out>();
-    CHANNELS.with(|c| c.borrow_mut().insert(id, tx));
+    let pending = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    CHANNELS.with(|c| c.borrow_mut().insert(id, Channel { tx, fd: stream.as_raw_fd(), pending: pending.clone() }));
     let reader = stream.clone();
     let read_poster = poster.clone();
     st.tokio.spawn(async move {
@@ -155,6 +163,7 @@ pub(crate) fn start(ctx: &mut Context, stream: std::os::unix::net::UnixStream) -
                             Err(_) => return,
                         }
                     }
+                    pending.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
                 }
                 Out::Close => {
                     // SAFETY: shutting down our own socket.
@@ -198,7 +207,16 @@ fn op_ipc_write(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<Js
         // SAFETY: `dup` is a fresh descriptor we own.
         Some(unsafe { OwnedFd::from_raw_fd(dup) })
     };
-    let ok = CHANNELS.with(|c| c.borrow().get(&id).is_some_and(|tx| tx.send(Out::Data(data, fd)).is_ok()));
+    let ok = CHANNELS.with(|c| {
+        c.borrow().get(&id).is_some_and(|ch| {
+            ch.pending.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let ok = ch.tx.send(Out::Data(data, fd)).is_ok();
+            if !ok {
+                ch.pending.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+            }
+            ok
+        })
+    });
     Ok(JsValue::from(ok))
 }
 
@@ -206,8 +224,14 @@ fn op_ipc_write(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<Js
 fn op_ipc_close(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     let id = arg_f64(args, 0, ctx)? as u64;
     CHANNELS.with(|c| {
-        if let Some(tx) = c.borrow_mut().remove(&id) {
-            let _ = tx.send(Out::Close);
+        if let Some(ch) = c.borrow_mut().remove(&id) {
+            // Nothing left to write: shut down now, so the peer sees the disconnect before
+            // anything this process does next (e.g. exiting).
+            if ch.pending.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+                // SAFETY: shutting down our own socket (the writer task owns the descriptor).
+                unsafe { libc::shutdown(ch.fd, libc::SHUT_RDWR) };
+            }
+            let _ = ch.tx.send(Out::Close);
         }
     });
     Ok(JsValue::undefined())
@@ -223,8 +247,8 @@ fn op_close_fd(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsV
 
 pub(crate) fn teardown(_ctx: &mut Context) {
     CHANNELS.with(|c| {
-        for (_, tx) in c.borrow_mut().drain() {
-            let _ = tx.send(Out::Close);
+        for (_, ch) in c.borrow_mut().drain() {
+            let _ = ch.tx.send(Out::Close);
         }
     });
 }

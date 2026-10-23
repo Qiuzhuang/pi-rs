@@ -35,6 +35,13 @@ static OLD: OldActions = OldActions(UnsafeCell::new(unsafe { std::mem::zeroed() 
 static INSTALLED: [AtomicBool; NSIG] = [const { AtomicBool::new(false) }; NSIG];
 static ACTIVE: [AtomicUsize; NSIG] = [const { AtomicUsize::new(0) }; NSIG];
 static PIPE_WRITE: AtomicI32 = AtomicI32::new(-1);
+/// Signals written to the pipe and not yet handed to the runtimes: a runtime whose event loop
+/// would end now stays alive until they are delivered (a signal raised just before).
+static IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
+
+pub(crate) fn in_flight() -> bool {
+    IN_FLIGHT.load(Ordering::SeqCst) > 0
+}
 static INSTALL_LOCK: Mutex<()> = Mutex::new(());
 
 struct Subscriber {
@@ -62,8 +69,11 @@ extern "C" fn handler(sig: libc::c_int, info: *mut libc::siginfo_t, uctx: *mut l
         let fd = PIPE_WRITE.load(Ordering::Relaxed);
         if fd >= 0 {
             let b = [sig as u8];
+            IN_FLIGHT.fetch_add(1, Ordering::SeqCst);
             // SAFETY: write(2) is async-signal-safe.
-            unsafe { libc::write(fd, b.as_ptr().cast(), 1) };
+            if unsafe { libc::write(fd, b.as_ptr().cast(), 1) } != 1 {
+                IN_FLIGHT.fetch_sub(1, Ordering::SeqCst);
+            }
         }
     }
     match old.sa_sigaction {
@@ -132,6 +142,8 @@ fn start_dispatcher() -> bool {
                     for s in subs.iter().filter(|s| s.signo == sig) {
                         s.poster.post(move |ctx| dispatch(ctx, sig));
                     }
+                    // Posted: each runtime's queue now keeps it alive until it runs.
+                    IN_FLIGHT.fetch_sub(1, Ordering::SeqCst);
                 }
             }
         });

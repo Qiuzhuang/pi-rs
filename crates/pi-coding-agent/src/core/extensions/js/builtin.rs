@@ -475,6 +475,19 @@ fn session_helper(f: &str, args: &[Value]) -> anyhow::Result<Value> {
         }
         "hasTrustRequiringProjectResources" => json!(crate::core::trust_manager::has_trust_requiring_project_resources(&s(0))),
         "readStoredCredential" => serde_json::to_value(crate::core::auth_storage::read_stored_credential(&s(0), a(1).as_str()))?,
+        // 0.x `AuthStorage` file access for JS extensions (see `extension_auth_*`).
+        "authReadAll" => serde_json::to_value(crate::core::auth_storage::extension_auth_read_all(a(0).as_str())?)?,
+        "authSetCredential" => {
+            crate::core::auth_storage::extension_auth_set_credential(&s(0), &a(1), a(2).as_str())?;
+            Value::Null
+        }
+        "authRemoveCredential" => {
+            crate::core::auth_storage::extension_auth_remove_credential(&s(0), a(1).as_str())?;
+            Value::Null
+        }
+        "authResolveConfigValue" => json!(crate::core::resolve_config_value::resolve_config_value(&s(0), None)),
+        "authEnvApiKey" => json!(pi_ai::env_api_keys::get_env_api_key(&s(0), None)),
+        "authEnvKeys" => json!(pi_ai::env_api_keys::find_env_keys(&s(0), None)),
         "parseArgs" => {
             let argv: Vec<String> = serde_json::from_value(a(0))?;
             serde_json::to_value(crate::cli::args::parse_args(&argv))?

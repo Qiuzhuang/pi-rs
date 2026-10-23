@@ -216,3 +216,125 @@ async fn coding_agent_helpers_are_backed_by_rust() {
     assert_eq!(out["agentEvents"], json!(["agent_start", "agent_end", true]));
     assert_eq!(out["identity"], json!(true));
 }
+
+// 0.x `AuthStorage` compatibility (pi 1.x removed the root export; extensions like
+// pi-provider-litellm built for 0.x import it): file-backed store over the Rust auth.json
+// storage, getApiKey priority chain, per-entry locked persistence, in-memory/fallback/override.
+const AUTH_EXTENSION: &str = r##"
+import fs from "fs";
+import path from "path";
+import os from "os";
+import { AuthStorage } from "@earendil-works/pi-coding-agent";
+
+export default async function (pi) {
+	const out = {};
+	const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-auth-test-"));
+	const authPath = path.join(tmp, "auth.json");
+	fs.writeFileSync(authPath, JSON.stringify({
+		stored: { type: "api_key", key: "sk-stored" },
+		external: { type: "api_key", key: "sk-external" },
+		oauthed: { type: "oauth", access: "tok-123" },
+	}, null, 2));
+
+	const storage = AuthStorage.create(authPath);
+	out.has = storage.has("stored");
+	out.list = [...storage.list()].sort();
+	out.get = storage.get("stored").key;
+	out.storedKey = await storage.getApiKey("stored", { includeFallback: false });
+	out.oauthKey = await storage.getApiKey("oauthed", {});
+	out.missing = await storage.getApiKey("missing", {}) === undefined;
+	out.statusStored = storage.getAuthStatus("stored");
+	out.statusNone = storage.getAuthStatus("missing");
+
+	// set/remove are locked per-entry merges: the concurrently written `external` entry survives.
+	storage.set("newprov", { type: "api_key", key: "sk-new" });
+	storage.remove("stored");
+	const fileAfter = JSON.parse(fs.readFileSync(authPath, "utf8"));
+	out.fileAfter = {
+		keys: Object.keys(fileAfter).sort(),
+		newKey: fileAfter.newprov ? fileAfter.newprov.key : null,
+		storedGone: !("stored" in fileAfter),
+		externalKept: fileAfter.external ? fileAfter.external.key : null,
+	};
+	out.allAfter = Object.keys(storage.getAll()).sort();
+
+	// inMemory: runtime override wins, then stored key, then fallback (suppressed by includeFallback: false).
+	const mem = AuthStorage.inMemory({ a: { type: "api_key", key: "mem" } });
+	mem.setFallbackResolver(() => "fb");
+	mem.setRuntimeApiKey("a", "rt");
+	out.override = await mem.getApiKey("a", {});
+	mem.removeRuntimeApiKey("a");
+	out.storedMem = await mem.getApiKey("a", {});
+	out.fallback = await mem.getApiKey("b", {});
+	out.noFallback = await mem.getApiKey("b", { includeFallback: false });
+	out.hasAuthFallback = mem.hasAuth("b");
+	out.statusFallback = mem.getAuthStatus("b");
+	out.logout = (() => { mem.logout("a"); return mem.list().length; })();
+
+	// fromStorage: a plain JS backend with a 0.x withLock.
+	const backend = {
+		current: JSON.stringify({ bp: { type: "api_key", key: "bk" } }),
+		withLock(fn) { const r = fn(this.current); if (r && r.next !== undefined) this.current = r.next; return r ? r.result : undefined; },
+	};
+	const bs = AuthStorage.fromStorage(backend);
+	out.backendList = bs.list();
+	bs.set("bp2", { type: "api_key", key: "k2" });
+	bs.remove("bp");
+	out.backendFile = Object.keys(JSON.parse(backend.current)).sort();
+
+	out.oauthProviders = storage.getOAuthProviders();
+
+	let loginErr = "";
+	try {
+		await storage.login("anthropic", {});
+	} catch (e) {
+		loginErr = e.message;
+	}
+	out.loginErr = loginErr.indexOf("not available to extensions") !== -1;
+	out.drain = storage.drainErrors();
+
+	pi.registerTool({
+		name: "auth", label: "auth", description: JSON.stringify(out), parameters: { type: "object", properties: {} },
+		execute: async () => ({ content: [] }),
+	});
+}
+"##;
+
+#[tokio::test(flavor = "multi_thread")]
+async fn auth_storage_0x_compatibility() {
+    let dir = ExtDir::new();
+    dir.write("auth.ts", AUTH_EXTENSION);
+    let result = dir.discover().await;
+    assert!(result.errors.is_empty(), "{:#?}", result.errors);
+    let extension = result.extensions[0].read();
+    let out: Value = serde_json::from_str(&extension.tools["auth"].definition.description).unwrap();
+
+    assert_eq!(out["has"], json!(true));
+    assert_eq!(out["list"], json!(["external", "oauthed", "stored"]));
+    assert_eq!(out["get"], json!("sk-stored"));
+    assert_eq!(out["storedKey"], json!("sk-stored"));
+    assert_eq!(out["oauthKey"], json!("tok-123"));
+    assert_eq!(out["missing"], json!(true));
+    assert_eq!(out["statusStored"], json!({ "configured": true, "source": "stored" }));
+    assert_eq!(out["statusNone"], json!({ "configured": false }));
+    assert_eq!(
+        out["fileAfter"],
+        json!({ "keys": ["external", "newprov", "oauthed"], "newKey": "sk-new", "storedGone": true, "externalKept": "sk-external" })
+    );
+    assert_eq!(out["allAfter"], json!(["external", "newprov", "oauthed"]));
+    assert_eq!(out["override"], json!("rt"));
+    assert_eq!(out["storedMem"], json!("mem"));
+    assert_eq!(out["fallback"], json!("fb"));
+    assert_eq!(out["noFallback"], Value::Null);
+    assert_eq!(out["hasAuthFallback"], json!(true));
+    assert_eq!(
+        out["statusFallback"],
+        json!({ "configured": false, "source": "fallback", "label": "custom provider config" })
+    );
+    assert_eq!(out["logout"], json!(0));
+    assert_eq!(out["backendList"], json!(["bp"]));
+    assert_eq!(out["backendFile"], json!(["bp2"]));
+    assert_eq!(out["oauthProviders"], json!([]));
+    assert_eq!(out["loginErr"], json!(true));
+    assert_eq!(out["drain"], json!([]));
+}

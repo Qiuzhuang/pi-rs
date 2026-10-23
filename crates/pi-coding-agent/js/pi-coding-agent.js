@@ -636,6 +636,263 @@ export const migrateSessionEntries = (entries) => {
 export const parseSessionEntries = (content) => host("parseSessionEntries", String(content));
 export const sessionEntryToContextMessages = (entry) => host("sessionEntryToContextMessages", entry);
 
+// ---------------------------------------------------------------------------
+// AuthStorage: the 0.x credential API that extensions built for pi 0.x import from
+// the package root (e.g. pi-provider-litellm's `AuthStorage.create(path).getApiKey()`).
+// The 1.x root no longer exports it; this is a 0.x-compatible stand-in on the Rust
+// auth.json storage (proper-lockfile compatible). The credential map is kept in
+// memory like 0.x; the file is the only thing touched through the locked host ops.
+// ---------------------------------------------------------------------------
+
+class AuthStorage {
+	/** 0.x `create(authPath?)`: file-backed store, default `<agentDir>/auth.json`. */
+	static create(authPath) {
+		const store = new AuthStorage();
+		store.#backing = { kind: "file", authPath: authPath ?? null };
+		store.reload();
+		return store;
+	}
+
+	/** 0.x `fromStorage(storage)`: any object with a 0.x `AuthStorageBackend.withLock`. */
+	static fromStorage(storage) {
+		const store = new AuthStorage();
+		store.#backing = { kind: "backend", backend: storage };
+		store.reload();
+		return store;
+	}
+
+	/** 0.x `inMemory(data?)`: a store without any persistence. */
+	static inMemory(data = {}) {
+		const store = new AuthStorage();
+		store.#backing = { kind: "memory" };
+		store.data = { ...data };
+		return store;
+	}
+
+	#backing;
+	data = {};
+	runtimeOverrides = new Map();
+	fallbackResolver = undefined;
+
+	constructor() {
+		this.#backing = { kind: "memory" };
+	}
+
+	#readContent() {
+		if (this.#backing.kind === "backend") {
+			let content;
+			this.#backing.backend.withLock((current) => {
+				content = current;
+				return { result: undefined };
+			});
+			return content ?? undefined;
+		}
+		return undefined;
+	}
+
+	/**
+	 * 0.x `persistProviderChange`: locked read-modify-write of one entry on top of the
+	 * current file content (entries written by other instances in the meantime survive).
+	 */
+	#persist(provider, credential) {
+		if (this.#backing.kind === "file") {
+			if (credential) host("authSetCredential", provider, credential, this.#backing.authPath);
+			else host("authRemoveCredential", provider, this.#backing.authPath);
+			return;
+		}
+		if (this.#backing.kind === "backend") {
+			this.#backing.backend.withLock((current) => {
+				const currentData = current && current.trim() !== "" ? JSON.parse(current) : {};
+				const merged = { ...currentData };
+				if (credential) merged[provider] = credential;
+				else delete merged[provider];
+				return { result: undefined, next: JSON.stringify(merged, null, 2) };
+			});
+		}
+	}
+
+	/**
+	 * Reload credentials from storage.
+	 */
+	reload() {
+		if (this.#backing.kind === "file") {
+			this.data = host("authReadAll", this.#backing.authPath) ?? {};
+			return;
+		}
+		if (this.#backing.kind === "memory") {
+			return;
+		}
+		const content = this.#readContent();
+		try {
+			this.data = content && content.trim() !== "" ? JSON.parse(content) : {};
+		} catch {
+			this.data = {};
+		}
+	}
+
+	/**
+	 * Set a runtime API key override (not persisted to disk).
+	 * Used for CLI --api-key flag.
+	 */
+	setRuntimeApiKey(provider, apiKey) {
+		this.runtimeOverrides.set(provider, apiKey);
+	}
+
+	/**
+	 * Remove a runtime API key override.
+	 */
+	removeRuntimeApiKey(provider) {
+		this.runtimeOverrides.delete(provider);
+	}
+
+	/**
+	 * Set a fallback resolver for API keys not found in auth.json or env vars.
+	 * Used for custom provider keys from models.json.
+	 */
+	setFallbackResolver(resolver) {
+		this.fallbackResolver = resolver;
+	}
+
+	/**
+	 * Get credential for a provider.
+	 */
+	get(provider) {
+		return this.data[provider] ?? undefined;
+	}
+
+	/**
+	 * Set credential for a provider.
+	 */
+	set(provider, credential) {
+		this.data[provider] = credential;
+		if (this.#backing.kind !== "memory") this.#persist(provider, credential);
+	}
+
+	/**
+	 * Remove credential for a provider.
+	 */
+	remove(provider) {
+		delete this.data[provider];
+		if (this.#backing.kind !== "memory") this.#persist(provider, undefined);
+	}
+
+	/**
+	 * List all providers with credentials.
+	 */
+	list() {
+		return Object.keys(this.data);
+	}
+
+	/**
+	 * Check if credentials exist for a provider in auth.json.
+	 */
+	has(provider) {
+		return provider in this.data;
+	}
+
+	/**
+	 * Check if any form of auth is configured for a provider.
+	 * Unlike getApiKey(), this doesn't refresh OAuth tokens.
+	 */
+	hasAuth(provider) {
+		if (this.runtimeOverrides.has(provider)) return true;
+		if (this.data[provider]) return true;
+		if (host("authEnvApiKey", provider)) return true;
+		if (this.fallbackResolver?.(provider)) return true;
+		return false;
+	}
+
+	/**
+	 * Return auth status without exposing credential values or refreshing tokens.
+	 */
+	getAuthStatus(provider) {
+		if (this.data[provider]) {
+			return { configured: true, source: "stored" };
+		}
+		if (this.runtimeOverrides.has(provider)) {
+			return { configured: false, source: "runtime", label: "--api-key" };
+		}
+		const envKeys = host("authEnvKeys", provider);
+		if (envKeys?.[0]) {
+			return { configured: false, source: "environment", label: envKeys[0] };
+		}
+		if (this.fallbackResolver?.(provider)) {
+			return { configured: false, source: "fallback", label: "custom provider config" };
+		}
+		return { configured: false };
+	}
+
+	/**
+	 * Get all credentials (for passing to getOAuthApiKey).
+	 */
+	getAll() {
+		return { ...this.data };
+	}
+	drainErrors() {
+		return [];
+	}
+
+	/**
+	 * Login to an OAuth provider.
+	 */
+	async login(providerId, callbacks) {
+		throw new Error(`AuthStorage.login(${providerId}) is not available to extensions in pi-rs: use "pi auth login" (OAuth login is host-side)`);
+	}
+
+	/**
+	 * Logout from a provider.
+	 */
+	logout(provider) {
+		this.remove(provider);
+	}
+
+	/**
+	 * Get API key for a provider.
+	 * Priority (0.x):
+	 * 1. Runtime override (CLI --api-key)
+	 * 2. API key from auth.json
+	 * 3. OAuth token from auth.json
+	 * 4. Environment variable
+	 * 5. Fallback resolver (models.json custom providers)
+	 *
+	 * Deviation from 0.x: expired OAuth tokens are not refreshed here (the
+	 * extension's own store never triggers pi's OAuth flow); the stored access
+	 * token is returned as-is.
+	 */
+	async getApiKey(providerId, options) {
+		const runtimeKey = this.runtimeOverrides.get(providerId);
+		if (runtimeKey) {
+			return runtimeKey;
+		}
+		const cred = this.data[providerId];
+		if (cred?.type === "api_key") {
+			return typeof cred.key === "string" ? host("authResolveConfigValue", cred.key) ?? undefined : undefined;
+		}
+		if (cred?.type === "oauth") {
+			return typeof cred.access === "string" ? cred.access : undefined;
+		}
+		const envKey = host("authEnvApiKey", providerId);
+		if (envKey)
+			return envKey;
+		if (options?.includeFallback !== false) {
+			return this.fallbackResolver?.(providerId) ?? undefined;
+		}
+		return undefined;
+	}
+
+	/**
+	 * Get all registered OAuth providers.
+	 * OAuth providers are host-side in pi-rs; extensions cannot drive them.
+	 */
+	getOAuthProviders() {
+		return [];
+	}
+}
+
+export { AuthStorage };
+export const FileAuthStorageBackend = unavailableClass("FileAuthStorageBackend");
+export const InMemoryAuthStorageBackend = unavailableClass("InMemoryAuthStorageBackend");
+
 export { makeContext as __makeContext, keybindingsProxy as __keybindingsProxy, RustComponent as __RustComponent };
 
 // ---------------------------------------------------------------------------

@@ -1061,3 +1061,52 @@ pub fn read_stored_credential(provider_id: &str, auth_path: Option<&str>) -> Opt
     let data: serde_json::Map<String, Value> = serde_json::from_str(&strip_bom(&content)).ok()?;
     data.get(provider_id).and_then(credential_from_value)
 }
+
+// ---------------------------------------------------------------------------
+// Extension-facing access: file I/O of the 0.x `AuthStorage` API that JS extensions
+// (built against pi 0.x, e.g. pi-provider-litellm's `AuthStorage.create(path).getApiKey()`)
+// use through the virtual `@earendil-works/pi-coding-agent` module. The JS side keeps the
+// in-memory credential map and resolution chain; these are the locked file operations.
+// ---------------------------------------------------------------------------
+
+/// 0.x `create(path)` / `reload()`: read the whole credential map under the lock.
+/// Like 0.x, this creates the file (and parent directory) when missing.
+pub fn extension_auth_read_all(auth_path: Option<&str>) -> anyhow::Result<IndexMap<String, Value>> {
+    let backend = FileAuthStorageBackend::new(auth_path);
+    let mut out: Option<IndexMap<String, Value>> = None;
+    backend.with_lock_raw(Box::new(|current| {
+        let data = parse_storage_data(current.as_deref())?;
+        out = Some(data.clone());
+        Ok(None)
+    }))?;
+    Ok(out.expect("lock callback ran"))
+}
+
+/// 0.x `set(provider, credential)`: insert under the lock and persist.
+pub fn extension_auth_set_credential(
+    provider: &str,
+    credential: &Value,
+    auth_path: Option<&str>,
+) -> anyhow::Result<()> {
+    if !credential.is_object() {
+        anyhow::bail!("credential for provider \"{provider}\" must be an object");
+    }
+    let backend = FileAuthStorageBackend::new(auth_path);
+    backend.with_lock_raw(Box::new(move |current| {
+        let mut data = parse_storage_data(current.as_deref())?;
+        data.insert(provider.to_string(), credential.clone());
+        Ok(Some(stringify_pretty(&data)))
+    }))?;
+    Ok(())
+}
+
+/// 0.x `remove(provider)` / `logout(provider)`: delete under the lock and persist.
+pub fn extension_auth_remove_credential(provider: &str, auth_path: Option<&str>) -> anyhow::Result<()> {
+    let backend = FileAuthStorageBackend::new(auth_path);
+    backend.with_lock_raw(Box::new(move |current| {
+        let mut data = parse_storage_data(current.as_deref())?;
+        data.shift_remove(provider);
+        Ok(Some(stringify_pretty(&data)))
+    }))?;
+    Ok(())
+}

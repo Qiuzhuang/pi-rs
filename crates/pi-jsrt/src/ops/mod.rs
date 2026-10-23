@@ -13,6 +13,7 @@ pub(crate) mod child_process;
 pub(crate) mod cipher;
 pub(crate) mod crypto;
 pub(crate) mod dgram;
+pub(crate) mod dns;
 pub(crate) mod encoding;
 pub(crate) mod fetch;
 pub(crate) mod fs;
@@ -366,6 +367,7 @@ pub(crate) fn bootstrap(ctx: &mut Context) -> JsResult<()> {
         define_ops(ctx, &ops, vm::OPS)?;
         define_ops(ctx, &ops, http2::OPS)?;
         define_ops(ctx, &ops, dgram::OPS)?;
+        define_ops(ctx, &ops, dns::OPS)?;
     }
     let config = process::config_object(ctx)?;
     if node && let Some(cfg) = config.as_object() {

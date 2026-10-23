@@ -18,6 +18,10 @@ in pi-rs; the reason is given), `[ ]` missing (none).
 | `@earendil-works/pi-ai/providers/all` | 12 | 12 | 0 | 0 |
 | `@earendil-works/pi-agent-core` | 9 | 9 | 0 | 0 |
 
+Plus one 0.x compatibility export not in the 1.x entry points: `AuthStorage` on
+`@earendil-works/pi-coding-agent` (third-party extensions built for pi 0.x import it;
+see the pi-coding-agent section).
+
 ## How the modules are provided
 
 | Specifier | Module | Backing |
@@ -27,9 +31,16 @@ in pi-rs; the reason is given), `[ ]` missing (none).
 | `@earendil-works/pi-agent-core` | `pi-agent-core.js` | `Agent`, `agentLoop`, `runAgentLoop`, `runToolCall`, `streamProxy` ported to JS over the pi-ai glue; default stream function is pi-ai's compat `streamSimple` (as pi's SDK installs). |
 | `@earendil-works/pi-tui` | `pi-tui.js` | JS components (Container, Box, Text, SelectList, SettingsList, Image, stacks, ScrollView, MouseRegion, autocomplete, StdinBuffer, KeybindingsManager); Input/Editor/Markdown/Loader backed by Rust components; colors, terminal images, latex, program status, width/wrapping utilities backed by `pi_tui`. `Marked` is the real marked 18.0.11 (`scripts/vendor-marked.mjs`). Mouse events reach JS components (`handleMouse`, routed by Container/Box like TS). |
 | `@earendil-works/pi-coding-agent` | `pi-coding-agent.js` | Tool factories over the Rust built-in tools; truncation, frontmatter, compaction (`compact`, summaries, cut points), session-tree, skills, diff, shell, CLI parsing, image and event-bus helpers backed by Rust; theme helpers over the live Rust theme; `CustomEditor` backed by the Rust CustomEditor. |
+| `@ff-labs/fff-node` | `fff-node.js` | The `pi-fff` extension's fuzzy file finder package. The npm package loads `libfff_c` through the `ffi-rs` N-API addon (a `.node` binary pi-jsrt cannot load); this module reproduces the package's 0.9.6 API (`FileFinder`, platform/binary helpers) over the Rust FFI in `core/extensions/js/fff.rs`, which dlopens the `@ff-labs/fff-bin-<platform>` `libfff_c` directly (version-gated to the bound `fff-c` 0.9.x layout). Instance handles are integer ids into a process-wide table; DB-backed finders are refcounted and shared per `(basePath, frecencyDbPath, historyDbPath)` because the DB environments open only once per process (pi-web hosts many sessions in one process; dmtrKovalenko/fff#760 — pi-fff's own shared-finder registry spans only one JS runtime while this port can host several), empty db paths mean a DB-less finder holding no environment (pi-fff's fallback), `create` returns `Result.err` for call failures and throws only for a missing/incompatible binary (as npm), released when the extension runtime drops. |
 
 ## Notes on behavior
 
+- Editor autocomplete: `editor.setAutocompleteProvider` receives a callable provider view of the
+  host's provider chain (like the TS host passing the provider object), so JS subclasses can wrap
+  and delegate (pi-fff's `FffEditor` adds `@`-file suggestions this way). A JS-implemented provider
+  passed back to a Rust-backed editor is wrapped like extension-registered providers
+  (`JsAutocompleteProvider`); `getSuggestions` sees `{ force, signal: { aborted: false } }` — the
+  port drops superseded requests on the Rust side instead of aborting the JS promise.
 - Shared module state. In TS, extensions share pi's module instances. pi-rs mirrors the parts that
   matter: `getKeybindings()` returns pi's live bindings, `initTheme()` sets pi's theme, the compat API
   registry is pi's, `Image` uses pi's PNG transcoder when none is set from JS. `setKeybindings()`
@@ -55,8 +66,10 @@ in pi-rs; the reason is given), `[ ]` missing (none).
 - [x] `AgentSessionRuntime`: JS port over Rust AgentSessions (new/switch/fork/import/dispose)
 - [~] `ArminComponent`: host-only, interactive-mode component bound to host session state (Rust); extensions get UI through ctx.ui
 - [x] `AssistantMessageComponent`: pi's Rust component (constructor arguments and methods as in TS)
-- [x] `BashExecutionComponent`: pi's Rust component (constructor arguments and methods as in TS)
-- [x] `BorderedLoader`
+- [x] `AuthStorage`: 0.x credential API that extensions built for pi 0.x import from the package root (pi 1.x removed the export; e.g. pi-provider-litellm). 0.x-compatible `create`/`inMemory`/`fromStorage`, `get`/`set`/`remove`/`list`/`has`/`hasAuth`/`getAuthStatus`/`getAll`, `reload`, runtime overrides, `setFallbackResolver`, `logout`, `getApiKey` (priority chain like 0.x; deviations: expired OAuth tokens are not refreshed in the extension's store, `login` throws, `getOAuthProviders` returns `[]`) backed by the Rust auth.json storage (proper-lockfile compatible)
+- [~] `FileAuthStorageBackend`: host-only backend class; `AuthStorage.fromStorage()` accepts plain JS backends with a `withLock`
+- [~] `InMemoryAuthStorageBackend`: use `AuthStorage.inMemory()`
+- [x] `BashExecutionComponent`: pi's Rust component (constructor arguments and methods as in TS)- [x] `BorderedLoader`
 - [x] `BranchSummaryMessageComponent`: pi's Rust component (constructor arguments and methods as in TS)
 - [x] `CONFIG_DIR_NAME`
 - [x] `CURRENT_SESSION_VERSION`

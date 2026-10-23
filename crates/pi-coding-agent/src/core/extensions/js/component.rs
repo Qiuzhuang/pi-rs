@@ -665,15 +665,6 @@ impl Component for EmptyComponent {
     }
 }
 
-/// Text shown in place of a component whose JS code failed.
-struct ErrorComponent(String);
-
-impl Component for ErrorComponent {
-    fn render(&self, width: usize) -> Vec<String> {
-        vec![pi_tui::utils::truncate_to_width(&self.0, width, "...", false)]
-    }
-}
-
 /// Resolve a component description returned by bridge.js (`componentRef`).
 pub(crate) fn component_from_value(bridge: &Arc<Bridge>, value: &Value) -> Option<ComponentRef> {
     if value.is_null() {
@@ -775,7 +766,7 @@ fn mouse_result_from(bridge: &Arc<Bridge>, value: &Value) -> Option<MouseResult>
 
 fn render_error(err: anyhow::Error) -> ComponentRef {
     let (message, _) = crate::core::extensions::runner::error_parts(&err);
-    Arc::new(ErrorComponent(format!("[extension render error: {message}]")))
+    Arc::new(RenderFailed { message })
 }
 
 // ---------------------------------------------------------------------------

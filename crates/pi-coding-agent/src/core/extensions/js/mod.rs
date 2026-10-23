@@ -220,14 +220,14 @@ impl Bridge {
         self.contexts.insert(entry)
     }
 
-    pub(crate) fn release_ctx(&self, id: u64) {
-        if let Some(CtxEntry::Base(ctx)) = self.contexts.remove(id) {
-            let key = Arc::as_ptr(ctx.host()) as *const () as usize;
-            self.context_ids.lock().remove(&key);
-        }
+    /// The call that received context `id` ended. TS contexts stay usable until the runner goes
+    /// stale (extensions keep them for later UI updates), so JS keeps the ctx object working and
+    /// frees the Rust entry once the extension no longer references it (`detachContext`).
+    pub(crate) fn detach_ctx(&self, id: u64, kind: &str) {
         let glue = self.glue.clone();
+        let kind = kind.to_string();
         tokio_spawn(async move {
-            let _ = glue.call_method("releaseContext", vec![json!(id)]).await;
+            let _ = glue.call_method("detachContext", vec![json!(id), json!(kind)]).await;
         });
     }
 

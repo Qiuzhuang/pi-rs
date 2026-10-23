@@ -76,7 +76,7 @@ pub(crate) fn dispatch(bridge: &Arc<Bridge>, rt: &JsRuntime, op: &str, payload: 
         }
         "version" => Ok(json!(crate::config::VERSION)),
         _ if op.starts_with("pi.") => pi_op(bridge, rt, op, payload),
-        "ctx.get" | "ctx.call" | "sm" | "sm.static" | "mr" | "ui" => context::dispatch(bridge, op, payload),
+        "ctx.get" | "ctx.release" | "ctx.call" | "sm" | "sm.static" | "mr" | "ui" => context::dispatch(bridge, op, payload),
         "theme" | "tui" | "kb" | "sv" | "overlay" | "footer" | "rc" | "rc.new" | "tui.util" | "tui.markdown"
         | "tui.markdownTheme" | "renderer.call" | "renderer.result" | "ac" => component::dispatch(bridge, op, payload),
         _ if op.starts_with("builtin.") || op.starts_with("ca") => builtin::dispatch(bridge, op, payload),
@@ -403,7 +403,7 @@ pub(crate) fn js_event_handler(bridge: Arc<Bridge>, handler: JsHandle) -> Extens
                 .glue_call("invokeHandler", vec![handler.to_value(), value, json!(ctx_id), json!("base"), signal_value])
                 .await;
             if transient {
-                bridge.release_ctx(ctx_id);
+                bridge.detach_ctx(ctx_id, "base");
             }
             let result = result?;
             if result.is_null() {
@@ -482,7 +482,7 @@ fn js_project_trust_handler(bridge: Arc<Bridge>, handler: JsHandle) -> ProjectTr
             let result = bridge
                 .glue_call("invokeProjectTrust", vec![handler.to_value(), serde_json::to_value(&event)?, json!(ctx_id)])
                 .await;
-            bridge.release_ctx(ctx_id);
+            bridge.detach_ctx(ctx_id, "trust");
             let result = result?;
             Ok(serde_json::from_value(result)?)
         })
@@ -495,8 +495,10 @@ fn js_command_handler(bridge: Arc<Bridge>, handler: JsHandle) -> CommandHandler 
         let handler = handler.clone();
         Box::pin(async move {
             let ctx_id = bridge.register_ctx(CtxEntry::Command(ctx));
-            bridge.glue_call("invokeCommand", vec![handler.to_value(), json!(args), json!(ctx_id), json!("command")]).await?;
-            Ok(())
+            let result =
+                bridge.glue_call("invokeCommand", vec![handler.to_value(), json!(args), json!(ctx_id), json!("command")]).await;
+            bridge.detach_ctx(ctx_id, "command");
+            result.map(|_| ())
         })
     })
 }
@@ -672,7 +674,7 @@ pub(crate) fn js_execute(bridge: Arc<Bridge>, handle: JsHandle) -> ToolExecuteFn
                 bridge.callbacks.remove(id);
             }
             if let Some(id) = ctx_id {
-                bridge.release_ctx(id);
+                bridge.detach_ctx(id, "tool");
             }
             let result = result?;
             if result.is_null() {

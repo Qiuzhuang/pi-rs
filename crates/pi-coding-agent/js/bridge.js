@@ -1276,9 +1276,27 @@ export function makeContext(id, kind) {
 	return ctx;
 }
 
-export function releaseContext(id) {
-	for (const kind of ["base", "tool", "command", "replaced", "trust"]) contexts.delete(`${kind}:${id}`);
+const contextFinalizer =
+	typeof FinalizationRegistry === "function"
+		? new FinalizationRegistry((id) => {
+				try {
+					call("ctx.release", { ctx: id });
+				} catch {}
+			})
+		: undefined;
+
+/**
+ * The call that received ctx `id` ended. Like TS, the ctx object keeps working afterwards (until
+ * the runner goes stale); its Rust entry is freed once the extension no longer references it.
+ */
+export function detachContext(id, kind) {
+	const key = `${kind}:${id}`;
+	const ctx = contexts.get(key);
+	contexts.delete(key);
+	if (ctx && contextFinalizer) contextFinalizer.register(ctx, id);
+	else if (!ctx) call("ctx.release", { ctx: id });
 }
+
 
 // ---------------------------------------------------------------------------
 // Entry points used by Rust

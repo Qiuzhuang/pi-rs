@@ -1111,6 +1111,25 @@ pub type ToolExecuteFn = Arc<
         + Send
         + Sync,
 >;
+/// What an extension renderer returns when its code failed (TS: the renderer threw). Callers with
+/// a fallback (tool calls and results, custom messages and entries) treat it like TS's `catch`;
+/// elsewhere it shows the error text.
+pub struct RenderFailed {
+    pub message: String,
+}
+
+impl pi_tui::tui::Component for RenderFailed {
+    fn render(&self, width: usize) -> Vec<String> {
+        let text = format!("[extension render error: {}]", self.message);
+        vec![pi_tui::utils::truncate_to_width(&text, width, "...", false)]
+    }
+}
+
+/// The error message when `component` is a [`RenderFailed`].
+pub fn render_failure(component: &ComponentRef) -> Option<&str> {
+    component.as_any().downcast_ref::<RenderFailed>().map(|f| f.message.as_str())
+}
+
 /// `renderCall(args, theme, context)`.
 pub type ToolRenderCallFn =
     Arc<dyn Fn(&Value, &Arc<Theme>, &ToolRenderContext) -> ComponentRef + Send + Sync>;

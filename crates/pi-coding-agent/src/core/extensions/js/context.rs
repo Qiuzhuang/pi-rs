@@ -79,6 +79,10 @@ fn session_manager_of(bridge: &Bridge, payload: &Value) -> anyhow::Result<Arc<Se
 pub(crate) fn dispatch(bridge: &Arc<Bridge>, op: &str, payload: Value) -> anyhow::Result<Value> {
     match op {
         "ctx.get" => ctx_get(bridge, &payload),
+        "ctx.release" => {
+            bridge.contexts.remove(payload["ctx"].as_u64().unwrap_or_default());
+            Ok(Value::Null)
+        }
         "ctx.call" => ctx_call(bridge, &payload),
         "sm" => session_manager_call(bridge, &payload),
         "sm.static" => session_manager_static(bridge, &payload),

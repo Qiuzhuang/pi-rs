@@ -1106,3 +1106,58 @@ async fn js_autocomplete_should_trigger_file_completion_gates_tab() {
     fx.wait_text("zzz-forced-item").await;
     fx.cleanup();
 }
+
+const LATE_CTX_EXTENSION: &str = r#"
+import { Text } from "@earendil-works/pi-tui";
+export default function (pi) {
+	pi.registerTool({
+		name: "later",
+		label: "Later",
+		description: "Updates the UI after it returned",
+		parameters: { type: "object", properties: {} },
+		async execute(_id, _params, _signal, _onUpdate, ctx) {
+			// Like TS, the ctx of a finished tool call stays usable (background task docks keep it).
+			setTimeout(() => ctx.ui.setStatus("late", `late status ${ctx.hasUI}`), 50);
+			return { content: [{ type: "text", text: "later done" }], details: { ok: true } };
+		},
+	});
+	pi.registerTool({
+		name: "broken",
+		label: "Broken",
+		description: "Renderers that throw",
+		parameters: { type: "object", properties: {} },
+		async execute() {
+			throw new Error("broken tool failed on purpose");
+		},
+		renderCall() {
+			throw new Error("renderCall exploded");
+		},
+		renderResult(result) {
+			return new Text(`details ${result.details.task.id}`, 0, 0);
+		},
+	});
+}
+"#;
+
+/// A tool ctx keeps working after the call returned, and renderers that throw fall back to the
+/// default rendering (TS catches renderer errors) instead of showing an error line.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn finished_tool_ctx_stays_usable_and_throwing_renderers_fall_back() {
+    let _lock = LOCK.lock().await;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("late.ts");
+    std::fs::write(&path, LATE_CTX_EXTENSION).unwrap();
+    let fx = Fixture::new(dir.path(), &[path.to_str().unwrap()]).await;
+
+    fx.respond(vec![tool_call("later", json!({})), text("Later finished.")]);
+    fx.submit("run later");
+    fx.wait_text("Later finished.").await;
+    fx.wait_text("late status true").await;
+
+    fx.respond(vec![tool_call("broken", json!({})), text("Broken finished.")]);
+    fx.submit("run broken");
+    let screen = fx.wait_text("Broken finished.").await;
+    assert!(screen.contains("broken tool failed on purpose"), "{screen}");
+    assert!(!screen.contains("extension render error"), "{screen}");
+    fx.cleanup();
+}

@@ -115,6 +115,7 @@ pub fn run(args: Vec<String>) -> i32 {
         env: Some(env),
         argv,
         exec_argv: parsed.exec_argv.clone(),
+        esm_cjs_globals: false,
         tokio: Some(tokio.handle().clone()),
         on_exit: Some(Arc::new(|code| {
             use std::io::Write;

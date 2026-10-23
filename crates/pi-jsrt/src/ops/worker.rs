@@ -376,6 +376,7 @@ fn op_worker_start(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult
         stack_size_limit: parent.options.stack_size_limit,
         loop_iteration_limit: parent.options.loop_iteration_limit,
         node_exec: parent.options.node_exec.clone(),
+        esm_cjs_globals: parent.options.esm_cjs_globals,
         ..Default::default()
     };
     let main = serde_json::json!({

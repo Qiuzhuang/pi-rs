@@ -377,6 +377,8 @@ internal.nodeMain = async ({ file, eval: code, print, ipcFd, serialization, uniq
       if (print) console.log(result);
     } else if (file) {
       internal.mainFilename = file;
+      // Like Node, `require` is a module-scope binding of CommonJS modules, not a global.
+      delete globalThis.require;
       await import(file);
     }
   } catch (err) {

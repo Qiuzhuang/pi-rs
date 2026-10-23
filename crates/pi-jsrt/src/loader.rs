@@ -94,6 +94,12 @@ impl Loader {
         }
     }
 
+    /// jiti-style `__filename`/`__dirname`/`require` for ES modules, unless disabled
+    /// ([`crate::RuntimeOptions::esm_cjs_globals`]).
+    fn cjs_globals(&self, code: &str, declared: &[&str]) -> String {
+        if self.shared.options.esm_cjs_globals { inject_cjs_globals(code, declared) } else { code.to_string() }
+    }
+
     pub(crate) fn clear(&self) {
         self.esm.borrow_mut().clear();
         self.cjs.borrow_mut().clear();
@@ -373,7 +379,7 @@ impl Loader {
                     _ => Format::Cjs,
                 };
                 let code = if format == Format::Esm && !in_node_modules {
-                    inject_cjs_globals(&out.code, &out.declared_cjs_names)
+                    self.cjs_globals(&out.code, &out.declared_cjs_names)
                 } else {
                     out.code
                 };
@@ -392,7 +398,7 @@ impl Loader {
             }
             let out = transpile::transpile(&text, path, SourceLang::JavaScript)?;
             return Ok(Prepared {
-                code: inject_cjs_globals(&text, &out.declared_cjs_names),
+                code: self.cjs_globals(&text, &out.declared_cjs_names),
                 format: Format::Esm,
             });
         }
@@ -407,7 +413,7 @@ impl Loader {
             let code = if in_node_modules {
                 text
             } else {
-                inject_cjs_globals(&text, &out.declared_cjs_names)
+                self.cjs_globals(&text, &out.declared_cjs_names)
             };
             Ok(Prepared { code, format: Format::Esm })
         } else {
@@ -879,7 +885,7 @@ pub(crate) fn module_from_source(ctx: &mut Context, source: &str, filename: &str
     if let Some(map) = out.source_map {
         state(ctx).source_maps.borrow_mut().insert(path.display().to_string(), map);
     }
-    let code = inject_cjs_globals(&out.code, &out.declared_cjs_names);
+    let code = loader(ctx).cjs_globals(&out.code, &out.declared_cjs_names);
     let module = Module::parse(Source::from_bytes(code.as_bytes()).with_path(&path), None, ctx).map_err(|e| error::from_boa(e, ctx))?;
     loader(ctx).esm.borrow_mut().insert(path.display().to_string(), module.clone());
     Ok(module)

@@ -21,6 +21,7 @@ pub(crate) mod net;
 pub(crate) mod process;
 pub(crate) mod signal;
 pub(crate) mod tls;
+pub(crate) mod vm;
 pub(crate) mod wasm;
 pub(crate) mod worker;
 pub(crate) mod ws;
@@ -121,7 +122,6 @@ const LAZY_GLUE: &[LazyGlue] = &[
             "console",
             "dgram",
             "cluster",
-            "vm",
             "inspector",
             "http2",
             "diagnostics_channel",
@@ -133,6 +133,12 @@ const LAZY_GLUE: &[LazyGlue] = &[
         file: "node/worker_threads.js",
         src: include_str!("../../js/node/worker_threads.js"),
         builtins: &["worker_threads"],
+        globals: &[],
+    },
+    LazyGlue {
+        file: "node/vm.js",
+        src: include_str!("../../js/node/vm.js"),
+        builtins: &["vm"],
         globals: &[],
     },
     LazyGlue {
@@ -321,6 +327,7 @@ pub(crate) fn bootstrap(ctx: &mut Context) -> JsResult<()> {
         define_ops(ctx, &ops, ipc::OPS)?;
         define_ops(ctx, &ops, worker::OPS)?;
         define_ops(ctx, &ops, signal::OPS)?;
+        define_ops(ctx, &ops, vm::OPS)?;
     }
     let config = process::config_object(ctx)?;
     if node && let Some(cfg) = config.as_object() {

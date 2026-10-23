@@ -715,10 +715,6 @@ function stubModule(name, names, extra = {}) {
 }
 stubModule("dgram", ["createSocket"]);
 stubModule("cluster", ["fork", "setupPrimary"], { isPrimary: true, isMaster: true, isWorker: false });
-stubModule("vm", ["runInNewContext", "runInContext", "createContext", "Script", "compileFunction"], {
-  runInThisContext: (code) => (0, eval)(String(code)),
-  isContext: () => false,
-});
 stubModule("inspector", ["open", "close", "url", "Session"]);
 {
   // HTTP/2 is not implemented; the module loads (packages import names from it) and throws when used.

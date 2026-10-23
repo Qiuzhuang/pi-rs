@@ -354,7 +354,22 @@ pub(crate) fn report(ctx: &mut Context, kind: &str, err: &Error) {
 
 pub(crate) struct Hooks;
 
+thread_local! {
+    /// The global object for the next realm created on this thread (`vm.createContext`): a
+    /// Proxy over the contextified object, and the Proxy's target whose prototype becomes the new
+    /// realm's `Object.prototype` (see `ops/vm.rs`).
+    pub(crate) static NEXT_REALM_GLOBAL: RefCell<Option<(JsObject, JsObject)>> = const { RefCell::new(None) };
+}
+
 impl HostHooks for Hooks {
+    fn create_global_object(&self, intrinsics: &boa_engine::context::intrinsics::Intrinsics) -> JsObject {
+        if let Some((global, target)) = NEXT_REALM_GLOBAL.with(|g| g.borrow_mut().take()) {
+            target.set_prototype(Some(intrinsics.constructors().object().prototype()));
+            return global;
+        }
+        JsObject::with_object_proto(intrinsics)
+    }
+
     fn promise_rejection_tracker(
         &self,
         promise: &JsObject<boa_engine::builtins::promise::Promise>,
@@ -817,7 +832,7 @@ static SYMBOL_FOR_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// match; methods keyed by them become `undefined`). Wrap `Symbol.for` so registration
 /// runs under a process-wide lock. The key is converted first, outside the lock, because
 /// `ToString` can run user code that calls `Symbol.for` again.
-fn serialize_symbol_for(ctx: &mut Context) -> JsResult<()> {
+pub(crate) fn serialize_symbol_for(ctx: &mut Context) -> JsResult<()> {
     use boa_engine::property::PropertyDescriptor;
     let symbol = ctx.intrinsics().constructors().symbol().constructor();
     let original = symbol.get(js_string!("for"), ctx)?;

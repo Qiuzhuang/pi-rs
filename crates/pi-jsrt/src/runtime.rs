@@ -90,6 +90,10 @@ pub struct RuntimeOptions {
     pub loop_iteration_limit: Option<u64>,
     /// `process.execArgv`.
     pub exec_argv: Vec<String>,
+    /// Give ES modules outside `node_modules` jiti-style `__filename`, `__dirname` and `require`
+    /// bindings (default, how pi loads extensions). Node mode turns it off: Node's ES modules
+    /// have none of them.
+    pub esm_cjs_globals: bool,
     /// How `child_process.fork()` (and `cluster`) start another runtime as a Node-like process:
     /// the program and the arguments that precede the module path. `None` runs the current
     /// executable with [`crate::node::NODE_MARKER`], which an embedding binary hands to
@@ -117,6 +121,7 @@ impl Default for RuntimeOptions {
             stack_size_limit: 1024 * 1024,
             loop_iteration_limit: None,
             exec_argv: Vec::new(),
+            esm_cjs_globals: true,
             node_exec: None,
         }
     }

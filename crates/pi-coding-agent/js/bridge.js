@@ -1820,6 +1820,21 @@ export async function invokeBashExec(exec, command, cwd, onData, signal, timeout
 	return result ?? { exitCode: null };
 }
 
+/** A method of a JavaScript ResourceLoader object, for Rust (`JsResourceLoader`). */
+export function invokeLoaderMethod(loader, method, args) {
+	const fn = loader?.[method];
+	if (typeof fn !== "function") return null;
+	const result = fn.apply(loader, args ?? []);
+	if (method === "getExtensions") return globalThis.__piSdk.extensionsResultToHost(result);
+	if (method === "getAgentsFiles") return result ?? null;
+	return result ?? null;
+}
+
+export async function invokeLoaderReload(loader) {
+	if (typeof loader?.reload === "function") await loader.reload();
+	return null;
+}
+
 /** A `session.agent.beforeToolCall` / `afterToolCall` hook set from JavaScript. */
 export async function invokeToolHook(hook, context, contextId, signal) {
 	Object.defineProperty(context, "$hookContext", { value: contextId, enumerable: false });

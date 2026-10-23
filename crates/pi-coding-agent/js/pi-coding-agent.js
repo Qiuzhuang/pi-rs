@@ -25,8 +25,14 @@ export {
 	createAgentSession,
 	createCodemodeExtension,
 	createMcpExtension,
+	createExtensionRuntime,
 	createToolSearchExtension,
+	DefaultPackageManager,
 	DefaultResourceLoader,
+	discoverAndLoadExtensions,
+	ProjectTrustStore,
+	resolveCliModel,
+	resolveModelScopeWithDiagnostics,
 	ModelRuntime,
 	SettingsManager,
 } from "pi-rs:sdk";
@@ -487,8 +493,6 @@ function unavailableFn(name) {
 export const AgentSessionRuntime = unavailableClass("AgentSessionRuntime");
 export const ExtensionRunner = unavailableClass("ExtensionRunner");
 export const CredentialSynchronizationError = class extends Error {};
-export const DefaultPackageManager = unavailableClass("DefaultPackageManager");
-export const ProjectTrustStore = unavailableClass("ProjectTrustStore");
 export const InteractiveMode = unavailableClass("InteractiveMode");
 export const RpcClient = unavailableClass("RpcClient");
 export const ArminComponent = unavailableClass("ArminComponent");
@@ -518,8 +522,6 @@ export const UserMessageSelectorComponent = unavailableClass("UserMessageSelecto
 export const createAgentSessionFromServices = unavailableFn("createAgentSessionFromServices");
 export const createAgentSessionRuntime = unavailableFn("createAgentSessionRuntime");
 export const createAgentSessionServices = unavailableFn("createAgentSessionServices");
-export const createExtensionRuntime = unavailableFn("createExtensionRuntime");
-export const discoverAndLoadExtensions = unavailableFn("discoverAndLoadExtensions");
 export const wrapRegisteredTool = unavailableFn("wrapRegisteredTool");
 export const wrapRegisteredTools = unavailableFn("wrapRegisteredTools");
 // TS: core/event-bus.ts (EventEmitter semantics: handlers run in registration order, async errors are logged).
@@ -559,8 +561,6 @@ export const parseArgs = (args) => {
 	return result;
 };
 export const readStoredCredential = (providerId, authPath) => host("readStoredCredential", providerId, authPath ?? null) ?? undefined;
-export const resolveCliModel = unavailableFn("resolveCliModel");
-export const resolveModelScopeWithDiagnostics = unavailableFn("resolveModelScopeWithDiagnostics");
 export const loadProjectContextFiles = (options) => host("loadProjectContextFiles", { cwd: options?.cwd ?? process.cwd(), agentDir: options?.agentDir ?? getAgentDir() });
 export const loadSkills = (options = {}) =>
 	host("loadSkills", {

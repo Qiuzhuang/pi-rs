@@ -707,7 +707,7 @@ function runtimeFor(id) {
 	return runtime;
 }
 
-globalThis.__piSdk = { runtimeFor, extensionsResultFromHost };
+globalThis.__piSdk = { runtimeFor, extensionsResultFromHost, extensionsResultToHost };
 
 export { ModelRegistry };
 
@@ -834,11 +834,172 @@ export function extensionsResultFromHost(result) {
 		if (e.hidden !== undefined) extension.hidden = e.hidden;
 		if (e.replaceable !== undefined) extension.replaceable = e.replaceable;
 		Object.defineProperty(extension, "__piIndex", { value: e.$index, enumerable: false });
+		Object.defineProperty(extension, "__piExtension", { value: e.$extension, enumerable: false });
 		return extension;
 	});
-	const out = { extensions, errors: result?.errors ?? [], runtime: {} };
+	const out = { extensions, errors: result?.errors ?? [], runtime: extensionRuntimeFor(result?.$runtime) };
 	if (result?.warnings) out.warnings = result.warnings;
 	return out;
+}
+
+/** `ExtensionRuntime` objects by id (`createExtensionRuntime()`, `LoadExtensionsResult.runtime`). */
+const extensionRuntimes = new Map();
+
+function extensionRuntimeFor(id) {
+	if (id === undefined || id === null) return {};
+	let runtime = extensionRuntimes.get(id);
+	if (!runtime) {
+		runtime = { flagValues: new Map(), pendingProviderRegistrations: [] };
+		Object.defineProperty(runtime, "__piExtRuntime", { value: id, enumerable: false });
+		extensionRuntimes.set(id, runtime);
+	}
+	return runtime;
+}
+
+/** TS `createExtensionRuntime()`: a fresh extension runtime (for ResourceLoader implementations). */
+export function createExtensionRuntime() {
+	return extensionRuntimeFor(call("sdk.createExtensionRuntime", {}));
+}
+
+/** TS `discoverAndLoadExtensions(paths, cwd, agentDir, eventBus)`, loaded by pi's Rust loader. */
+export async function discoverAndLoadExtensions(configuredPaths, cwd, agentDir, _eventBus) {
+	return extensionsResultFromHost(
+		await callAsync("sdk.discoverAndLoadExtensions", { a: [configuredPaths ?? [], cwd ?? process.cwd(), agentDir ?? null] }),
+	);
+}
+
+/** A `LoadExtensionsResult` for Rust: extensions and the runtime by their pi identity. */
+export function extensionsResultToHost(result) {
+	const out = {
+		extensions: (result?.extensions ?? []).map((e) => ({ $extension: e?.__piExtension ?? null })),
+		errors: result?.errors ?? [],
+	};
+	if (result?.warnings) out.warnings = result.warnings;
+	if (result?.runtime?.__piExtRuntime !== undefined) out.$runtime = result.runtime.__piExtRuntime;
+	return out;
+}
+
+/** The value Rust receives for a `resourceLoader` option: a DefaultResourceLoader or any object. */
+function describeLoader(loader) {
+	const id = loader?.__piLoaderId;
+	return id !== undefined ? { $loader: id } : { object: ref(loader) };
+}
+
+// ---------------------------------------------------------------------------
+// ProjectTrustStore, DefaultPackageManager, model resolution
+// ---------------------------------------------------------------------------
+
+/** TS `ProjectTrustStore` (the trust decisions in `<agentDir>/trust.json`). */
+export class ProjectTrustStore {
+	#agentDir;
+	constructor(agentDir) {
+		this.#agentDir = agentDir;
+	}
+	#call(m, ...a) {
+		return call("trust", { agentDir: this.#agentDir, m, a: a.map((v) => (v === undefined ? null : v)) });
+	}
+	/** `true`, `false`, or `null` when undecided. */
+	get(cwd) {
+		return this.#call("get", cwd);
+	}
+	getEntry(cwd) {
+		return this.#call("getEntry", cwd) ?? null;
+	}
+	set(cwd, decision) {
+		this.#call("set", cwd, decision);
+	}
+	setMany(decisions) {
+		this.#call("setMany", decisions ?? []);
+	}
+}
+
+const packageManagerFinalizer = finalizer("pm");
+
+/** TS `DefaultPackageManager` over the Rust package manager. */
+export class DefaultPackageManager {
+	#id;
+	constructor(options = {}) {
+		this.#id = call("pm", {
+			m: "new",
+			a: [
+				{
+					cwd: options.cwd,
+					agentDir: options.agentDir,
+					settingsManager: options.settingsManager?.__piSettingsId ?? null,
+					builtinExtensions: options.builtinExtensions,
+				},
+			],
+		});
+		packageManagerFinalizer?.register(this, this.#id);
+	}
+	#call(m, ...a) {
+		return u(call("pm", { id: this.#id, m, a: a.map((v) => (v === undefined ? null : v)) }));
+	}
+	async #async(m, ...a) {
+		return u(await callAsync("pm.async", { id: this.#id, m, a: a.map((v) => (v === undefined ? null : v)) }));
+	}
+	setProgressCallback(callback) {
+		this.#call("setProgressCallback", typeof callback === "function" ? callback : null);
+	}
+	addSourceToSettings(source, options) {
+		return this.#call("addSourceToSettings", source, options);
+	}
+	removeSourceFromSettings(source, options) {
+		return this.#call("removeSourceFromSettings", source, options);
+	}
+	getInstalledPath(source, scope) {
+		return this.#call("getInstalledPath", source, scope);
+	}
+	resolve(onMissing) {
+		return this.#async("resolve", typeof onMissing === "function" ? onMissing : null);
+	}
+	resolveExtensionSources(sources, options) {
+		return this.#async("resolveExtensionSources", sources, options);
+	}
+	listConfiguredPackages() {
+		return this.#call("listConfiguredPackages") ?? [];
+	}
+	async install(source, options) {
+		await this.#async("install", source, options);
+	}
+	async installAndPersist(source, options) {
+		await this.#async("installAndPersist", source, options);
+	}
+	async remove(source, options) {
+		await this.#async("remove", source, options);
+	}
+	removeAndPersist(source, options) {
+		return this.#async("removeAndPersist", source, options);
+	}
+	async update(source) {
+		await this.#async("update", source);
+	}
+	async checkForAvailableUpdates() {
+		return (await this.#async("checkForAvailableUpdates")) ?? [];
+	}
+}
+
+/** TS `resolveCliModel({ cliProvider, cliModel, cliThinking, inlineApiKey, modelRuntime })`. */
+export function resolveCliModel(options = {}) {
+	const result = call("sdk.resolveCliModel", {
+		a: [
+			{
+				cliProvider: options.cliProvider,
+				cliModel: options.cliModel,
+				cliThinking: options.cliThinking,
+				inlineApiKey: options.inlineApiKey,
+				modelRuntime: options.modelRuntime?.__piRuntimeId ?? null,
+			},
+		],
+	});
+	return { model: result?.model, thinkingLevel: result?.thinkingLevel, warning: result?.warning, error: result?.error };
+}
+
+/** TS `resolveModelScopeWithDiagnostics(patterns, modelRuntime, options)`. */
+export async function resolveModelScopeWithDiagnostics(patterns, modelRuntime, options) {
+	return await callAsync("sdk.resolveModelScope", {
+		a: [patterns ?? [], modelRuntime?.__piRuntimeId ?? null, options?.signal ? { signal: tokenFor(options.signal) } : null],
+	});
 }
 
 const loaderFinalizer = finalizer("rl");
@@ -1212,11 +1373,7 @@ export async function createAgentSession(options = {}) {
 	if (options.modelRuntime !== undefined) o.modelRuntime = options.modelRuntime?.__piRuntimeId ?? null;
 	if (options.modelRegistry !== undefined && o.modelRuntime === undefined) o.modelRegistry = options.modelRegistry?.__piRegistryTarget ?? null;
 	if (options.customTools) o.customTools = options.customTools.map(describeTool);
-	if (options.resourceLoader !== undefined) {
-		const id = options.resourceLoader?.__piLoaderId;
-		if (id === undefined) throw new Error("createAgentSession() in pi-rs takes a DefaultResourceLoader as resourceLoader");
-		o.resourceLoader = id;
-	}
+	if (options.resourceLoader !== undefined && options.resourceLoader !== null) o.resourceLoader = describeLoader(options.resourceLoader);
 	if (options.sessionManager !== undefined) o.sessionManager = options.sessionManager?.__piSessionManagerId ?? null;
 	if (options.settingsManager !== undefined) o.settingsManager = options.settingsManager?.__piSettingsId ?? null;
 	const result = await callAsync("as.async", { m: "create", a: [o] });

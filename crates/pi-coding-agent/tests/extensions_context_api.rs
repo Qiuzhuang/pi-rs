@@ -473,3 +473,85 @@ export default function (pi) {
     harness.cleanup();
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn sdk_helpers_match_ts() {
+    let source = format!(
+        "{PROBE_PRELUDE}{}",
+        r#"
+import { mkdtempSync, mkdirSync, writeFileSync as write } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import {
+    createAgentSession, createExtensionRuntime, DefaultPackageManager, discoverAndLoadExtensions, ProjectTrustStore,
+    resolveCliModel, resolveModelScopeWithDiagnostics, SessionManager, SettingsManager,
+} from "@earendil-works/pi-coding-agent";
+export default function (pi) {
+    pi.on("session_start", async (_event, ctx) => {
+        const root = mkdtempSync(join(tmpdir(), "sdk-probe-"));
+        const agentDir = join(root, "agent");
+        const cwd = join(root, "project");
+        mkdirSync(agentDir, { recursive: true });
+        mkdirSync(cwd, { recursive: true });
+        const trust = new ProjectTrustStore(agentDir);
+        await t("trust.initial", () => [trust.get(cwd) === undefined, trust.getEntry(cwd)]);
+        trust.set(cwd, true);
+        await t("trust.set", () => [trust.get(cwd), new ProjectTrustStore(agentDir).getEntry(cwd)?.decision]);
+        trust.setMany([{ path: cwd, decision: false }]);
+        await t("trust.many", () => trust.get(cwd));
+        const settingsManager = SettingsManager.create(cwd, agentDir);
+        const pm = new DefaultPackageManager({ cwd, agentDir, settingsManager });
+        await t("pm.list", () => pm.listConfiguredPackages());
+        await t("pm.add", () => [pm.addSourceToSettings("npm:some-package"), pm.listConfiguredPackages().map((p) => [p.source, p.scope, p.filtered])]);
+        await t("pm.path", () => pm.getInstalledPath("npm:some-package", "user") === undefined);
+        await t("pm.remove", () => [pm.removeSourceFromSettings("npm:some-package"), pm.listConfiguredPackages().length]);
+        await t("pm.resolve", async () => { const r = await pm.resolve(); return Object.keys(r).sort(); });
+        const runtime = ctx.modelRegistry.runtime;
+        const model = ctx.model;
+        await t("cli.none", () => resolveCliModel({ modelRuntime: runtime }));
+        await t("cli.match", () => { const r = resolveCliModel({ cliModel: `${model.provider}/${model.id}`, modelRuntime: runtime }); return [r.model?.id === model.id, r.error, r.warning]; });
+        await t("cli.missing", () => resolveCliModel({ cliModel: "zzz-nope-model", modelRuntime: runtime }).error !== undefined);
+        await t("scope", async () => { const r = await resolveModelScopeWithDiagnostics([`${model.provider}/${model.id}`], runtime); return [r.scopedModels.map((s) => s.model.id === model.id), r.diagnostics]; });
+        const extPath = join(root, "probe-ext.ts");
+        write(extPath, `export default function (pi) { pi.registerTool({ name: "probe_tool", label: "P", description: "d", parameters: { type: "object", properties: {} }, async execute() { return { content: [], details: {} }; } }); }`);
+        const loaded = await discoverAndLoadExtensions([extPath], cwd, agentDir);
+        await t("discover", () => [loaded.extensions.length, [...loaded.extensions[0].tools.keys()], loaded.errors]);
+        const extensionsResult = { extensions: loaded.extensions, errors: [], runtime: loaded.runtime };
+        const loader = {
+            getExtensions: () => extensionsResult,
+            getSkills: () => ({ skills: [], diagnostics: [] }),
+            getPrompts: () => ({ prompts: [], diagnostics: [] }),
+            getThemes: () => ({ themes: [], diagnostics: [] }),
+            getAgentsFiles: () => ({ agentsFiles: [] }),
+            getSystemPrompt: () => "Custom loader prompt.",
+            getSystemPromptSource: () => undefined,
+            getAppendSystemPrompt: () => [],
+            getAppendSystemPromptSources: () => [],
+            extendResources: () => {},
+            reload: async () => {},
+        };
+        const { session } = await createAgentSession({
+            cwd, agentDir, resourceLoader: loader, sessionManager: SessionManager.inMemory(cwd),
+            settingsManager: SettingsManager.inMemory({}), modelRuntime: runtime, model,
+        });
+        await session.bindExtensions({});
+        await t("custom.loader", () => [session.systemPrompt.startsWith("Custom loader prompt."), session.getAllTools().some((tool) => tool.name === "probe_tool")]);
+        const empty = { extensions: [], errors: [], runtime: createExtensionRuntime() };
+        const { session: bare } = await createAgentSession({
+            cwd, agentDir, resourceLoader: { ...loader, getExtensions: () => empty }, sessionManager: SessionManager.inMemory(cwd),
+            settingsManager: SettingsManager.inMemory({}), modelRuntime: runtime, model,
+        });
+        await t("custom.empty", () => bare.getAllTools().some((tool) => tool.name === "probe_tool"));
+        session.dispose();
+        bare.dispose();
+        finish();
+    });
+}
+"#
+    );
+    let (result, harness, dir) = run_probe(&source).await;
+    let expected: Value = serde_json::from_str(include_str!("fixtures/extensions_sdk_helpers_ts.json")).unwrap();
+    assert_eq!(result, expected);
+    harness.cleanup();
+    let _ = std::fs::remove_dir_all(dir);
+}

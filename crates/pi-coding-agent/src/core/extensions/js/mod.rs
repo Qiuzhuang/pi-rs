@@ -217,6 +217,14 @@ pub(crate) struct Bridge {
     /// Rust tool-call hooks handed to JavaScript and hook calls in progress (`session.agent`).
     pub(crate) tool_hooks: Registry<sdk::ToolHook>,
     pub(crate) hook_contexts: Registry<sdk::HookContext>,
+    /// Loaded extensions handed to JavaScript (held weakly) and their ids by address.
+    pub(crate) extension_refs: Registry<std::sync::Weak<parking_lot::RwLock<Extension>>>,
+    pub(crate) extension_ids: Mutex<HashMap<usize, u64>>,
+    /// Extension runtimes handed to JavaScript (`createExtensionRuntime()`).
+    pub(crate) ext_runtimes: Registry<Arc<ExtensionRuntime>>,
+    pub(crate) ext_runtime_ids: Mutex<HashMap<usize, u64>>,
+    /// Package managers created from JavaScript (`new DefaultPackageManager()`).
+    pub(crate) package_managers: Registry<Arc<crate::core::package_manager::DefaultPackageManager>>,
     /// Unregisters the JavaScript session-resource cleanup (`registerSessionResourceCleanup`).
     session_cleanup: Mutex<Option<Box<dyn FnOnce() + Send + Sync>>>,
     /// Ordered executor for UI calls made from JS (see [`Bridge::ui_dispatch`]).
@@ -546,6 +554,11 @@ impl JsExtensionHost {
             agent_sessions: Registry::new(),
             tool_hooks: Registry::new(),
             hook_contexts: Registry::new(),
+            extension_refs: Registry::new(),
+            extension_ids: Mutex::new(HashMap::new()),
+            ext_runtimes: Registry::new(),
+            ext_runtime_ids: Mutex::new(HashMap::new()),
+            package_managers: Registry::new(),
             session_cleanup: Mutex::new(None),
             ui_tx: Mutex::new(ui_tx),
         });

@@ -10,7 +10,7 @@ in pi-rs; the reason is given), `[ ]` missing (none).
 
 | Package | Runtime exports | Implemented | Host-only | Missing |
 | --- | ---: | ---: | ---: | ---: |
-| `@earendil-works/pi-coding-agent` | 157 | 116 | 41 | 0 |
+| `@earendil-works/pi-coding-agent` | 157 | 122 | 35 | 0 |
 | `@earendil-works/pi-tui` | 91 | 88 | 3 | 0 |
 | `@earendil-works/pi-ai` | 77 | 77 | 0 | 0 |
 | `@earendil-works/pi-ai/compat` | 136 | 136 | 0 | 0 |
@@ -67,7 +67,7 @@ in pi-rs; the reason is given), `[ ]` missing (none).
 - [x] `DEFAULT_COMPACTION_SETTINGS`
 - [x] `DEFAULT_MAX_BYTES`
 - [x] `DEFAULT_MAX_LINES`
-- [~] `DefaultPackageManager`: host-only, package installs are host operations (`pi install`)
+- [x] `DefaultPackageManager`: the Rust package manager (resolve, install/remove/update, settings sources, listConfiguredPackages, getInstalledPath, progress callback)
 - [x] `DefaultResourceLoader`: the Rust loader; inline `extensionFactories` (JS functions and built-in factories), path options, skills/prompts/agents-files/system-prompt/extensions overrides (`themesOverride` and `eventBus` are not supported)
 - [x] `DynamicBorder`
 - [~] `ExtensionEditorComponent`: host-only, interactive-mode component bound to host session state (Rust); extensions get UI through ctx.ui
@@ -81,7 +81,7 @@ in pi-rs; the reason is given), `[ ]` missing (none).
 - [x] `ModelRuntime`: `ModelRuntime.create()` and `ctx.modelRegistry.runtime` (the host runtime); every public method (a JS `credentials` store option is not supported)
 - [~] `ModelSelectorComponent`: host-only, interactive-mode component bound to host session state (Rust); extensions get UI through ctx.ui
 - [~] `OAuthSelectorComponent`: host-only, interactive-mode component bound to host session state (Rust); extensions get UI through ctx.ui
-- [~] `ProjectTrustStore`: host-only, trust decisions are host-owned
+- [x] `ProjectTrustStore`: the Rust trust store (`get`/`getEntry`/`set`/`setMany`)
 - [~] `RpcClient`: host-only, spawns and drives a pi child process (SDK use, not extension use)
 - [x] `SessionManager`: the class of `ctx.sessionManager` and of `newSession({ setup })`'s manager; constructor and static factories (`create`, `open`, `continueRecent`, `inMemory`, `forkFrom`, `findById`, `list`, `listAll`) create Rust session managers
 - [~] `SessionSelectorComponent`: host-only, interactive-mode component bound to host session state (Rust); extensions get UI through ctx.ui
@@ -118,7 +118,7 @@ in pi-rs; the reason is given), `[ ]` missing (none).
 - [x] `createEditTool`
 - [x] `createEditToolDefinition`
 - [x] `createEventBus`
-- [~] `createExtensionRuntime`: host-only, host-internal
+- [x] `createExtensionRuntime`: a Rust extension runtime, for `LoadExtensionsResult`s of custom ResourceLoaders
 - [x] `createFindTool`
 - [x] `createFindToolDefinition`
 - [x] `createGrepTool`
@@ -139,7 +139,7 @@ in pi-rs; the reason is given), `[ ]` missing (none).
 - [x] `createWriteToolDefinition`
 - [x] `defineTool`
 - [x] `detectSupportedImageMimeTypeFromFile`
-- [~] `discoverAndLoadExtensions`: host-only, host-internal (extension loading is done by the Rust loader)
+- [x] `discoverAndLoadExtensions`: pi's Rust loader; the result's extensions can be handed back to pi (custom ResourceLoaders)
 - [x] `estimateTokens`
 - [x] `findCutPoint`
 - [x] `findTurnStartIndex`
@@ -193,8 +193,8 @@ in pi-rs; the reason is given), `[ ]` missing (none).
 - [x] `readStoredCredential`
 - [x] `renderDiff`
 - [x] `resizeImage`
-- [~] `resolveCliModel`: host-only, needs the host ModelRegistry instance; extensions use `ctx.modelRegistry`
-- [~] `resolveModelScopeWithDiagnostics`: host-only, needs the host ModelRegistry instance
+- [x] `resolveCliModel`: Rust model resolution over a `ModelRuntime`
+- [x] `resolveModelScopeWithDiagnostics`: Rust model scoping over a `ModelRuntime`
 - [~] `runPrintMode`: host-only, host mode
 - [~] `runRpcMode`: host-only, host mode
 - [x] `serializeConversation`

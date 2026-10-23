@@ -23,6 +23,7 @@ pub(crate) fn dispatch(bridge: &Arc<Bridge>, op: &str, payload: Value) -> anyhow
         "rt" => runtime_call(bridge, &payload),
         "rl" => loader_call(bridge, &payload),
         "as" => session_call(bridge, &payload),
+        "trust" | "pm" | "sdk.resolveCliModel" | "sdk.createExtensionRuntime" => misc_call(bridge, op, &payload),
         _ => Err(anyhow::anyhow!("unknown host call {op}")),
     }
 }
@@ -39,6 +40,7 @@ pub(crate) async fn dispatch_async(bridge: Arc<Bridge>, op: &str, payload: Value
         }
         "as.async" => session_async(&bridge, &payload).await,
         "builtin.ext.run" => run_builtin_extension(&bridge, &payload).await,
+        "pm.async" | "sdk.resolveModelScope" | "sdk.discoverAndLoadExtensions" => misc_async(&bridge, op, &payload).await,
         _ => Err(anyhow::anyhow!("unknown async host call {op}")),
     }
 }
@@ -664,7 +666,8 @@ fn call_js_blocking<T: serde::de::DeserializeOwned>(handle: &pi_jsrt::JsHandle, 
 }
 
 /// A loaded extension as the TS `Extension` object JavaScript sees (`index` maps it back).
-fn extension_to_js(index: usize, extension: &crate::core::extensions::types::ExtensionRef) -> Value {
+fn extension_to_js(bridge: &Bridge, index: usize, extension: &crate::core::extensions::types::ExtensionRef) -> Value {
+    let extension_id = extension_id(bridge, extension);
     let e = extension.read();
     let source = |s: &crate::core::source_info::SourceInfo| serde_json::to_value(s).unwrap_or(Value::Null);
     let tools: serde_json::Map<String, Value> = e
@@ -721,6 +724,7 @@ fn extension_to_js(index: usize, extension: &crate::core::extensions::types::Ext
         e.handlers.iter().map(|(event, list)| (event.clone(), json!(list.len()))).collect();
     let mut out = json!({
         "$index": index,
+        "$extension": extension_id,
         "path": e.path,
         "resolvedPath": e.resolved_path,
         "sourceInfo": source(&e.source_info),
@@ -741,10 +745,11 @@ fn extension_to_js(index: usize, extension: &crate::core::extensions::types::Ext
 }
 
 /// `LoadExtensionsResult` as JavaScript sees it (`extensionsResultFromHost` in pi-sdk.js).
-pub(crate) fn extensions_result_to_js(result: &LoadExtensionsResult) -> Value {
+pub(crate) fn extensions_result_to_js(bridge: &Bridge, result: &LoadExtensionsResult) -> Value {
     let mut out = json!({
-        "extensions": result.extensions.iter().enumerate().map(|(i, e)| extension_to_js(i, e)).collect::<Vec<_>>(),
+        "extensions": result.extensions.iter().enumerate().map(|(i, e)| extension_to_js(bridge, i, e)).collect::<Vec<_>>(),
         "errors": serde_json::to_value(&result.errors).unwrap_or(Value::Null),
+        "$runtime": ext_runtime_id(bridge, &result.runtime),
     });
     if let Some(w) = &result.warnings {
         out["warnings"] = serde_json::to_value(w).unwrap_or(Value::Null);
@@ -827,7 +832,7 @@ fn loader_options(bridge: &Arc<Bridge>, o: &Value) -> anyhow::Result<DefaultReso
         let b = Arc::downgrade(bridge);
         options.extensions_override = Some(Arc::new(move |base: LoadExtensionsResult| {
             let Some(bridge) = b.upgrade() else { return base };
-            let Ok(value) = bridge.glue_call_blocking("invokeExtensionsOverride", vec![h.to_value(), extensions_result_to_js(&base)])
+            let Ok(value) = bridge.glue_call_blocking("invokeExtensionsOverride", vec![h.to_value(), extensions_result_to_js(&bridge, &base)])
             else {
                 return base;
             };
@@ -868,7 +873,7 @@ fn loader_call(bridge: &Arc<Bridge>, payload: &Value) -> anyhow::Result<Value> {
     }
     let loader = loader_of(bridge, payload)?;
     Ok(match method.as_str() {
-        "getExtensions" => extensions_result_to_js(&loader.get_extensions()),
+        "getExtensions" => extensions_result_to_js(bridge, &loader.get_extensions()),
         "getSkills" => serde_json::to_value(loader.get_skills())?,
         "getPrompts" => serde_json::to_value(loader.get_prompts())?,
         "getThemes" => {
@@ -974,9 +979,9 @@ fn create_options(bridge: &Arc<Bridge>, o: &Value) -> anyhow::Result<CreateAgent
         tools: super::api::opt(&o["tools"])?,
         exclude_tools: super::api::opt(&o["excludeTools"])?,
         custom_tools,
-        resource_loader: match o["resourceLoader"].as_u64() {
-            Some(id) => Some(bridge.resource_loaders.get(id).ok_or_else(|| anyhow::anyhow!("unknown resource loader"))? as Arc<dyn ResourceLoader>),
-            None => None,
+        resource_loader: match &o["resourceLoader"] {
+            Value::Null => None,
+            loader => Some(js_resource_loader(bridge, loader)?),
         },
         session_manager: match o["sessionManager"].as_u64() {
             Some(id) => Some(super::context::session_manager_of(bridge, &json!({ "sm": id }))?),
@@ -1134,7 +1139,7 @@ async fn session_async(bridge: &Arc<Bridge>, payload: &Value) -> anyhow::Result<
         let options = create_options(bridge, &arg(payload, 0))?;
         let result = create_agent_session(Some(&options)).await?;
         let id = bridge.agent_sessions.insert(result.session.clone());
-        let mut out = json!({ "session": id, "extensionsResult": extensions_result_to_js(&result.extensions_result) });
+        let mut out = json!({ "session": id, "extensionsResult": extensions_result_to_js(bridge, &result.extensions_result) });
         if let Some(m) = &result.model_fallback_message {
             out["modelFallbackMessage"] = json!(m);
         }
@@ -1465,5 +1470,315 @@ async fn call_rust_hook(bridge: &Arc<Bridge>, payload: &Value) -> anyhow::Result
                 None => Value::Null,
             })
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Loaded extensions and extension runtimes handed to JavaScript
+// ---------------------------------------------------------------------------
+
+use crate::core::extensions::types::{ExtensionRef, ExtensionRuntime};
+
+/// The JS id of a loaded extension (one per extension, held weakly).
+fn extension_id(bridge: &Bridge, extension: &ExtensionRef) -> u64 {
+    let key = Arc::as_ptr(extension) as *const () as usize;
+    let mut ids = bridge.extension_ids.lock();
+    if let Some(id) = ids.get(&key)
+        && bridge.extension_refs.get(*id).and_then(|w| w.upgrade()).is_some_and(|e| Arc::ptr_eq(&e, extension))
+    {
+        return *id;
+    }
+    ids.retain(|_, id| match bridge.extension_refs.get(*id) {
+        Some(w) if w.strong_count() > 0 => true,
+        _ => {
+            bridge.extension_refs.remove(*id);
+            false
+        }
+    });
+    let id = bridge.extension_refs.insert(Arc::downgrade(extension));
+    ids.insert(key, id);
+    id
+}
+
+/// The JS id of an extension runtime (`createExtensionRuntime()`, `LoadExtensionsResult.runtime`).
+fn ext_runtime_id(bridge: &Bridge, runtime: &Arc<ExtensionRuntime>) -> u64 {
+    let key = Arc::as_ptr(runtime) as usize;
+    let mut ids = bridge.ext_runtime_ids.lock();
+    if let Some(id) = ids.get(&key)
+        && bridge.ext_runtimes.get(*id).is_some_and(|r| Arc::ptr_eq(&r, runtime))
+    {
+        return *id;
+    }
+    let id = bridge.ext_runtimes.insert(runtime.clone());
+    ids.insert(key, id);
+    id
+}
+
+/// A `LoadExtensionsResult` from JavaScript (a custom ResourceLoader's `getExtensions()`): its
+/// extensions must be ones pi loaded (they carry their Rust identity).
+fn extensions_result_from_js(bridge: &Bridge, value: &Value, fallback_runtime: &Arc<ExtensionRuntime>) -> anyhow::Result<LoadExtensionsResult> {
+    let mut extensions = Vec::new();
+    for e in value["extensions"].as_array().into_iter().flatten() {
+        let extension = e["$extension"]
+            .as_u64()
+            .and_then(|id| bridge.extension_refs.get(id))
+            .and_then(|w| w.upgrade())
+            .ok_or_else(|| anyhow::anyhow!("pi-rs: a ResourceLoader can only return extensions loaded by pi (DefaultResourceLoader, discoverAndLoadExtensions)"))?;
+        extensions.push(extension);
+    }
+    let runtime = value["$runtime"].as_u64().and_then(|id| bridge.ext_runtimes.get(id)).unwrap_or_else(|| fallback_runtime.clone());
+    Ok(LoadExtensionsResult {
+        extensions,
+        errors: super::api::opt(&value["errors"])?.unwrap_or_default(),
+        warnings: super::api::opt(&value["warnings"])?,
+        runtime,
+    })
+}
+
+/// A ResourceLoader implemented in JavaScript (an object with `getExtensions()`, `getSkills()`, ...).
+pub(crate) struct JsResourceLoader {
+    bridge: std::sync::Weak<Bridge>,
+    handle: pi_jsrt::JsHandle,
+    runtime: Arc<ExtensionRuntime>,
+}
+
+impl JsResourceLoader {
+    fn call(&self, method: &str, args: Vec<Value>) -> Option<Value> {
+        let bridge = self.bridge.upgrade()?;
+        bridge.glue_call_blocking("invokeLoaderMethod", vec![self.handle.to_value(), json!(method), Value::Array(args)]).ok()
+    }
+
+    fn call_as<T: serde::de::DeserializeOwned + Default>(&self, method: &str) -> T {
+        self.call(method, vec![]).and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default()
+    }
+}
+
+#[async_trait::async_trait]
+impl ResourceLoader for JsResourceLoader {
+    fn get_extensions(&self) -> LoadExtensionsResult {
+        let empty = || LoadExtensionsResult { extensions: Vec::new(), errors: Vec::new(), warnings: None, runtime: self.runtime.clone() };
+        let (Some(bridge), Some(value)) = (self.bridge.upgrade(), self.call("getExtensions", vec![])) else { return empty() };
+        extensions_result_from_js(&bridge, &value, &self.runtime).unwrap_or_else(|e| {
+            LoadExtensionsResult {
+                extensions: Vec::new(),
+                errors: vec![crate::core::extensions::types::ExtensionLoadError { path: "<resource loader>".into(), error: e.to_string() }],
+                warnings: None,
+                runtime: self.runtime.clone(),
+            }
+        })
+    }
+    fn get_skills(&self) -> crate::core::resource_loader::ResourceLoaderGetSkillsResult {
+        self.call_as("getSkills")
+    }
+    fn get_prompts(&self) -> crate::core::resource_loader::ResourceLoaderGetPromptsResult {
+        self.call_as("getPrompts")
+    }
+    fn get_themes(&self) -> crate::core::resource_loader::ResourceLoaderGetThemesResult {
+        // Theme objects stay in JavaScript; a JS loader contributes no themes to pi.
+        Default::default()
+    }
+    fn get_agents_files(&self) -> crate::core::resource_loader::ResourceLoaderGetAgentsFilesResult {
+        self.call_as("getAgentsFiles")
+    }
+    fn get_system_prompt(&self) -> Option<String> {
+        self.call("getSystemPrompt", vec![]).and_then(|v| v.as_str().map(str::to_string))
+    }
+    fn get_system_prompt_source(&self) -> Option<crate::core::resource_loader::ResourceLoaderGetSystemPromptSourceResult> {
+        self.call("getSystemPromptSource", vec![]).and_then(|v| serde_json::from_value(v).ok())
+    }
+    fn get_append_system_prompt(&self) -> Vec<String> {
+        self.call_as("getAppendSystemPrompt")
+    }
+    fn get_append_system_prompt_sources(&self) -> Vec<crate::core::resource_loader::ResourceLoaderGetAppendSystemPromptSourcesResult> {
+        self.call_as("getAppendSystemPromptSources")
+    }
+    fn extend_resources(&self, paths: &crate::core::resource_loader::ResourceExtensionPaths) {
+        self.call("extendResources", vec![serde_json::to_value(paths).unwrap_or(Value::Null)]);
+    }
+    async fn reload(&self, _options: Option<&crate::core::resource_loader::ResourceLoaderReloadOptions>) -> anyhow::Result<()> {
+        let bridge = self.bridge.upgrade().ok_or_else(|| anyhow::anyhow!("extension runtime stopped"))?;
+        bridge.glue_call("invokeLoaderReload", vec![self.handle.to_value()]).await?;
+        Ok(())
+    }
+}
+
+pub(crate) fn js_resource_loader(bridge: &Arc<Bridge>, value: &Value) -> anyhow::Result<Arc<dyn ResourceLoader>> {
+    if let Some(id) = value["$loader"].as_u64() {
+        return Ok(bridge.resource_loaders.get(id).ok_or_else(|| anyhow::anyhow!("unknown resource loader"))? as Arc<dyn ResourceLoader>);
+    }
+    let handle = bridge.handle(&value["object"]).ok_or_else(|| anyhow::anyhow!("resourceLoader must be a ResourceLoader object"))?;
+    Ok(Arc::new(JsResourceLoader {
+        bridge: Arc::downgrade(bridge),
+        handle,
+        runtime: crate::core::extensions::loader::create_extension_runtime(),
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// ProjectTrustStore, DefaultPackageManager, model resolution, extension loading helpers
+// ---------------------------------------------------------------------------
+
+use crate::core::package_manager::{DefaultPackageManager, PackageManager, PackageManagerOptions};
+use crate::core::trust_manager::ProjectTrustStore;
+
+fn misc_call(bridge: &Arc<Bridge>, op: &str, payload: &Value) -> anyhow::Result<Value> {
+    let m = str_arg(payload, "m");
+    let a = |i: usize| arg(payload, i);
+    let s = |i: usize| arg(payload, i).as_str().unwrap_or_default().to_string();
+    match op {
+        "trust" => {
+            let store = ProjectTrustStore::new(payload["agentDir"].as_str().unwrap_or_default());
+            Ok(match m.as_str() {
+                "get" => json!(store.get(&s(0))?),
+                "getEntry" => serde_json::to_value(store.get_entry(&s(0))?)?,
+                "set" => {
+                    store.set(&s(0), super::api::opt(&a(1))?)?;
+                    Value::Null
+                }
+                "setMany" => {
+                    let updates: Vec<Value> = serde_json::from_value(a(0))?;
+                    let updates: Vec<crate::core::trust_manager::ProjectTrustUpdate> = updates
+                        .iter()
+                        .map(|u| crate::core::trust_manager::ProjectTrustUpdate {
+                            path: str_arg(u, "path"),
+                            decision: u["decision"].as_bool(),
+                        })
+                        .collect();
+                    store.set_many(&updates)?;
+                    Value::Null
+                }
+                _ => return Err(anyhow::anyhow!("ProjectTrustStore.{m} is not a function")),
+            })
+        }
+        "pm" => {
+            if m == "new" {
+                let o = a(0);
+                let settings = match o["settingsManager"].as_u64() {
+                    Some(id) => bridge.settings_managers.get(id).ok_or_else(|| anyhow::anyhow!("unknown settings manager"))?,
+                    None => anyhow::bail!("DefaultPackageManager requires a settingsManager"),
+                };
+                let manager = DefaultPackageManager::new(&PackageManagerOptions {
+                    cwd: o["cwd"].as_str().map(str::to_string).unwrap_or_else(|| bridge.cwd.clone()),
+                    agent_dir: o["agentDir"].as_str().map(str::to_string).unwrap_or_else(crate::config::get_agent_dir),
+                    settings_manager: settings,
+                    builtin_extensions: super::api::opt(&o["builtinExtensions"])?,
+                });
+                return Ok(json!(bridge.package_managers.insert(Arc::new(manager))));
+            }
+            if m == "release" {
+                bridge.package_managers.remove(payload["id"].as_u64().unwrap_or_default());
+                return Ok(Value::Null);
+            }
+            let pm = bridge.package_managers.get(payload["id"].as_u64().unwrap_or_default()).ok_or_else(|| anyhow::anyhow!("unknown package manager"))?;
+            Ok(match m.as_str() {
+                "listConfiguredPackages" => serde_json::to_value(pm.list_configured_packages())?,
+                "addSourceToSettings" => json!(pm.add_source_to_settings(&s(0), super::api::opt(&a(1))?.as_ref())?),
+                "removeSourceFromSettings" => json!(pm.remove_source_from_settings(&s(0), super::api::opt(&a(1))?.as_ref())?),
+                "getInstalledPath" => json!(pm.get_installed_path(&s(0), serde_json::from_value(a(1))?)?),
+                "setProgressCallback" => {
+                    let callback = bridge.handle(&a(0)).map(|h| {
+                        Arc::new(move |event: crate::core::package_manager::ProgressEvent| {
+                            super::api::post_call(&h, None, vec![serde_json::to_value(&event).unwrap_or(Value::Null)]);
+                        }) as crate::core::package_manager::ProgressCallback
+                    });
+                    pm.set_progress_callback(callback.as_ref());
+                    Value::Null
+                }
+                _ => return Err(anyhow::anyhow!("packageManager.{m} is not a function")),
+            })
+        }
+        "sdk.resolveCliModel" => {
+            let o = a(0);
+            let runtime = runtime_of(bridge, &json!({ "runtime": o["modelRuntime"] }))?;
+            let result = crate::core::model_resolver::resolve_cli_model(&crate::core::model_resolver::ResolveCliModelOptions {
+                cli_provider: o["cliProvider"].as_str().map(str::to_string),
+                cli_model: o["cliModel"].as_str().map(str::to_string),
+                cli_thinking: super::api::opt(&o["cliThinking"])?,
+                inline_api_key: o["inlineApiKey"].as_bool(),
+                model_runtime: runtime,
+            });
+            Ok(serde_json::to_value(result)?)
+        }
+        "sdk.createExtensionRuntime" => Ok(json!(ext_runtime_id(bridge, &crate::core::extensions::loader::create_extension_runtime()))),
+        _ => Err(anyhow::anyhow!("unknown host call {op}")),
+    }
+}
+
+async fn misc_async(bridge: &Arc<Bridge>, op: &str, payload: &Value) -> anyhow::Result<Value> {
+    let a = |i: usize| arg(payload, i);
+    let s = |i: usize| arg(payload, i).as_str().unwrap_or_default().to_string();
+    match op {
+        "pm.async" => {
+            let pm = bridge.package_managers.get(payload["id"].as_u64().unwrap_or_default()).ok_or_else(|| anyhow::anyhow!("unknown package manager"))?;
+            let m = str_arg(payload, "m");
+            Ok(match m.as_str() {
+                "resolve" => {
+                    let on_missing = bridge.handle(&a(0)).map(|h| {
+                        let b = bridge.clone();
+                        Arc::new(move |source: String| {
+                            let b = b.clone();
+                            let h = h.clone();
+                            Box::pin(async move {
+                                let value = b.glue_call("callFunctionAsync", vec![h.to_value(), json!([source])]).await?;
+                                let action: crate::core::package_manager::MissingSourceAction = serde_json::from_value(value)?;
+                                Ok(action)
+                            }) as futures::future::BoxFuture<'static, anyhow::Result<crate::core::package_manager::MissingSourceAction>>
+                        }) as crate::core::package_manager::MissingSourceHandler
+                    });
+                    serde_json::to_value(pm.resolve(on_missing).await?)?
+                }
+                "install" => {
+                    pm.install(&s(0), super::api::opt(&a(1))?.as_ref()).await?;
+                    Value::Null
+                }
+                "installAndPersist" => {
+                    pm.install_and_persist(&s(0), super::api::opt(&a(1))?.as_ref()).await?;
+                    Value::Null
+                }
+                "remove" => {
+                    pm.remove(&s(0), super::api::opt(&a(1))?.as_ref()).await?;
+                    Value::Null
+                }
+                "removeAndPersist" => json!(pm.remove_and_persist(&s(0), super::api::opt(&a(1))?.as_ref()).await?),
+                "update" => {
+                    pm.update(a(0).as_str()).await?;
+                    Value::Null
+                }
+                "resolveExtensionSources" => {
+                    let sources: Vec<String> = serde_json::from_value(a(0))?;
+                    serde_json::to_value(pm.resolve_extension_sources(&sources, super::api::opt(&a(1))?.as_ref()).await?)?
+                }
+                "checkForAvailableUpdates" => serde_json::to_value(pm.check_for_available_updates().await?)?,
+                _ => return Err(anyhow::anyhow!("packageManager.{m} is not a function")),
+            })
+        }
+        "sdk.resolveModelScope" => {
+            let runtime = runtime_of(bridge, &json!({ "runtime": a(1) }))?;
+            let patterns: Vec<String> = serde_json::from_value(a(0))?;
+            let options = auth_options(bridge, &a(2));
+            let result = crate::core::model_resolver::resolve_model_scope_with_diagnostics(&patterns, runtime, Some(&options)).await?;
+            Ok(json!({
+                "scopedModels": serde_json::to_value(&result.scoped_models)?,
+                "diagnostics": serde_json::to_value(&result.diagnostics)?,
+            }))
+        }
+        "sdk.discoverAndLoadExtensions" => {
+            let paths: Vec<String> = serde_json::from_value(a(0))?;
+            let (cwd, agent_dir) = (s(1), a(2).as_str().map(str::to_string));
+            // Loading extensions may start a JS runtime whose host functions run this very
+            // dispatcher: drive it on a blocking thread so this future's type does not contain it.
+            let handle = tokio::runtime::Handle::current();
+            let result = tokio::task::spawn_blocking(move || {
+                handle.block_on(crate::core::extensions::loader::discover_and_load_extensions(
+                    &paths,
+                    &cwd,
+                    agent_dir.as_deref(),
+                    None,
+                ))
+            })
+            .await??;
+            Ok(extensions_result_to_js(bridge, &result))
+        }
+        _ => Err(anyhow::anyhow!("unknown async host call {op}")),
     }
 }

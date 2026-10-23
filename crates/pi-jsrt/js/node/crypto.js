@@ -621,26 +621,155 @@ function bytesToBigInt(b) {
   return b.length ? BigInt(`0x${Buffer.from(b).toString("hex")}`) : 0n;
 }
 
+// ---------------------------------------------------------------------------
+// Primes
+// ---------------------------------------------------------------------------
+
+function bigIntToBytes(n) {
+  let hex = n.toString(16);
+  if (hex.length % 2) hex = `0${hex}`;
+  return Buffer.from(hex, "hex");
+}
+
+function validateInt32(value, name, min = -2147483648, max = 2147483647) {
+  if (typeof value !== "number") throw invalidArgType(name, "of type number", value);
+  if (!Number.isInteger(value)) throw codeError(RangeError, `The value of "${name}" is out of range. It must be an integer. Received ${value}`, "ERR_OUT_OF_RANGE");
+  if (value < min || value > max) throw codeError(RangeError, `The value of "${name}" is out of range. It must be >= ${min} && <= ${max}. Received ${value}`, "ERR_OUT_OF_RANGE");
+}
+
+function validateFunction(fn, name) {
+  if (typeof fn !== "function") throw invalidArgType(name, "of type function", fn);
+}
+
+function primeBytes(value, name) {
+  if (typeof value === "bigint") {
+    if (value < 0n) throw codeError(RangeError, `The value of "${name}" is out of range. It must be >= 0. Received ${value}n`, "ERR_OUT_OF_RANGE");
+    return bigIntToBytes(value);
+  }
+  if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  if (value instanceof ArrayBuffer || (typeof SharedArrayBuffer !== "undefined" && value instanceof SharedArrayBuffer)) return new Uint8Array(value);
+  throw invalidArgType(name, "of type bigint or an instance of ArrayBuffer, TypedArray, Buffer, or DataView", value);
+}
+
+function primeOptions(size, options) {
+  validateInt32(size, "size", 1);
+  if (options === undefined) options = {};
+  if (options === null || typeof options !== "object") throw invalidArgType("options", "of type object", options);
+  const { safe = false, bigint = false } = options;
+  let { add, rem } = options;
+  if (typeof safe !== "boolean") throw invalidArgType("options.safe", "of type boolean", safe);
+  if (typeof bigint !== "boolean") throw invalidArgType("options.bigint", "of type boolean", bigint);
+  if (add !== undefined) add = bytesToBigInt(primeBytes(add, "options.add"));
+  if (rem !== undefined) rem = bytesToBigInt(primeBytes(rem, "options.rem"));
+  if (add !== undefined) {
+    if (add.toString(2).length > size) throw codeError(RangeError, "invalid options.add", "ERR_OUT_OF_RANGE");
+    if (rem !== undefined && add <= rem) throw codeError(RangeError, "invalid options.rem", "ERR_OUT_OF_RANGE");
+  }
+  return [size, safe, add === undefined ? null : bigIntToBytes(add), add === undefined || rem === undefined ? null : bigIntToBytes(rem), bigint];
+}
+
+function primeResult(bytes, bigint) {
+  if (bigint) return bytesToBigInt(bytes);
+  const out = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(out).set(bytes);
+  return out;
+}
+
+function generatePrimeSync(size, options) {
+  const [bits, safe, add, rem, bigint] = primeOptions(size, options);
+  return primeResult(ops.primeGenerate(bits, safe, add, rem, false), bigint);
+}
+
+function generatePrime(size, options, callback) {
+  if (typeof options === "function") {
+    callback = options;
+    options = undefined;
+  }
+  validateFunction(callback, "callback");
+  const [bits, safe, add, rem, bigint] = primeOptions(size, options);
+  ops.primeGenerate(bits, safe, add, rem, true).then(
+    (bytes) => callback(undefined, primeResult(bytes, bigint)),
+    (err) => callback(err),
+  );
+}
+
+function checkPrimeOptions(candidate, options) {
+  const bytes = primeBytes(candidate, "candidate");
+  if (options === undefined) options = {};
+  if (options === null || typeof options !== "object") throw invalidArgType("options", "of type object", options);
+  const { checks = 0 } = options;
+  validateInt32(checks, "options.checks", 0);
+  return [bytes, checks];
+}
+
+function checkPrimeSync(candidate, options) {
+  const [bytes, checks] = checkPrimeOptions(candidate, options);
+  return ops.primeCheck(bytes, checks, false)[0] === 1;
+}
+
+function checkPrime(candidate, options, callback) {
+  if (typeof options === "function") {
+    callback = options;
+    options = undefined;
+  }
+  const [bytes, checks] = checkPrimeOptions(candidate, options);
+  validateFunction(callback, "callback");
+  ops.primeCheck(bytes, checks, true).then(
+    (r) => callback(undefined, r[0] === 1),
+    (err) => callback(err),
+  );
+}
+
+const kKnownGroup = Symbol("kKnownGroup");
+
 class DiffieHellman {
   #prime;
   #generator;
   #priv;
   #pub;
-  constructor(prime, primeEncoding, generator, generatorEncoding) {
-    if (typeof prime === "number") {
-      throw codeError(Error, "Generating Diffie-Hellman primes is not supported in pi-jsrt", "ERR_FEATURE_UNAVAILABLE_ON_PLATFORM");
+  constructor(sizeOrKey, keyEncoding, generator, genEncoding) {
+    if (typeof sizeOrKey !== "number" && typeof sizeOrKey !== "string" && !ArrayBuffer.isView(sizeOrKey) && !(sizeOrKey instanceof ArrayBuffer)) {
+      throw invalidArgType("sizeOrKey", "one of type number or string or an instance of ArrayBuffer, Buffer, TypedArray, or DataView", sizeOrKey);
     }
-    if (typeof primeEncoding !== "string" && primeEncoding !== undefined && primeEncoding !== "buffer") {
-      generatorEncoding = generator;
-      generator = primeEncoding;
-      primeEncoding = undefined;
+    if (typeof sizeOrKey === "number") validateInt32(sizeOrKey, "sizeOrKey");
+    const knownGroup = genEncoding === kKnownGroup;
+    if (knownGroup) genEncoding = undefined;
+    if (keyEncoding && (typeof keyEncoding !== "string" || (!Buffer.isEncoding(keyEncoding) && keyEncoding !== "buffer"))) {
+      genEncoding = generator;
+      generator = keyEncoding;
+      keyEncoding = false;
     }
-    this.#prime = Buffer.from(toBytes(prime, primeEncoding, "prime"));
-    if (generator === undefined) generator = 2;
-    this.#generator = typeof generator === "number" ? Buffer.from([generator]) : Buffer.from(toBytes(generator, generatorEncoding, "generator"));
-    this.verifyError = 0;
+    if (!generator) generator = 2;
+    else if (typeof generator === "number") validateInt32(generator, "generator");
+    else if (typeof generator === "string") generator = Buffer.from(generator, genEncoding && genEncoding !== "buffer" ? genEncoding : "utf8");
+    else if (!ArrayBuffer.isView(generator) && !(generator instanceof ArrayBuffer)) {
+      throw invalidArgType("generator", "one of type number or string or an instance of ArrayBuffer, Buffer, TypedArray, or DataView", generator);
+    }
+    const badGenerator = () => codeError(Error, "error:02800065:Diffie-Hellman routines::bad generator", "ERR_OSSL_DH_BAD_GENERATOR");
+    let genBytes;
+    if (typeof generator === "number") {
+      if (generator < 2) throw badGenerator();
+      genBytes = bigIntToBytes(BigInt(generator));
+    } else {
+      genBytes = Buffer.from(toBytes(generator, undefined, "generator"));
+      const g = bytesToBigInt(genBytes);
+      if (g === 0n || g === 1n) throw badGenerator();
+    }
+    if (typeof sizeOrKey === "number") {
+      if (sizeOrKey < 2) throw codeError(Error, "error:0280007E:Diffie-Hellman routines::modulus too small", "ERR_OSSL_DH_MODULUS_TOO_SMALL");
+      if (sizeOrKey < 512) throw codeError(TypeError, "Invalid DH parameters", "ERR_INVALID_ARG_VALUE");
+      this.#prime = asBuffer(ops.dhGenerate(sizeOrKey, Number(bytesToBigInt(genBytes))));
+    } else {
+      this.#prime = Buffer.from(toBytes(sizeOrKey, keyEncoding, "sizeOrKey"));
+    }
+    this.#generator = genBytes;
+    const verifyError = knownGroup ? 0 : ops.dhCheck(this.#prime, this.#generator);
+    Object.defineProperty(this, "verifyError", { enumerable: true, value: verifyError, writable: true, configurable: true });
   }
   generateKeys(encoding) {
+    if (this.#prime.length * 8 - Math.clz32(this.#prime[0] ?? 0) + 24 < 512) {
+      throw codeError(Error, "Key generation failed", "ERR_CRYPTO_OPERATION_FAILED");
+    }
     if (!this.#priv) {
       // A private exponent a bit shorter than the prime.
       this.#priv = randomBytes(Math.max(32, this.#prime.length - 1));
@@ -682,7 +811,7 @@ function createDiffieHellman(prime, primeEncoding, generator, generatorEncoding)
 function getDiffieHellman(name) {
   const prime = ops.dhGroup(String(name));
   if (!prime) throw codeError(Error, "Unknown DH group", "ERR_CRYPTO_UNKNOWN_DH_GROUP");
-  const dh = new DiffieHellman(prime, 2);
+  const dh = new DiffieHellman(prime, undefined, 2, kKnownGroup);
   dh.setPublicKey = undefined;
   dh.setPrivateKey = undefined;
   return dh;
@@ -1093,9 +1222,10 @@ const crypto = {
   setFips() {},
   setEngine() {},
   secureHeapUsed: () => ({ total: 0, min: 0, used: 0, utilization: 0 }),
-  checkPrimeSync() {
-    throw codeError(Error, "crypto.checkPrime is not supported in pi-jsrt", "ERR_FEATURE_UNAVAILABLE_ON_PLATFORM");
-  },
+  generatePrime,
+  generatePrimeSync,
+  checkPrime,
+  checkPrimeSync,
   _toPem: toPem,
   _isCryptoKey: isCryptoKey,
   _keyHandle: (k) => (k instanceof KeyObject ? (k._type === "secret" ? k[kSecret] : k[kHandle]) : undefined),

@@ -53,6 +53,8 @@ ripemd = { version = "0.1", features = ["oid"] }
 blake2 = "0.10"
 sm3 = "0.4"
 digest = "0.10"
+num-bigint-dig = { version = "0.8", features = ["prime", "rand"] }
+num-traits = "0.2"
 cipher = "0.4"
 ghash = "0.5"
 chacha20 = "0.9"

@@ -2166,6 +2166,7 @@ dependencies = [
  "num-iter",
  "num-traits",
  "rand 0.8.8",
+ "serde",
  "smallvec",
  "zeroize",
 ]
@@ -2981,6 +2982,8 @@ dependencies = [
  "http",
  "libc",
  "md-5",
+ "num-bigint-dig",
+ "num-traits",
  "oxc_allocator",
  "oxc_codegen",
  "oxc_diagnostics",

@@ -21,6 +21,7 @@ pub(crate) mod http2;
 pub(crate) mod ipc;
 pub(crate) mod keys;
 pub(crate) mod net;
+pub(crate) mod prime;
 pub(crate) mod process;
 pub(crate) mod signal;
 pub(crate) mod tls;
@@ -356,6 +357,7 @@ pub(crate) fn bootstrap(ctx: &mut Context) -> JsResult<()> {
         define_ops(ctx, &ops, zlib::OPS)?;
         define_ops(ctx, &ops, cipher::OPS)?;
         define_ops(ctx, &ops, crypto::KDF_OPS)?;
+        define_ops(ctx, &ops, prime::OPS)?;
         define_ops(ctx, &ops, keys::OPS)?;
         define_ops(ctx, &ops, wasm::OPS)?;
         define_ops(ctx, &ops, tls::OPS)?;

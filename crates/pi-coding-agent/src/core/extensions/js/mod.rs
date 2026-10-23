@@ -17,6 +17,7 @@ mod api;
 mod builtin;
 mod component;
 mod context;
+mod fff;
 mod messages;
 mod native;
 mod provider;
@@ -59,6 +60,7 @@ const PI_AI_PROVIDERS_ALL_JS: &str = include_str!("../../../../js/pi-ai-provider
 const PI_AGENT_CORE_JS: &str = include_str!("../../../../js/pi-agent-core.js");
 const PI_CODING_AGENT_JS: &str = include_str!("../../../../js/pi-coding-agent.js");
 const PI_SDK_JS: &str = include_str!("../../../../js/pi-sdk.js");
+const FFF_NODE_JS: &str = include_str!("../../../../js/fff-node.js");
 
 /// Specifier of the internal bridge module.
 const BRIDGE_SPECIFIER: &str = "pi-rs:bridge";
@@ -353,6 +355,8 @@ impl Drop for Bridge {
         if let Some(unregister) = self.session_cleanup.get_mut().take() {
             unregister();
         }
+        // Release any native fff finder handles still held by JS in this runtime.
+        fff::shutdown_all();
     }
 }
 
@@ -460,6 +464,10 @@ impl JsExtensionHost {
             .insert("@earendil-works/pi-agent-core".to_string(), VirtualModule::EsmJs(PI_AGENT_CORE_JS.to_string()));
         virtual_modules
             .insert("@earendil-works/pi-coding-agent".to_string(), VirtualModule::EsmJs(PI_CODING_AGENT_JS.to_string()));
+        // `pi-fff` imports `@ff-labs/fff-node` (fuzzy file search / frecency / content grep).
+        // The npm package loads `libfff_c` through an N-API `.node` addon, which pi-jsrt
+        // cannot load; this module serves the same API backed by the Rust FFI in `fff.rs`.
+        virtual_modules.insert("@ff-labs/fff-node".to_string(), VirtualModule::EsmJs(FFF_NODE_JS.to_string()));
         let mut aliases = HashMap::new();
         for (from, to) in [
             ("@sinclair/typebox", "typebox"),

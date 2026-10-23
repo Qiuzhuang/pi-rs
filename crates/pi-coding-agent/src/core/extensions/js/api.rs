@@ -8,7 +8,7 @@ use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
-use super::{Bridge, CtxEntry, builtin, component, context, native, provider, sdk};
+use super::{Bridge, CtxEntry, builtin, component, context, fff, native, provider, sdk};
 use crate::compat::AutocompleteItem;
 use crate::core::bash_executor::BashResult;
 use crate::core::exec::ExecOptions;
@@ -86,6 +86,7 @@ pub(crate) fn dispatch(bridge: &Arc<Bridge>, rt: &JsRuntime, op: &str, payload: 
             sdk::dispatch(bridge, op, payload)
         }
         _ if op.starts_with("aip.") => native::dispatch(bridge, op, payload),
+        "fff" => fff::dispatch(&payload),
         _ => Err(anyhow::anyhow!("unknown host call {op}")),
     }
 }

@@ -36,6 +36,7 @@ flate2.workspace = true
 crc32fast.workspace = true
 fancy-regex.workspace = true
 libc.workspace = true
+libloading.workspace = true
 image.workspace = true
 unicode-normalization.workspace = true
 notify.workspace = true

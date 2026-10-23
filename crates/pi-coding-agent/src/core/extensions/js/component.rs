@@ -637,10 +637,13 @@ impl EditorComponent for JsEditorComponent {
     }
     fn set_autocomplete_provider(&self, provider: Arc<dyn AutocompleteProvider>) {
         let id = self.inner.bridge.components.autocomplete.insert(provider);
-        let _ = self.inner.bridge.glue_call_blocking(
-            "callMethodIfExists",
-            vec![self.inner.handle.to_value(), json!("setAutocompleteProvider"), json!([{ "$piAutocomplete": id }])],
-        );
+        // Pass JS a callable view of the provider (a JS `setAutocompleteProvider` override may
+        // wrap and delegate to it, like the TS host passing the provider object itself). Falls
+        // back to the raw marker if the glue is unavailable.
+        let _ = self
+            .inner
+            .bridge
+            .glue_call_blocking("callSetAutocompleteProvider", vec![self.inner.handle.to_value(), json!(id)]);
     }
     fn set_border_color(&self, f: StyleFn) {
         self.set_callback(
@@ -1021,7 +1024,9 @@ impl AutocompleteProvider for JsAutocompleteProvider {
         cursor_col: usize,
         options: SuggestOptions,
     ) -> pi_tui::event_loop::BoxFuture<Option<AutocompleteSuggestions>> {
-        let args = json!([lines, cursor_line, cursor_col, { "force": options.force }]);
+        // Upstream passes `{ signal, force }`; the port has no JS-visible abort signal here, so
+        // providers reading `options.signal.aborted` (e.g. pi-fff's wrapper) see a settled one.
+        let args = json!([lines, cursor_line, cursor_col, { "force": options.force, "signal": { "aborted": false } }]);
         let bridge = self.bridge.clone();
         let handle = self.handle.clone();
         Box::pin(async move {
@@ -1845,6 +1850,16 @@ fn editor_call(bridge: &Arc<Bridge>, editor: &Arc<Editor>, method: &str, payload
                     && let Some(provider) = bridge.components.autocomplete.get(id)
                 {
                     editor.set_autocomplete_provider(provider);
+                } else if let Some(handle) = bridge.handle(&a(0)["$piJsComponent"]) {
+                    // A JS-implemented provider (`editor.setAutocompleteProvider(new MyProvider())`,
+                    // e.g. a subclass wrapping the host provider). Same wrap as extension-registered
+                    // provider factories use, so async `getSuggestions` flows through the bridge.
+                    let has_should_trigger = bridge
+                        .glue_call_blocking("hasMethod", vec![handle.to_value(), json!("shouldTriggerFileCompletion")])
+                        .ok()
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                    editor.set_autocomplete_provider(Arc::new(JsAutocompleteProvider { bridge: bridge.clone(), handle, has_should_trigger }));
                 }
                 Value::Null
             }

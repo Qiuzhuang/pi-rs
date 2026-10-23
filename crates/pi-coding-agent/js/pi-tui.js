@@ -952,7 +952,14 @@ export class Editor extends RustComponent {
 		return call("rc", { id: this.__rid, m: "getAutocompleteMaxVisible", a: [] });
 	}
 	setAutocompleteProvider(provider) {
-		call("rc", { id: this.__rid, m: "setAutocompleteProvider", a: [provider] });
+		// Host-side providers arrive as `{ $piAutocomplete: id }` markers or their callable view;
+		// JS-implemented providers (subclass wrappers) are registered as a component reference so
+		// Rust can call back into them (upstream TS hands the provider object to the editor).
+		let p = provider;
+		if (p && typeof p.getSuggestions === "function" && p.$piAutocomplete === undefined && p.$piJsComponent === undefined) {
+			p = componentRef(p);
+		}
+		call("rc", { id: this.__rid, m: "setAutocompleteProvider", a: [p] });
 	}
 	isShowingAutocomplete() {
 		return !!call("rc", { id: this.__rid, m: "isShowingAutocomplete", a: [] });

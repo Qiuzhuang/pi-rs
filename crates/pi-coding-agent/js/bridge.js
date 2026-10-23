@@ -1779,6 +1779,16 @@ export function autocompleteProxy(id) {
 	};
 }
 
+/**
+ * Invoke `editor.setAutocompleteProvider` with a callable view of Rust provider `id`.
+ * Runs entirely in JS so subclass overrides (wrappers delegating to wrapping the host)
+ * receive a real provider object, like the TS host passing the provider instance.
+ */
+export function callSetAutocompleteProvider(editor, id) {
+	const fn = editor?.setAutocompleteProvider;
+	if (typeof fn === "function") fn.call(editor, autocompleteProxy(id));
+}
+
 /** Whether `target[method]` is a function (optional provider methods). */
 export function hasMethod(target, method) {
 	return typeof target?.[method] === "function";

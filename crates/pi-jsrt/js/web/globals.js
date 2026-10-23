@@ -210,7 +210,8 @@ internal.hidden(globalThis, "structuredClone", structuredClone);
     timerify: (fn) => fn,
   };
   internal.performance = performance;
-  internal.hidden(globalThis, "performance", performance);
+  // With Node APIs, `performance` is perf_hooks' full implementation (a lazy global).
+  if (!ops.config.nodeCompat) internal.hidden(globalThis, "performance", performance);
 }
 
 // ---------------------------------------------------------------------------

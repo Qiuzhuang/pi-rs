@@ -70,6 +70,10 @@ pub(crate) struct State {
     /// `internal.asyncHookEmit` while an async hook is enabled.
     pub(crate) async_hook: RefCell<Option<JsObject>>,
     in_async_hook: Cell<bool>,
+    /// Event loop timing for `performance.eventLoopUtilization()` / `nodeTiming`: when the loop
+    /// started (ms since the runtime started, 0 before) and the time it spent waiting.
+    loop_start_ms: Cell<f64>,
+    idle_ms: Cell<f64>,
     /// `process.nextTick` callbacks are queued (see [`run_microtasks`]).
     ticks_pending: Cell<bool>,
     /// Events posted by I/O tasks that have not run yet (see [`Poster`]).
@@ -352,6 +356,13 @@ fn run_ticks(ctx: &mut Context) {
     if let Err(e) = f.call(&JsValue::undefined(), &[], ctx) {
         report_uncaught(ctx, e);
     }
+}
+
+/// `ops.loopTiming() -> [loopStartMs, idleMs]`
+fn op_loop_timing(_: &JsValue, _: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
+    let st = state(ctx);
+    let values = [JsValue::from(st.loop_start_ms.get()), JsValue::from(st.idle_ms.get())];
+    Ok(boa_engine::object::builtins::JsArray::from_iter(values, ctx).into())
 }
 
 /// `ops.ticksScheduled()`: the nextTick queue became non-empty.
@@ -1032,6 +1043,7 @@ pub(crate) const CORE_OPS: &[(&str, usize, OpFn)] = &[
     ("timerRef", 2, op_timer_ref),
     ("asyncContext", 0, op_async_context),
     ("ticksScheduled", 0, op_ticks_scheduled),
+    ("loopTiming", 0, op_loop_timing),
     ("asyncFrameSet", 1, op_async_frame_set),
     ("asyncResourceNew", 2, op_async_resource_new),
     ("asyncEnter", 1, op_async_enter),
@@ -1152,6 +1164,8 @@ pub(crate) fn thread_main(init: ThreadInit, ready: std::sync::mpsc::SyncSender<R
         async_hook: RefCell::default(),
         in_async_hook: Cell::new(false),
         ticks_pending: Cell::new(false),
+        loop_start_ms: Cell::new(0.0),
+        idle_ms: Cell::new(0.0),
         idle_waiters: RefCell::default(),
     });
     ctx.insert_data(st.clone());
@@ -1184,8 +1198,10 @@ pub(crate) fn thread_main(init: ThreadInit, ready: std::sync::mpsc::SyncSender<R
 
 fn event_loop(ctx: &mut Context, rx: &mpsc::Receiver<Msg>) {
     let st = state(ctx);
+    st.loop_start_ms.set(st.shared.started.elapsed().as_secs_f64() * 1000.0);
     loop {
         let next = st.timers.borrow().next_deadline();
+        let waiting = Instant::now();
         let msg = match next {
             Some(deadline) => {
                 let now = Instant::now();
@@ -1197,6 +1213,7 @@ fn event_loop(ctx: &mut Context, rx: &mpsc::Receiver<Msg>) {
             }
             None => rx.recv().map_err(|_| mpsc::RecvTimeoutError::Disconnected),
         };
+        st.idle_ms.set(st.idle_ms.get() + waiting.elapsed().as_secs_f64() * 1000.0);
         match msg {
             Ok(Msg::Task(task)) => {
                 task(ctx);

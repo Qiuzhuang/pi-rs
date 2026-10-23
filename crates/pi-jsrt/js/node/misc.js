@@ -612,14 +612,7 @@ internal.defineBuiltin("tty", () => ({
   WriteStream: class WriteStream extends EventEmitter {},
 }));
 
-internal.defineBuiltin("perf_hooks", () => ({
-  performance: internal.performance,
-  PerformanceObserver: class PerformanceObserver {
-    observe() {}
-    disconnect() {}
-  },
-  monitorEventLoopDelay: () => ({ enable() {}, disable() {}, percentile: () => 0, mean: 0, max: 0, min: 0 }),
-}));
+
 
 // AsyncLocalStorage and async_hooks over the engine's async context (src/engine.rs): the
 // frame (a Map of AsyncLocalStorage -> store) and async ids are captured when promise

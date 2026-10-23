@@ -127,6 +127,42 @@ impl<T: Clone> Registry<T> {
     }
 }
 
+/// The original JavaScript values behind Rust objects the bridge built from them (provider config
+/// functions, provider objects), keyed by the Rust object's address, so handing the Rust object
+/// back to JS (`ctx.modelRegistry.getRegisteredProviderConfig()`, `getProvider()`, ...) yields
+/// the very value the extension registered, as TS does. Entries hold a `Weak` of the Rust
+/// object, which keeps its address from being reused while the entry exists.
+#[derive(Default)]
+pub(crate) struct Origins {
+    items: Mutex<HashMap<usize, Origin>>,
+}
+
+struct Origin {
+    alive: Box<dyn Fn() -> bool + Send + Sync>,
+    handle: JsHandle,
+}
+
+impl Origins {
+    fn key<T: ?Sized>(object: &Arc<T>) -> usize {
+        Arc::as_ptr(object) as *const () as usize
+    }
+
+    /// Record that `object` was built from the JS value `handle`.
+    pub(crate) fn record<T: ?Sized + Send + Sync + 'static>(&self, object: &Arc<T>, handle: JsHandle) {
+        let weak = Arc::downgrade(object);
+        let mut items = self.items.lock();
+        items.retain(|_, origin| (origin.alive)());
+        items.insert(Self::key(object), Origin { alive: Box::new(move || weak.strong_count() > 0), handle });
+    }
+
+    /// The JS value `object` was built from (a handle marker), if this bridge built it.
+    pub(crate) fn get<T: ?Sized>(&self, object: &Arc<T>) -> Option<Value> {
+        let items = self.items.lock();
+        let origin = items.get(&Self::key(object))?;
+        (origin.alive)().then(|| origin.handle.to_value())
+    }
+}
+
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
 pub(crate) fn next_id() -> u64 {
@@ -149,13 +185,20 @@ pub(crate) struct Bridge {
     pub(crate) callbacks: Registry<RustCallback>,
     pub(crate) async_callbacks: Registry<AsyncRustCallback>,
     pub(crate) callback_ids: Mutex<HashMap<usize, u64>>,
-    /// Session managers handed to `newSession({ setup })` callbacks.
-    pub(crate) session_managers: Registry<Arc<crate::core::session_manager::SessionManager>>,
+    /// Session managers handed to JavaScript (`ctx.sessionManager`, `newSession({ setup })`,
+    /// `SessionManager.create()`, ...), see `context::session_manager_id`.
+    pub(crate) session_managers: Registry<context::SessionManagerRef>,
+    /// Ids of host-owned session managers by address (one JS object per session manager).
+    pub(crate) session_manager_ids: Mutex<HashMap<usize, u64>>,
     pub(crate) streams: Registry<Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<Value>>>>,
     pub(crate) components: component::ComponentRegistries,
     pub(crate) builtins: Registry<builtin::BuiltinTool>,
     /// Rust pi-ai objects behind JavaScript proxies (providers, API implementations, auth).
     pub(crate) natives: Registry<native::Native>,
+    /// Native ids of Rust providers handed to JS by address (one JS object per provider).
+    pub(crate) native_provider_ids: Mutex<HashMap<usize, u64>>,
+    /// The JavaScript values behind Rust objects built from them (see [`Origins`]).
+    pub(crate) origins: Origins,
     /// Unregisters the JavaScript session-resource cleanup (`registerSessionResourceCleanup`).
     session_cleanup: Mutex<Option<Box<dyn FnOnce() + Send + Sync>>>,
     /// Ordered executor for UI calls made from JS (see [`Bridge::ui_dispatch`]).
@@ -468,10 +511,13 @@ impl JsExtensionHost {
             async_callbacks: Registry::new(),
             callback_ids: Mutex::new(HashMap::new()),
             session_managers: Registry::new(),
+            session_manager_ids: Mutex::new(HashMap::new()),
             streams: Registry::new(),
             components: component::ComponentRegistries::default(),
             builtins: Registry::new(),
             natives: Registry::new(),
+            native_provider_ids: Mutex::new(HashMap::new()),
+            origins: Origins::default(),
             session_cleanup: Mutex::new(None),
             ui_tx: Mutex::new(ui_tx),
         });

@@ -242,11 +242,17 @@ fn spawn_detached(future: futures::future::BoxFuture<'static, ()>) {
     }
 }
 
+/// Source of `RuntimeState::extension_provider_revisions`.
+static PROVIDER_REVISION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
 /// Mutable runtime state. Never held across an await or a call into a provider.
 struct RuntimeState {
     builtins: IndexMap<String, Arc<dyn Provider>>,
     native_extension_providers: IndexMap<String, Arc<dyn Provider>>,
     extension_providers: IndexMap<String, ProviderConfigInput>,
+    /// Registration revision of each entry of `extension_providers`: TS hands out the stored config
+    /// object itself, whose identity changes with every registration.
+    extension_provider_revisions: HashMap<String, u64>,
     /// Virtual models by provider id, then model id.
     virtual_models: IndexMap<String, IndexMap<String, RegisteredVirtualModel>>,
     composition_errors: IndexMap<String, String>,
@@ -318,6 +324,7 @@ impl ModelRuntime {
                 builtins: default_builtins.clone(),
                 native_extension_providers: IndexMap::new(),
                 extension_providers: IndexMap::new(),
+                extension_provider_revisions: HashMap::new(),
                 virtual_models: IndexMap::new(),
                 composition_errors: IndexMap::new(),
                 config,
@@ -824,6 +831,14 @@ impl ModelRuntime {
 
     pub fn get_registered_provider_config(&self, provider_id: &str) -> Option<ProviderConfigInput> {
         self.state.lock().extension_providers.get(provider_id).cloned()
+    }
+
+    /// The registered config plus its registration revision, which changes with every
+    /// `register_provider` call (the identity of the stored config object in TS).
+    pub fn get_registered_provider_config_revision(&self, provider_id: &str) -> Option<(u64, ProviderConfigInput)> {
+        let state = self.state.lock();
+        let config = state.extension_providers.get(provider_id)?.clone();
+        Some((state.extension_provider_revisions.get(provider_id).copied().unwrap_or_default(), config))
     }
 
     pub fn get_registered_provider_ids(&self) -> Vec<String> {
@@ -1480,6 +1495,7 @@ impl ModelRuntime {
             {
                 let mut state = self.state.lock();
                 state.extension_providers.shift_remove(&provider_id);
+                state.extension_provider_revisions.remove(&provider_id);
                 state.native_extension_providers.insert(provider_id.clone(), provider);
             }
             self.recompose_provider(&provider_id);
@@ -1542,6 +1558,9 @@ impl ModelRuntime {
                 None => config.clone(),
             };
             state.extension_providers.insert(provider_id.to_string(), effective.clone());
+            state
+                .extension_provider_revisions
+                .insert(provider_id.to_string(), PROVIDER_REVISION.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
             effective
         };
         self.recompose_provider(provider_id);
@@ -1567,6 +1586,7 @@ impl ModelRuntime {
             {
                 let mut state = self.state.lock();
                 state.extension_providers.shift_remove(provider_id);
+                state.extension_provider_revisions.remove(provider_id);
                 state.native_extension_providers.shift_remove(provider_id);
             }
             self.recompose_provider(provider_id);

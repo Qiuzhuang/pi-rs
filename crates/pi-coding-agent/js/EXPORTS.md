@@ -10,7 +10,7 @@ in pi-rs; the reason is given), `[ ]` missing (none).
 
 | Package | Runtime exports | Implemented | Host-only | Missing |
 | --- | ---: | ---: | ---: | ---: |
-| `@earendil-works/pi-coding-agent` | 157 | 106 | 51 | 0 |
+| `@earendil-works/pi-coding-agent` | 157 | 108 | 49 | 0 |
 | `@earendil-works/pi-tui` | 91 | 88 | 3 | 0 |
 | `@earendil-works/pi-ai` | 77 | 77 | 0 | 0 |
 | `@earendil-works/pi-ai/compat` | 136 | 136 | 0 | 0 |
@@ -77,13 +77,13 @@ in pi-rs; the reason is given), `[ ]` missing (none).
 - [~] `FooterComponent`: host-only, interactive-mode component bound to host session state (Rust); extensions get UI through ctx.ui
 - [~] `InteractiveMode`: host-only, the interactive mode is the host UI
 - [~] `LoginDialogComponent`: host-only, interactive-mode component bound to host session state (Rust); extensions get UI through ctx.ui
-- [~] `ModelRegistry`: host-only, extensions receive the live registry as `ctx.modelRegistry`
+- [x] `ModelRegistry`: the class of `ctx.modelRegistry` (every TS method over pi's live model runtime; `instanceof` works)
 - [~] `ModelRuntime`: host-only, extensions receive the live runtime through `ctx`/`pi.registerProvider`
 - [~] `ModelSelectorComponent`: host-only, interactive-mode component bound to host session state (Rust); extensions get UI through ctx.ui
 - [~] `OAuthSelectorComponent`: host-only, interactive-mode component bound to host session state (Rust); extensions get UI through ctx.ui
 - [~] `ProjectTrustStore`: host-only, trust decisions are host-owned
 - [~] `RpcClient`: host-only, spawns and drives a pi child process (SDK use, not extension use)
-- [~] `SessionManager`: host-only, extensions receive the live session as `ctx.sessionManager`
+- [x] `SessionManager`: the class of `ctx.sessionManager` and of `newSession({ setup })`'s manager; constructor and static factories (`create`, `open`, `continueRecent`, `inMemory`, `forkFrom`, `findById`, `list`, `listAll`) create Rust session managers
 - [~] `SessionSelectorComponent`: host-only, interactive-mode component bound to host session state (Rust); extensions get UI through ctx.ui
 - [~] `SettingsManager`: host-only, settings are owned by the host
 - [~] `SettingsSelectorComponent`: host-only, interactive-mode component bound to host session state (Rust); extensions get UI through ctx.ui

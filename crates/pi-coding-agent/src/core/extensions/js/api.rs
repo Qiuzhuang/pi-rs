@@ -76,7 +76,7 @@ pub(crate) fn dispatch(bridge: &Arc<Bridge>, rt: &JsRuntime, op: &str, payload: 
         }
         "version" => Ok(json!(crate::config::VERSION)),
         _ if op.starts_with("pi.") => pi_op(bridge, rt, op, payload),
-        "ctx.get" | "ctx.call" | "sm" | "mr" | "ui" => context::dispatch(bridge, op, payload),
+        "ctx.get" | "ctx.call" | "sm" | "sm.static" | "mr" | "ui" => context::dispatch(bridge, op, payload),
         "theme" | "tui" | "kb" | "sv" | "overlay" | "footer" | "rc" | "rc.new" | "tui.util" | "tui.markdown"
         | "tui.markdownTheme" | "renderer.call" | "renderer.result" | "ac" => component::dispatch(bridge, op, payload),
         _ if op.starts_with("builtin.") || op.starts_with("ca") => builtin::dispatch(bridge, op, payload),
@@ -114,7 +114,7 @@ pub(crate) async fn dispatch_async(bridge: Arc<Bridge>, _rt: JsRuntime, op: Stri
             let args = payload.get("args").and_then(Value::as_array).cloned().unwrap_or_default();
             callback(args).await
         }
-        "ctx.async" | "mr.async" | "ui.async" | "mr.stream" => context::dispatch_async(bridge, &op, payload).await,
+        "ctx.async" | "mr.async" | "ui.async" | "mr.stream" | "sm.list" => context::dispatch_async(bridge, &op, payload).await,
         "ac.async" => component::dispatch_async(bridge, &op, payload).await,
         "tui.clipboard" => component::native_clipboard_call(&payload).await,
         "builtin.execute" | "ca.localBashExec" | "ca.copyToClipboard" | "ca.image" | "ca.compaction" => builtin::dispatch_async(bridge, &op, payload).await,

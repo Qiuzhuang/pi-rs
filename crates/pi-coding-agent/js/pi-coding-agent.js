@@ -16,7 +16,10 @@ import {
 	u,
 	keybindingsProxy,
 	markRustBase,
+	ModelRegistry,
+	SessionManager,
 } from "pi-rs:bridge";
+export { ModelRegistry, SessionManager };
 import { CancellableLoader, Container, Editor, Loader, Spacer, Text, getKeybindings } from "@earendil-works/pi-tui";
 
 const host = (fn, ...args) => u(call("ca", { fn, args }));
@@ -474,12 +477,10 @@ function unavailableFn(name) {
 export const AgentSession = unavailableClass("AgentSession");
 export const AgentSessionRuntime = unavailableClass("AgentSessionRuntime");
 export const ExtensionRunner = unavailableClass("ExtensionRunner");
-export const ModelRegistry = unavailableClass("ModelRegistry");
 export const ModelRuntime = unavailableClass("ModelRuntime");
 export const CredentialSynchronizationError = class extends Error {};
 export const DefaultPackageManager = unavailableClass("DefaultPackageManager");
 export const DefaultResourceLoader = unavailableClass("DefaultResourceLoader");
-export const SessionManager = unavailableClass("SessionManager");
 export const SettingsManager = unavailableClass("SettingsManager");
 export const ProjectTrustStore = unavailableClass("ProjectTrustStore");
 export const InteractiveMode = unavailableClass("InteractiveMode");

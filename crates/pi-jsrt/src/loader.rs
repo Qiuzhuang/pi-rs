@@ -856,7 +856,7 @@ fn loader(ctx: &Context) -> Rc<Loader> {
 /// Evaluate a classic script.
 pub(crate) fn eval_script(ctx: &mut Context, code: &str, filename: &str) -> JsResult<JsValue> {
     let cwd = state(ctx).cwd.borrow().clone();
-    let path = if filename.starts_with('<') { PathBuf::from(filename) } else { cwd.join(filename) };
+    let path = if filename.starts_with('<') || filename.starts_with('[') { PathBuf::from(filename) } else { cwd.join(filename) };
     let code = if filename.ends_with(".ts") || filename.ends_with(".mts") || filename.ends_with(".cts") {
         let out = transpile::transpile(code, &path, SourceLang::TypeScript).map_err(|e| error::to_boa(&e, ctx))?;
         if let Some(map) = out.source_map {
@@ -971,7 +971,15 @@ fn op_transpile(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<Js
     Ok(js_str(&out.code))
 }
 
+/// `ops.evalScript(code, filename)`: evaluate a classic script (`node -e`, `vm.runInThisContext`).
+fn op_eval_script(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
+    let code = arg_string(args, 0, ctx)?;
+    let name = arg_opt_string(args, 1, ctx)?.unwrap_or_else(|| "<eval>".into());
+    eval_script(ctx, &code, &name)
+}
+
 pub(crate) const LOADER_OPS: &[(&str, usize, engine::OpFn)] = &[
+    ("evalScript", 2, op_eval_script),
     ("require", 2, op_require),
     ("requireResolve", 3, op_require_resolve),
     ("chdir", 1, op_set_cwd),

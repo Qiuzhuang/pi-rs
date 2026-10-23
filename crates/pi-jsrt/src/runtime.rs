@@ -88,6 +88,13 @@ pub struct RuntimeOptions {
     pub stack_size_limit: usize,
     /// Optional loop iteration limit (per loop) to stop runaway scripts.
     pub loop_iteration_limit: Option<u64>,
+    /// `process.execArgv`.
+    pub exec_argv: Vec<String>,
+    /// How `child_process.fork()` (and `cluster`) start another runtime as a Node-like process:
+    /// the program and the arguments that precede the module path. `None` runs the current
+    /// executable with [`crate::node::NODE_MARKER`], which an embedding binary hands to
+    /// [`crate::node::main_if_requested`] first thing in `main`.
+    pub node_exec: Option<Vec<String>>,
 }
 
 impl Default for RuntimeOptions {
@@ -109,6 +116,8 @@ impl Default for RuntimeOptions {
             recursion_limit: 4096,
             stack_size_limit: 1024 * 1024,
             loop_iteration_limit: None,
+            exec_argv: Vec::new(),
+            node_exec: None,
         }
     }
 }
@@ -684,6 +693,22 @@ impl JsRuntime {
         });
         let idle = Self::wait(rx).await?;
         idle.await.map_err(|_| Error::Terminated)
+    }
+
+    /// Call `internal[name](arg)` (a function of the glue's private `internal` object) and await
+    /// the result as JSON.
+    pub(crate) async fn call_internal(&self, name: &'static str, arg: Value) -> Result<Value> {
+        Self::wait(self.request(move |ctx, reply| {
+            let internal = engine::internal(ctx);
+            let r = internal.get(JsString::from(name), ctx).and_then(|f| {
+                let f = f.as_callable().ok_or_else(|| engine::type_error(format!("internal.{name} is not a function")))?;
+                let arg = convert::from_json(&arg, ctx)?;
+                f.call(&JsValue::undefined(), &[arg], ctx)
+            });
+            reply_settled(ctx, r, reply, false);
+        }))
+        .await
+        .map(settled_json)
     }
 
     /// Number of active timers (diagnostics).

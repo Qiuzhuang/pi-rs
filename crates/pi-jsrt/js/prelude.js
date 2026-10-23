@@ -14,6 +14,19 @@ const hidden = (obj, name, value) => {
 const lazyGlobalNames = new Set(Object.keys(ops.config.lazyGlobals ?? {}));
 internal.hidden = hidden;
 
+// Node's `determineSpecificType` for "Received ..." in ERR_INVALID_ARG_TYPE messages.
+internal.describeReceived = (value) => {
+  if (value == null) return "" + value;
+  if (typeof value === "function" && value.name) return `function ${value.name}`;
+  if (typeof value === "object") {
+    if (value.constructor?.name) return `an instance of ${value.constructor.name}`;
+    return internal.inspect ? internal.inspect(value, { depth: -1 }) : "an object";
+  }
+  let inspected = internal.inspect ? internal.inspect(value, { colors: false }) : String(value);
+  if (inspected.length > 28) inspected = `${inspected.slice(0, 25)}...`;
+  return `type ${typeof value} (${inspected})`;
+};
+
 // ---------------------------------------------------------------------------
 // JSON conversion helpers (see src/convert.rs)
 // ---------------------------------------------------------------------------
@@ -156,7 +169,15 @@ function makeRequire(filename) {
   };
   require.resolve = resolve;
   require.cache = requireCache;
-  require.main = undefined;
+  // The entry module in Node mode (src/node.rs); undefined in an embedding.
+  Object.defineProperty(require, "main", {
+    configurable: true,
+    enumerable: true,
+    get: () => (internal.mainFilename ? requireCache[internal.mainFilename] : undefined),
+    set(v) {
+      Object.defineProperty(require, "main", { value: v, writable: true, configurable: true, enumerable: true });
+    },
+  });
   require.extensions = Object.create(null);
   return require;
 }

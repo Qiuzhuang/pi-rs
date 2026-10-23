@@ -296,15 +296,41 @@ pub(crate) fn run_microtasks(ctx: &mut Context) {
     let st = state(ctx);
     let rejected = std::mem::take(&mut *st.rejections.borrow_mut());
     for promise in rejected {
-        let Ok(p) = JsPromise::from_object(promise) else { continue };
+        let Ok(p) = JsPromise::from_object(promise.clone()) else { continue };
         if let PromiseState::Rejected(reason) = p.state() {
+            if handled_by_js(ctx, "unhandledRejection", &reason, Some(promise.into())) {
+                continue;
+            }
             let err = error::from_thrown(&reason, ctx);
             report(ctx, "Unhandled promise rejection", &err);
         }
     }
 }
 
+/// Offer an uncaught exception / unhandled rejection to the JS `process` listeners
+/// (`internal.onUncaught`, see `js/node/process.js`); true when a listener took it.
+fn handled_by_js(ctx: &mut Context, kind: &str, value: &JsValue, promise: Option<JsValue>) -> bool {
+    let Some(internal) = try_internal(ctx) else { return false };
+    let Ok(f) = internal.get(js_string!("onUncaught"), ctx) else { return false };
+    let Some(f) = f.as_function() else { return false };
+    let args = [js_str(kind), value.clone(), promise.unwrap_or_default()];
+    match f.call(&JsValue::undefined(), &args, ctx) {
+        Ok(v) => v.to_boolean(),
+        Err(e) => {
+            // A throwing listener is itself an uncaught exception (not offered again).
+            let err = error::from_boa(e, ctx);
+            report(ctx, "Uncaught exception", &err);
+            true
+        }
+    }
+}
+
 pub(crate) fn report_uncaught(ctx: &mut Context, err: boa_engine::JsError) {
+    if let Ok(value) = err.clone().into_opaque(ctx)
+        && handled_by_js(ctx, "uncaughtException", &value, None)
+    {
+        return;
+    }
     let err = error::from_boa(err, ctx);
     report(ctx, "Uncaught exception", &err);
 }
@@ -730,6 +756,9 @@ fn op_write(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValu
 
 fn op_report_error(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     let kind = arg_string(args, 0, ctx)?;
+    if kind == "Uncaught exception" && handled_by_js(ctx, "uncaughtException", args.get_or_undefined(1), None) {
+        return Ok(JsValue::undefined());
+    }
     let err = error::from_thrown(args.get_or_undefined(1), ctx);
     report(ctx, &kind, &err);
     Ok(JsValue::undefined())

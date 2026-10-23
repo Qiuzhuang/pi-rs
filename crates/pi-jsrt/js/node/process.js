@@ -235,6 +235,136 @@ if (config.platform === "darwin") {
   Object.assign(internal.signals, { SIGBUS: 10, SIGUSR1: 30, SIGSEGV: 11, SIGUSR2: 31, SIGCHLD: 20, SIGCONT: 19, SIGSTOP: 17, SIGTSTP: 18 });
 }
 
+// ---------------------------------------------------------------------------
+// Uncaught exceptions / unhandled rejections (offered by the engine before it reports them)
+// ---------------------------------------------------------------------------
+
+let nodeMode = false;
+
+function unhandledRejectionError(reason) {
+  // V8's side-effect-free ToString: primitives as strings, objects as `#<Constructor>`.
+  let shown;
+  if (reason !== null && (typeof reason === "object" || typeof reason === "function")) {
+    let name = "Object";
+    try {
+      name = Object.getPrototypeOf(reason)?.constructor?.name || "Object";
+    } catch {}
+    shown = typeof reason === "function" ? String(reason) : `#<${name}>`;
+  } else {
+    shown = typeof reason === "symbol" ? reason.toString() : String(reason);
+  }
+  const err = new Error(
+    "This error originated either by throwing inside of an async function without a catch block, " +
+      `or by rejecting a promise which was not handled with .catch(). The promise rejected with the reason "${shown}".`,
+  );
+  err.name = "UnhandledPromiseRejection";
+  err.code = "ERR_UNHANDLED_REJECTION";
+  return err;
+}
+
+// Node's `[file]:[line]\n<source>\n   ^\n` header for the frame an error was thrown at.
+function sourceContext(err) {
+  if (!(err instanceof Error) || typeof err.stack !== "string") return "";
+  const m = /\n\s+at (?:.*\()?(\/[^():]+):(\d+):(\d+)\)?/.exec(err.stack);
+  if (!m) return "";
+  try {
+    const text = internal.requireBuiltin("fs").readFileSync(m[1], "utf8");
+    const line = text.split("\n")[Number(m[2]) - 1];
+    if (line === undefined) return "";
+    return `${m[1]}:${m[2]}\n${line}\n${" ".repeat(Math.max(0, Number(m[3]) - 1))}^\n\n`;
+  } catch {
+    return "";
+  }
+}
+
+// Print an error the way Node does before exiting on it, run 'exit' listeners and exit(1).
+function fatal(err) {
+  let text;
+  try {
+    text = err instanceof Error ? internal.inspect(err) : `Uncaught ${internal.inspect(err)}`;
+  } catch {
+    text = String(err);
+  }
+  ops.write(2, `${sourceContext(err)}${text}\n\nNode.js ${process.version}\n`);
+  process.exitCode = 1;
+  try {
+    process.emit("exit", 1);
+  } catch {}
+  ops.exit(1);
+}
+internal.fatal = fatal;
+
+internal.onUncaught = (kind, err, promise) => {
+  if (kind === "unhandledRejection") {
+    if (process.listenerCount("unhandledRejection") > 0) {
+      process.emit("unhandledRejection", err, promise);
+      return true;
+    }
+    // Node's default `--unhandled-rejections=throw`: raise it as an uncaught exception.
+    const thrown = err instanceof Error ? err : unhandledRejectionError(err);
+    if (process.listenerCount("uncaughtExceptionMonitor") > 0) process.emit("uncaughtExceptionMonitor", thrown, "unhandledRejection");
+    if (process.listenerCount("uncaughtException") > 0) {
+      process.emit("uncaughtException", thrown, "unhandledRejection");
+      return true;
+    }
+    if (nodeMode) {
+      fatal(thrown);
+      return true;
+    }
+    return false;
+  }
+  if (process.listenerCount("uncaughtExceptionMonitor") > 0) process.emit("uncaughtExceptionMonitor", err, "uncaughtException");
+  if (process.listenerCount("uncaughtException") > 0) {
+    process.emit("uncaughtException", err, "uncaughtException");
+    return true;
+  }
+  if (nodeMode) {
+    fatal(err);
+    return true;
+  }
+  return false;
+};
+
+// ---------------------------------------------------------------------------
+// Node mode (src/node.rs): main module, beforeExit/exit
+// ---------------------------------------------------------------------------
+
+internal.nodeMain = async ({ file, eval: code, print, ipcFd, serialization, uniqueId }) => {
+  nodeMode = true;
+  if (uniqueId !== null && uniqueId !== undefined) internal.clusterUniqueId = uniqueId;
+  if (ipcFd !== null && ipcFd !== undefined) {
+    internal.loadGlue("node/child_process.js");
+    internal.setupProcessChannel(ipcFd, serialization);
+  }
+  try {
+    if (code !== null && code !== undefined) {
+      const result = ops.evalScript(code, "[eval]");
+      if (print) console.log(result);
+    } else if (file) {
+      internal.mainFilename = file;
+      await import(file);
+    }
+  } catch (err) {
+    fatal(err);
+  }
+};
+
+internal.nodeBeforeExit = () => {
+  process.emit("beforeExit", Number(process.exitCode ?? 0) | 0);
+  return ops.loopAlive();
+};
+
+internal.nodeExit = () => {
+  const code = Number(process.exitCode ?? 0) | 0;
+  process._exiting = true;
+  try {
+    process.emit("exit", code);
+  } catch (err) {
+    fatal(err);
+  }
+  return Number(process.exitCode ?? code) | 0;
+};
+
 // `require` for classic scripts (like `node -e`), relative to the cwd.
 internal.hidden(globalThis, "require", internal.makeRequire(`${ops.cwd()}/[eval]`));
 

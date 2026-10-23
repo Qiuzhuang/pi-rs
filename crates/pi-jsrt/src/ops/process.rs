@@ -76,6 +76,16 @@ pub(crate) fn config_object(ctx: &mut Context) -> JsResult<JsValue> {
     }
     let argv: Vec<JsValue> = shared.options.argv.iter().map(|a| js_str(a)).collect();
     let argv = array(ctx, argv);
+    let exec_argv: Vec<JsValue> = shared.options.exec_argv.iter().map(|a| js_str(a)).collect();
+    let exec_argv = array(ctx, exec_argv);
+    let node_exec: Vec<JsValue> = match &shared.options.node_exec {
+        Some(v) => v.iter().map(|a| js_str(a)).collect(),
+        None => vec![
+            js_str(&std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_default()),
+            js_str(crate::node::NODE_MARKER),
+        ],
+    };
+    let node_exec = array(ctx, node_exec);
     let exec_path = std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_default();
     let home = dirs::home_dir().map(|p| p.display().to_string()).unwrap_or_else(|| "/".into());
     let tmp = std::env::temp_dir().display().to_string();
@@ -87,6 +97,8 @@ pub(crate) fn config_object(ctx: &mut Context) -> JsResult<JsValue> {
             ("nodeCompat", JsValue::from(shared.options.node_compat)),
             ("env", env.into()),
             ("argv", argv),
+            ("execArgv", exec_argv),
+            ("nodeExec", node_exec),
             ("cwd", js_str(&shared.cwd.display().to_string())),
             ("platform", js_str(node_platform())),
             ("arch", js_str(node_arch())),

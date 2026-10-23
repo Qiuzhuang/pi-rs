@@ -1,0 +1,181 @@
+//! Node mode (`pi_jsrt::node`, the `pi-jsrt-node` binary) and `child_process.fork()` with its IPC
+//! channel. Expected outputs are Node 22's for the same scripts; with a `node` binary on PATH
+//! the IPC channel is also checked against real Node on either end.
+
+use std::path::Path;
+use std::process::Command;
+
+use pi_jsrt::{JsRuntime, RuntimeOptions};
+
+const NODE_BIN: &str = env!("CARGO_BIN_EXE_pi-jsrt-node");
+
+fn write(dir: &Path, name: &str, text: &str) -> String {
+    let p = dir.join(name);
+    std::fs::write(&p, text).unwrap();
+    p.display().to_string()
+}
+
+fn run_node_mode(dir: &Path, args: &[&str]) -> (String, String, i32) {
+    let out = Command::new(NODE_BIN).args(args).current_dir(dir).output().unwrap();
+    (
+        String::from_utf8_lossy(&out.stdout).into_owned(),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+        out.status.code().unwrap_or(-1),
+    )
+}
+
+fn real_node() -> Option<String> {
+    let out = Command::new("node").arg("-e").arg("process.stdout.write(process.execPath)").output().ok()?;
+    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+#[test]
+fn node_mode_event_loop_exit_codes_and_errors() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = write(
+        dir.path(),
+        "a.js",
+        r#"console.log("main", require.main === module, process.argv.length, typeof process.send);
+setTimeout(() => console.log("timer"), 50);
+const t = setTimeout(() => console.log("never"), 100000); t.unref();
+process.on("beforeExit", (c) => { if (!globalThis.once) { globalThis.once = 1; console.log("beforeExit", c); setTimeout(() => console.log("more"), 10); } });
+process.on("exit", (c) => console.log("exit", c));
+process.exitCode = 3;
+"#,
+    );
+    let (out, _, code) = run_node_mode(dir.path(), &[&a]);
+    assert_eq!(out, "main true 2 undefined\ntimer\nbeforeExit 3\nmore\nexit 3\n");
+    assert_eq!(code, 3);
+
+    let b = write(dir.path(), "b.mjs", "await new Promise((r) => setTimeout(r, 10));\nPromise.reject(new Error(\"boom\"));\n");
+    let (_, err, code) = run_node_mode(dir.path(), &[&b]);
+    assert_eq!(code, 1);
+    assert!(err.starts_with(&format!("{b}:2\nPromise.reject(new Error(\"boom\"));\n               ^\n\nError: boom\n")), "{err}");
+    assert!(err.ends_with("\n\nNode.js v22.19.0\n"), "{err}");
+
+    let c = write(
+        dir.path(),
+        "c.js",
+        r#"process.on("uncaughtException", (e, origin) => console.log("caught", e.message, origin));
+setTimeout(() => { throw new Error("late"); }, 1);
+Promise.reject(42);
+"#,
+    );
+    let (out, _, code) = run_node_mode(dir.path(), &[&c]);
+    assert_eq!(
+        out,
+        "caught This error originated either by throwing inside of an async function without a catch block, or by rejecting a promise which was not handled with .catch(). The promise rejected with the reason \"42\". unhandledRejection\ncaught late uncaughtException\n"
+    );
+    assert_eq!(code, 0);
+
+    let (out, _, code) = run_node_mode(dir.path(), &["-p", "process.argv.length + 40", "x"]);
+    assert_eq!((out.as_str(), code), ("42\n", 0));
+    let (out, _, code) = run_node_mode(dir.path(), &["-e", "process.exit(5); console.log('no')"]);
+    assert_eq!((out.as_str(), code), ("", 5));
+}
+
+const PARENT: &str = r#"
+const { fork } = require("child_process");
+const path = require("path");
+const opts = process.env.CHILD_EXEC ? { execPath: process.env.CHILD_EXEC } : {};
+const child = fork(path.join(__dirname, "child.js"), ["x", "y"], { ...opts, env: { ...process.env, FOO: "bar" } });
+const log = [];
+child.on("message", (m) => {
+  log.push(["parent got", m]);
+  if (m.hello) child.send({ cmd: "echo", data: [1, "two", { three: 3 }, null, true] });
+  if (m.echoed) child.send("bye");
+});
+child.on("disconnect", () => log.push(["disconnect", child.connected]));
+child.on("exit", (code, sig) => { log.push(["exit", code, sig]); });
+child.on("close", (code) => { log.push(["close", code]); console.log(JSON.stringify(log)); });
+log.push(["connected", child.connected, typeof child.pid, child.stdio.length, child.stdout]);
+try { child.send(undefined); } catch (e) { log.push([e.code, e.message]); }
+try { child.send(Symbol("x")); } catch (e) { log.push([e.code, e.message]); }
+"#;
+
+const CHILD: &str = r#"
+process.send({ hello: true, argv: process.argv.slice(2), foo: process.env.FOO, chan: process.env.NODE_CHANNEL_FD, connected: process.connected, execArgv: process.execArgv });
+process.on("message", (m) => {
+  if (m && m.cmd === "echo") process.send({ echoed: m.data }, (err) => process.send({ cb: err }));
+  if (m === "bye") { process.disconnect(); process.exitCode = 7; }
+});
+process.on("disconnect", () => {});
+"#;
+
+/// Node 22's output of `PARENT` (any combination of Node and pi-jsrt on the two ends).
+const FORK_LOG: &str = r#"[["connected",true,"number",4,null],["ERR_MISSING_ARGS","The \"message\" argument must be specified"],["ERR_INVALID_ARG_TYPE","The \"message\" argument must be one of type string, object, number, or boolean. Received type symbol (Symbol(x))"],["parent got",{"hello":true,"argv":["x","y"],"foo":"bar","connected":true,"execArgv":[]}],["parent got",{"echoed":[1,"two",{"three":3},null,true]}],["parent got",{"cb":null}],["disconnect",false],["exit",7,null],["close",7]]
+"#;
+
+#[test]
+fn fork_ipc_between_node_mode_processes() {
+    let dir = tempfile::tempdir().unwrap();
+    let parent = write(dir.path(), "parent.js", PARENT);
+    write(dir.path(), "child.js", CHILD);
+    let (out, err, code) = run_node_mode(dir.path(), &[&parent]);
+    assert_eq!(out, FORK_LOG, "{err}");
+    assert_eq!(code, 0);
+    if let Some(node) = real_node() {
+        // pi-jsrt parent, Node child.
+        let out = Command::new(NODE_BIN).arg(&parent).env("CHILD_EXEC", &node).output().unwrap();
+        assert_eq!(String::from_utf8_lossy(&out.stdout), FORK_LOG);
+        // Node parent, pi-jsrt child.
+        let out = Command::new(&node).arg(&parent).env("CHILD_EXEC", NODE_BIN).output().unwrap();
+        assert_eq!(String::from_utf8_lossy(&out.stdout), FORK_LOG);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fork_from_an_embedded_runtime() {
+    let dir = tempfile::tempdir().unwrap();
+    write(dir.path(), "child.js", CHILD);
+    write(
+        dir.path(),
+        "silent.js",
+        r#"console.log("to parent stdout"); console.error("err line"); setTimeout(() => { throw new Error("child failure"); }, 5);"#,
+    );
+    let rt = JsRuntime::new(RuntimeOptions {
+        cwd: Some(dir.path().to_path_buf()),
+        node_exec: Some(vec![NODE_BIN.to_string()]),
+        ..Default::default()
+    })
+    .unwrap();
+    let src = PARENT.replace("console.log(JSON.stringify(log));", "done(JSON.stringify(log) + \"\\n\");");
+    let src = format!(
+        r#"import {{ createRequire }} from "node:module";
+const require = createRequire(import.meta.url);
+const __dirname = {dir:?};
+let done; const finished = new Promise((r) => (done = r));
+{src}
+const silent = await new Promise((resolve) => {{
+  const c = require("child_process").fork("silent.js", [], {{ silent: true }});
+  let out = "", err = "";
+  c.stdout.on("data", (d) => (out += d));
+  c.stderr.on("data", (d) => (err += d));
+  c.on("close", (code, signal) => resolve({{ out, err: err.split("\n").filter((l) => l === "err line" || l.startsWith("Error: ") || l.startsWith("Node.js")), code, signal }}));
+}});
+const errors = [];
+for (const f of [() => require("child_process").fork(1), () => require("child_process").fork("x", {{ stdio: ["pipe", "pipe", "pipe"] }})]) {{
+  try {{ f(); }} catch (e) {{ errors.push([e.code, e.message]); }}
+}}
+export default {{ log: await finished, silent, errors }};
+"#,
+        dir = dir.path().display().to_string()
+    );
+    let ns = tokio::time::timeout(std::time::Duration::from_secs(60), rt.eval_module(src, "fork-test.mjs"))
+        .await
+        .expect("timed out")
+        .unwrap_or_else(|e| panic!("{e}\n{:?}", e.as_js().and_then(|j| j.stack.clone())));
+    let v = ns.get("default").await.unwrap();
+    assert_eq!(v["log"].as_str().unwrap(), FORK_LOG);
+    assert_eq!(
+        v["silent"],
+        serde_json::json!({"out": "to parent stdout\n", "err": ["err line", "Error: child failure", "Node.js v22.19.0"], "code": 1, "signal": null})
+    );
+    assert_eq!(
+        v["errors"],
+        serde_json::json!([
+            ["ERR_INVALID_ARG_TYPE", "The \"modulePath\" argument must be of type string or an instance of Buffer or URL. Received type number (1)"],
+            ["ERR_CHILD_PROCESS_IPC_REQUIRED", "Forked processes must have an IPC channel, missing value 'ipc' in options.stdio"]
+        ])
+    );
+}

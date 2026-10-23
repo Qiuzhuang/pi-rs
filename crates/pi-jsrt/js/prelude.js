@@ -14,6 +14,39 @@ const hidden = (obj, name, value) => {
 const lazyGlobalNames = new Set(Object.keys(ops.config.lazyGlobals ?? {}));
 internal.hidden = hidden;
 
+// A libuv-style handle for the event loop's liveness: counted while active and referenced.
+internal.loopHandle = () => {
+  let active = false;
+  let refed = true;
+  let counted = false;
+  const update = () => {
+    const want = active && refed;
+    if (want !== counted) {
+      counted = want;
+      ops.loopRef(want ? 1 : -1);
+    }
+  };
+  return {
+    activate() {
+      active = true;
+      update();
+    },
+    deactivate() {
+      active = false;
+      update();
+    },
+    ref() {
+      refed = true;
+      update();
+    },
+    unref() {
+      refed = false;
+      update();
+    },
+    hasRef: () => refed,
+  };
+};
+
 // Node's `determineSpecificType` for "Received ..." in ERR_INVALID_ARG_TYPE messages.
 internal.describeReceived = (value) => {
   if (value == null) return "" + value;

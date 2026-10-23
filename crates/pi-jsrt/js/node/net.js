@@ -92,9 +92,11 @@ class Socket extends Duplex {
     this._timeoutMs = 0;
     this._timer = undefined;
     this._pendingWrites = [];
+    this._loop = internal.loopHandle();
   }
 
   _attach(id, info) {
+    this._loop.activate();
     this._id = id;
     handles.set(id, this);
     this._setEndpoints(info);
@@ -129,6 +131,7 @@ class Socket extends Duplex {
     if (callback) this.once("connect", callback);
     if (options.timeout) this.setTimeout(options.timeout);
     this.connecting = true;
+    this._loop.activate();
     const id = ops.netConnect(String(options.host ?? "localhost"), port);
     this._id = id;
     handles.set(id, this);
@@ -163,6 +166,7 @@ class Socket extends Duplex {
       case "close":
         handles.delete(this._id);
         this._clearTimer();
+        this._loop.deactivate();
         this._remoteClosed = true;
         if (!this.destroyed) this.destroy();
         break;
@@ -194,6 +198,7 @@ class Socket extends Duplex {
 
   _destroy(err, callback) {
     this._clearTimer();
+    this._loop.deactivate();
     if (this._id !== undefined && !this._remoteClosed) ops.netDestroy(this._id);
     callback(err);
   }
@@ -233,9 +238,11 @@ class Socket extends Duplex {
     return this;
   }
   ref() {
+    this._loop.ref();
     return this;
   }
   unref() {
+    this._loop.unref();
     return this;
   }
   resetAndDestroy() {
@@ -256,6 +263,7 @@ class Server extends EventEmitter {
     this._connections = new Set();
     this.listening = false;
     this.maxConnections = undefined;
+    this._loop = internal.loopHandle();
     if (connectionListener) this.on("connection", connectionListener);
   }
 
@@ -290,6 +298,7 @@ class Server extends EventEmitter {
     handles.set(result.id, this);
     this._address = { address: result.address, family: result.family, port: result.port };
     this.listening = true;
+    this._loop.activate();
     process.nextTick(() => this.emit("listening"));
     return this;
   }
@@ -311,6 +320,7 @@ class Server extends EventEmitter {
       this.emit("connection", socket);
     } else if (kind === "close") {
       handles.delete(this._id);
+      this._loop.deactivate();
       this._listenerClosed = true;
       this._maybeClosed();
     }
@@ -354,9 +364,11 @@ class Server extends EventEmitter {
   }
 
   ref() {
+    this._loop.ref();
     return this;
   }
   unref() {
+    this._loop.unref();
     return this;
   }
   [Symbol.asyncDispose]() {

@@ -15,6 +15,7 @@ pub(crate) mod crypto;
 pub(crate) mod encoding;
 pub(crate) mod fetch;
 pub(crate) mod fs;
+pub(crate) mod http2;
 pub(crate) mod ipc;
 pub(crate) mod keys;
 pub(crate) mod net;
@@ -123,7 +124,6 @@ const LAZY_GLUE: &[LazyGlue] = &[
             "dgram",
             "cluster",
             "inspector",
-            "http2",
             "diagnostics_channel",
             "constants",
         ],
@@ -133,6 +133,12 @@ const LAZY_GLUE: &[LazyGlue] = &[
         file: "node/worker_threads.js",
         src: include_str!("../../js/node/worker_threads.js"),
         builtins: &["worker_threads"],
+        globals: &[],
+    },
+    LazyGlue {
+        file: "node/http2.js",
+        src: include_str!("../../js/node/http2.js"),
+        builtins: &["http2"],
         globals: &[],
     },
     LazyGlue {
@@ -328,6 +334,7 @@ pub(crate) fn bootstrap(ctx: &mut Context) -> JsResult<()> {
         define_ops(ctx, &ops, worker::OPS)?;
         define_ops(ctx, &ops, signal::OPS)?;
         define_ops(ctx, &ops, vm::OPS)?;
+        define_ops(ctx, &ops, http2::OPS)?;
     }
     let config = process::config_object(ctx)?;
     if node && let Some(cfg) = config.as_object() {
@@ -360,6 +367,7 @@ pub(crate) fn teardown(ctx: &mut Context) {
     ipc::teardown(ctx);
     worker::teardown(ctx);
     signal::teardown(ctx);
+    http2::teardown(ctx);
 }
 
 /// Read bytes from a string (UTF-8), ArrayBuffer, typed array or DataView.

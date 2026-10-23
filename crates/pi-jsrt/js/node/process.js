@@ -160,6 +160,7 @@ Object.assign(process, {
   exit(code) {
     if (code !== undefined) exitCode = code;
     const c = Number(exitCode ?? 0) | 0;
+    if (internal.isWorker) internal.workerExiting = true;
     try {
       process.emit("exit", c);
     } catch {}
@@ -295,6 +296,8 @@ function fatal(err) {
 internal.fatal = fatal;
 
 internal.onUncaught = (kind, err, promise) => {
+  // After process.exit() in a worker, the ERR_PROCESS_EXIT unwinding is not an error.
+  if (internal.workerExiting) return true;
   if (kind === "unhandledRejection") {
     if (process.listenerCount("unhandledRejection") > 0) {
       process.emit("unhandledRejection", err, promise);
@@ -307,6 +310,10 @@ internal.onUncaught = (kind, err, promise) => {
       process.emit("uncaughtException", thrown, "unhandledRejection");
       return true;
     }
+    if (internal.isWorker) {
+      internal.workerFatal(thrown);
+      return true;
+    }
     if (nodeMode) {
       fatal(thrown);
       return true;
@@ -316,6 +323,10 @@ internal.onUncaught = (kind, err, promise) => {
   if (process.listenerCount("uncaughtExceptionMonitor") > 0) process.emit("uncaughtExceptionMonitor", err, "uncaughtException");
   if (process.listenerCount("uncaughtException") > 0) {
     process.emit("uncaughtException", err, "uncaughtException");
+    return true;
+  }
+  if (internal.isWorker) {
+    internal.workerFatal(err);
     return true;
   }
   if (nodeMode) {
@@ -347,6 +358,7 @@ internal.nodeMain = async ({ file, eval: code, print, ipcFd, serialization, uniq
   } catch (err) {
     fatal(err);
   }
+  process.channel?.release?.();
 };
 
 internal.nodeBeforeExit = () => {

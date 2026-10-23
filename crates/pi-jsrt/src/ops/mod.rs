@@ -5,7 +5,7 @@
 //! files (builtin registry, conversion helpers).
 
 use boa_engine::object::builtins::{JsArrayBuffer, JsTypedArray, JsUint8Array};
-use boa_engine::{Context, JsObject, JsResult, JsValue, js_string};
+use boa_engine::{Context, JsArgs, JsObject, JsResult, JsValue, js_string};
 
 use crate::engine::{self, define_ops, js_str, run_glue, state};
 
@@ -21,6 +21,7 @@ pub(crate) mod net;
 pub(crate) mod process;
 pub(crate) mod tls;
 pub(crate) mod wasm;
+pub(crate) mod worker;
 pub(crate) mod ws;
 pub(crate) mod zlib;
 
@@ -116,17 +117,27 @@ const LAZY_GLUE: &[LazyGlue] = &[
             "tty",
             "perf_hooks",
             "async_hooks",
-            "worker_threads",
             "console",
             "dgram",
             "cluster",
             "vm",
-            "v8",
             "inspector",
             "http2",
             "diagnostics_channel",
             "constants",
         ],
+        globals: &[],
+    },
+    LazyGlue {
+        file: "node/worker_threads.js",
+        src: include_str!("../../js/node/worker_threads.js"),
+        builtins: &["worker_threads"],
+        globals: &[],
+    },
+    LazyGlue {
+        file: "node/v8.js",
+        src: include_str!("../../js/node/v8.js"),
+        builtins: &["v8"],
         globals: &[],
     },
     LazyGlue {
@@ -242,6 +253,37 @@ fn lazy_tables(ctx: &mut Context) -> JsResult<(JsValue, JsValue)> {
     Ok((builtins.into(), globals.into()))
 }
 
+/// `ops.arrayBufferTransfer(buffer, newLength, maxByteLength)`: `ArrayBuffer.prototype.transfer`
+/// (Boa has it only behind its `experimental` feature): moves the bytes to a new buffer and
+/// detaches the old one.
+fn op_array_buffer_transfer(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
+    let obj = args.get_or_undefined(0).as_object().ok_or_else(|| engine::type_error("Method ArrayBuffer.prototype.transfer called on incompatible receiver"))?;
+    let ab = JsArrayBuffer::from_object(obj.clone()).map_err(|_| engine::type_error("Method ArrayBuffer.prototype.transfer called on incompatible receiver"))?;
+    if ab.data().is_none() {
+        return Err(engine::type_error("Cannot perform ArrayBuffer.prototype.transfer on a detached ArrayBuffer"));
+    }
+    let new_len = args.get_or_undefined(1);
+    let new_len = if new_len.is_undefined() { None } else { Some(new_len.to_index(ctx)? as usize) };
+    let mut data = ab.detach(&JsValue::undefined())?;
+    if let Some(n) = new_len {
+        data.resize(n, 0);
+    }
+    let out = JsArrayBuffer::from_byte_block(data, ctx)?;
+    let max = args.get_or_undefined(2);
+    let out = if max.is_undefined() { out } else { out.with_max_byte_length(max.to_index(ctx)?) };
+    Ok(out.into())
+}
+
+/// `ops.arrayBufferDetached(buffer)`
+fn op_array_buffer_detached(_: &JsValue, args: &[JsValue], _ctx: &mut Context) -> JsResult<JsValue> {
+    let detached = args
+        .get_or_undefined(0)
+        .as_object()
+        .and_then(|o| JsArrayBuffer::from_object(o.clone()).ok())
+        .is_some_and(|ab| ab.data().is_none());
+    Ok(JsValue::from(detached))
+}
+
 /// Create the ops object, run the glue, and store `internal` in the state.
 pub(crate) fn bootstrap(ctx: &mut Context) -> JsResult<()> {
     let st = state(ctx);
@@ -251,7 +293,15 @@ pub(crate) fn bootstrap(ctx: &mut Context) -> JsResult<()> {
     define_ops(ctx, &ops, crate::loader::LOADER_OPS)?;
     define_ops(ctx, &ops, encoding::OPS)?;
     define_ops(ctx, &ops, crypto::WEB_OPS)?;
-    define_ops(ctx, &ops, &[("loadGlue", 1, op_load_glue)])?;
+    define_ops(
+        ctx,
+        &ops,
+        &[
+            ("loadGlue", 1, op_load_glue),
+            ("arrayBufferTransfer", 3, op_array_buffer_transfer),
+            ("arrayBufferDetached", 1, op_array_buffer_detached),
+        ],
+    )?;
     if node {
         define_ops(ctx, &ops, fs::OPS)?;
         define_ops(ctx, &ops, process::OPS)?;
@@ -268,6 +318,7 @@ pub(crate) fn bootstrap(ctx: &mut Context) -> JsResult<()> {
         define_ops(ctx, &ops, net::DNS_OPS)?;
         define_ops(ctx, &ops, ws::OPS)?;
         define_ops(ctx, &ops, ipc::OPS)?;
+        define_ops(ctx, &ops, worker::OPS)?;
     }
     let config = process::config_object(ctx)?;
     if node && let Some(cfg) = config.as_object() {
@@ -298,6 +349,7 @@ pub(crate) fn teardown(ctx: &mut Context) {
     wasm::teardown(ctx);
     ws::teardown(ctx);
     ipc::teardown(ctx);
+    worker::teardown(ctx);
 }
 
 /// Read bytes from a string (UTF-8), ArrayBuffer, typed array or DataView.

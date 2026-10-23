@@ -476,7 +476,7 @@ function nodeError(Ctor, code, message) {
 // ChildProcess in the parent or `process` in the child.
 function setupChannel(target, id, serialization) {
   const advanced = serialization === "advanced";
-  const v8 = advanced ? internal.requireBuiltin("v8") : null;
+  if (advanced) internal.requireBuiltin("v8");
   let text = "";
   let bytes = Buffer.alloc(0);
   const decoder = new internal.TextDecoder("utf-8");
@@ -517,7 +517,23 @@ function setupChannel(target, id, serialization) {
   target.connected = true;
   target._handleQueue = null;
 
+  // The child holds messages back until its main module has been evaluated (Node runs a CommonJS
+  // main synchronously before reading the channel; our module loading spans event loop turns).
+  const held = [];
+  channel.hold = () => {
+    channel.held = true;
+  };
+  channel.release = () => {
+    channel.held = false;
+    process.nextTick(() => {
+      for (const m of held.splice(0)) deliver(m);
+    });
+  };
   const deliver = (message) => {
+    if (channel.held) {
+      held.push(message);
+      return;
+    }
     const handle = internal.ipcTakeHandle?.(message, pendingFds);
     if (message !== null && typeof message === "object" && typeof message.cmd === "string" && message.cmd.startsWith("NODE_")) {
       target.emit("internalMessage", message, handle);
@@ -543,7 +559,7 @@ function setupChannel(target, id, serialization) {
         while (bytes.length >= 4) {
           const size = bytes.readUInt32BE(0);
           if (bytes.length < 4 + size) break;
-          const message = v8.deserialize(bytes.subarray(4, 4 + size));
+          const message = internal.ipcDeserialize(bytes.subarray(4, 4 + size));
           bytes = bytes.subarray(4 + size);
           deliver(message);
         }
@@ -606,7 +622,7 @@ function setupChannel(target, id, serialization) {
     }
     let payload;
     if (advanced) {
-      const body = v8.serialize(message);
+      const body = internal.ipcSerialize(message);
       payload = Buffer.alloc(4 + body.length);
       payload.writeUInt32BE(body.length, 0);
       body.copy(payload, 4);
@@ -637,6 +653,7 @@ internal.setupChannel = setupChannel;
 internal.setupProcessChannel = (fd, serialization) => {
   const id = ops.ipcOpen(fd);
   const channel = setupChannel(process, id, serialization);
+  channel.hold();
   // Like Node: the channel keeps the process alive while it has 'message'/'disconnect' listeners.
   process.on("newListener", (name) => {
     if (name === "message" || name === "disconnect") channel.refCounted();

@@ -28,6 +28,33 @@ internal.describeReceived = (value) => {
 };
 
 // ---------------------------------------------------------------------------
+// ArrayBuffer.prototype.transfer / transferToFixedLength / detached (ES2024; Boa has them only
+// behind its experimental feature)
+// ---------------------------------------------------------------------------
+
+if (typeof ArrayBuffer.prototype.transfer !== "function") {
+  const define = (name, fn) =>
+    Object.defineProperty(ArrayBuffer.prototype, name, { value: fn, writable: true, configurable: true, enumerable: false });
+  define("transfer", {
+    transfer(newLength) {
+      return ops.arrayBufferTransfer(this, newLength, this.resizable ? this.maxByteLength : undefined);
+    },
+  }.transfer);
+  define("transferToFixedLength", {
+    transferToFixedLength(newLength) {
+      return ops.arrayBufferTransfer(this, newLength, undefined);
+    },
+  }.transferToFixedLength);
+  Object.defineProperty(ArrayBuffer.prototype, "detached", {
+    get: { get detached() { return ops.arrayBufferDetached(this); } }.__lookupGetter__?.("detached") ?? function () {
+      return ops.arrayBufferDetached(this);
+    },
+    configurable: true,
+    enumerable: false,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // JSON conversion helpers (see src/convert.rs)
 // ---------------------------------------------------------------------------
 

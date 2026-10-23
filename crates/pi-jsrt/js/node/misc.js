@@ -697,35 +697,6 @@ internal.defineBuiltin("async_hooks", () => ({
   triggerAsyncId: () => 0,
 }));
 
-internal.defineBuiltin("worker_threads", () => ({
-  isMainThread: true,
-  parentPort: null,
-  workerData: null,
-  threadId: 0,
-  resourceLimits: {},
-  Worker: class Worker {
-    constructor() {
-      throw new Error("worker_threads.Worker is not supported in pi-jsrt");
-    }
-  },
-  get MessageChannel() {
-    return globalThis.MessageChannel;
-  },
-  get MessagePort() {
-    return globalThis.MessagePort;
-  },
-  get BroadcastChannel() {
-    return globalThis.BroadcastChannel;
-  },
-  markAsUntransferable() {},
-  markAsUncloneable() {},
-  isMarkedAsUntransferable: () => false,
-  receiveMessageOnPort: () => undefined,
-  getEnvironmentData: () => undefined,
-  setEnvironmentData() {},
-  SHARE_ENV: Symbol.for("nodejs.worker_threads.SHARE_ENV"),
-}));
-
 internal.defineBuiltin("console", () => globalThis.console);
 
 // Stubs: importable, but calling them throws.
@@ -747,10 +718,6 @@ stubModule("cluster", ["fork", "setupPrimary"], { isPrimary: true, isMaster: tru
 stubModule("vm", ["runInNewContext", "runInContext", "createContext", "Script", "compileFunction"], {
   runInThisContext: (code) => (0, eval)(String(code)),
   isContext: () => false,
-});
-stubModule("v8", ["serialize", "deserialize", "getHeapSnapshot", "writeHeapSnapshot"], {
-  getHeapStatistics: () => ({ total_heap_size: 0, used_heap_size: 0, heap_size_limit: 0 }),
-  setFlagsFromString: () => {},
 });
 stubModule("inspector", ["open", "close", "url", "Session"]);
 {

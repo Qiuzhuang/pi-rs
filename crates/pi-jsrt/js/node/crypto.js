@@ -5,7 +5,7 @@ const Buffer = internal.Buffer;
 const { Transform, Writable } = internal.requireBuiltin("stream");
 const DOMException = internal.DOMException;
 const hashes = ["RSA-MD5", "RSA-RIPEMD160", "RSA-SHA1", "RSA-SHA1-2", "RSA-SHA224", "RSA-SHA256", "RSA-SHA3-224", "RSA-SHA3-256", "RSA-SHA3-384", "RSA-SHA3-512", "RSA-SHA384", "RSA-SHA512", "RSA-SHA512/224", "RSA-SHA512/256", "RSA-SM3", "blake2b512", "blake2s256", "id-rsassa-pkcs1-v1_5-with-sha3-224", "id-rsassa-pkcs1-v1_5-with-sha3-256", "id-rsassa-pkcs1-v1_5-with-sha3-384", "id-rsassa-pkcs1-v1_5-with-sha3-512", "md5", "md5-sha1", "md5WithRSAEncryption", "ripemd", "ripemd160", "ripemd160WithRSA", "rmd160", "sha1", "sha1WithRSAEncryption", "sha224", "sha224WithRSAEncryption", "sha256", "sha256WithRSAEncryption", "sha3-224", "sha3-256", "sha3-384", "sha3-512", "sha384", "sha384WithRSAEncryption", "sha512", "sha512-224", "sha512-224WithRSAEncryption", "sha512-256", "sha512-256WithRSAEncryption", "sha512WithRSAEncryption", "shake128", "shake256", "sm3", "sm3WithRSAEncryption", "ssl3-md5", "ssl3-sha1"];
-const curves = ["prime256v1", "secp384r1", "secp521r1"];
+const curves = ["prime256v1", "secp256k1", "secp384r1", "secp521r1"];
 
 const codeError = (Ctor, message, code) => Object.assign(new Ctor(message), code ? { code } : {});
 
@@ -282,7 +282,8 @@ class KeyObject {
     const out = {};
     if (d.modulusLength !== undefined) {
       out.modulusLength = d.modulusLength;
-      out.publicExponent = BigInt(`0x${d.publicExponentHex}`);
+      if (d.publicExponentHex !== undefined) out.publicExponent = BigInt(`0x${d.publicExponentHex}`);
+      if (d.divisorLength !== undefined) out.divisorLength = d.divisorLength;
     }
     if (d.namedCurve !== undefined) out.namedCurve = d.namedCurve;
     return out;
@@ -439,6 +440,7 @@ class Sign extends Writable {
   }
   sign(key, outputEncoding) {
     const k = signingKey(key, true);
+    noEdDsaStream(k);
     const sig = ops.sign(this.#alg, k[kHandle], Buffer.concat(this.#chunks), keyOptions(key));
     return encodeOut(sig, outputEncoding);
   }
@@ -461,8 +463,15 @@ class Verify extends Writable {
   }
   verify(key, signature, signatureEncoding) {
     const k = signingKey(key, false);
+    noEdDsaStream(k);
     return ops.verify(this.#alg, k[kHandle], Buffer.concat(this.#chunks), toBytes(signature, signatureEncoding, "signature"), keyOptions(key));
   }
+}
+
+/** EdDSA signs whole messages: Node's Sign/Verify streams refuse Ed25519/Ed448 keys. */
+function noEdDsaStream(k) {
+  const type = k.asymmetricKeyType;
+  if (type === "ed25519" || type === "ed448") throw codeError(Error, "Unsupported crypto operation", "ERR_CRYPTO_UNSUPPORTED_OPERATION");
 }
 
 function oneShot(fn, callback) {
@@ -505,6 +514,12 @@ function encodeGenerated(key, encoding) {
 function keyGenArgs(type, options = {}) {
   if (typeof type !== "string") throw invalidArgType("type", "of type string", type);
   const opts = { ...options };
+  if (type === "rsa" || type === "rsa-pss" || type === "dsa") {
+    validateUint32(opts.modulusLength, "options.modulusLength");
+  }
+  if (type === "dsa" && opts.divisorLength !== undefined && opts.divisorLength !== null) {
+    validateInt32(opts.divisorLength, "options.divisorLength", 0);
+  }
   if (opts.publicExponent === undefined) opts.publicExponent = 65537;
   return opts;
 }

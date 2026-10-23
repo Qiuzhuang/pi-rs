@@ -1,7 +1,7 @@
 //! Asymmetric keys for `node:crypto` and WebCrypto: import/export (PEM, DER, JWK; PKCS#8,
 //! SPKI, PKCS#1, SEC1, X.509 certificates, encrypted PKCS#8 and legacy encrypted PEM),
-//! generation, signatures (RSA PKCS#1 v1.5 / PSS, ECDSA P-256/384/521, Ed25519), RSA
-//! encryption, ECDH, X25519 and finite-field Diffie-Hellman.
+//! generation, signatures (RSA PKCS#1 v1.5 / PSS, ECDSA P-256/384/521 and secp256k1, Ed25519,
+//! Ed448, DSA), RSA encryption, ECDH, X25519, X448 and finite-field Diffie-Hellman.
 //!
 //! Keys cross into JS as DER: private keys as PKCS#8, public keys as SPKI (the JS `KeyObject`
 //! keeps the bytes; every op parses what it needs).
@@ -32,6 +32,10 @@ const OID_P384: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.132.0.34");
 const OID_P521: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.132.0.35");
 const OID_ED25519: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.101.112");
 const OID_X25519: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.101.110");
+const OID_X448: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.101.111");
+const OID_ED448: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.101.113");
+const OID_K256: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.132.0.10");
+const OID_DSA: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.10040.4.1");
 
 fn unsupported() -> CipherError {
     CipherError::new("Error", "error:1E08010C:DECODER routines::unsupported", Some("ERR_OSSL_UNSUPPORTED"))
@@ -54,6 +58,7 @@ pub(crate) enum Curve {
     P256,
     P384,
     P521,
+    K256,
 }
 
 impl Curve {
@@ -62,6 +67,7 @@ impl Curve {
             "prime256v1" | "P-256" | "secp256r1" => Curve::P256,
             "secp384r1" | "P-384" => Curve::P384,
             "secp521r1" | "P-521" => Curve::P521,
+            "secp256k1" => Curve::K256,
             _ => return None,
         })
     }
@@ -70,6 +76,7 @@ impl Curve {
             OID_P256 => Curve::P256,
             OID_P384 => Curve::P384,
             OID_P521 => Curve::P521,
+            OID_K256 => Curve::K256,
             _ => return None,
         })
     }
@@ -78,6 +85,7 @@ impl Curve {
             Curve::P256 => "prime256v1",
             Curve::P384 => "secp384r1",
             Curve::P521 => "secp521r1",
+            Curve::K256 => "secp256k1",
         }
     }
     fn jwk_name(self) -> &'static str {
@@ -85,6 +93,7 @@ impl Curve {
             Curve::P256 => "P-256",
             Curve::P384 => "P-384",
             Curve::P521 => "P-521",
+            Curve::K256 => "secp256k1",
         }
     }
     fn field_len(self) -> usize {
@@ -92,6 +101,7 @@ impl Curve {
             Curve::P256 => 32,
             Curve::P384 => 48,
             Curve::P521 => 66,
+            Curve::K256 => 32,
         }
     }
 }
@@ -100,6 +110,7 @@ pub(crate) enum EcSecret {
     P256(p256::SecretKey),
     P384(p384::SecretKey),
     P521(p521::SecretKey),
+    K256(k256::SecretKey),
 }
 
 #[derive(Clone)]
@@ -107,6 +118,7 @@ pub(crate) enum EcPublic {
     P256(p256::PublicKey),
     P384(p384::PublicKey),
     P521(p521::PublicKey),
+    K256(k256::PublicKey),
 }
 
 /// Run `$body` with `$m` bound to the curve crate of an [`EcSecret`]/[`EcPublic`] value.
@@ -126,6 +138,11 @@ macro_rules! ec_dispatch {
             $enum::P521($k) => {
                 #[allow(unused_imports)]
                 use p521 as $m;
+                $body
+            }
+            $enum::K256($k) => {
+                #[allow(unused_imports)]
+                use k256 as $m;
                 $body
             }
         }
@@ -151,6 +168,11 @@ macro_rules! curve_dispatch {
                 use p521 as $m;
                 $body
             }
+            Curve::K256 => {
+                #[allow(unused_imports)]
+                use k256 as $m;
+                $body
+            }
         }
     };
 }
@@ -161,6 +183,7 @@ impl EcSecret {
             EcSecret::P256(_) => Curve::P256,
             EcSecret::P384(_) => Curve::P384,
             EcSecret::P521(_) => Curve::P521,
+            EcSecret::K256(_) => Curve::K256,
         }
     }
     fn from_bytes(curve: Curve, d: &[u8]) -> KResult<Self> {
@@ -195,6 +218,7 @@ impl EcSecret {
             Curve::P256 => OID_P256,
             Curve::P384 => OID_P384,
             Curve::P521 => OID_P521,
+            Curve::K256 => OID_K256,
         };
         let key = sec1::EcPrivateKey { private_key: &d, parameters: Some(sec1::EcParameters::NamedCurve(oid)), public_key: Some(&point) };
         key.to_der().unwrap_or_default()
@@ -223,6 +247,16 @@ impl WrapEc<p521::SecretKey> for EcSecret {
         EcSecret::P521(v)
     }
 }
+impl WrapEc<k256::SecretKey> for EcSecret {
+    fn wrap_any(v: k256::SecretKey) -> Self {
+        EcSecret::K256(v)
+    }
+}
+impl WrapEc<k256::PublicKey> for EcPublic {
+    fn wrap_any(v: k256::PublicKey) -> Self {
+        EcPublic::K256(v)
+    }
+}
 impl WrapEc<p256::PublicKey> for EcPublic {
     fn wrap_any(v: p256::PublicKey) -> Self {
         EcPublic::P256(v)
@@ -245,6 +279,7 @@ impl EcPublic {
             EcPublic::P256(_) => Curve::P256,
             EcPublic::P384(_) => Curve::P384,
             EcPublic::P521(_) => Curve::P521,
+            EcPublic::K256(_) => Curve::K256,
         }
     }
     pub(crate) fn from_sec1(curve: Curve, bytes: &[u8]) -> KResult<Self> {
@@ -265,6 +300,9 @@ pub(crate) enum PrivKey {
     Ec(EcSecret),
     Ed25519([u8; 32]),
     X25519([u8; 32]),
+    Ed448(Box<[u8; 57]>),
+    X448(Box<[u8; 56]>),
+    Dsa(Box<dsa::SigningKey>),
 }
 
 pub(crate) enum PubKey {
@@ -272,22 +310,33 @@ pub(crate) enum PubKey {
     Ec(EcPublic),
     Ed25519([u8; 32]),
     X25519([u8; 32]),
+    Ed448(Box<[u8; 57]>),
+    X448(Box<[u8; 56]>),
+    Dsa(Box<dsa::VerifyingKey>),
 }
 
-fn okp_pkcs8(oid_last: u8, seed: &[u8; 32]) -> Vec<u8> {
-    let mut v = vec![0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, oid_last, 0x04, 0x22, 0x04, 0x20];
+/// PKCS#8 for an OKP key (RFC 8410): the private key is an OCTET STRING in an OCTET STRING.
+fn okp_pkcs8(oid_last: u8, seed: &[u8]) -> Vec<u8> {
+    let n = seed.len() as u8;
+    let mut v = vec![0x30, n + 14, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, oid_last, 0x04, n + 2, 0x04, n];
     v.extend_from_slice(seed);
     v
 }
 
-fn okp_spki(oid_last: u8, public: &[u8; 32]) -> Vec<u8> {
-    let mut v = vec![0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, oid_last, 0x03, 0x21, 0x00];
+fn okp_spki(oid_last: u8, public: &[u8]) -> Vec<u8> {
+    let n = public.len() as u8;
+    let mut v = vec![0x30, n + 10, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, oid_last, 0x03, n + 1, 0x00];
     v.extend_from_slice(public);
     v
 }
 
 fn arr32(b: &[u8]) -> KResult<[u8; 32]> {
     b.try_into().map_err(|_| unsupported())
+}
+
+fn arr<const N: usize>(b: &[u8]) -> KResult<Box<[u8; N]>> {
+    let a: [u8; N] = b.try_into().map_err(|_| unsupported())?;
+    Ok(Box::new(a))
 }
 
 impl PrivKey {
@@ -298,6 +347,9 @@ impl PrivKey {
             PrivKey::Ec(_) => "ec",
             PrivKey::Ed25519(_) => "ed25519",
             PrivKey::X25519(_) => "x25519",
+            PrivKey::Ed448(_) => "ed448",
+            PrivKey::X448(_) => "x448",
+            PrivKey::Dsa(_) => "dsa",
         }
     }
 
@@ -325,6 +377,11 @@ impl PrivKey {
                 let seed = arr32(inner.as_bytes())?;
                 Ok(if oid == OID_ED25519 { PrivKey::Ed25519(seed) } else { PrivKey::X25519(seed) })
             }
+            OID_ED448 | OID_X448 => {
+                let inner = der::asn1::OctetStringRef::from_der(pki.private_key).map_err(|_| unsupported())?;
+                Ok(if oid == OID_ED448 { PrivKey::Ed448(arr(inner.as_bytes())?) } else { PrivKey::X448(arr(inner.as_bytes())?) })
+            }
+            OID_DSA => Ok(PrivKey::Dsa(Box::new(dsa::SigningKey::try_from(pki).map_err(|_| unsupported())?))),
             _ => Err(unsupported()),
         }
     }
@@ -335,6 +392,9 @@ impl PrivKey {
             PrivKey::Ec(k) => k.to_pkcs8(),
             PrivKey::Ed25519(s) => okp_pkcs8(0x70, s),
             PrivKey::X25519(s) => okp_pkcs8(0x6e, s),
+            PrivKey::Ed448(s) => okp_pkcs8(0x71, &s[..]),
+            PrivKey::X448(s) => okp_pkcs8(0x6f, &s[..]),
+            PrivKey::Dsa(k) => k.to_pkcs8_der().map(|d| d.as_bytes().to_vec()).unwrap_or_default(),
         }
     }
 
@@ -344,6 +404,9 @@ impl PrivKey {
             PrivKey::Ec(k) => PubKey::Ec(k.public()),
             PrivKey::Ed25519(s) => PubKey::Ed25519(ed25519_dalek::SigningKey::from_bytes(s).verifying_key().to_bytes()),
             PrivKey::X25519(s) => PubKey::X25519(x25519_dalek::PublicKey::from(&x25519_dalek::StaticSecret::from(*s)).to_bytes()),
+            PrivKey::Ed448(s) => PubKey::Ed448(Box::new(super::ed448::ed448_public(s))),
+            PrivKey::X448(s) => PubKey::X448(Box::new(super::ed448::x448_public(s))),
+            PrivKey::Dsa(k) => PubKey::Dsa(Box::new(k.verifying_key().clone())),
         }
     }
 }
@@ -356,6 +419,9 @@ impl PubKey {
             PubKey::Ec(_) => "ec",
             PubKey::Ed25519(_) => "ed25519",
             PubKey::X25519(_) => "x25519",
+            PubKey::Ed448(_) => "ed448",
+            PubKey::X448(_) => "x448",
+            PubKey::Dsa(_) => "dsa",
         }
     }
 
@@ -380,6 +446,9 @@ impl PubKey {
             }
             OID_ED25519 => Ok(PubKey::Ed25519(arr32(bits)?)),
             OID_X25519 => Ok(PubKey::X25519(arr32(bits)?)),
+            OID_ED448 => Ok(PubKey::Ed448(arr(bits)?)),
+            OID_X448 => Ok(PubKey::X448(arr(bits)?)),
+            OID_DSA => Ok(PubKey::Dsa(Box::new(dsa::VerifyingKey::try_from(spki).map_err(|_| unsupported())?))),
             _ => Err(unsupported()),
         }
     }
@@ -390,6 +459,9 @@ impl PubKey {
             PubKey::Ec(k) => k.to_spki(),
             PubKey::Ed25519(p) => okp_spki(0x70, p),
             PubKey::X25519(p) => okp_spki(0x6e, p),
+            PubKey::Ed448(p) => okp_spki(0x71, &p[..]),
+            PubKey::X448(p) => okp_spki(0x6f, &p[..]),
+            PubKey::Dsa(k) => k.to_public_key_der().map(|d| d.as_bytes().to_vec()).unwrap_or_default(),
         }
     }
 }
@@ -755,6 +827,16 @@ pub(crate) fn import_jwk(jwk: &serde_json::Value, want_private: bool) -> KResult
         }
         "OKP" => {
             let crv = jwk.get("crv").and_then(|v| v.as_str()).unwrap_or_default();
+            if crv == "Ed448" || crv == "X448" {
+                let ed = crv == "Ed448";
+                if has_d {
+                    let d = req("d")?;
+                    let k = if ed { PrivKey::Ed448(arr(&d).map_err(|_| invalid("OKP key"))?) } else { PrivKey::X448(arr(&d).map_err(|_| invalid("OKP key"))?) };
+                    return Ok(if want_private { Imported::Private(k) } else { Imported::Public(k.public()) });
+                }
+                let x = req("x")?;
+                return Ok(Imported::Public(if ed { PubKey::Ed448(arr(&x).map_err(|_| invalid("OKP key"))?) } else { PubKey::X448(arr(&x).map_err(|_| invalid("OKP key"))?) }));
+            }
             let ed = match crv {
                 "Ed25519" => true,
                 "X25519" => false,
@@ -778,6 +860,8 @@ pub(crate) fn import_raw_public(asym: &str, curve: Option<&str>, raw: &[u8]) -> 
         "ec" => Ok(PubKey::Ec(EcPublic::from_sec1(Curve::from_name(curve.unwrap_or_default()).ok_or_else(unsupported)?, raw)?)),
         "ed25519" => Ok(PubKey::Ed25519(arr32(raw)?)),
         "x25519" => Ok(PubKey::X25519(arr32(raw)?)),
+        "ed448" => Ok(PubKey::Ed448(arr(raw)?)),
+        "x448" => Ok(PubKey::X448(arr(raw)?)),
         _ => Err(unsupported()),
     }
 }
@@ -820,13 +904,21 @@ pub(crate) fn export_public(k: &PubKey, format: &str, typ: &str) -> KResult<Expo
         let m = match k {
             PubKey::Rsa(r, _) => rsa_jwk_public(r),
             PubKey::Ec(e) => ec_jwk_public(e),
-            PubKey::Ed25519(p) | PubKey::X25519(p) => {
+            PubKey::Ed25519(_) | PubKey::X25519(_) | PubKey::Ed448(_) | PubKey::X448(_) => {
+                let (crv, x): (&str, &[u8]) = match k {
+                    PubKey::Ed25519(p) => ("Ed25519", p),
+                    PubKey::X25519(p) => ("X25519", p),
+                    PubKey::Ed448(p) => ("Ed448", &p[..]),
+                    PubKey::X448(p) => ("X448", &p[..]),
+                    _ => unreachable!(),
+                };
                 let mut m = serde_json::Map::new();
-                m.insert("crv".into(), (if matches!(k, PubKey::Ed25519(_)) { "Ed25519" } else { "X25519" }).into());
-                m.insert("x".into(), b64url(p).into());
+                m.insert("crv".into(), crv.into());
+                m.insert("x".into(), b64url(x).into());
                 m.insert("kty".into(), "OKP".into());
                 m
             }
+            PubKey::Dsa(_) => return Err(err("Error", "Unsupported JWK Key Type.", Some("ERR_CRYPTO_JWK_UNSUPPORTED_KEY_TYPE"))),
         };
         return Ok(Exported::Json(serde_json::Value::Object(m)));
     }
@@ -868,11 +960,18 @@ pub(crate) fn export_private(k: &PrivKey, format: &str, typ: &str, cipher: Optio
                 m.insert("d".into(), b64url(&e.to_bytes()).into());
                 m
             }
-            PrivKey::Ed25519(s) | PrivKey::X25519(s) => {
+            PrivKey::Ed25519(_) | PrivKey::X25519(_) | PrivKey::Ed448(_) | PrivKey::X448(_) => {
+                let d: &[u8] = match k {
+                    PrivKey::Ed25519(s) | PrivKey::X25519(s) => s,
+                    PrivKey::Ed448(s) => &s[..],
+                    PrivKey::X448(s) => &s[..],
+                    _ => unreachable!(),
+                };
                 let Exported::Json(serde_json::Value::Object(mut m)) = export_public(&k.public(), "jwk", "")? else { unreachable!() };
-                m.insert("d".into(), b64url(s).into());
+                m.insert("d".into(), b64url(d).into());
                 m
             }
+            PrivKey::Dsa(_) => return Err(err("Error", "Unsupported JWK Key Type.", Some("ERR_CRYPTO_JWK_UNSUPPORTED_KEY_TYPE"))),
         };
         // Node orders RSA members n, e, d, p, q, dp, dq, qi and EC members kty, x, y, crv, d.
         m.sort_keys_like_node();
@@ -938,7 +1037,7 @@ impl SortLikeNode for serde_json::Map<String, serde_json::Value> {
 // Generation
 // ---------------------------------------------------------------------------
 
-pub(crate) fn generate(asym: &str, modulus_bits: usize, exponent: u64, curve: Option<&str>) -> KResult<PrivKey> {
+pub(crate) fn generate(asym: &str, modulus_bits: usize, exponent: u64, curve: Option<&str>, divisor_bits: Option<usize>) -> KResult<PrivKey> {
     match asym {
         "rsa" | "rsa-pss" => {
             if !(512..=16384).contains(&modulus_bits) {
@@ -957,12 +1056,63 @@ pub(crate) fn generate(asym: &str, modulus_bits: usize, exponent: u64, curve: Op
             rng().fill_bytes(&mut seed);
             Ok(if asym == "ed25519" { PrivKey::Ed25519(seed) } else { PrivKey::X25519(seed) })
         }
+        "ed448" => {
+            let mut seed = [0u8; 57];
+            rng().fill_bytes(&mut seed);
+            Ok(PrivKey::Ed448(Box::new(seed)))
+        }
+        "x448" => {
+            let mut seed = [0u8; 56];
+            rng().fill_bytes(&mut seed);
+            Ok(PrivKey::X448(Box::new(seed)))
+        }
+        "dsa" => {
+            let n = divisor_bits.unwrap_or(if modulus_bits >= 3072 { 256 } else { 224 });
+            Ok(PrivKey::Dsa(Box::new(dsa_generate(modulus_bits, n)?)))
+        }
         _ => Err(err(
             "TypeError",
             &format!("The argument 'type' must be a supported key type. Received '{asym}'"),
             Some("ERR_INVALID_ARG_VALUE"),
         )),
     }
+}
+
+/// DSA domain parameters of any size (FIPS 186-4 style: `q` an N-bit prime, `p = kq + 1` an
+/// L-bit prime, `g = h^((p-1)/q)`) and a key pair.
+fn dsa_generate(l: usize, n: usize) -> KResult<dsa::SigningKey> {
+    use num_traits::One;
+    let failed = || err("Error", "error:0A000086:dsa routines::bad ffc parameters", None);
+    if n < 2 || l <= n + 1 {
+        return Err(failed());
+    }
+    let q = super::prime::generate(n, false, None, None)?;
+    let two_q = &q << 1usize;
+    let top = BigUint::one() << (l - 1);
+    let p = loop {
+        let mut x = BigUint::from_bytes_be(&{
+            let mut b = vec![0u8; l.div_ceil(8)];
+            rng().fill_bytes(&mut b);
+            b
+        }) % (&top << 1usize);
+        x |= &top;
+        let c = &x % &two_q;
+        let p = x - c + BigUint::one();
+        if p.bits() == l && super::prime::is_prime(&p, 0) {
+            break p;
+        }
+    };
+    let e = (&p - BigUint::one()) / &q;
+    let mut h = BigUint::from(2u32);
+    let g = loop {
+        let g = h.modpow(&e, &p);
+        if g > BigUint::one() {
+            break g;
+        }
+        h += BigUint::one();
+    };
+    let components = dsa::Components::from_components(p, q, g).map_err(|_| failed())?;
+    Ok(dsa::SigningKey::generate(&mut rng(), components))
 }
 
 // ---------------------------------------------------------------------------
@@ -1154,9 +1304,40 @@ pub(crate) fn sign(digest: Option<&str>, key: &PrivKey, data: &[u8], opts: &Sign
         }
         PrivKey::Ed25519(seed) => {
             use ed25519_dalek::Signer;
+            eddsa_digest(digest)?;
             Ok(ed25519_dalek::SigningKey::from_bytes(seed).sign(data).to_bytes().to_vec())
         }
-        PrivKey::X25519(_) => Err(err("Error", "error:1C8000A5:Provider routines::operation not supported for this keytype", Some("ERR_OSSL_OPERATION_NOT_SUPPORTED_FOR_THIS_KEYTYPE"))),
+        PrivKey::Ed448(seed) => {
+            eddsa_digest(digest)?;
+            Ok(super::ed448::ed448_sign(seed, data).to_vec())
+        }
+        PrivKey::Dsa(k) => {
+            use dsa::signature::SignatureEncoding;
+            use dsa::signature::hazmat::RandomizedPrehashSigner;
+            let d = resolve_digest(digest)?;
+            let h = hash(d, data).ok_or_else(invalid_digest)?;
+            let sig = k.sign_prehash_with_rng(&mut rng(), &h).map_err(|e| err("Error", &e.to_string(), None))?;
+            if opts.p1363 {
+                let n = k.verifying_key().components().q().bits().div_ceil(8);
+                let mut out = left_pad(&sig.r().to_bytes_be(), n);
+                out.extend(left_pad(&sig.s().to_bytes_be(), n));
+                return Ok(out);
+            }
+            Ok(sig.to_vec())
+        }
+        PrivKey::X25519(_) | PrivKey::X448(_) => Err(not_for_keytype()),
+    }
+}
+
+fn not_for_keytype() -> CipherError {
+    err("Error", "error:03000096:digital envelope routines::operation not supported for this keytype", Some("ERR_OSSL_EVP_OPERATION_NOT_SUPPORTED_FOR_THIS_KEYTYPE"))
+}
+
+/// EdDSA takes no digest (OpenSSL: "invalid digest").
+fn eddsa_digest(digest: Option<&str>) -> KResult<()> {
+    match digest {
+        None => Ok(()),
+        Some(_) => Err(err("Error", "error:1C80007A:Provider routines::invalid digest", Some("ERR_OSSL_INVALID_DIGEST"))),
     }
 }
 
@@ -1200,11 +1381,32 @@ pub(crate) fn verify(digest: Option<&str>, key: &PubKey, data: &[u8], sig: &[u8]
         }
         PubKey::Ed25519(p) => {
             use ed25519_dalek::Verifier;
+            eddsa_digest(digest)?;
             let Ok(vk) = ed25519_dalek::VerifyingKey::from_bytes(p) else { return Ok(false) };
             let Ok(sig) = <[u8; 64]>::try_from(sig) else { return Ok(false) };
             Ok(vk.verify(data, &ed25519_dalek::Signature::from_bytes(&sig)).is_ok())
         }
-        PubKey::X25519(_) => Err(err("Error", "error:1C8000A5:Provider routines::operation not supported for this keytype", Some("ERR_OSSL_OPERATION_NOT_SUPPORTED_FOR_THIS_KEYTYPE"))),
+        PubKey::Ed448(p) => {
+            eddsa_digest(digest)?;
+            Ok(super::ed448::ed448_verify(p, data, sig))
+        }
+        PubKey::Dsa(k) => {
+            use dsa::signature::hazmat::PrehashVerifier;
+            let d = resolve_digest(digest)?;
+            let h = hash(d, data).ok_or_else(invalid_digest)?;
+            let parsed = if opts.p1363 {
+                if sig.is_empty() || !sig.len().is_multiple_of(2) {
+                    return Ok(false);
+                }
+                let (r, s) = sig.split_at(sig.len() / 2);
+                dsa::Signature::from_components(BigUint::from_bytes_be(r), BigUint::from_bytes_be(s))
+            } else {
+                dsa::Signature::try_from(sig)
+            };
+            let Ok(sig) = parsed else { return Ok(false) };
+            Ok(k.verify_prehash(&h, &sig).is_ok())
+        }
+        PubKey::X25519(_) | PubKey::X448(_) => Err(not_for_keytype()),
     }
 }
 
@@ -1216,6 +1418,8 @@ pub(crate) fn ec_verify_prehash(e: &EcPublic, h: &[u8], sig: &[u8], p1363: bool)
         let Ok(vk) = m::ecdsa::VerifyingKey::from_sec1_bytes(&point) else { return false };
         let parsed = if p1363 { m::ecdsa::Signature::from_slice(sig) } else { m::ecdsa::Signature::from_der(sig) };
         let Ok(sig) = parsed else { return false };
+        // OpenSSL accepts high-S signatures; k256 only verifies normalized ones.
+        let sig = sig.normalize_s().unwrap_or(sig);
         vk.verify_prehash(h, &sig).is_ok()
     })
 }
@@ -1236,6 +1440,7 @@ fn ecdh_keys(secret: &EcSecret, peer: &EcPublic) -> KResult<Vec<u8>> {
         (EcSecret::P256(s), EcPublic::P256(p)) => p256::ecdh::diffie_hellman(s.to_nonzero_scalar(), p.as_affine()).raw_secret_bytes().to_vec(),
         (EcSecret::P384(s), EcPublic::P384(p)) => p384::ecdh::diffie_hellman(s.to_nonzero_scalar(), p.as_affine()).raw_secret_bytes().to_vec(),
         (EcSecret::P521(s), EcPublic::P521(p)) => p521::ecdh::diffie_hellman(s.to_nonzero_scalar(), p.as_affine()).raw_secret_bytes().to_vec(),
+        (EcSecret::K256(s), EcPublic::K256(p)) => k256::ecdh::diffie_hellman(s.to_nonzero_scalar(), p.as_affine()).raw_secret_bytes().to_vec(),
         _ => return Err(mismatch()),
     })
 }
@@ -1251,7 +1456,14 @@ pub(crate) fn derive(private: &PrivKey, public: &PubKey) -> KResult<Vec<u8>> {
             }
             Ok(shared.to_bytes().to_vec())
         }
-        _ => Err(err("TypeError", "Incompatible key types for Diffie-Hellman", Some("ERR_CRYPTO_INCOMPATIBLE_KEY"))),
+        (PrivKey::X448(s), PubKey::X448(p)) => super::ed448::x448(s, p)
+            .map(|b| b.to_vec())
+            .ok_or_else(|| err("Error", "error:1C8000A5:Provider routines::failed during derivation", None)),
+        _ => Err(err(
+            "Error",
+            &format!("Incompatible key types for Diffie-Hellman: {} and {}", private.asym(), public.asym()),
+            Some("ERR_CRYPTO_INCOMPATIBLE_KEY"),
+        )),
     }
 }
 
@@ -1412,6 +1624,14 @@ fn details(ctx: &mut Context, key: &Imported) -> JsResult<JsValue> {
     if let Some((bits, e)) = rsa {
         return object(ctx, vec![("modulusLength", JsValue::from(bits as u32)), ("publicExponentHex", js_str(&e))]);
     }
+    let dsa = match key {
+        Imported::Private(PrivKey::Dsa(k)) => Some(k.verifying_key().components().clone()),
+        Imported::Public(PubKey::Dsa(k)) => Some(k.components().clone()),
+        _ => None,
+    };
+    if let Some(c) = dsa {
+        return object(ctx, vec![("modulusLength", JsValue::from(c.p().bits() as u32)), ("divisorLength", JsValue::from(c.q().bits() as u32))]);
+    }
     let curve = match key {
         Imported::Private(PrivKey::Ec(e)) => Some(e.curve()),
         Imported::Public(PubKey::Ec(e)) => Some(e.curve()),
@@ -1498,8 +1718,12 @@ fn op_key_raw(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsVa
     let raw = match &key {
         Imported::Public(PubKey::Ec(e)) => e.to_sec1(compressed),
         Imported::Public(PubKey::Ed25519(p) | PubKey::X25519(p)) => p.to_vec(),
+        Imported::Public(PubKey::Ed448(p)) => p.to_vec(),
+        Imported::Public(PubKey::X448(p)) => p.to_vec(),
         Imported::Private(PrivKey::Ec(e)) => e.to_bytes(),
         Imported::Private(PrivKey::Ed25519(s) | PrivKey::X25519(s)) => s.to_vec(),
+        Imported::Private(PrivKey::Ed448(s)) => s.to_vec(),
+        Imported::Private(PrivKey::X448(s)) => s.to_vec(),
         _ => return Err(throw(ctx, unsupported())),
     };
     bytes_to_js(&raw, ctx)
@@ -1513,18 +1737,21 @@ fn op_key_public(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<J
     }
 }
 
-fn generate_from_opts(ctx: &mut Context, args: &[JsValue]) -> JsResult<(String, usize, u64, Option<String>)> {
+type GenOpts = (String, usize, u64, Option<String>, Option<usize>);
+
+fn generate_from_opts(ctx: &mut Context, args: &[JsValue]) -> JsResult<GenOpts> {
     let asym = arg_string(args, 0, ctx)?;
     let opts = args.get_or_undefined(1).clone();
     let bits = get_num(ctx, &opts, "modulusLength")?.unwrap_or(2048.0) as usize;
     let exp = get_num(ctx, &opts, "publicExponent")?.unwrap_or(65537.0) as u64;
     let curve = get_str(ctx, &opts, "namedCurve")?;
-    Ok((asym, bits, exp, curve))
+    let divisor = get_num(ctx, &opts, "divisorLength")?.map(|n| n as usize);
+    Ok((asym, bits, exp, curve, divisor))
 }
 
 /// `ops.keyGenerate(asym, opts, async) -> [private description, public description]`
 fn op_key_generate(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
-    let (asym, bits, exp, curve) = generate_from_opts(ctx, args)?;
+    let (asym, bits, exp, curve, divisor) = generate_from_opts(ctx, args)?;
     let finish = |k: PrivKey, ctx: &mut Context| -> JsResult<JsValue> {
         let public = Imported::Public(k.public());
         let a = describe(ctx, &Imported::Private(k))?;
@@ -1532,7 +1759,7 @@ fn op_key_generate(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult
         Ok(super::array(ctx, vec![a, b]))
     };
     if !args.get_or_undefined(2).to_boolean() {
-        return match generate(&asym, bits, exp, curve.as_deref()) {
+        return match generate(&asym, bits, exp, curve.as_deref(), divisor) {
             Ok(k) => finish(k, ctx),
             Err(e) => Err(throw(ctx, e)),
         };
@@ -1544,7 +1771,7 @@ fn op_key_generate(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult
     Ok(crate::engine::spawn_result(
         ctx,
         async move {
-            match tokio::task::spawn_blocking(move || generate(&asym, bits, exp, curve.as_deref())).await {
+            match tokio::task::spawn_blocking(move || generate(&asym, bits, exp, curve.as_deref(), divisor)).await {
                 Ok(r) => r.map_err(super::crypto::to_error),
                 Err(e) => Err(crate::Error::Host(e.to_string())),
             }
@@ -1762,8 +1989,8 @@ mod tests {
     #[test]
     fn ec_keys_sign_verify_and_ecdh() {
         for curve in ["prime256v1", "secp384r1", "secp521r1"] {
-            let a = generate("ec", 0, 0, Some(curve)).unwrap();
-            let b = generate("ec", 0, 0, Some(curve)).unwrap();
+            let a = generate("ec", 0, 0, Some(curve), None).unwrap();
+            let b = generate("ec", 0, 0, Some(curve), None).unwrap();
             for p1363 in [false, true] {
                 let opts = SignOpts { padding: None, salt_len: None, p1363 };
                 let sig = sign(Some("sha256"), &a, b"msg", &opts).unwrap();
@@ -1785,7 +2012,7 @@ mod tests {
 
     #[test]
     fn rsa_sign_verify_encrypt() {
-        let k = generate("rsa", 1024, 65537, None).unwrap();
+        let k = generate("rsa", 1024, 65537, None, None).unwrap();
         let p = k.public();
         let plain = SignOpts { padding: None, salt_len: None, p1363: false };
         let sig = sign(Some("sha256"), &k, b"hello", &plain).unwrap();
@@ -1826,8 +2053,8 @@ mod tests {
 
     #[test]
     fn x25519_and_errors() {
-        let a = generate("x25519", 0, 0, None).unwrap();
-        let b = generate("x25519", 0, 0, None).unwrap();
+        let a = generate("x25519", 0, 0, None, None).unwrap();
+        let b = generate("x25519", 0, 0, None, None).unwrap();
         assert_eq!(derive(&a, &b.public()).unwrap(), derive(&b, &a.public()).unwrap());
         assert_eq!(import(b"garbage", "pem", "", None, true).err().unwrap().code, Some("ERR_OSSL_UNSUPPORTED"));
         let e = import(b"-----BEGIN PUBLIC KEY-----\nAAAA\n-----END PUBLIC KEY-----", "pem", "", None, false).err().unwrap();

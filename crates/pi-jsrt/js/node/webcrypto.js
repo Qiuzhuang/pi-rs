@@ -14,7 +14,7 @@ const DOMException = internal.DOMException;
 const webAlgNames = {
   "sha-1": "SHA-1", "sha-256": "SHA-256", "sha-384": "SHA-384", "sha-512": "SHA-512", hmac: "HMAC", "aes-gcm": "AES-GCM",
   "aes-cbc": "AES-CBC", "aes-ctr": "AES-CTR", "aes-kw": "AES-KW", ecdsa: "ECDSA", ecdh: "ECDH", ed25519: "Ed25519",
-  x25519: "X25519", "rsassa-pkcs1-v1_5": "RSASSA-PKCS1-v1_5", "rsa-pss": "RSA-PSS", "rsa-oaep": "RSA-OAEP", hkdf: "HKDF",
+  x25519: "X25519", ed448: "Ed448", x448: "X448", "rsassa-pkcs1-v1_5": "RSASSA-PKCS1-v1_5", "rsa-pss": "RSA-PSS", "rsa-oaep": "RSA-OAEP", hkdf: "HKDF",
   pbkdf2: "PBKDF2",
 };
 
@@ -25,10 +25,15 @@ function normalizeAlgorithm(alg) {
   if (!alg || typeof alg !== "object" || typeof alg.name !== "string") throw webError("Unrecognized algorithm name", "NotSupportedError");
   const name = webAlgNames[alg.name.toLowerCase()];
   if (!name) throw webError("Unrecognized algorithm name", "NotSupportedError");
+  if ((name === "Ed448" || name === "X448") && !warnedExperimental.has(name)) {
+    warnedExperimental.add(name);
+    process.emitWarning(`The ${name} Web Crypto API algorithm is an experimental feature and might change at any time`, "ExperimentalWarning");
+  }
   const out = { ...alg, name };
   if (out.hash !== undefined) out.hash = normalizeAlgorithm(out.hash);
   return out;
 }
+const warnedExperimental = new Set();
 
 const shaName = (h) => ({ "SHA-1": "sha1", "SHA-256": "sha256", "SHA-384": "sha384", "SHA-512": "sha512" })[h?.name ?? h];
 const isCryptoKey = internal.cryptoCore.isCryptoKey;
@@ -107,6 +112,8 @@ function keyAlgorithmFor(alg, keyObject) {
       return { name: alg.name, namedCurve: namedCurveOf(keyObject) ?? alg.namedCurve };
     case "Ed25519":
     case "X25519":
+    case "Ed448":
+    case "X448":
       return { name: alg.name };
     case "RSASSA-PKCS1-v1_5":
     case "RSA-PSS":
@@ -127,11 +134,13 @@ async function digest(algorithm, data) {
 const asymmetricUsages = {
   ECDSA: [["sign"], ["verify"]],
   Ed25519: [["sign"], ["verify"]],
+  Ed448: [["sign"], ["verify"]],
   "RSASSA-PKCS1-v1_5": [["sign"], ["verify"]],
   "RSA-PSS": [["sign"], ["verify"]],
   "RSA-OAEP": [["decrypt", "unwrapKey"], ["encrypt", "wrapKey"]],
   ECDH: [["deriveKey", "deriveBits"], []],
   X25519: [["deriveKey", "deriveBits"], []],
+  X448: [["deriveKey", "deriveBits"], []],
 };
 
 async function generateKeyWeb(algorithm, extractable, usages) {
@@ -183,7 +192,7 @@ async function importKeyWeb(format, keyData, algorithm, extractable, usages) {
       keyObject = createSecretKey(Buffer.from(keyData.k, "base64url"));
     } else throw webError(`Unable to import ${alg.name} key with format ${format}`, "NotSupportedError");
   } else if (format === "raw") {
-    const asym = { ECDSA: "ec", ECDH: "ec", Ed25519: "ed25519", X25519: "x25519" }[alg.name];
+    const asym = { ECDSA: "ec", ECDH: "ec", Ed25519: "ed25519", X25519: "x25519", Ed448: "ed448", X448: "x448" }[alg.name];
     if (!asym) throw webError(`Unable to import ${alg.name} key with format raw`, "NotSupportedError");
     try {
       keyObject = keyFromHandle(ops.keyImportRaw(asym, alg.namedCurve ? curveName(alg.namedCurve) : null, bufferSource(keyData, "keyData")));
@@ -302,6 +311,11 @@ function webSignOptions(alg, key) {
       return { digest: shaName(key.algorithm.hash), opts: { padding: constants.RSA_PKCS1_PADDING } };
     case "Ed25519":
       return { digest: null, opts: {} };
+    case "Ed448":
+      if (alg.context !== undefined && bufferSource(alg.context, "context").byteLength !== 0) {
+        throw webError("Non zero-length context is not supported.", "NotSupportedError");
+      }
+      return { digest: null, opts: {} };
     default:
       throw webError("Unrecognized algorithm name", "NotSupportedError");
   }
@@ -339,7 +353,8 @@ async function deriveBitsWeb(algorithm, baseKey, length) {
   let bits;
   switch (alg.name) {
     case "ECDH":
-    case "X25519": {
+    case "X25519":
+    case "X448": {
       if (!isCryptoKey(alg.public)) throw codeError(TypeError, "algorithm.public must be a CryptoKey", "ERR_INVALID_ARG_TYPE");
       try {
         bits = asBuffer(ops.deriveSecret(baseKey[kKeyObject][kHandle], alg.public[kKeyObject][kHandle]));

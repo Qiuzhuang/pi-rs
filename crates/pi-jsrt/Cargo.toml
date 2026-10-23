@@ -63,6 +63,9 @@ universal-hash = "0.5"
 p256 = { version = "0.13", features = ["ecdsa", "ecdh", "pkcs8", "pem"] }
 p384 = { version = "0.13", features = ["ecdsa", "ecdh", "pkcs8", "pem"] }
 p521 = { version = "0.13", features = ["ecdsa", "ecdh", "pkcs8", "pem"] }
+k256 = { version = "0.13", features = ["ecdsa", "ecdh", "pkcs8", "pem"] }
+ed448-goldilocks = "0.9"
+dsa = "0.6"
 ed25519-dalek = "2"
 x25519-dalek = { version = "2", features = ["static_secrets"] }
 pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }

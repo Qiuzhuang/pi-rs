@@ -258,9 +258,26 @@ Object.assign(process, {
     }
     const w = warning instanceof Error ? warning : Object.assign(new Error(String(warning)), { name: type || "Warning" });
     if (code) w.code = code;
+    if (w.name === "DeprecationWarning" && process.noDeprecation) return;
+    if (w.name === "DeprecationWarning" && process.throwDeprecation) throw w;
+    if (nodeMode) {
+      // Node: emitted on the next tick; the default handler prints every warning.
+      process.nextTick(() => {
+        process.emit("warning", w);
+        if (process.execArgv.includes("--no-warnings")) return;
+        let msg = `(${process.release.name}:${process.pid}) ${w.code ? `[${w.code}] ` : ""}${w.name}: ${w.message}`;
+        if (!warnedOnce) {
+          warnedOnce = true;
+          const argv0 = (process.argv0 || "node").split("/").pop().replace(/\.exe$/, "");
+          msg += `\n(Use \`${argv0} --trace-warnings ...\` to show where the warning was created)`;
+        }
+        ops.write(2, `${msg}\n`);
+      });
+      return;
+    }
     if (process.listenerCount("warning") > 0) {
       queueMicrotask(() => process.emit("warning", w));
-    } else if (!process.noDeprecation || w.name !== "DeprecationWarning") {
+    } else {
       ops.write(2, `(pi:${process.pid}) ${code ? `[${code}] ` : ""}${w.name}: ${w.message}\n`);
     }
   },
@@ -383,6 +400,7 @@ if (config.platform === "darwin") {
 // ---------------------------------------------------------------------------
 
 let nodeMode = false;
+let warnedOnce = false;
 
 function unhandledRejectionError(reason) {
   // V8's side-effect-free ToString: primitives as strings, objects as `#<Constructor>`.

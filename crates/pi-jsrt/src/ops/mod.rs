@@ -14,6 +14,7 @@ pub(crate) mod cipher;
 pub(crate) mod crypto;
 pub(crate) mod dgram;
 pub(crate) mod dns;
+pub(crate) mod ed448;
 pub(crate) mod encoding;
 pub(crate) mod fetch;
 pub(crate) mod fs;

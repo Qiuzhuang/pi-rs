@@ -65,7 +65,7 @@ pub(crate) fn session_manager_id(bridge: &Bridge, sm: &Arc<SessionManager>) -> u
 }
 
 /// The session manager a `sm` host call targets (`{ sm: id }`).
-fn session_manager_of(bridge: &Bridge, payload: &Value) -> anyhow::Result<Arc<SessionManager>> {
+pub(crate) fn session_manager_of(bridge: &Bridge, payload: &Value) -> anyhow::Result<Arc<SessionManager>> {
     let id = payload["sm"].as_u64().unwrap_or_default();
     match bridge.session_managers.get(id) {
         Some(SessionManagerRef::Owned(sm)) => Ok(sm),
@@ -217,7 +217,7 @@ pub(crate) async fn dispatch_async(bridge: Arc<Bridge>, op: &str, payload: Value
         "mr.async" => model_registry_async(&bridge, &payload).await,
         "sm.list" => session_manager_list(&bridge, &payload).await,
         "mr.stream" => {
-            let registry = base(&entry(&bridge, &payload)?)?.model_registry()?;
+            let registry = registry_of(&bridge, &payload)?;
             let method = str_arg(&payload, "m");
             let model = serde_json::from_value(arg(&payload, 0))?;
             let context = serde_json::from_value(arg(&payload, 1))?;
@@ -514,8 +514,28 @@ async fn session_manager_list(bridge: &Arc<Bridge>, payload: &Value) -> anyhow::
     Ok(serde_json::to_value(sessions)?)
 }
 
+/// The model registry a `mr` host call targets: `ctx.modelRegistry` (`{ ctx }`) or one created
+/// with `new ModelRegistry(runtime)` (`{ registry }`).
+pub(crate) fn registry_of(bridge: &Bridge, payload: &Value) -> anyhow::Result<Arc<crate::core::model_registry::ModelRegistry>> {
+    if let Some(id) = payload["registry"].as_u64() {
+        return bridge.model_registries.get(id).ok_or_else(|| anyhow::anyhow!("This model registry is no longer available"));
+    }
+    base(&entry(bridge, payload)?)?.model_registry()
+}
+
 fn model_registry_call(bridge: &Arc<Bridge>, payload: &Value) -> anyhow::Result<Value> {
-    let registry = base(&entry(bridge, payload)?)?.model_registry()?;
+    if str_arg(payload, "m") == "new" {
+        let runtime = super::sdk::runtime_of(bridge, &json!({ "runtime": arg(payload, 0) }))?;
+        let registry = Arc::new(crate::core::model_registry::ModelRegistry::new(runtime));
+        return Ok(json!(bridge.model_registries.insert(registry)));
+    }
+    if str_arg(payload, "m") == "release" {
+        if let Some(id) = payload["registry"].as_u64() {
+            bridge.model_registries.remove(id);
+        }
+        return Ok(Value::Null);
+    }
+    let registry = registry_of(bridge, payload)?;
     let method = str_arg(payload, "m");
     let s = |i: usize| arg(payload, i).as_str().unwrap_or_default().to_string();
     Ok(match method.as_str() {
@@ -535,6 +555,7 @@ fn model_registry_call(bridge: &Arc<Bridge>, payload: &Value) -> anyhow::Result<
         "getProviderAuthStatus" => serde_json::to_value(registry.get_provider_auth_status(&s(0)))?,
         "getProviderDisplayName" => json!(registry.get_provider_display_name(&s(0))),
         "getRegisteredProviderIds" => json!(registry.get_registered_provider_ids()),
+        "runtime" => json!(super::sdk::runtime_id(bridge, registry.runtime())),
         "getProvider" => match registry.get_provider(&s(0)) {
             Some(p) => native::provider_to_js(bridge, p),
             None => Value::Null,
@@ -578,7 +599,7 @@ fn model_registry_call(bridge: &Arc<Bridge>, payload: &Value) -> anyhow::Result<
 }
 
 async fn model_registry_async(bridge: &Arc<Bridge>, payload: &Value) -> anyhow::Result<Value> {
-    let registry = base(&entry(bridge, payload)?)?.model_registry()?;
+    let registry = registry_of(bridge, payload)?;
     let method = str_arg(payload, "m");
     Ok(match method.as_str() {
         "refresh" => {

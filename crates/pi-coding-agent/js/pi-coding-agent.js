@@ -20,7 +20,16 @@ import {
 	SessionManager,
 } from "pi-rs:bridge";
 export { ModelRegistry, SessionManager };
-export { SettingsManager } from "pi-rs:sdk";
+export {
+	AgentSession,
+	createAgentSession,
+	createCodemodeExtension,
+	createMcpExtension,
+	createToolSearchExtension,
+	DefaultResourceLoader,
+	ModelRuntime,
+	SettingsManager,
+} from "pi-rs:sdk";
 import { CancellableLoader, Container, Editor, Loader, Spacer, Text, getKeybindings } from "@earendil-works/pi-tui";
 
 const host = (fn, ...args) => u(call("ca", { fn, args }));
@@ -475,13 +484,10 @@ function unavailableFn(name) {
 	};
 }
 
-export const AgentSession = unavailableClass("AgentSession");
 export const AgentSessionRuntime = unavailableClass("AgentSessionRuntime");
 export const ExtensionRunner = unavailableClass("ExtensionRunner");
-export const ModelRuntime = unavailableClass("ModelRuntime");
 export const CredentialSynchronizationError = class extends Error {};
 export const DefaultPackageManager = unavailableClass("DefaultPackageManager");
-export const DefaultResourceLoader = unavailableClass("DefaultResourceLoader");
 export const ProjectTrustStore = unavailableClass("ProjectTrustStore");
 export const InteractiveMode = unavailableClass("InteractiveMode");
 export const RpcClient = unavailableClass("RpcClient");
@@ -509,7 +515,6 @@ export const TreeSelectorComponent = unavailableClass("TreeSelectorComponent");
 export const UserMessageComponent = unavailableClass("UserMessageComponent");
 export const UserMessageSelectorComponent = unavailableClass("UserMessageSelectorComponent");
 
-export const createAgentSession = unavailableFn("createAgentSession");
 export const createAgentSessionFromServices = unavailableFn("createAgentSessionFromServices");
 export const createAgentSessionRuntime = unavailableFn("createAgentSessionRuntime");
 export const createAgentSessionServices = unavailableFn("createAgentSessionServices");
@@ -517,9 +522,6 @@ export const createExtensionRuntime = unavailableFn("createExtensionRuntime");
 export const discoverAndLoadExtensions = unavailableFn("discoverAndLoadExtensions");
 export const wrapRegisteredTool = unavailableFn("wrapRegisteredTool");
 export const wrapRegisteredTools = unavailableFn("wrapRegisteredTools");
-export const createCodemodeExtension = unavailableFn("createCodemodeExtension");
-export const createMcpExtension = unavailableFn("createMcpExtension");
-export const createToolSearchExtension = unavailableFn("createToolSearchExtension");
 // TS: core/event-bus.ts (EventEmitter semantics: handlers run in registration order, async errors are logged).
 export function createEventBus() {
 	let listeners = new Map();

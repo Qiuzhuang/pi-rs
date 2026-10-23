@@ -81,7 +81,7 @@ pub(crate) fn dispatch(bridge: &Arc<Bridge>, rt: &JsRuntime, op: &str, payload: 
         | "tui.markdownTheme" | "renderer.call" | "renderer.result" | "ac" => component::dispatch(bridge, op, payload),
         _ if op.starts_with("builtin.") || op.starts_with("ca") => builtin::dispatch(bridge, op, payload),
         "ai" => provider::dispatch(bridge, op, payload),
-        "settings" | "settings.static" => sdk::dispatch(bridge, op, payload),
+        "settings" | "settings.static" | "rt" | "rl" | "as" => sdk::dispatch(bridge, op, payload),
         _ if op.starts_with("aip.") => native::dispatch(bridge, op, payload),
         _ => Err(anyhow::anyhow!("unknown host call {op}")),
     }
@@ -120,7 +120,9 @@ pub(crate) async fn dispatch_async(bridge: Arc<Bridge>, _rt: JsRuntime, op: Stri
         "tui.clipboard" => component::native_clipboard_call(&payload).await,
         "builtin.execute" | "ca.localBashExec" | "ca.copyToClipboard" | "ca.image" | "ca.compaction" => builtin::dispatch_async(bridge, &op, payload).await,
         "ai.stream" | "stream.next" => provider::dispatch_async(bridge, &op, payload).await,
-        "settings.async" => sdk::dispatch_async(bridge, &op, payload).await,
+        "settings.async" | "rt.async" | "rt.stream" | "rl.async" | "as.async" | "builtin.ext.run" => {
+            sdk::dispatch_async(bridge, &op, payload).await
+        }
         _ if op.starts_with("aip.") => native::dispatch_async(bridge, &op, payload).await,
         _ => Err(anyhow::anyhow!("unknown async host call {op}")),
     }
@@ -609,6 +611,10 @@ pub(crate) fn js_tool_definition(bridge: &Arc<Bridge>, tool: &Value) -> anyhow::
     let (render_call, render_result) = component::tool_renderers(bridge, &tool["renderCall"], &tool["renderResult"])?;
     def.render_call = render_call;
     def.render_result = render_result;
+    // `session.getToolDefinition()` hands back the extension's own tool object.
+    if let Some(object) = bridge.handle(&tool["object"]) {
+        bridge.origins.record(&def.execute, object);
+    }
     Ok(def)
 }
 

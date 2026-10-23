@@ -203,6 +203,20 @@ pub(crate) struct Bridge {
     pub(crate) origins: Origins,
     /// Settings managers created from JavaScript (`SettingsManager.create()`, ...).
     pub(crate) settings_managers: Registry<Arc<crate::core::settings_manager::SettingsManager>>,
+    /// Model runtimes handed to JavaScript (`ModelRuntime.create()`, `ctx.modelRegistry.runtime`).
+    pub(crate) model_runtimes: Registry<Arc<crate::core::model_runtime::ModelRuntime>>,
+    pub(crate) model_runtime_ids: Mutex<HashMap<usize, u64>>,
+    /// Model registries created from JavaScript (`new ModelRegistry(runtime)`).
+    pub(crate) model_registries: Registry<Arc<crate::core::model_registry::ModelRegistry>>,
+    /// Ids of host-owned settings managers by address (`session.settingsManager`).
+    pub(crate) settings_manager_ids: Mutex<HashMap<usize, u64>>,
+    /// Resource loaders created from JavaScript (`new DefaultResourceLoader()`).
+    pub(crate) resource_loaders: Registry<Arc<crate::core::resource_loader::DefaultResourceLoader>>,
+    /// Agent sessions created from JavaScript (`createAgentSession()`).
+    pub(crate) agent_sessions: Registry<Arc<crate::core::agent_session::AgentSession>>,
+    /// Rust tool-call hooks handed to JavaScript and hook calls in progress (`session.agent`).
+    pub(crate) tool_hooks: Registry<sdk::ToolHook>,
+    pub(crate) hook_contexts: Registry<sdk::HookContext>,
     /// Unregisters the JavaScript session-resource cleanup (`registerSessionResourceCleanup`).
     session_cleanup: Mutex<Option<Box<dyn FnOnce() + Send + Sync>>>,
     /// Ordered executor for UI calls made from JS (see [`Bridge::ui_dispatch`]).
@@ -524,6 +538,14 @@ impl JsExtensionHost {
             native_provider_ids: Mutex::new(HashMap::new()),
             origins: Origins::default(),
             settings_managers: Registry::new(),
+            model_runtimes: Registry::new(),
+            model_runtime_ids: Mutex::new(HashMap::new()),
+            model_registries: Registry::new(),
+            settings_manager_ids: Mutex::new(HashMap::new()),
+            resource_loaders: Registry::new(),
+            agent_sessions: Registry::new(),
+            tool_hooks: Registry::new(),
+            hook_contexts: Registry::new(),
             session_cleanup: Mutex::new(None),
             ui_tx: Mutex::new(ui_tx),
         });
@@ -541,6 +563,8 @@ impl JsExtensionHost {
         // pi-ai's glue defines the stream class used by host-backed streams. The entry point itself
         // also re-exports TypeBox's `Type`, which loads only when an extension imports pi-ai or TypeBox.
         rt.import("pi-rs:ai-rust").await.map_err(js_error)?;
+        // `ctx.modelRegistry.runtime` hands out the SDK's ModelRuntime class.
+        rt.import("pi-rs:sdk").await.map_err(js_error)?;
         Ok(JsExtensionHost { bridge })
     }
 

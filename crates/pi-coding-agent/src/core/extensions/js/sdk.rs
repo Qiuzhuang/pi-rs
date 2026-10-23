@@ -20,6 +20,9 @@ pub(crate) fn dispatch(bridge: &Arc<Bridge>, op: &str, payload: Value) -> anyhow
     match op {
         "settings" => settings_call(bridge, &payload),
         "settings.static" => settings_static(bridge, &payload),
+        "rt" => runtime_call(bridge, &payload),
+        "rl" => loader_call(bridge, &payload),
+        "as" => session_call(bridge, &payload),
         _ => Err(anyhow::anyhow!("unknown host call {op}")),
     }
 }
@@ -27,6 +30,15 @@ pub(crate) fn dispatch(bridge: &Arc<Bridge>, op: &str, payload: Value) -> anyhow
 pub(crate) async fn dispatch_async(bridge: Arc<Bridge>, op: &str, payload: Value) -> anyhow::Result<Value> {
     match op {
         "settings.async" => settings_async(&bridge, &payload).await,
+        "rt.async" => runtime_async(&bridge, &payload).await,
+        "rt.stream" => runtime_stream(&bridge, &payload),
+        "rl.async" => {
+            let loader = loader_of(&bridge, &payload)?;
+            loader.reload(None).await?;
+            Ok(Value::Null)
+        }
+        "as.async" => session_async(&bridge, &payload).await,
+        "builtin.ext.run" => run_builtin_extension(&bridge, &payload).await,
         _ => Err(anyhow::anyhow!("unknown async host call {op}")),
     }
 }
@@ -308,4 +320,1150 @@ async fn settings_async(bridge: &Arc<Bridge>, payload: &Value) -> anyhow::Result
 
         _ => return Err(anyhow::anyhow!("settingsManager.{method} is not a function")),
     })
+}
+
+// ---------------------------------------------------------------------------
+// ModelRuntime
+// ---------------------------------------------------------------------------
+
+use crate::core::model_runtime::{
+    CreateModelRuntimeOptions, ModelRuntime, ModelRuntimeAuthOverrides, ModelRuntimeGetAuthProviderOrModel,
+    ModelRuntimeResolveModelOptions,
+};
+
+/// The JS id of a model runtime; one id (one JS object) per runtime.
+pub(crate) fn runtime_id(bridge: &Bridge, runtime: &Arc<ModelRuntime>) -> u64 {
+    let key = Arc::as_ptr(runtime) as usize;
+    let mut ids = bridge.model_runtime_ids.lock();
+    if let Some(id) = ids.get(&key)
+        && bridge.model_runtimes.get(*id).is_some()
+    {
+        return *id;
+    }
+    let id = bridge.model_runtimes.insert(runtime.clone());
+    ids.insert(key, id);
+    id
+}
+
+pub(crate) fn runtime_of(bridge: &Bridge, payload: &Value) -> anyhow::Result<Arc<ModelRuntime>> {
+    bridge
+        .model_runtimes
+        .get(payload["runtime"].as_u64().unwrap_or_default())
+        .ok_or_else(|| anyhow::anyhow!("This model runtime is no longer available"))
+}
+
+fn auth_options(bridge: &Bridge, value: &Value) -> crate::compat::AuthOperationOptions {
+    crate::compat::AuthOperationOptions { signal: bridge.token(&value["signal"]) }
+}
+
+fn opt_str(value: &Value) -> Option<&str> {
+    value.as_str()
+}
+
+fn request_options(bridge: &Bridge, value: &Value) -> Option<pi_ai::models::ModelsRequestOptions> {
+    (!value.is_null()).then(|| super::provider::stream_options_from_json(bridge, value).into())
+}
+
+fn runtime_call(bridge: &Arc<Bridge>, payload: &Value) -> anyhow::Result<Value> {
+    let method = str_arg(payload, "m");
+    if method == "release" {
+        bridge.model_runtimes.remove(payload["runtime"].as_u64().unwrap_or_default());
+        return Ok(Value::Null);
+    }
+    let runtime = runtime_of(bridge, payload)?;
+    let s = |i: usize| arg(payload, i).as_str().unwrap_or_default().to_string();
+    let a = |i: usize| arg(payload, i);
+    fn de<T: serde::de::DeserializeOwned>(value: Value) -> anyhow::Result<T> {
+        serde_json::from_value(value).map_err(|e| anyhow::anyhow!("Invalid argument: {e}"))
+    }
+    let provider = |p: Option<Arc<dyn pi_ai::models::Provider>>| match p {
+        Some(p) => super::native::provider_to_js(bridge, p),
+        None => Value::Null,
+    };
+    Ok(match method.as_str() {
+        "getProviders" => Value::Array(
+            runtime.get_providers().into_iter().map(|p| super::native::provider_to_js(bridge, p)).collect(),
+        ),
+        "getProvider" => provider(runtime.get_provider(&s(0))),
+        "getModels" => serde_json::to_value(runtime.get_models(opt_str(&a(0))))?,
+        "getModel" => serde_json::to_value(runtime.get_model(&s(0), &s(1)))?,
+        "getModelsOfType" => serde_json::to_value(runtime.get_models_of_type(de(a(0))?, opt_str(&a(1))))?,
+        "getModelOfType" => serde_json::to_value(runtime.get_model_of_type(de(a(0))?, &s(1), &s(2)))?,
+        "getAllModels" => serde_json::to_value(runtime.get_all_models(opt_str(&a(0))))?,
+        "getAvailableSnapshot" => serde_json::to_value(runtime.get_available_snapshot())?,
+        "getError" => json!(runtime.get_error()),
+        "getRegisteredProviderConfig" => match runtime.get_registered_provider_config_revision(&s(0)) {
+            Some((rev, config)) => json!({ "rev": rev, "config": super::native::provider_config_to_js(bridge, &config) }),
+            None => Value::Null,
+        },
+        "getRegisteredProviderIds" => json!(runtime.get_registered_provider_ids()),
+        "getRegisteredNativeProvider" => provider(runtime.get_registered_native_provider(&s(0))),
+        "getCompatibilityRequestConfig" => {
+            let config = runtime.get_compatibility_request_config(&de(a(0))?)?;
+            let mut out = json!({ "authHeader": config.auth_header });
+            if let Some(h) = &config.headers {
+                out["headers"] = serde_json::to_value(h)?;
+            }
+            out
+        }
+        "isUsingOAuth" => json!(runtime.is_using_o_auth(&s(0))),
+        "isUsingSubscription" => json!(runtime.is_using_subscription(&s(0))),
+        "hasConfiguredAuth" => json!(runtime.has_configured_auth(&s(0))),
+        "getProviderAuthStatus" => serde_json::to_value(runtime.get_provider_auth_status(&s(0)))?,
+        "registerNativeProvider" => {
+            runtime.register_native_provider(super::native::native_provider(bridge, &a(0))?)?;
+            Value::Null
+        }
+        "registerProvider" => {
+            let config = super::provider::js_provider_config(bridge, &a(1))?;
+            runtime.register_provider(&s(0), &config)?;
+            Value::Null
+        }
+        "unregisterProvider" => {
+            runtime.unregister_provider(&s(0));
+            Value::Null
+        }
+        "registerVirtualModel" => {
+            runtime.register_virtual_model(&super::provider::js_virtual_model_definition(bridge, &a(0))?)?;
+            Value::Null
+        }
+        "unregisterVirtualModel" => {
+            runtime.unregister_virtual_model(&s(0), &s(1));
+            Value::Null
+        }
+        "getPhysicalModel" => serde_json::to_value(runtime.get_physical_model(&s(0), &s(1)))?,
+        _ => return Err(anyhow::anyhow!("modelRuntime.{method} is not a function")),
+    })
+}
+
+fn runtime_stream(bridge: &Arc<Bridge>, payload: &Value) -> anyhow::Result<Value> {
+    let runtime = runtime_of(bridge, payload)?;
+    let method = str_arg(payload, "m");
+    let model = serde_json::from_value(arg(payload, 0))?;
+    let options = request_options(bridge, &arg(payload, 2));
+    let stream = match method.as_str() {
+        "streamDeferred" => runtime.stream_deferred(model, serde_json::from_value(arg(payload, 1))?, options),
+        "streamSimple" => runtime.stream_simple(model, serde_json::from_value(arg(payload, 1))?, options),
+        _ => runtime.stream(model, serde_json::from_value(arg(payload, 1))?, options),
+    };
+    Ok(json!(super::provider::register_stream(bridge, stream)))
+}
+
+async fn runtime_async(bridge: &Arc<Bridge>, payload: &Value) -> anyhow::Result<Value> {
+    let method = str_arg(payload, "m");
+    if method == "create" {
+        let o = arg(payload, 0);
+        let options = CreateModelRuntimeOptions {
+            auth_path: o["authPath"].as_str().map(str::to_string),
+            // TS `modelsPath: null` disables models.json (the Rust runtime takes an empty path).
+            models_path: if o.get("modelsPath").is_some_and(Value::is_null) {
+                Some(String::new())
+            } else {
+                o["modelsPath"].as_str().map(str::to_string)
+            },
+            models_store_path: o["modelsStorePath"].as_str().map(str::to_string),
+            allow_model_network: o["allowModelNetwork"].as_bool(),
+            model_refresh_timeout_ms: o["modelRefreshTimeoutMs"].as_f64().map(|v| v as i64),
+            catalog_base_url: o["catalogBaseUrl"].as_str().map(str::to_string),
+            signal: bridge.token(&o["signal"]),
+            refresh_on_create: o["refreshOnCreate"].as_bool(),
+            ..Default::default()
+        };
+        let runtime = ModelRuntime::create(Some(&options)).await?;
+        return Ok(json!(runtime_id(bridge, &runtime)));
+    }
+    let runtime = runtime_of(bridge, payload)?;
+    let s = |i: usize| arg(payload, i).as_str().unwrap_or_default().to_string();
+    let a = |i: usize| arg(payload, i);
+    Ok(match method.as_str() {
+        "getAvailableOfType" => serde_json::to_value(
+            runtime
+                .get_available_of_type(serde_json::from_value(a(0))?, opt_str(&a(1)), Some(&auth_options(bridge, &a(2))))
+                .await?,
+        )?,
+        "getAllAvailable" => {
+            serde_json::to_value(runtime.get_all_available(opt_str(&a(0)), Some(&auth_options(bridge, &a(1)))).await?)?
+        }
+        "checkAuth" => match runtime.check_auth(&s(0), Some(&auth_options(bridge, &a(1)))).await? {
+            Some(check) => super::native::auth_check_to_js(&check),
+            None => Value::Null,
+        },
+        "getAvailable" => {
+            serde_json::to_value(runtime.get_available(opt_str(&a(0)), Some(&auth_options(bridge, &a(1)))).await?)?
+        }
+        "getAuth" => {
+            let target = match a(0) {
+                Value::String(id) => ModelRuntimeGetAuthProviderOrModel::String(id),
+                model => ModelRuntimeGetAuthProviderOrModel::AnyModel(serde_json::from_value(model)?),
+            };
+            let o = a(1);
+            let overrides = ModelRuntimeAuthOverrides {
+                signal: bridge.token(&o["signal"]),
+                api_key: o["apiKey"].as_str().map(str::to_string),
+                env: super::api::opt(&o["env"])?,
+                min_o_auth_validity_ms: o["minOAuthValidityMs"].as_f64().map(|v| v as i64),
+            };
+            match runtime.get_auth(&target, Some(&overrides)).await? {
+                Some(auth) => super::native::auth_result_to_js(&auth),
+                None => Value::Null,
+            }
+        }
+        "setRuntimeApiKey" => {
+            runtime.set_runtime_api_key(&s(0), &s(1), Some(&auth_options(bridge, &a(2)))).await?;
+            Value::Null
+        }
+        "removeRuntimeApiKey" => {
+            runtime.remove_runtime_api_key(&s(0), Some(&auth_options(bridge, &a(1)))).await?;
+            Value::Null
+        }
+        "listCredentials" => serde_json::to_value(runtime.list_credentials(Some(&auth_options(bridge, &a(0)))).await?)?,
+        "complete" | "completeSimple" => {
+            let model = serde_json::from_value(a(0))?;
+            let context = serde_json::from_value(a(1))?;
+            let options = request_options(bridge, &a(2));
+            let message = if method == "complete" {
+                runtime.complete(model, context, options).await
+            } else {
+                runtime.complete_simple(model, context, options).await
+            };
+            serde_json::to_value(message)?
+        }
+        "fetchDeferred" => serde_json::to_value(
+            runtime.fetch_deferred(serde_json::from_value(a(0))?, serde_json::from_value(a(1))?, request_options(bridge, &a(2))).await,
+        )?,
+        "cancelDeferred" => {
+            runtime
+                .cancel_deferred(serde_json::from_value(a(0))?, serde_json::from_value(a(1))?, request_options(bridge, &a(2)))
+                .await?;
+            Value::Null
+        }
+        "generateImages" => serde_json::to_value(
+            runtime.generate_images(serde_json::from_value(a(0))?, serde_json::from_value(a(1))?, request_options(bridge, &a(2))).await,
+        )?,
+        "classify" => serde_json::to_value(
+            runtime.classify(serde_json::from_value(a(0))?, serde_json::from_value(a(1))?, request_options(bridge, &a(2))).await,
+        )?,
+        "login" => {
+            let interaction = super::native::js_interaction(bridge, &json!({ "interaction": a(2), "signal": payload["signal"] }))?;
+            let o = a(3);
+            let options = o.is_object().then(|| pi_ai::auth::types::LoginOptions {
+                get_device_id: bridge.handle(&o["getDeviceId"]).map(|h| {
+                    Arc::new(move || h.call_blocking(vec![]).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default())
+                        as Arc<dyn Fn() -> String + Send + Sync>
+                }),
+                agent_name: o["agentName"].as_str().map(str::to_string),
+            });
+            let credential = runtime
+                .login(&s(0), serde_json::from_value(a(1))?, interaction.interaction, Some(interaction.signal), options)
+                .await?;
+            serde_json::to_value(credential)?
+        }
+        "logout" => {
+            runtime.logout(&s(0), Some(&auth_options(bridge, &a(1)))).await?;
+            Value::Null
+        }
+        "refresh" => {
+            let o = a(0);
+            let result = runtime
+                .refresh(Some(pi_ai::models::ModelsRefreshOptions {
+                    allow_network: o["allowNetwork"].as_bool(),
+                    providers: super::api::opt(&o["providers"])?,
+                    force: o["force"].as_bool(),
+                    signal: bridge.token(&o["signal"]),
+                }))
+                .await?;
+            json!({ "aborted": result.aborted, "errors": result.errors })
+        }
+        "resolveModel" => {
+            let o = a(2);
+            let options = ModelRuntimeResolveModelOptions {
+                reason: serde_json::from_value(o["reason"].clone())?,
+                thinking_level: serde_json::from_value(o["thinkingLevel"].clone())?,
+                signal: bridge.token(&o["signal"]),
+                failed: super::api::opt(&o["failed"])?,
+                state: o.get("state").filter(|v| !v.is_null()).cloned(),
+            };
+            let messages: Vec<pi_ai::types::Message> = serde_json::from_value(a(1))?;
+            serde_json::to_value(runtime.resolve_model(serde_json::from_value(a(0))?, &messages, &options).await?)?
+        }
+        _ => return Err(anyhow::anyhow!("modelRuntime.{method} is not a function")),
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Extension factories (DefaultResourceLoader `extensionFactories`, built-in factories)
+// ---------------------------------------------------------------------------
+
+use crate::core::extensions::types::{
+    ExtensionAPIRef, ExtensionFactory, InlineExtension, LoadExtensionsResult, NamedInlineExtension,
+};
+
+/// A JavaScript extension factory `(pi) => void | Promise<void>` as a Rust factory.
+pub(crate) fn js_extension_factory(bridge: &Arc<Bridge>, handle: pi_jsrt::JsHandle) -> ExtensionFactory {
+    let bridge = bridge.clone();
+    Arc::new(move |api: ExtensionAPIRef| {
+        let bridge = bridge.clone();
+        let handle = handle.clone();
+        Box::pin(async move {
+            let api_id = bridge.apis.insert(api);
+            bridge.glue_call("runFactory", vec![handle.to_value(), json!(api_id)]).await?;
+            Ok(())
+        })
+    })
+}
+
+/// A Rust built-in extension factory (`createCodemodeExtension()` and friends).
+fn builtin_extension_factory(name: &str, options: &Value) -> anyhow::Result<ExtensionFactory> {
+    Ok(match name {
+        "codemode" => {
+            let options: Option<crate::extensions::codemode::CodemodeExtensionOptions> = super::api::opt(options)?;
+            crate::extensions::codemode::create_codemode_extension(options.as_ref())
+        }
+        "tool-search" => crate::extensions::tool_search::create_tool_search_extension(),
+        "mcp" => {
+            let mut mcp = crate::extensions::mcp::McpExtensionOptions::default();
+            if let Some(path) = options["logPath"].as_str() {
+                mcp.log_path = Some(path.to_string());
+            }
+            crate::extensions::mcp::create_mcp_extension(Some(&mcp))?
+        }
+        other => anyhow::bail!("unknown built-in extension {other}"),
+    })
+}
+
+/// An extension factory value from JavaScript: a function, or a built-in factory marker.
+fn factory_from_js(bridge: &Arc<Bridge>, value: &Value) -> anyhow::Result<ExtensionFactory> {
+    if let Some(name) = value["$piBuiltinExtension"].as_str() {
+        return builtin_extension_factory(name, &value["options"]);
+    }
+    let handle = bridge.handle(value).ok_or_else(|| anyhow::anyhow!("extension factory must be a function"))?;
+    Ok(js_extension_factory(bridge, handle))
+}
+
+/// `createCodemodeExtension()(pi)` called directly by an extension: run the Rust built-in factory
+/// against that extension's API.
+async fn run_builtin_extension(bridge: &Arc<Bridge>, payload: &Value) -> anyhow::Result<Value> {
+    let api = bridge
+        .apis
+        .get(payload["api"].as_u64().unwrap_or_default())
+        .ok_or_else(|| anyhow::anyhow!("built-in extension factories expect the pi object of an extension"))?;
+    let factory = builtin_extension_factory(&str_arg(payload, "name"), &payload["options"])?;
+    factory(api).await?;
+    Ok(Value::Null)
+}
+
+// ---------------------------------------------------------------------------
+// DefaultResourceLoader
+// ---------------------------------------------------------------------------
+
+use crate::core::resource_loader::{DefaultResourceLoader, DefaultResourceLoaderOptions, ResourceLoader};
+
+fn call_js_blocking<T: serde::de::DeserializeOwned>(handle: &pi_jsrt::JsHandle, arg: Value) -> Option<T> {
+    let value = handle.call_blocking(vec![arg]).ok()?;
+    serde_json::from_value(value).ok()
+}
+
+/// A loaded extension as the TS `Extension` object JavaScript sees (`index` maps it back).
+fn extension_to_js(index: usize, extension: &crate::core::extensions::types::ExtensionRef) -> Value {
+    let e = extension.read();
+    let source = |s: &crate::core::source_info::SourceInfo| serde_json::to_value(s).unwrap_or(Value::Null);
+    let tools: serde_json::Map<String, Value> = e
+        .tools
+        .iter()
+        .map(|(name, tool)| {
+            let d = &tool.definition;
+            let mut definition = json!({
+                "name": d.name,
+                "label": d.label,
+                "description": d.description,
+                "parameters": d.parameters,
+            });
+            if let Some(p) = &d.prompt_snippet {
+                definition["promptSnippet"] = json!(p);
+            }
+            if let Some(g) = &d.prompt_guidelines {
+                definition["promptGuidelines"] = json!(g);
+            }
+            if let Some(a) = d.default_active {
+                definition["defaultActive"] = json!(a);
+            }
+            if let Some(x) = &d.exposure {
+                definition["exposure"] = serde_json::to_value(x).unwrap_or(Value::Null);
+            }
+            (name.clone(), json!({ "definition": definition, "sourceInfo": source(&tool.source_info) }))
+        })
+        .collect();
+    let commands: serde_json::Map<String, Value> = e
+        .commands
+        .iter()
+        .map(|(name, c)| {
+            let mut v = json!({ "name": c.name, "sourceInfo": source(&c.source_info) });
+            if let Some(d) = &c.description {
+                v["description"] = json!(d);
+            }
+            (name.clone(), v)
+        })
+        .collect();
+    let flags: serde_json::Map<String, Value> =
+        e.flags.iter().map(|(name, f)| (name.clone(), serde_json::to_value(f).unwrap_or(Value::Null))).collect();
+    let shortcuts: serde_json::Map<String, Value> = e
+        .shortcuts
+        .iter()
+        .map(|(key, s)| {
+            let mut v = json!({ "shortcut": s.shortcut, "extensionPath": s.extension_path });
+            if let Some(d) = &s.description {
+                v["description"] = json!(d);
+            }
+            (key.to_string(), v)
+        })
+        .collect();
+    let handlers: serde_json::Map<String, Value> =
+        e.handlers.iter().map(|(event, list)| (event.clone(), json!(list.len()))).collect();
+    let mut out = json!({
+        "$index": index,
+        "path": e.path,
+        "resolvedPath": e.resolved_path,
+        "sourceInfo": source(&e.source_info),
+        "tools": tools,
+        "commands": commands,
+        "flags": flags,
+        "shortcuts": shortcuts,
+        "handlers": handlers,
+        "messageRenderers": e.message_renderers.keys().collect::<Vec<_>>(),
+    });
+    if let Some(h) = e.hidden {
+        out["hidden"] = json!(h);
+    }
+    if let Some(r) = e.replaceable {
+        out["replaceable"] = json!(r);
+    }
+    out
+}
+
+/// `LoadExtensionsResult` as JavaScript sees it (`extensionsResultFromHost` in pi-sdk.js).
+pub(crate) fn extensions_result_to_js(result: &LoadExtensionsResult) -> Value {
+    let mut out = json!({
+        "extensions": result.extensions.iter().enumerate().map(|(i, e)| extension_to_js(i, e)).collect::<Vec<_>>(),
+        "errors": serde_json::to_value(&result.errors).unwrap_or(Value::Null),
+    });
+    if let Some(w) = &result.warnings {
+        out["warnings"] = serde_json::to_value(w).unwrap_or(Value::Null);
+    }
+    out
+}
+
+fn loader_options(bridge: &Arc<Bridge>, o: &Value) -> anyhow::Result<DefaultResourceLoaderOptions> {
+    let opt_paths = |key: &str| -> anyhow::Result<Option<Vec<String>>> { super::api::opt(&o[key]) };
+    let mut options = DefaultResourceLoaderOptions {
+        cwd: o["cwd"].as_str().map(str::to_string).unwrap_or_else(|| bridge.cwd.clone()),
+        agent_dir: o["agentDir"].as_str().map(str::to_string).unwrap_or_else(crate::config::get_agent_dir),
+        settings_manager: match o["settingsManager"].as_u64() {
+            Some(id) => Some(bridge.settings_managers.get(id).ok_or_else(|| anyhow::anyhow!("unknown settings manager"))?),
+            None => None,
+        },
+        additional_extension_paths: opt_paths("additionalExtensionPaths")?,
+        additional_skill_paths: opt_paths("additionalSkillPaths")?,
+        additional_prompt_template_paths: opt_paths("additionalPromptTemplatePaths")?,
+        additional_theme_paths: opt_paths("additionalThemePaths")?,
+        no_extensions: o["noExtensions"].as_bool(),
+        disabled_builtin_extensions: opt_paths("disabledBuiltinExtensions")?,
+        no_skills: o["noSkills"].as_bool(),
+        no_prompt_templates: o["noPromptTemplates"].as_bool(),
+        no_themes: o["noThemes"].as_bool(),
+        no_context_files: o["noContextFiles"].as_bool(),
+        system_prompt: o["systemPrompt"].as_str().map(str::to_string),
+        append_system_prompt: match &o["appendSystemPrompt"] {
+            Value::String(s) => Some(vec![s.clone()]),
+            other => super::api::opt(other)?,
+        },
+        ..Default::default()
+    };
+    if let Some(entries) = o["extensionFactories"].as_array() {
+        let mut factories = Vec::new();
+        for entry in entries {
+            if entry.get("factory").is_some() {
+                factories.push(InlineExtension::Named(NamedInlineExtension {
+                    name: str_arg(entry, "name"),
+                    factory: factory_from_js(bridge, &entry["factory"])?,
+                    hidden: entry["hidden"].as_bool(),
+                    replaceable: entry["replaceable"].as_bool(),
+                    builtin: entry["builtin"].as_bool(),
+                }));
+            } else {
+                factories.push(InlineExtension::Factory(factory_from_js(bridge, entry)?));
+            }
+        }
+        options.extension_factories = Some(factories);
+    }
+    if let Some(h) = bridge.handle(&o["systemPromptOverride"]) {
+        options.system_prompt_override = Some(Arc::new(move |base: Option<String>| {
+            h.call_blocking(vec![json!(base)]).ok().and_then(|v| v.as_str().map(str::to_string))
+        }));
+    }
+    if let Some(h) = bridge.handle(&o["appendSystemPromptOverride"]) {
+        options.append_system_prompt_override = Some(Arc::new(move |base: Vec<String>| {
+            call_js_blocking(&h, json!(base.clone())).unwrap_or(base)
+        }));
+    }
+    if let Some(h) = bridge.handle(&o["skillsOverride"]) {
+        options.skills_override = Some(Arc::new(move |base| {
+            let value = serde_json::to_value(&base).unwrap_or(Value::Null);
+            call_js_blocking(&h, value).unwrap_or(base)
+        }));
+    }
+    if let Some(h) = bridge.handle(&o["promptsOverride"]) {
+        options.prompts_override = Some(Arc::new(move |base| {
+            let value = serde_json::to_value(&base).unwrap_or(Value::Null);
+            call_js_blocking(&h, value).unwrap_or(base)
+        }));
+    }
+    if let Some(h) = bridge.handle(&o["agentsFilesOverride"]) {
+        options.agents_files_override = Some(Arc::new(move |base| {
+            let value = serde_json::to_value(&base).unwrap_or(Value::Null);
+            call_js_blocking(&h, value).unwrap_or(base)
+        }));
+    }
+    if let Some(h) = bridge.handle(&o["extensionsOverride"]) {
+        let b = Arc::downgrade(bridge);
+        options.extensions_override = Some(Arc::new(move |base: LoadExtensionsResult| {
+            let Some(bridge) = b.upgrade() else { return base };
+            let Ok(value) = bridge.glue_call_blocking("invokeExtensionsOverride", vec![h.to_value(), extensions_result_to_js(&base)])
+            else {
+                return base;
+            };
+            let extensions = value["extensions"]
+                .as_array()
+                .map(|list| {
+                    list.iter()
+                        .filter_map(|e| e["$index"].as_u64().and_then(|i| base.extensions.get(i as usize).cloned()))
+                        .collect()
+                })
+                .unwrap_or_else(|| base.extensions.clone());
+            let errors = super::api::opt(&value["errors"]).ok().flatten().unwrap_or_else(|| base.errors.clone());
+            LoadExtensionsResult { extensions, errors, warnings: base.warnings.clone(), runtime: base.runtime.clone() }
+        }));
+    }
+    Ok(options)
+}
+
+fn loader_of(bridge: &Bridge, payload: &Value) -> anyhow::Result<Arc<DefaultResourceLoader>> {
+    bridge
+        .resource_loaders
+        .get(payload["id"].as_u64().unwrap_or_default())
+        .ok_or_else(|| anyhow::anyhow!("This resource loader is no longer available"))
+}
+
+fn loader_call(bridge: &Arc<Bridge>, payload: &Value) -> anyhow::Result<Value> {
+    let method = str_arg(payload, "m");
+    match method.as_str() {
+        "new" => {
+            let options = loader_options(bridge, &arg(payload, 0))?;
+            return Ok(json!(bridge.resource_loaders.insert(Arc::new(DefaultResourceLoader::new(&options)))));
+        }
+        "release" => {
+            bridge.resource_loaders.remove(payload["id"].as_u64().unwrap_or_default());
+            return Ok(Value::Null);
+        }
+        _ => {}
+    }
+    let loader = loader_of(bridge, payload)?;
+    Ok(match method.as_str() {
+        "getExtensions" => extensions_result_to_js(&loader.get_extensions()),
+        "getSkills" => serde_json::to_value(loader.get_skills())?,
+        "getPrompts" => serde_json::to_value(loader.get_prompts())?,
+        "getThemes" => {
+            let themes = loader.get_themes();
+            json!({
+                "themes": themes.themes.iter().map(|t| json!({ "name": t.name(), "sourcePath": t.source_path() })).collect::<Vec<_>>(),
+                "diagnostics": serde_json::to_value(&themes.diagnostics)?,
+            })
+        }
+        "getAgentsFiles" => serde_json::to_value(loader.get_agents_files())?,
+        "getSystemPrompt" => json!(loader.get_system_prompt()),
+        "getAppendSystemPrompt" => json!(loader.get_append_system_prompt()),
+        "extendResources" => {
+            loader.extend_resources(&serde_json::from_value(arg(payload, 0))?);
+            Value::Null
+        }
+        _ => return Err(anyhow::anyhow!("resourceLoader.{method} is not a function")),
+    })
+}
+
+// ---------------------------------------------------------------------------
+// createAgentSession and AgentSession
+// ---------------------------------------------------------------------------
+
+use crate::core::agent_session::{AgentSession, ExtensionBindings, ModelMutationOptions, PromptOptions};
+use crate::core::sdk::{CreateAgentSessionOptions, create_agent_session};
+
+fn session_of(bridge: &Bridge, payload: &Value) -> anyhow::Result<Arc<AgentSession>> {
+    bridge
+        .agent_sessions
+        .get(payload["id"].as_u64().unwrap_or_default())
+        .ok_or_else(|| anyhow::anyhow!("This agent session is no longer available"))
+}
+
+/// The JS id of a settings manager the host owns (one id per manager).
+fn settings_id(bridge: &Bridge, settings: &Arc<SettingsManager>) -> u64 {
+    let key = Arc::as_ptr(settings) as usize;
+    let mut ids = bridge.settings_manager_ids.lock();
+    if let Some(id) = ids.get(&key)
+        && bridge.settings_managers.get(*id).is_some_and(|s| Arc::ptr_eq(&s, settings))
+    {
+        return *id;
+    }
+    let id = bridge.settings_managers.insert(settings.clone());
+    ids.insert(key, id);
+    id
+}
+
+fn agent_state_to_js(state: &pi_agent::types::AgentState) -> Value {
+    let tools: Vec<Value> = state
+        .tools
+        .iter()
+        .map(|t| json!({ "name": t.name(), "label": t.label(), "description": t.description(), "parameters": t.parameters() }))
+        .collect();
+    let mut out = json!({
+        "model": serde_json::to_value(&state.model).unwrap_or(Value::Null),
+        "thinkingLevel": serde_json::to_value(state.thinking_level).unwrap_or(Value::Null),
+        "tools": tools,
+        "messages": serde_json::to_value(&state.messages).unwrap_or(Value::Null),
+        "isStreaming": state.is_streaming,
+        "pendingToolCalls": state.pending_tool_calls.iter().collect::<Vec<_>>(),
+    });
+    if let Some(m) = &state.streaming_message {
+        out["streamingMessage"] = serde_json::to_value(m).unwrap_or(Value::Null);
+    }
+    if let Some(e) = &state.error_message {
+        out["errorMessage"] = json!(e);
+    }
+    out
+}
+
+fn prompt_options(value: &Value) -> anyhow::Result<PromptOptions> {
+    Ok(PromptOptions {
+        expand_prompt_templates: value["expandPromptTemplates"].as_bool(),
+        images: super::api::opt(&value["images"])?,
+        streaming_behavior: super::api::opt(&value["streamingBehavior"])?,
+        source: super::api::opt(&value["source"])?,
+        preflight_result: None,
+    })
+}
+
+fn create_options(bridge: &Arc<Bridge>, o: &Value) -> anyhow::Result<CreateAgentSessionOptions> {
+    let model_runtime = match o["modelRuntime"].as_u64() {
+        Some(id) => Some(bridge.model_runtimes.get(id).ok_or_else(|| anyhow::anyhow!("unknown model runtime"))?),
+        // The pre-0.80.8 `modelRegistry` option: its runtime.
+        None => match &o["modelRegistry"] {
+            Value::Null => None,
+            target => Some(super::context::registry_of(bridge, target)?.runtime().clone()),
+        },
+    };
+    let custom_tools = match o["customTools"].as_array() {
+        Some(tools) => Some(tools.iter().map(|t| super::api::js_tool_definition(bridge, t)).collect::<anyhow::Result<Vec<_>>>()?),
+        None => None,
+    };
+    Ok(CreateAgentSessionOptions {
+        cwd: o["cwd"].as_str().map(str::to_string),
+        agent_dir: o["agentDir"].as_str().map(str::to_string),
+        model_runtime,
+        model: super::api::opt(&o["model"])?,
+        thinking_level: super::api::opt(&o["thinkingLevel"])?,
+        scoped_models: super::api::opt(&o["scopedModels"])?,
+        no_tools: super::api::opt(&o["noTools"])?,
+        tools: super::api::opt(&o["tools"])?,
+        exclude_tools: super::api::opt(&o["excludeTools"])?,
+        custom_tools,
+        resource_loader: match o["resourceLoader"].as_u64() {
+            Some(id) => Some(bridge.resource_loaders.get(id).ok_or_else(|| anyhow::anyhow!("unknown resource loader"))? as Arc<dyn ResourceLoader>),
+            None => None,
+        },
+        session_manager: match o["sessionManager"].as_u64() {
+            Some(id) => Some(super::context::session_manager_of(bridge, &json!({ "sm": id }))?),
+            None => None,
+        },
+        settings_manager: match o["settingsManager"].as_u64() {
+            Some(id) => Some(bridge.settings_managers.get(id).ok_or_else(|| anyhow::anyhow!("unknown settings manager"))?),
+            None => None,
+        },
+        session_start_event: super::api::opt(&o["sessionStartEvent"])?,
+    })
+}
+
+fn session_call(bridge: &Arc<Bridge>, payload: &Value) -> anyhow::Result<Value> {
+    let method = str_arg(payload, "m");
+    if method == "release" {
+        bridge.agent_sessions.remove(payload["id"].as_u64().unwrap_or_default());
+        return Ok(Value::Null);
+    }
+    let session = session_of(bridge, payload)?;
+    if method.starts_with("agent.") {
+        return agent_hook_call(bridge, &session, payload["id"].as_u64().unwrap_or_default(), &method, &arg(payload, 0));
+    }
+    let s = |i: usize| arg(payload, i).as_str().unwrap_or_default().to_string();
+    let a = |i: usize| arg(payload, i);
+    let mutation = |i: usize| -> anyhow::Result<Option<ModelMutationOptions>> { super::api::opt(&a(i)) };
+    Ok(match method.as_str() {
+        "subscribe" => {
+            let handler = bridge.handle(&a(0)).ok_or_else(|| anyhow::anyhow!("subscribe() expects a listener"))?;
+            let listener: crate::core::agent_session::AgentSessionEventListener = Arc::new(move |event| {
+                super::api::post_call(&handler, None, vec![serde_json::to_value(&event).unwrap_or(Value::Null)]);
+            });
+            let unsubscribe = session.subscribe(&listener);
+            json!(bridge.unsubscribes.insert(unsubscribe))
+        }
+        "dispose" => {
+            session.dispose();
+            Value::Null
+        }
+        "refreshContext" => {
+            session.refresh_context();
+            Value::Null
+        }
+        "state" => agent_state_to_js(&session.state()),
+        "cacheWarmingStatus" => serde_json::to_value(session.cache_warming_status())?,
+        "setCacheWarmingMode" => {
+            session.set_cache_warming_mode(&serde_json::from_value(a(0))?);
+            Value::Null
+        }
+        "model" => serde_json::to_value(session.model())?,
+        "thinkingLevel" => serde_json::to_value(session.thinking_level())?,
+        "routedModel" => serde_json::to_value(session.routed_model())?,
+        "isStreaming" => json!(session.is_streaming()),
+        "isIdle" => json!(session.is_idle()),
+        "systemPrompt" => json!(session.system_prompt()),
+        "retryAttempt" => json!(session.retry_attempt()),
+        "getActiveToolNames" => json!(session.get_active_tool_names()),
+        "getCallableToolNames" => json!(session.get_callable_tool_names()),
+        "getAllTools" => Value::Array(session.get_all_tools().iter().map(super::api::tool_info_json).collect()),
+        "getToolDefinition" => match session.get_tool_definition(&s(0)) {
+            Some(definition) => super::builtin::tool_definition_to_js(bridge, definition),
+            None => Value::Null,
+        },
+        "setActiveToolsByName" => {
+            let names: Vec<String> = serde_json::from_value(a(0))?;
+            session.set_active_tools_by_name(&names);
+            Value::Null
+        }
+        "isCompacting" => json!(session.is_compacting()),
+        "messages" => serde_json::to_value(session.messages())?,
+        "steeringMode" => serde_json::to_value(session.steering_mode())?,
+        "followUpMode" => serde_json::to_value(session.follow_up_mode())?,
+        "sessionFile" => json!(session.session_file()),
+        "sessionId" => json!(session.session_id()),
+        "sessionName" => json!(session.session_name()),
+        "scopedModels" => serde_json::to_value(session.scoped_models())?,
+        "setScopedModels" => {
+            let models: Vec<crate::core::agent_session::AgentSessionSetScopedModelsScopedModels> = serde_json::from_value(a(0))?;
+            session.set_scoped_models(&models);
+            Value::Null
+        }
+        "promptTemplates" => serde_json::to_value(session.prompt_templates())?,
+        "clearQueue" => serde_json::to_value(session.clear_queue())?,
+        "pendingMessageCount" => json!(session.pending_message_count()),
+        "getSteeringMessages" => json!(session.get_steering_messages()),
+        "getFollowUpMessages" => json!(session.get_follow_up_messages()),
+        "setThinkingLevel" => {
+            session.set_thinking_level(serde_json::from_value(a(0))?, mutation(1)?.as_ref());
+            Value::Null
+        }
+        "cycleThinkingLevel" => serde_json::to_value(session.cycle_thinking_level(mutation(0)?.as_ref()))?,
+        "getAvailableThinkingLevels" => serde_json::to_value(session.get_available_thinking_levels())?,
+        "supportsThinking" => json!(session.supports_thinking()),
+        "setSteeringMode" => {
+            session.set_steering_mode(serde_json::from_value(a(0))?);
+            Value::Null
+        }
+        "setFollowUpMode" => {
+            session.set_follow_up_mode(serde_json::from_value(a(0))?);
+            Value::Null
+        }
+        "abortCompaction" => {
+            session.abort_compaction();
+            Value::Null
+        }
+        "abortBranchSummary" => {
+            session.abort_branch_summary();
+            Value::Null
+        }
+        "setAutoCompactionEnabled" => {
+            session.set_auto_compaction_enabled(a(0).as_bool().unwrap_or(false));
+            Value::Null
+        }
+        "autoCompactionEnabled" => json!(session.auto_compaction_enabled()),
+        "abortRetry" => {
+            session.abort_retry();
+            Value::Null
+        }
+        "isRetrying" => json!(session.is_retrying()),
+        "autoRetryEnabled" => json!(session.auto_retry_enabled()),
+        "setAutoRetryEnabled" => {
+            session.set_auto_retry_enabled(a(0).as_bool().unwrap_or(false));
+            Value::Null
+        }
+        "recordBashResult" => {
+            session.record_bash_result(&s(0), &serde_json::from_value(a(1))?, super::api::opt(&a(2))?.as_ref());
+            Value::Null
+        }
+        "abortBash" => {
+            session.abort_bash();
+            Value::Null
+        }
+        "isBashRunning" => json!(session.is_bash_running()),
+        "hasPendingBashMessages" => json!(session.has_pending_bash_messages()),
+        "setSessionName" => {
+            session.set_session_name(&s(0));
+            Value::Null
+        }
+        "getUserMessagesForForking" => serde_json::to_value(session.get_user_messages_for_forking())?,
+        "getSessionStats" => serde_json::to_value(session.get_session_stats())?,
+        "getContextUsage" => serde_json::to_value(session.get_context_usage())?,
+        "exportToJsonl" => json!(session.export_to_jsonl(a(0).as_str())?),
+        "getLastAssistantText" => json!(session.get_last_assistant_text()),
+        "hasExtensionHandlers" => json!(session.has_extension_handlers(&s(0))),
+        "sessionManager" => json!(super::context::session_manager_id(bridge, &session.session_manager())),
+        "settingsManager" => json!(settings_id(bridge, &session.settings_manager())),
+        "modelRuntime" => json!(runtime_id(bridge, &session.model_runtime())),
+        _ => return Err(anyhow::anyhow!("agentSession.{method} is not a function")),
+    })
+}
+
+async fn session_async(bridge: &Arc<Bridge>, payload: &Value) -> anyhow::Result<Value> {
+    let method = str_arg(payload, "m");
+    if method == "create" {
+        let options = create_options(bridge, &arg(payload, 0))?;
+        let result = create_agent_session(Some(&options)).await?;
+        let id = bridge.agent_sessions.insert(result.session.clone());
+        let mut out = json!({ "session": id, "extensionsResult": extensions_result_to_js(&result.extensions_result) });
+        if let Some(m) = &result.model_fallback_message {
+            out["modelFallbackMessage"] = json!(m);
+        }
+        return Ok(out);
+    }
+    if method == "agent.callHook" {
+        return call_rust_hook(bridge, payload).await;
+    }
+    let session = session_of(bridge, payload)?;
+    let s = |i: usize| arg(payload, i).as_str().unwrap_or_default().to_string();
+    let a = |i: usize| arg(payload, i);
+    Ok(match method.as_str() {
+        "prompt" => {
+            session.prompt(&s(0), Some(&prompt_options(&a(1))?)).await?;
+            Value::Null
+        }
+        "steer" | "followUp" => {
+            let images: Option<Vec<pi_ai::types::ImageContent>> = super::api::opt(&a(1))?;
+            let disposition = if method == "steer" {
+                session.steer(&s(0), images.as_deref(), super::api::opt(&a(2))?.as_ref()).await?
+            } else {
+                session.follow_up(&s(0), images.as_deref(), super::api::opt(&a(2))?.as_ref()).await?
+            };
+            serde_json::to_value(disposition)?
+        }
+        "sendCustomMessage" => {
+            session.send_custom_message(&serde_json::from_value(a(0))?, super::api::opt(&a(1))?.as_ref()).await?;
+            Value::Null
+        }
+        "sendUserMessage" => {
+            session.send_user_message(serde_json::from_value(a(0))?, super::api::opt(&a(1))?.as_ref()).await?;
+            Value::Null
+        }
+        "abort" => {
+            session.abort().await?;
+            Value::Null
+        }
+        "waitForIdle" => {
+            session.wait_for_idle().await?;
+            Value::Null
+        }
+        "setModel" => {
+            let options: Option<ModelMutationOptions> = super::api::opt(&a(1))?;
+            session.set_model(serde_json::from_value(a(0))?, options.as_ref()).await?;
+            Value::Null
+        }
+        "cycleModel" => {
+            let options: Option<ModelMutationOptions> = super::api::opt(&a(1))?;
+            serde_json::to_value(session.cycle_model(super::api::opt(&a(0))?, options.as_ref()).await?)?
+        }
+        "compact" => serde_json::to_value(session.compact(a(0).as_str()).await?)?,
+        "bindExtensions" => {
+            let o = a(0);
+            let on_error = bridge.handle(&o["onError"]).map(|h| {
+                Arc::new(move |error: crate::core::extensions::types::ExtensionError| {
+                    super::api::post_call(&h, None, vec![serde_json::to_value(&error).unwrap_or(Value::Null)]);
+                }) as crate::core::extensions::runner::ExtensionErrorListener
+            });
+            let shutdown_handler = bridge.handle(&o["shutdownHandler"]).map(|h| {
+                Arc::new(move || super::api::post_call(&h, None, vec![])) as crate::core::extensions::runner::ShutdownHandler
+            });
+            let abort_handler = bridge
+                .handle(&o["abortHandler"])
+                .map(|h| Arc::new(move || super::api::post_call(&h, None, vec![])) as Arc<dyn Fn() + Send + Sync>);
+            let bindings = ExtensionBindings {
+                ui_context: None,
+                mode: super::api::opt(&o["mode"])?,
+                command_context_actions: None,
+                abort_handler,
+                shutdown_handler,
+                on_error,
+            };
+            session.bind_extensions(&bindings).await?;
+            Value::Null
+        }
+        "reload" => {
+            session.reload(None).await?;
+            Value::Null
+        }
+        "navigateTree" => serde_json::to_value(session.navigate_tree(&s(0), super::api::opt(&a(1))?.as_ref()).await?)?,
+        "exportToHtml" => json!(session.export_to_html(a(0).as_str(), super::api::opt(&a(1))?.as_ref()).await?),
+        _ => return Err(anyhow::anyhow!("agentSession.{method} is not a function")),
+    })
+}
+
+// ---------------------------------------------------------------------------
+// session.agent.beforeToolCall / afterToolCall
+// ---------------------------------------------------------------------------
+
+use pi_agent::types::{
+    AfterToolCallContext, AfterToolCallFn, AfterToolCallResult, AgentContext, BeforeToolCallContext, BeforeToolCallFn,
+    BeforeToolCallResult,
+};
+
+/// A Rust tool-call hook handed to JavaScript (the prior hook a JS hook chains to).
+#[derive(Clone)]
+pub(crate) enum ToolHook {
+    Before(BeforeToolCallFn),
+    After(AfterToolCallFn),
+}
+
+/// The Rust context of a hook call in progress, so a JS hook that calls the prior Rust hook passes
+/// it the original context (TS passes the same object along).
+#[derive(Clone)]
+pub(crate) enum HookContext {
+    Before(Box<BeforeToolCallContext>),
+    After(Box<AfterToolCallContext>),
+}
+
+fn agent_context_to_js(context: &AgentContext) -> Value {
+    let mut out = json!({ "messages": serde_json::to_value(&context.messages).unwrap_or(Value::Null) });
+    if let Some(tools) = &context.tools {
+        out["tools"] = Value::Array(
+            tools
+                .iter()
+                .map(|t| json!({ "name": t.name(), "label": t.label(), "description": t.description(), "parameters": t.parameters() }))
+                .collect(),
+        );
+    }
+    out
+}
+
+fn hook_context_to_js(context: &HookContext) -> Value {
+    match context {
+        HookContext::Before(c) => json!({
+            "assistantMessage": serde_json::to_value(&c.assistant_message).unwrap_or(Value::Null),
+            "toolCall": serde_json::to_value(&c.tool_call).unwrap_or(Value::Null),
+            "args": c.args,
+            "context": agent_context_to_js(&c.context),
+        }),
+        HookContext::After(c) => json!({
+            "assistantMessage": serde_json::to_value(&c.assistant_message).unwrap_or(Value::Null),
+            "toolCall": serde_json::to_value(&c.tool_call).unwrap_or(Value::Null),
+            "args": c.args,
+            "result": serde_json::to_value(&c.result).unwrap_or(Value::Null),
+            "isError": c.is_error,
+            "context": agent_context_to_js(&c.context),
+        }),
+    }
+}
+
+fn before_result_from_js(value: &Value, args: Option<Value>) -> Option<BeforeToolCallResult> {
+    let result = &value["result"];
+    if !result.is_object() && args.is_none() {
+        return None;
+    }
+    Some(BeforeToolCallResult {
+        block: result["block"].as_bool().unwrap_or(false),
+        reason: result["reason"].as_str().map(str::to_string),
+        terminate: result["terminate"].as_bool(),
+        args,
+    })
+}
+
+fn after_result_from_js(value: &Value) -> anyhow::Result<Option<AfterToolCallResult>> {
+    let result = &value["result"];
+    if !result.is_object() {
+        return Ok(None);
+    }
+    Ok(Some(AfterToolCallResult {
+        content: super::api::opt(&result["content"])?,
+        details: result.get("details").filter(|v| !v.is_null()).cloned(),
+        structured_content: result.get("structuredContent").filter(|v| !v.is_null()).cloned(),
+        is_error: result["isError"].as_bool(),
+        usage: super::api::opt(&result["usage"])?,
+        terminate: result["terminate"].as_bool(),
+    }))
+}
+
+/// Run a JS hook with the Rust context; returns the glue result `{ result, args }`.
+async fn run_js_hook(
+    bridge: &Arc<Bridge>,
+    handle: &pi_jsrt::JsHandle,
+    context: HookContext,
+    signal: &tokio_util::sync::CancellationToken,
+) -> anyhow::Result<Value> {
+    let js_context = hook_context_to_js(&context);
+    let context_id = bridge.hook_contexts.insert(context);
+    let (signal_value, _guard) = bridge.signal_for(signal);
+    let result = bridge
+        .glue_call("invokeToolHook", vec![handle.to_value(), js_context, json!(context_id), signal_value])
+        .await;
+    bridge.hook_contexts.remove(context_id);
+    result
+}
+
+fn js_before_hook(bridge: &Arc<Bridge>, handle: pi_jsrt::JsHandle) -> BeforeToolCallFn {
+    let bridge = bridge.clone();
+    Arc::new(move |context: BeforeToolCallContext, signal| {
+        let bridge = bridge.clone();
+        let handle = handle.clone();
+        Box::pin(async move {
+            let original_args = context.args.clone();
+            let value = run_js_hook(&bridge, &handle, HookContext::Before(Box::new(context)), &signal).await?;
+            let args = value.get("args").filter(|a| **a != original_args).cloned();
+            Ok(before_result_from_js(&value, args))
+        })
+    })
+}
+
+fn js_after_hook(bridge: &Arc<Bridge>, handle: pi_jsrt::JsHandle) -> AfterToolCallFn {
+    let bridge = bridge.clone();
+    Arc::new(move |context: AfterToolCallContext, signal| {
+        let bridge = bridge.clone();
+        let handle = handle.clone();
+        Box::pin(async move {
+            let value = run_js_hook(&bridge, &handle, HookContext::After(Box::new(context)), &signal).await?;
+            after_result_from_js(&value)
+        })
+    })
+}
+
+/// `session.agent.beforeToolCall` / `afterToolCall` reads and writes (`agent.*` session methods).
+fn agent_hook_call(bridge: &Arc<Bridge>, session: &Arc<AgentSession>, session_id: u64, method: &str, arg0: &Value) -> anyhow::Result<Value> {
+    let agent = session.agent();
+    let describe = |object: Option<Value>, hook: ToolHook| match object {
+        Some(origin) => json!({ "object": origin }),
+        None => json!({ "native": bridge.tool_hooks.insert(hook), "session": session_id }),
+    };
+    Ok(match method {
+        "agent.getBeforeToolCall" => match agent.before_tool_call() {
+            Some(f) => describe(bridge.origins.get(&f), ToolHook::Before(f)),
+            None => Value::Null,
+        },
+        "agent.getAfterToolCall" => match agent.after_tool_call() {
+            Some(f) => describe(bridge.origins.get(&f), ToolHook::After(f)),
+            None => Value::Null,
+        },
+        "agent.setBeforeToolCall" => {
+            let hook = bridge.handle(arg0).map(|h| {
+                let f = js_before_hook(bridge, h.clone());
+                bridge.origins.record(&f, h);
+                f
+            });
+            agent.set_before_tool_call(hook);
+            Value::Null
+        }
+        "agent.setAfterToolCall" => {
+            let hook = bridge.handle(arg0).map(|h| {
+                let f = js_after_hook(bridge, h.clone());
+                bridge.origins.record(&f, h);
+                f
+            });
+            agent.set_after_tool_call(hook);
+            Value::Null
+        }
+        _ => return Err(anyhow::anyhow!("agentSession.{method} is not a function")),
+    })
+}
+
+/// A JS hook calling a Rust hook (`agent.callHook`): with the original Rust context when the JS
+/// context came from Rust, else one built from the JS object.
+async fn call_rust_hook(bridge: &Arc<Bridge>, payload: &Value) -> anyhow::Result<Value> {
+    let hook = bridge
+        .tool_hooks
+        .get(arg(payload, 0).as_u64().unwrap_or_default())
+        .ok_or_else(|| anyhow::anyhow!("This tool-call hook is no longer available"))?;
+    let js = arg(payload, 1);
+    let stored = js["$hookContext"].as_u64().and_then(|id| bridge.hook_contexts.get(id));
+    let signal = bridge.token(&payload["signal"]).unwrap_or_default();
+    let agent_context = |value: &Value| AgentContext {
+        messages: serde_json::from_value(value["messages"].clone()).unwrap_or_default(),
+        tools: None,
+    };
+    match hook {
+        ToolHook::Before(f) => {
+            let mut context = match stored {
+                Some(HookContext::Before(c)) => *c,
+                _ => BeforeToolCallContext {
+                    assistant_message: serde_json::from_value(js["assistantMessage"].clone())?,
+                    tool_call: serde_json::from_value(js["toolCall"].clone())?,
+                    args: js["args"].clone(),
+                    context: agent_context(&js["context"]),
+                },
+            };
+            if !js["args"].is_null() {
+                context.args = js["args"].clone();
+            }
+            Ok(match f(context, signal).await? {
+                Some(r) => {
+                    let mut out = json!({ "block": r.block });
+                    if let Some(reason) = r.reason {
+                        out["reason"] = json!(reason);
+                    }
+                    if let Some(t) = r.terminate {
+                        out["terminate"] = json!(t);
+                    }
+                    out
+                }
+                None => Value::Null,
+            })
+        }
+        ToolHook::After(f) => {
+            let context = match stored {
+                Some(HookContext::After(c)) => *c,
+                _ => AfterToolCallContext {
+                    assistant_message: serde_json::from_value(js["assistantMessage"].clone())?,
+                    tool_call: serde_json::from_value(js["toolCall"].clone())?,
+                    args: js["args"].clone(),
+                    result: serde_json::from_value(js["result"].clone())?,
+                    is_error: js["isError"].as_bool().unwrap_or(false),
+                    context: agent_context(&js["context"]),
+                },
+            };
+            Ok(match f(context, signal).await? {
+                Some(r) => {
+                    let mut out = serde_json::Map::new();
+                    if let Some(c) = r.content {
+                        out.insert("content".into(), serde_json::to_value(c)?);
+                    }
+                    if let Some(d) = r.details {
+                        out.insert("details".into(), d);
+                    }
+                    if let Some(s) = r.structured_content {
+                        out.insert("structuredContent".into(), s);
+                    }
+                    if let Some(e) = r.is_error {
+                        out.insert("isError".into(), json!(e));
+                    }
+                    if let Some(u) = r.usage {
+                        out.insert("usage".into(), serde_json::to_value(u)?);
+                    }
+                    if let Some(t) = r.terminate {
+                        out.insert("terminate".into(), json!(t));
+                    }
+                    Value::Object(out)
+                }
+                None => Value::Null,
+            })
+        }
+    }
 }

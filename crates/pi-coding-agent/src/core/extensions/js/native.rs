@@ -443,7 +443,7 @@ fn auth_check_from_js(value: &Value) -> Option<AuthCheck> {
     })
 }
 
-fn auth_check_to_js(check: &AuthCheck) -> Value {
+pub(crate) fn auth_check_to_js(check: &AuthCheck) -> Value {
     let mut out = json!({ "type": check.auth_type.as_str() });
     if let Some(s) = &check.source {
         out["source"] = json!(s);
@@ -1222,7 +1222,7 @@ fn resolve_input(bridge: &Arc<Bridge>, payload: &Value) -> ApiKeyResolveInput {
     }
 }
 
-fn js_interaction(bridge: &Arc<Bridge>, payload: &Value) -> anyhow::Result<ProviderAuthInteraction> {
+pub(crate) fn js_interaction(bridge: &Arc<Bridge>, payload: &Value) -> anyhow::Result<ProviderAuthInteraction> {
     let handle = bridge.handle(&payload["interaction"]).ok_or_else(|| anyhow::anyhow!("login() expects an interaction"))?;
     Ok(ProviderAuthInteraction {
         interaction: Arc::new(JsAuthInteraction { bridge: bridge.clone(), handle }),

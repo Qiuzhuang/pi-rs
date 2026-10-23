@@ -10,7 +10,7 @@ in pi-rs; the reason is given), `[ ]` missing (none).
 
 | Package | Runtime exports | Implemented | Host-only | Missing |
 | --- | ---: | ---: | ---: | ---: |
-| `@earendil-works/pi-coding-agent` | 157 | 109 | 48 | 0 |
+| `@earendil-works/pi-coding-agent` | 157 | 116 | 41 | 0 |
 | `@earendil-works/pi-tui` | 91 | 88 | 3 | 0 |
 | `@earendil-works/pi-ai` | 77 | 77 | 0 | 0 |
 | `@earendil-works/pi-ai/compat` | 136 | 136 | 0 | 0 |
@@ -51,7 +51,7 @@ in pi-rs; the reason is given), `[ ]` missing (none).
 
 ## `@earendil-works/pi-coding-agent`
 
-- [~] `AgentSession`: host-only, constructing a second agent session inside an extension's runtime is not supported; extensions drive the running session through `pi`/`ctx`
+- [x] `AgentSession`: the class of sessions from `createAgentSession()` (a Rust AgentSession: prompt/steer/followUp/abort, subscribe, state and tool getters, models, compaction, bindExtensions, `agent.beforeToolCall`/`afterToolCall`, ...); not constructible directly
 - [~] `AgentSessionRuntime`: host-only, the session runtime is owned by the host process
 - [~] `ArminComponent`: host-only, interactive-mode component bound to host session state (Rust); extensions get UI through ctx.ui
 - [~] `AssistantMessageComponent`: host-only, interactive-mode component bound to host session state (Rust); extensions get UI through ctx.ui
@@ -68,7 +68,7 @@ in pi-rs; the reason is given), `[ ]` missing (none).
 - [x] `DEFAULT_MAX_BYTES`
 - [x] `DEFAULT_MAX_LINES`
 - [~] `DefaultPackageManager`: host-only, package installs are host operations (`pi install`)
-- [~] `DefaultResourceLoader`: host-only, resources are loaded by the host; extensions contribute through `resources_discover`
+- [x] `DefaultResourceLoader`: the Rust loader; inline `extensionFactories` (JS functions and built-in factories), path options, skills/prompts/agents-files/system-prompt/extensions overrides (`themesOverride` and `eventBus` are not supported)
 - [x] `DynamicBorder`
 - [~] `ExtensionEditorComponent`: host-only, interactive-mode component bound to host session state (Rust); extensions get UI through ctx.ui
 - [~] `ExtensionInputComponent`: host-only, interactive-mode component bound to host session state (Rust); extensions get UI through ctx.ui
@@ -78,7 +78,7 @@ in pi-rs; the reason is given), `[ ]` missing (none).
 - [~] `InteractiveMode`: host-only, the interactive mode is the host UI
 - [~] `LoginDialogComponent`: host-only, interactive-mode component bound to host session state (Rust); extensions get UI through ctx.ui
 - [x] `ModelRegistry`: the class of `ctx.modelRegistry` (every TS method over pi's live model runtime; `instanceof` works)
-- [~] `ModelRuntime`: host-only, extensions receive the live runtime through `ctx`/`pi.registerProvider`
+- [x] `ModelRuntime`: `ModelRuntime.create()` and `ctx.modelRegistry.runtime` (the host runtime); every public method (a JS `credentials` store option is not supported)
 - [~] `ModelSelectorComponent`: host-only, interactive-mode component bound to host session state (Rust); extensions get UI through ctx.ui
 - [~] `OAuthSelectorComponent`: host-only, interactive-mode component bound to host session state (Rust); extensions get UI through ctx.ui
 - [~] `ProjectTrustStore`: host-only, trust decisions are host-owned
@@ -107,13 +107,13 @@ in pi-rs; the reason is given), `[ ]` missing (none).
 - [x] `convertToLlm`
 - [x] `convertToPng`
 - [x] `copyToClipboard`
-- [~] `createAgentSession`: host-only, SDK entry point that builds a whole host session
+- [x] `createAgentSession`: builds a Rust AgentSession (subagents); takes the SDK objects above, `customTools` and `modelRegistry`/`modelRuntime`
 - [~] `createAgentSessionFromServices`: host-only, SDK entry point
 - [~] `createAgentSessionRuntime`: host-only, SDK entry point
 - [~] `createAgentSessionServices`: host-only, SDK entry point
 - [x] `createBashTool`
 - [x] `createBashToolDefinition`
-- [~] `createCodemodeExtension`: host-only, built-in extension implemented in Rust; enabled through settings
+- [x] `createCodemodeExtension`: the Rust built-in factory (as a loader `extensionFactories` entry, or called with an extension's `pi`)
 - [x] `createCodingTools`
 - [x] `createEditTool`
 - [x] `createEditToolDefinition`
@@ -127,14 +127,14 @@ in pi-rs; the reason is given), `[ ]` missing (none).
 - [x] `createLocalPowerShellOperations`
 - [x] `createLsTool`
 - [x] `createLsToolDefinition`
-- [~] `createMcpExtension`: host-only, built-in extension implemented in Rust; enabled through settings
+- [x] `createMcpExtension`: the Rust built-in factory; options other than `logPath` (functions: `loadConfig`, `createTransport`, ...) are not supported
 - [x] `createPowerShellTool`
 - [x] `createPowerShellToolDefinition`
 - [x] `createReadOnlyTools`
 - [x] `createReadTool`
 - [x] `createReadToolDefinition`
 - [x] `createSyntheticSourceInfo`
-- [~] `createToolSearchExtension`: host-only, built-in extension implemented in Rust; enabled through settings
+- [x] `createToolSearchExtension`: the Rust built-in factory
 - [x] `createWriteTool`
 - [x] `createWriteToolDefinition`
 - [x] `defineTool`

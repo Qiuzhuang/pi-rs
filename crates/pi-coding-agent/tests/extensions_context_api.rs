@@ -18,6 +18,11 @@ use support::*;
 /// Load `source` (which writes its findings to `globalThis.RESULT_PATH`) into a fresh session and
 /// return what it wrote once `session_start` ran.
 async fn run_probe(source: &str) -> (Value, Harness, PathBuf) {
+    run_probe_with(source, |_| {}).await
+}
+
+/// [`run_probe`] with a hook to prepare the harness (faux responses) before extensions bind.
+async fn run_probe_with(source: &str, prepare: impl FnOnce(&Harness)) -> (Value, Harness, PathBuf) {
     let dir = std::env::temp_dir().join(format!("pi-ext-ctx-api-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
     let result = dir.join("result.json");
@@ -36,6 +41,7 @@ async fn run_probe(source: &str) -> (Value, Harness, PathBuf) {
     loader.reload(None).await.unwrap();
     assert!(loader.get_extensions().errors.is_empty(), "{:#?}", loader.get_extensions().errors);
     let harness = create_harness(HarnessOptions { resource_loader: Some(loader), ..Default::default() }).await.unwrap();
+    prepare(&harness);
     harness.session.bind_extensions(&Default::default()).await.unwrap();
     let done = dir.join("result.json.done");
     for _ in 0..600 {
@@ -303,6 +309,167 @@ export default function (pi) {
     let (result, harness, dir) = run_probe(&source).await;
     let expected: Value = serde_json::from_str(include_str!("fixtures/extensions_settings_manager_ts.json")).unwrap();
     assert_eq!(result, expected);
+    harness.cleanup();
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn model_runtime_matches_ts() {
+    let source = format!(
+        "{PROBE_PRELUDE}{}",
+        r#"
+import { mkdtempSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { ModelRegistry, ModelRuntime } from "@earendil-works/pi-coding-agent";
+export default function (pi) {
+    pi.on("session_start", async (_event, ctx) => {
+        const runtime = ctx.modelRegistry.runtime;
+        await t("same", () => runtime === ctx.modelRegistry.runtime);
+        await t("instanceof", () => runtime instanceof ModelRuntime);
+        await t("provider", () => runtime.getProvider("anthropic") === ctx.modelRegistry.getProvider("anthropic"));
+        await t("providers", () => runtime.getProviders().some((p) => p.id === "anthropic"));
+        await t("models", () => runtime.getModels("anthropic").length === ctx.modelRegistry.getAll().filter((m) => m.provider === "anthropic").length);
+        await t("model", () => { const m = runtime.getModels("anthropic")[0]; return runtime.getModel("anthropic", m.id).id === m.id; });
+        await t("auth", () => [runtime.hasConfiguredAuth("nope"), runtime.isUsingOAuth("nope"), runtime.isUsingSubscription("nope"), runtime.getProviderAuthStatus("nope")]);
+        await t("checkAuth", async () => (await runtime.checkAuth("nope")) === undefined);
+        await t("getAuth", async () => (await runtime.getAuth("nope")) === undefined);
+        await t("ctor", () => { try { new ModelRuntime(); return "no throw"; } catch { return "throws"; } });
+        const root = mkdtempSync(join(tmpdir(), "runtime-probe-"));
+        const created = await ModelRuntime.create({ authPath: join(root, "auth.json"), modelsPath: null, refreshOnCreate: false });
+        await t("created", () => [created instanceof ModelRuntime, created.getModels("openai").length > 0, created.getRegisteredProviderIds()]);
+        await created.setRuntimeApiKey("openai", "sk-test");
+        await t("runtimeKey", async () => [(await created.getAuth("openai"))?.auth?.apiKey, created.hasConfiguredAuth("openai")]);
+        const registry = new ModelRegistry(created);
+        await t("registry", () => [registry instanceof ModelRegistry, registry.runtime === created, registry.find("openai", created.getModels("openai")[0].id)?.provider]);
+        created.registerProvider("probe-provider", { baseUrl: "http://localhost:1/v1", apiKey: "k", api: "openai-completions", models: [{ id: "m1", name: "M1", reasoning: false, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 1000, maxTokens: 100 }] });
+        await t("registered", () => [created.getModel("probe-provider", "m1")?.name, registry.getRegisteredProviderIds(), Object.keys(created.getRegisteredProviderConfig("probe-provider")).sort()]);
+        const refreshed = await created.refresh({ allowNetwork: false });
+        await t("refresh", () => [refreshed.aborted, refreshed.errors instanceof Map]);
+        finish();
+    });
+}
+"#
+    );
+    let (result, harness, dir) = run_probe(&source).await;
+    let expected: Value = serde_json::from_str(include_str!("fixtures/extensions_model_runtime_ts.json")).unwrap();
+    assert_eq!(result, expected);
+    harness.cleanup();
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// `createAgentSession()` with a `DefaultResourceLoader` (inline factories, a built-in factory,
+/// prompt overrides), custom tools and the parent's model runtime runs a real child session.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn create_agent_session_runs_a_child_session() {
+    let source = format!(
+        "{PROBE_PRELUDE}{}",
+        r#"
+import { mkdtempSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import {
+    AgentSession, createAgentSession, createCodemodeExtension, DefaultResourceLoader, SessionManager, SettingsManager,
+} from "@earendil-works/pi-coding-agent";
+export default function (pi) {
+    pi.on("session_start", async (_event, ctx) => {
+        const agentDir = mkdtempSync(join(tmpdir(), "child-agent-"));
+        const settingsManager = SettingsManager.inMemory({});
+        const loader = new DefaultResourceLoader({
+            cwd: ctx.cwd,
+            agentDir,
+            settingsManager,
+            noSkills: true,
+            noPromptTemplates: true,
+            noThemes: true,
+            noContextFiles: true,
+            systemPromptOverride: () => "You are a child agent.",
+            appendSystemPromptOverride: () => [],
+            extensionFactories: [
+                (childPi) => {
+                    childPi.registerTool({
+                        name: "child_tool",
+                        label: "Child",
+                        description: "A tool from an inline factory",
+                        parameters: { type: "object", properties: {} },
+                        async execute() { return { content: [{ type: "text", text: "ok" }], details: {} }; },
+                    });
+                    childPi.on("session_start", () => { globalThis.childSessionStarted = true; });
+                },
+                { name: "codemode", factory: createCodemodeExtension(), builtin: true, replaceable: true },
+            ],
+        });
+        await loader.reload();
+        await t("loader", () => loader.getExtensions().extensions.map((e) => [e.path, [...e.tools.keys()]]));
+        await t("systemPrompt", () => loader.getSystemPrompt());
+        const customTool = {
+            name: "custom_one",
+            label: "Custom",
+            description: "A custom tool",
+            parameters: { type: "object", properties: {} },
+            async execute() { return { content: [{ type: "text", text: "custom" }], details: {} }; },
+        };
+        const { session } = await createAgentSession({
+            cwd: ctx.cwd,
+            agentDir,
+            sessionManager: SessionManager.inMemory(ctx.cwd),
+            settingsManager,
+            modelRuntime: ctx.modelRegistry.runtime,
+            model: ctx.model,
+            resourceLoader: loader,
+            tools: ["read", "child_tool", "custom_one"],
+            customTools: [customTool],
+        });
+        await t("instanceof", () => session instanceof AgentSession);
+        const errors = [];
+        await session.bindExtensions({ onError: (e) => errors.push(e) });
+        await t("childStarted", () => globalThis.childSessionStarted === true);
+        await t("activeTools", () => session.getActiveToolNames().sort());
+        await t("toolDefinition", () => session.getToolDefinition("custom_one") === customTool);
+        await t("builtinDefinition", () => typeof session.getToolDefinition("read")?.execute);
+        await t("systemPromptPrefix", () => session.systemPrompt.startsWith("You are a child agent."));
+        const events = [];
+        const unsubscribe = session.subscribe((event) => events.push(event.type));
+        let hooked = 0;
+        const prior = session.agent.beforeToolCall;
+        session.agent.beforeToolCall = async (context, signal) => { hooked++; return prior?.(context, signal); };
+        await t("hookRoundTrip", () => typeof session.agent.beforeToolCall);
+        session.setSessionName("child#1");
+        await session.prompt("hello child");
+        unsubscribe();
+        await t("messages", () => session.messages.map((m) => m.role));
+        await t("lastText", () => session.getLastAssistantText());
+        await t("events", () => ["agent_start", "turn_end", "agent_end"].every((type) => events.includes(type)));
+        await t("sessionName", () => [session.sessionName, session.sessionManager.getSessionName()]);
+        await t("stats", () => session.getSessionStats().userMessages);
+        await t("errors", () => errors.length);
+        await t("model", () => session.model?.id === ctx.model?.id);
+        session.dispose();
+        finish();
+    });
+}
+"#
+    );
+    let (result, harness, dir) = run_probe_with(&source, |h| {
+        h.set_responses(vec![faux_text_message("child reply").into()]);
+    })
+    .await;
+    assert_eq!(result["loader"], json!([["builtin:codemode", ["codemode"]], ["<inline:1>", ["child_tool"]]]), "{result:#}");
+    assert_eq!(result["systemPrompt"], json!("You are a child agent."), "{result:#}");
+    assert_eq!(result["instanceof"], json!(true), "{result:#}");
+    assert_eq!(result["childStarted"], json!(true), "{result:#}");
+    assert_eq!(result["activeTools"], json!(["child_tool", "custom_one", "read"]), "{result:#}");
+    assert_eq!(result["toolDefinition"], json!(true), "{result:#}");
+    assert_eq!(result["builtinDefinition"], json!("function"), "{result:#}");
+    assert_eq!(result["systemPromptPrefix"], json!(true), "{result:#}");
+    assert_eq!(result["hookRoundTrip"], json!("function"), "{result:#}");
+    assert_eq!(result["messages"], json!(["system", "user", "assistant"]), "{result:#}");
+    assert_eq!(result["lastText"], json!("child reply"), "{result:#}");
+    assert_eq!(result["events"], json!(true), "{result:#}");
+    assert_eq!(result["sessionName"], json!(["child#1", "child#1"]), "{result:#}");
+    assert_eq!(result["stats"], json!(1), "{result:#}");
+    assert_eq!(result["errors"], json!(0), "{result:#}");
+    assert_eq!(result["model"], json!(true), "{result:#}");
     harness.cleanup();
     let _ = std::fs::remove_dir_all(dir);
 }

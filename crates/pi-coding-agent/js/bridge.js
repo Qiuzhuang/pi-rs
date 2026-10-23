@@ -477,6 +477,7 @@ export function describeTool(tool) {
 		execute: rustOr(tool.execute),
 		renderCall: rustOr(tool.renderCall),
 		renderResult: rustOr(tool.renderResult),
+		object: ref(tool),
 	};
 }
 
@@ -628,6 +629,7 @@ export function createPi(api) {
 			},
 		},
 	};
+	Object.defineProperty(pi, "__piApiId", { value: api, enumerable: false });
 	return pi;
 }
 
@@ -636,7 +638,7 @@ function refs(map) {
 	return Object.fromEntries(Object.entries(map).map(([key, value]) => [key, value ? ref(value) : value]));
 }
 
-function describeProviderConfig(config) {
+export function describeProviderConfig(config) {
 	const out = { ...config };
 	if (config.images) out.images = refs(config.images);
 	if (config.classifiers) out.classifiers = refs(config.classifiers);
@@ -680,7 +682,7 @@ export function describeAuth(auth) {
 }
 
 /** Describe a pi-ai `Provider` object for `pi.registerProvider(provider)`. */
-function describeNativeProvider(provider) {
+export function describeNativeProvider(provider) {
 	if (!provider || typeof provider !== "object") throw new Error("registerProvider() expects a provider object");
 	if (provider.__piNative !== undefined) return { native: provider.__piNative };
 	const has = (name) => typeof provider[name] === "function";
@@ -797,6 +799,11 @@ export class SessionManager {
 		});
 		this.#id = sm;
 		ownedSessionManagers?.register(this, sm);
+	}
+
+	/** @internal The Rust session manager id (SDK options). */
+	get __piSessionManagerId() {
+		return this.#id;
 	}
 
 	static #owned(result) {
@@ -981,6 +988,17 @@ function sessionManagerFor(id) {
 	return sm;
 }
 
+globalThis.__piSessionManagerFor = sessionManagerFor;
+
+const registryFinalizer =
+	typeof FinalizationRegistry === "function"
+		? new FinalizationRegistry((registry) => {
+				try {
+					call("mr", { registry, m: "release", a: [] });
+				} catch {}
+			})
+		: undefined;
+
 /**
  * `ctx.modelRegistry`: TS's `ModelRegistry` facade over pi's live model runtime. `target` names
  * the Rust registry (`{ ctx }`).
@@ -989,10 +1007,22 @@ export class ModelRegistry {
 	#target;
 
 	constructor(target) {
-		if (!target || typeof target !== "object" || !("ctx" in target || "registry" in target)) {
-			throw new Error("ModelRegistry is created by pi; use ctx.modelRegistry");
+		if (target && typeof target === "object" && typeof target.__piRuntimeId === "number") {
+			// `new ModelRegistry(runtime)`: a facade over a ModelRuntime from the SDK.
+			const registry = call("mr", { m: "new", a: [target.__piRuntimeId] });
+			this.#target = { registry };
+			registryFinalizer?.register(this, registry);
+		} else if (!target || typeof target !== "object" || !("ctx" in target || "registry" in target)) {
+			throw new TypeError("ModelRegistry expects a ModelRuntime");
+		} else {
+			this.#target = target;
 		}
-		this.#target = target;
+		// TS keeps the runtime in an own (private) field that extensions read.
+		Object.defineProperty(this, "runtime", {
+			get: () => globalThis.__piSdk.runtimeFor(this.#call("runtime")),
+			enumerable: true,
+		});
+		Object.defineProperty(this, "__piRegistryTarget", { value: this.#target, enumerable: false });
 	}
 
 	#call(m, ...a) {
@@ -1788,6 +1818,22 @@ export async function invokeBashExec(exec, command, cwd, onData, signal, timeout
 		env: env ?? undefined,
 	});
 	return result ?? { exitCode: null };
+}
+
+/** A `session.agent.beforeToolCall` / `afterToolCall` hook set from JavaScript. */
+export async function invokeToolHook(hook, context, contextId, signal) {
+	Object.defineProperty(context, "$hookContext", { value: contextId, enumerable: false });
+	const result = await hook(context, signal ? signalFor(signal.id, signal.aborted) : undefined);
+	return { result: result ?? null, args: context.args ?? null };
+}
+
+/** `extensionsOverride` of a DefaultResourceLoader created from JavaScript. */
+export function invokeExtensionsOverride(override, base) {
+	const result = override(globalThis.__piSdk.extensionsResultFromHost(base));
+	return {
+		extensions: (result?.extensions ?? []).map((e) => ({ $index: e?.__piIndex ?? -1 })),
+		errors: result?.errors ?? base.errors,
+	};
 }
 
 /** `withLock` of a JavaScript `SettingsStorage`, for a Rust settings manager. */

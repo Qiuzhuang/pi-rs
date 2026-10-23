@@ -45,6 +45,14 @@ hmac.workspace = true
 rsa = { workspace = true, features = ["hazmat"] }
 aes = "0.8"
 des = "0.8"
+aria = "0.1"
+camellia = "0.1"
+sm4 = "0.5"
+sha3 = { version = "0.10", features = ["oid"] }
+ripemd = { version = "0.1", features = ["oid"] }
+blake2 = "0.10"
+sm3 = "0.4"
+digest = "0.10"
 cipher = "0.4"
 ghash = "0.5"
 chacha20 = "0.9"

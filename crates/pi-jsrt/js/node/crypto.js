@@ -4,7 +4,7 @@
 const Buffer = internal.Buffer;
 const { Transform, Writable } = internal.requireBuiltin("stream");
 const DOMException = internal.DOMException;
-const hashes = ["md5", "sha1", "sha224", "sha256", "sha384", "sha512", "sha512-224", "sha512-256", "RSA-MD5", "RSA-SHA1", "RSA-SHA224", "RSA-SHA256", "RSA-SHA384", "RSA-SHA512", "RSA-SHA512/224", "RSA-SHA512/256", "sha1WithRSAEncryption", "sha224WithRSAEncryption", "sha256WithRSAEncryption", "sha384WithRSAEncryption", "sha512WithRSAEncryption"];
+const hashes = ["RSA-MD5", "RSA-RIPEMD160", "RSA-SHA1", "RSA-SHA1-2", "RSA-SHA224", "RSA-SHA256", "RSA-SHA3-224", "RSA-SHA3-256", "RSA-SHA3-384", "RSA-SHA3-512", "RSA-SHA384", "RSA-SHA512", "RSA-SHA512/224", "RSA-SHA512/256", "RSA-SM3", "blake2b512", "blake2s256", "id-rsassa-pkcs1-v1_5-with-sha3-224", "id-rsassa-pkcs1-v1_5-with-sha3-256", "id-rsassa-pkcs1-v1_5-with-sha3-384", "id-rsassa-pkcs1-v1_5-with-sha3-512", "md5", "md5-sha1", "md5WithRSAEncryption", "ripemd", "ripemd160", "ripemd160WithRSA", "rmd160", "sha1", "sha1WithRSAEncryption", "sha224", "sha224WithRSAEncryption", "sha256", "sha256WithRSAEncryption", "sha3-224", "sha3-256", "sha3-384", "sha3-512", "sha384", "sha384WithRSAEncryption", "sha512", "sha512-224", "sha512-224WithRSAEncryption", "sha512-256", "sha512-256WithRSAEncryption", "sha512WithRSAEncryption", "shake128", "shake256", "sm3", "sm3WithRSAEncryption", "ssl3-md5", "ssl3-sha1"];
 const curves = ["prime256v1", "secp384r1", "secp521r1"];
 
 const codeError = (Ctor, message, code) => Object.assign(new Ctor(message), code ? { code } : {});
@@ -20,7 +20,8 @@ function describeReceived(value) {
 }
 
 function invalidArgType(name, expected, value) {
-  return codeError(TypeError, `The "${name}" argument must be ${expected}. Received ${describeReceived(value)}`, "ERR_INVALID_ARG_TYPE");
+  const kind = name.includes(".") ? "property" : "argument";
+  return codeError(TypeError, `The "${name}" ${kind} must be ${expected}. Received ${describeReceived(value)}`, "ERR_INVALID_ARG_TYPE");
 }
 
 function toBytes(data, encoding, name = "data") {
@@ -50,28 +51,41 @@ function checkDigest(alg, style = "hash") {
 // Hash / Hmac
 // ---------------------------------------------------------------------------
 
+const kHashHandle = Symbol("kHashHandle");
+
 class Hash extends Transform {
   #alg;
-  #chunks = [];
+  #handle;
   #done = false;
   constructor(alg, options) {
     super(options);
-    this.#alg = checkDigest(alg);
+    if (alg instanceof Hash && options?.[kHashHandle]) {
+      this.#alg = alg.#alg;
+      this.#handle = options[kHashHandle];
+      return;
+    }
+    if (typeof alg !== "string") throw invalidArgType("algorithm", "of type string", alg);
+    const outputLength = options?.outputLength;
+    if (outputLength !== undefined) validateUint32(outputLength, "options.outputLength");
+    this.#alg = alg;
+    this.#handle = ops.hashNew(alg, outputLength);
   }
   update(data, encoding) {
     if (this.#done) throw codeError(Error, "Digest already called", "ERR_CRYPTO_HASH_FINALIZED");
-    this.#chunks.push(Buffer.from(toBytes(data, encoding)));
+    if (typeof data !== "string" && !ArrayBuffer.isView(data)) throw invalidArgType("data", "of type string or an instance of Buffer, TypedArray, or DataView", data);
+    ops.hashUpdate(this.#handle, toBytes(data, encoding));
     return this;
   }
   digest(encoding) {
     if (this.#done) throw codeError(Error, "Digest already called", "ERR_CRYPTO_HASH_FINALIZED");
     this.#done = true;
-    return encodeOut(ops.hash(this.#alg, Buffer.concat(this.#chunks)), encoding);
+    return encodeOut(ops.hashDigest(this.#handle), encoding);
   }
-  copy() {
-    const h = new Hash(this.#alg);
-    for (const c of this.#chunks) h.update(c);
-    return h;
+  copy(options) {
+    if (this.#done) throw codeError(Error, "Digest already called", "ERR_CRYPTO_HASH_FINALIZED");
+    const outputLength = options?.outputLength;
+    if (outputLength !== undefined) validateUint32(outputLength, "options.outputLength");
+    return new Hash(this, { ...options, [kHashHandle]: ops.hashCopy(this.#handle, outputLength) });
   }
   _transform(chunk, encoding, cb) {
     this.update(chunk, encoding);
@@ -83,32 +97,39 @@ class Hash extends Transform {
   }
 }
 
+function validateUint32(value, name) {
+  if (typeof value !== "number") throw invalidArgType(name, "of type number", value);
+  if (!Number.isInteger(value)) throw codeError(RangeError, `The value of "${name}" is out of range. It must be an integer. Received ${value}`, "ERR_OUT_OF_RANGE");
+  if (value < 0 || value > 4294967295) throw codeError(RangeError, `The value of "${name}" is out of range. It must be >= 0 && <= 4294967295. Received ${value}`, "ERR_OUT_OF_RANGE");
+}
+
 class Hmac extends Transform {
-  #alg;
-  #key;
-  #chunks = [];
+  #handle;
   #done = false;
   constructor(alg, key, options) {
     super(options);
-    this.#alg = checkDigest(alg, "hmac");
+    if (typeof alg !== "string") throw invalidArgType("hmac", "of type string", alg);
+    let keyBytes;
     if (key instanceof KeyObject) {
       if (key.type !== "secret") throw codeError(TypeError, `Invalid key object type ${key.type}, expected secret.`, "ERR_CRYPTO_INVALID_KEY_OBJECT_TYPE");
-      this.#key = key[kSecret];
+      keyBytes = key[kSecret];
     } else if (isCryptoKey(key)) {
-      this.#key = key[kKeyObject][kSecret];
+      keyBytes = key[kKeyObject][kSecret];
     } else {
-      this.#key = toBytes(key, options?.encoding, "key");
+      keyBytes = toBytes(key, options?.encoding, "key");
     }
+    if (!ops.digestName(alg)) throw codeError(TypeError, `Invalid digest: ${alg}`, "ERR_CRYPTO_INVALID_DIGEST");
+    this.#handle = ops.hmacNew(alg, keyBytes);
   }
   update(data, encoding) {
     if (this.#done) throw codeError(Error, "Digest already called", "ERR_CRYPTO_HASH_FINALIZED");
-    this.#chunks.push(Buffer.from(toBytes(data, encoding)));
+    ops.hashUpdate(this.#handle, toBytes(data, encoding));
     return this;
   }
   digest(encoding) {
     if (this.#done) return encodeOut(new Uint8Array(0), encoding);
     this.#done = true;
-    return encodeOut(ops.hmac(this.#alg, this.#key, Buffer.concat(this.#chunks)), encoding);
+    return encodeOut(ops.hashDigest(this.#handle), encoding);
   }
   _transform(chunk, encoding, cb) {
     this.update(chunk, encoding);
@@ -136,12 +157,14 @@ function keyMaterial(key, encoding, name = "key") {
 class CipherBase extends Transform {
   #handle;
   #decoder;
+  #mode;
   constructor(cipher, key, iv, options, encrypt) {
     super(options);
     if (typeof cipher !== "string") throw invalidArgType("cipher", "of type string", cipher);
     const k = keyMaterial(key);
     const v = iv === null || iv === undefined ? null : toBytes(iv, undefined, "iv");
     this.#handle = ops.cipherNew(cipher, k, v, encrypt, options?.authTagLength);
+    this.#mode = ops.cipherInfo(cipher)?.mode;
   }
   update(data, inputEncoding, outputEncoding) {
     const out = asBuffer(ops.cipherUpdate(this.#handle, toBytes(data, inputEncoding)));
@@ -164,8 +187,12 @@ class CipherBase extends Transform {
     ops.cipherCtl(this.#handle, "setAutoPadding", on);
     return this;
   }
-  setAAD(aad) {
-    ops.cipherCtl(this.#handle, "setAAD", toBytes(aad, undefined, "buffer"));
+  setAAD(aad, options) {
+    const plaintextLength = options?.plaintextLength;
+    if (this.#mode === "ccm" && plaintextLength === undefined) {
+      throw codeError(TypeError, "options.plaintextLength required for CCM mode with AAD", "ERR_MISSING_ARGS");
+    }
+    ops.cipherCtl(this.#handle, "setAAD", toBytes(aad, undefined, "buffer"), plaintextLength);
     return this;
   }
   getAuthTag() {
@@ -212,10 +239,16 @@ function getCipherInfo(name, options) {
   const info = ops.cipherInfo(String(name));
   if (!info) return undefined;
   if (options?.keyLength !== undefined && options.keyLength !== info.keyLength) return undefined;
-  if (options?.ivLength !== undefined && options.ivLength !== info.ivLength && info.mode !== "gcm") return undefined;
+  let ivLength = info.ivLength;
+  if (options?.ivLength !== undefined && options.ivLength !== info.ivLength) {
+    const n = options.ivLength;
+    const ok = info.mode === "gcm" ? n >= 1 : info.mode === "ccm" ? n >= 7 && n <= 13 : info.mode === "ocb" ? n >= 1 && n <= 15 : false;
+    if (!ok) return undefined;
+    ivLength = n;
+  }
   const out = { mode: info.mode, name: info.name, nid: info.nid };
   if (info.mode !== "stream") out.blockSize = info.blockSize;
-  if (info.ivLength !== 0) out.ivLength = info.ivLength;
+  if (ivLength !== 0) out.ivLength = ivLength;
   out.keyLength = info.keyLength;
   return out;
 }

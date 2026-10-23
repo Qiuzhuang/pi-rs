@@ -254,12 +254,31 @@ mod process {
     static WINCH_WRITE_FD: AtomicI32 = AtomicI32::new(-1);
     static WINCH_READ_FD: AtomicI32 = AtomicI32::new(-1);
 
-    extern "C" fn on_sigwinch(_: libc::c_int) {
+    /// The SIGWINCH handler installed before ours (e.g. pi-jsrt's for an extension's
+    /// `process.on('SIGWINCH')`), chained like libuv chains to a previous handler.
+    static PREVIOUS_WINCH: std::sync::OnceLock<libc::sigaction> = std::sync::OnceLock::new();
+
+    extern "C" fn on_sigwinch(sig: libc::c_int, info: *mut libc::siginfo_t, uctx: *mut libc::c_void) {
         let fd = WINCH_WRITE_FD.load(Ordering::Relaxed);
         if fd >= 0 {
             let b = [1u8];
             unsafe {
                 libc::write(fd, b.as_ptr() as *const libc::c_void, 1);
+            }
+        }
+        if let Some(old) = PREVIOUS_WINCH.get()
+            && old.sa_sigaction != libc::SIG_DFL
+            && old.sa_sigaction != libc::SIG_IGN
+        {
+            // SAFETY: calling the previously installed handler with the convention its flags declare.
+            unsafe {
+                if old.sa_flags & libc::SA_SIGINFO != 0 {
+                    let f: extern "C" fn(libc::c_int, *mut libc::siginfo_t, *mut libc::c_void) = std::mem::transmute(old.sa_sigaction);
+                    f(sig, info, uctx);
+                } else {
+                    let f: extern "C" fn(libc::c_int) = std::mem::transmute(old.sa_sigaction);
+                    f(sig);
+                }
             }
         }
     }
@@ -290,8 +309,12 @@ mod process {
         unsafe {
             let mut action: libc::sigaction = std::mem::zeroed();
             action.sa_sigaction = on_sigwinch as *const () as usize;
-            action.sa_flags = libc::SA_RESTART;
+            action.sa_flags = libc::SA_RESTART | libc::SA_SIGINFO;
             libc::sigemptyset(&mut action.sa_mask);
+            let mut old: libc::sigaction = std::mem::zeroed();
+            if libc::sigaction(libc::SIGWINCH, std::ptr::null(), &mut old) == 0 {
+                let _ = PREVIOUS_WINCH.set(old);
+            }
             libc::sigaction(libc::SIGWINCH, &action, std::ptr::null_mut());
         }
         r

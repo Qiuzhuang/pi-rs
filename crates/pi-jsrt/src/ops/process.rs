@@ -134,8 +134,15 @@ fn op_kill(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue
     // SAFETY: plain syscall.
     let r = unsafe { libc::kill(pid, sig) };
     if r != 0 {
+        // Node's uvException: "kill ESRCH" with errno/code/syscall.
         let e = std::io::Error::last_os_error();
-        return Err(super::throw_io(ctx, &e, "kill", None));
+        let code = super::io_code(&e);
+        return Err(super::coded_error(
+            ctx,
+            "Error",
+            &format!("kill {code}"),
+            &[("errno", JsValue::from(-e.raw_os_error().unwrap_or(0))), ("code", js_str(code)), ("syscall", js_str("kill"))],
+        ));
     }
     Ok(JsValue::from(true))
 }

@@ -174,9 +174,18 @@ Object.assign(process, {
     process.exit(134);
   },
   kill(pid, signal = "SIGTERM") {
+    if (pid != (pid | 0)) {
+      const err = new TypeError(`The "pid" argument must be of type number. Received ${internal.describeReceived(pid)}`);
+      err.code = "ERR_INVALID_ARG_TYPE";
+      throw err;
+    }
     const signals = internal.signals;
     const sig = typeof signal === "number" ? signal : signals[signal];
-    if (sig === undefined) throw new TypeError(`Unknown signal: ${signal}`);
+    if (sig === undefined || (typeof signal === "number" && !Object.values(signals).includes(signal) && signal !== 0)) {
+      const err = new TypeError(`Unknown signal: ${signal}`);
+      err.code = "ERR_UNKNOWN_SIGNAL";
+      throw err;
+    }
     return ops.kill(pid, sig);
   },
   umask: () => 0o22,
@@ -215,6 +224,7 @@ internal.signals = {
   SIGILL: 4,
   SIGTRAP: 5,
   SIGABRT: 6,
+  SIGIOT: 6,
   SIGBUS: 7,
   SIGFPE: 8,
   SIGKILL: 9,
@@ -225,15 +235,29 @@ internal.signals = {
   SIGALRM: 14,
   SIGTERM: 15,
   SIGCHLD: 17,
+  SIGSTKFLT: 16,
   SIGCONT: 18,
   SIGSTOP: 19,
   SIGTSTP: 20,
   SIGTTIN: 21,
   SIGTTOU: 22,
+  SIGURG: 23,
+  SIGXCPU: 24,
+  SIGXFSZ: 25,
+  SIGVTALRM: 26,
+  SIGPROF: 27,
   SIGWINCH: 28,
+  SIGIO: 29,
+  SIGPOLL: 29,
+  SIGPWR: 30,
+  SIGSYS: 31,
 };
 if (config.platform === "darwin") {
-  Object.assign(internal.signals, { SIGBUS: 10, SIGUSR1: 30, SIGSEGV: 11, SIGUSR2: 31, SIGCHLD: 20, SIGCONT: 19, SIGSTOP: 17, SIGTSTP: 18 });
+  Object.assign(internal.signals, {
+    SIGBUS: 10, SIGUSR1: 30, SIGSEGV: 11, SIGUSR2: 31, SIGCHLD: 20, SIGCONT: 19, SIGSTOP: 17, SIGTSTP: 18,
+    SIGURG: 16, SIGIO: 23, SIGSYS: 12, SIGINFO: 29,
+  });
+  for (const name of ["SIGSTKFLT", "SIGPOLL", "SIGPWR"]) delete internal.signals[name];
 }
 
 // ---------------------------------------------------------------------------
@@ -376,6 +400,27 @@ internal.nodeExit = () => {
   }
   return Number(process.exitCode ?? code) | 0;
 };
+
+// ---------------------------------------------------------------------------
+// Signals (src/ops/signal.rs): listening starts with the first listener, like Node's
+// startListeningIfSignal / stopListeningIfSignal.
+// ---------------------------------------------------------------------------
+
+internal.signalEvent = (signo) => {
+  for (const [name, no] of Object.entries(internal.signals)) {
+    if (no === signo && process.listenerCount(name) > 0) process.emit(name, name, signo);
+  }
+};
+process.on("newListener", (type) => {
+  if (typeof type !== "string" || !Object.prototype.hasOwnProperty.call(internal.signals, type)) return;
+  if (internal.isWorker) return; // Signals are not delivered to workers.
+  if (process.listenerCount(type) === 0) ops.signalSubscribe(internal.signals[type]);
+});
+process.on("removeListener", (type) => {
+  if (typeof type !== "string" || !Object.prototype.hasOwnProperty.call(internal.signals, type)) return;
+  if (internal.isWorker) return;
+  if (process.listenerCount(type) === 0) ops.signalUnsubscribe(internal.signals[type]);
+});
 
 // `require` for classic scripts (like `node -e`), relative to the cwd.
 internal.hidden(globalThis, "require", internal.makeRequire(`${ops.cwd()}/[eval]`));

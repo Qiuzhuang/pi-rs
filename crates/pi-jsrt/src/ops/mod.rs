@@ -19,6 +19,7 @@ pub(crate) mod ipc;
 pub(crate) mod keys;
 pub(crate) mod net;
 pub(crate) mod process;
+pub(crate) mod signal;
 pub(crate) mod tls;
 pub(crate) mod wasm;
 pub(crate) mod worker;
@@ -319,6 +320,7 @@ pub(crate) fn bootstrap(ctx: &mut Context) -> JsResult<()> {
         define_ops(ctx, &ops, ws::OPS)?;
         define_ops(ctx, &ops, ipc::OPS)?;
         define_ops(ctx, &ops, worker::OPS)?;
+        define_ops(ctx, &ops, signal::OPS)?;
     }
     let config = process::config_object(ctx)?;
     if node && let Some(cfg) = config.as_object() {
@@ -350,6 +352,7 @@ pub(crate) fn teardown(ctx: &mut Context) {
     ws::teardown(ctx);
     ipc::teardown(ctx);
     worker::teardown(ctx);
+    signal::teardown(ctx);
 }
 
 /// Read bytes from a string (UTF-8), ArrayBuffer, typed array or DataView.

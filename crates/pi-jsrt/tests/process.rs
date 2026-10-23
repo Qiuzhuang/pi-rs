@@ -179,3 +179,46 @@ export default {{ log: await finished, silent, errors }};
         ])
     );
 }
+
+#[test]
+fn os_signals_reach_process_listeners() {
+    use std::os::unix::process::ExitStatusExt;
+    let dir = tempfile::tempdir().unwrap();
+    // Listener, then default action once the last listener is removed; Node's errors.
+    let sig = write(
+        dir.path(),
+        "sig.js",
+        r#"process.on("SIGUSR2", (...a) => { console.log("got", JSON.stringify(a)); process.removeAllListeners("SIGUSR2"); setTimeout(() => { process.kill(process.pid, "SIGUSR2"); setTimeout(() => console.log("not reached"), 100); }, 10) });
+process.kill(process.pid, "SIGUSR2");
+try { process.on("SIGKILL", () => {}) } catch (e) { console.log(e.message, e.code, e.errno, e.syscall) }
+try { process.kill(process.pid, "SIGFOO") } catch (e) { console.log(e.name, e.message, e.code) }
+try { process.kill(999999, 0) } catch (e) { console.log(e.message, e.code, e.errno, e.syscall) }
+console.log(process.kill(process.pid, 0), process.listenerCount("SIGKILL"));
+"#,
+    );
+    let out = Command::new(NODE_BIN).arg(&sig).output().unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        "uv_signal_start EINVAL EINVAL -22 uv_signal_start\nTypeError Unknown signal: SIGFOO ERR_UNKNOWN_SIGNAL\nkill ESRCH ESRCH -3 kill\ntrue 0\ngot [\"SIGUSR2\",12]\n"
+    );
+    assert_eq!(out.status.signal(), Some(libc::SIGUSR2));
+
+    let sig2 = write(
+        dir.path(),
+        "sig2.js",
+        r#"let n = 0;
+const h = (s) => { console.log("term", s, ++n); if (n === 2) { process.off("SIGTERM", h); } };
+process.on("SIGTERM", h);
+process.on("SIGINT", () => { console.log("int"); });
+const t = setInterval(() => {}, 1000);
+setTimeout(() => process.kill(process.pid, "SIGINT"), 20);
+setTimeout(() => process.kill(process.pid, "SIGTERM"), 40);
+setTimeout(() => process.kill(process.pid, "SIGTERM"), 60);
+setTimeout(() => { console.log("still alive"); process.kill(process.pid, "SIGTERM"); }, 80);
+setTimeout(() => console.log("not reached"), 300);
+"#,
+    );
+    let out = Command::new(NODE_BIN).arg(&sig2).output().unwrap();
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "int\nterm SIGTERM 1\nterm SIGTERM 2\nstill alive\n");
+    assert_eq!(out.status.signal(), Some(libc::SIGTERM));
+}

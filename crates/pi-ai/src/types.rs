@@ -1346,9 +1346,10 @@ pub struct Model {
     pub max_tokens: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub headers: Option<IndexMap<String, String>>,
-    /// Compatibility overrides. Which fields apply depends on `api`.
+    /// Compatibility overrides. Which fields apply depends on `api`. Boxed: the struct is large
+    /// and absent from most catalog models, of which several copies are held.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub compat: Option<ModelCompat>,
+    pub compat: Option<Box<ModelCompat>>,
     /// Maps pi thinking levels to provider/model-specific values; `None` marks unsupported.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thinking_level_map: Option<ThinkingLevelMap>,
@@ -1374,7 +1375,7 @@ impl Model {
     }
 
     pub fn compat(&self) -> ModelCompat {
-        self.compat.clone().unwrap_or_default()
+        self.compat.as_deref().cloned().unwrap_or_default()
     }
 }
 

@@ -713,7 +713,6 @@ function stubModule(name, names, extra = {}) {
     return mod;
   });
 }
-stubModule("dgram", ["createSocket"]);
 stubModule("cluster", ["fork", "setupPrimary"], { isPrimary: true, isMaster: true, isWorker: false });
 stubModule("inspector", ["open", "close", "url", "Session"]);
 stubModule("diagnostics_channel", [], {

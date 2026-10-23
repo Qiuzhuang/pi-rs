@@ -12,6 +12,7 @@ use crate::engine::{self, define_ops, js_str, run_glue, state};
 pub(crate) mod child_process;
 pub(crate) mod cipher;
 pub(crate) mod crypto;
+pub(crate) mod dgram;
 pub(crate) mod encoding;
 pub(crate) mod fetch;
 pub(crate) mod fs;
@@ -121,7 +122,6 @@ const LAZY_GLUE: &[LazyGlue] = &[
             "perf_hooks",
             "async_hooks",
             "console",
-            "dgram",
             "cluster",
             "inspector",
             "diagnostics_channel",
@@ -133,6 +133,12 @@ const LAZY_GLUE: &[LazyGlue] = &[
         file: "node/worker_threads.js",
         src: include_str!("../../js/node/worker_threads.js"),
         builtins: &["worker_threads"],
+        globals: &[],
+    },
+    LazyGlue {
+        file: "node/dgram.js",
+        src: include_str!("../../js/node/dgram.js"),
+        builtins: &["dgram"],
         globals: &[],
     },
     LazyGlue {
@@ -335,6 +341,7 @@ pub(crate) fn bootstrap(ctx: &mut Context) -> JsResult<()> {
         define_ops(ctx, &ops, signal::OPS)?;
         define_ops(ctx, &ops, vm::OPS)?;
         define_ops(ctx, &ops, http2::OPS)?;
+        define_ops(ctx, &ops, dgram::OPS)?;
     }
     let config = process::config_object(ctx)?;
     if node && let Some(cfg) = config.as_object() {
@@ -368,6 +375,7 @@ pub(crate) fn teardown(ctx: &mut Context) {
     worker::teardown(ctx);
     signal::teardown(ctx);
     http2::teardown(ctx);
+    dgram::teardown(ctx);
 }
 
 /// Read bytes from a string (UTF-8), ArrayBuffer, typed array or DataView.

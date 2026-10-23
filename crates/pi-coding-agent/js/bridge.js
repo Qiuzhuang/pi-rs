@@ -1790,6 +1790,12 @@ export async function invokeBashExec(exec, command, cwd, onData, signal, timeout
 	return result ?? { exitCode: null };
 }
 
+/** `withLock` of a JavaScript `SettingsStorage`, for a Rust settings manager. */
+export function invokeWithLock(storage, scope, callbackId) {
+	storage.withLock(scope, (current) => u(call("cb", { id: callbackId, args: [current ?? null] })));
+	return null;
+}
+
 export async function invokeSetup(setup, id) {
 	await setup(sessionManagerFor(id));
 }

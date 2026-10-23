@@ -10,7 +10,7 @@ in pi-rs; the reason is given), `[ ]` missing (none).
 
 | Package | Runtime exports | Implemented | Host-only | Missing |
 | --- | ---: | ---: | ---: | ---: |
-| `@earendil-works/pi-coding-agent` | 157 | 108 | 49 | 0 |
+| `@earendil-works/pi-coding-agent` | 157 | 109 | 48 | 0 |
 | `@earendil-works/pi-tui` | 91 | 88 | 3 | 0 |
 | `@earendil-works/pi-ai` | 77 | 77 | 0 | 0 |
 | `@earendil-works/pi-ai/compat` | 136 | 136 | 0 | 0 |
@@ -85,7 +85,7 @@ in pi-rs; the reason is given), `[ ]` missing (none).
 - [~] `RpcClient`: host-only, spawns and drives a pi child process (SDK use, not extension use)
 - [x] `SessionManager`: the class of `ctx.sessionManager` and of `newSession({ setup })`'s manager; constructor and static factories (`create`, `open`, `continueRecent`, `inMemory`, `forkFrom`, `findById`, `list`, `listAll`) create Rust session managers
 - [~] `SessionSelectorComponent`: host-only, interactive-mode component bound to host session state (Rust); extensions get UI through ctx.ui
-- [~] `SettingsManager`: host-only, settings are owned by the host
+- [x] `SettingsManager`: `create`, `inMemory` and `fromStorage` (a JS `SettingsStorage`) build Rust settings managers; every public method
 - [~] `SettingsSelectorComponent`: host-only, interactive-mode component bound to host session state (Rust); extensions get UI through ctx.ui
 - [~] `ShowImagesSelectorComponent`: host-only, interactive-mode component bound to host session state (Rust); extensions get UI through ctx.ui
 - [~] `SkillInvocationMessageComponent`: host-only, interactive-mode component bound to host session state (Rust); extensions get UI through ctx.ui

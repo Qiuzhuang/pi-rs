@@ -8,7 +8,7 @@ use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
-use super::{Bridge, CtxEntry, builtin, component, context, native, provider};
+use super::{Bridge, CtxEntry, builtin, component, context, native, provider, sdk};
 use crate::compat::AutocompleteItem;
 use crate::core::bash_executor::BashResult;
 use crate::core::exec::ExecOptions;
@@ -81,6 +81,7 @@ pub(crate) fn dispatch(bridge: &Arc<Bridge>, rt: &JsRuntime, op: &str, payload: 
         | "tui.markdownTheme" | "renderer.call" | "renderer.result" | "ac" => component::dispatch(bridge, op, payload),
         _ if op.starts_with("builtin.") || op.starts_with("ca") => builtin::dispatch(bridge, op, payload),
         "ai" => provider::dispatch(bridge, op, payload),
+        "settings" | "settings.static" => sdk::dispatch(bridge, op, payload),
         _ if op.starts_with("aip.") => native::dispatch(bridge, op, payload),
         _ => Err(anyhow::anyhow!("unknown host call {op}")),
     }
@@ -119,6 +120,7 @@ pub(crate) async fn dispatch_async(bridge: Arc<Bridge>, _rt: JsRuntime, op: Stri
         "tui.clipboard" => component::native_clipboard_call(&payload).await,
         "builtin.execute" | "ca.localBashExec" | "ca.copyToClipboard" | "ca.image" | "ca.compaction" => builtin::dispatch_async(bridge, &op, payload).await,
         "ai.stream" | "stream.next" => provider::dispatch_async(bridge, &op, payload).await,
+        "settings.async" => sdk::dispatch_async(bridge, &op, payload).await,
         _ if op.starts_with("aip.") => native::dispatch_async(bridge, &op, payload).await,
         _ => Err(anyhow::anyhow!("unknown async host call {op}")),
     }

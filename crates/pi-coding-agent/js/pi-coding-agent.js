@@ -20,6 +20,7 @@ import {
 	SessionManager,
 } from "pi-rs:bridge";
 export { ModelRegistry, SessionManager };
+export { SettingsManager } from "pi-rs:sdk";
 import { CancellableLoader, Container, Editor, Loader, Spacer, Text, getKeybindings } from "@earendil-works/pi-tui";
 
 const host = (fn, ...args) => u(call("ca", { fn, args }));
@@ -481,7 +482,6 @@ export const ModelRuntime = unavailableClass("ModelRuntime");
 export const CredentialSynchronizationError = class extends Error {};
 export const DefaultPackageManager = unavailableClass("DefaultPackageManager");
 export const DefaultResourceLoader = unavailableClass("DefaultResourceLoader");
-export const SettingsManager = unavailableClass("SettingsManager");
 export const ProjectTrustStore = unavailableClass("ProjectTrustStore");
 export const InteractiveMode = unavailableClass("InteractiveMode");
 export const RpcClient = unavailableClass("RpcClient");

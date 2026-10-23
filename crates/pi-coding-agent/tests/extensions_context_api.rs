@@ -247,3 +247,62 @@ export default function (pi) {
     harness.cleanup();
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn settings_manager_matches_ts() {
+    let source = format!(
+        "{PROBE_PRELUDE}{}",
+        r#"
+import { mkdtempSync, mkdirSync, writeFileSync as write, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { SettingsManager } from "@earendil-works/pi-coding-agent";
+export default function (pi) {
+    pi.on("session_start", async () => {
+        const root = mkdtempSync(join(tmpdir(), "settings-probe-"));
+        const agentDir = join(root, "agent");
+        const cwd = join(root, "project");
+        mkdirSync(agentDir, { recursive: true });
+        mkdirSync(join(cwd, ".pi"), { recursive: true });
+        write(join(agentDir, "settings.json"), JSON.stringify({ theme: "light", defaultProvider: "anthropic", compaction: { reserveTokens: 1000 }, packages: ["npm:foo"] }));
+        write(join(cwd, ".pi", "settings.json"), JSON.stringify({ defaultModel: "claude-x", hideThinkingBlock: true }));
+        const sm = SettingsManager.create(cwd, agentDir);
+        await t("ctor", () => { try { new SettingsManager(); return "no throw"; } catch { return "throws"; } });
+        await t("theme", () => sm.getTheme());
+        await t("provider", () => [sm.getDefaultProvider(), sm.getDefaultModel()]);
+        await t("hide", () => sm.getHideThinkingBlock());
+        await t("compaction", () => [sm.getCompactionReserveTokens(), sm.getCompactionKeepRecentTokens(), sm.getCompactionEnabled()]);
+        await t("packages", () => sm.getPackages());
+        await t("global", () => sm.getGlobalSettings());
+        await t("project", () => sm.getProjectSettings());
+        await t("steering", () => [sm.getSteeringMode(), sm.getFollowUpMode(), sm.getTransport(), sm.getDoubleEscapeAction(), sm.getTreeFilterMode()]);
+        await t("missing", () => [sm.getShellPath(), sm.getSessionDir(), sm.getThinkingBudgets(), sm.getEnabledModels()]);
+        await t("retry", () => sm.getRetrySettings());
+        await t("overrides", () => sm.getTerminalCapabilityOverrides());
+        sm.setTheme("dark");
+        sm.setDefaultModelAndProvider("openai", "gpt-x");
+        sm.setModelThinkingLevel("openai", "gpt-x", "high");
+        await t("thinking", () => [sm.getModelThinkingLevel("openai", "gpt-x"), sm.getAllModelThinkingLevels()]);
+        await sm.flush();
+        await t("file", () => JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf8")));
+        await t("errors", () => sm.drainErrors());
+        const mem = SettingsManager.inMemory({ theme: "x", shellPath: "/bin/zsh" });
+        await t("mem", () => [mem.getTheme(), mem.getShellPath(), mem.getQuietStartup()]);
+        let stored = { global: JSON.stringify({ theme: "stored" }), project: undefined };
+        const storage = { withLock(scope, fn) { const next = fn(stored[scope]); if (next !== undefined) stored[scope] = next; } };
+        const fromStorage = SettingsManager.fromStorage(storage);
+        await t("storage.theme", () => fromStorage.getTheme());
+        fromStorage.setTheme("written");
+        await fromStorage.flush();
+        await t("storage.written", () => JSON.parse(stored.global).theme);
+        finish();
+    });
+}
+"#
+    );
+    let (result, harness, dir) = run_probe(&source).await;
+    let expected: Value = serde_json::from_str(include_str!("fixtures/extensions_settings_manager_ts.json")).unwrap();
+    assert_eq!(result, expected);
+    harness.cleanup();
+    let _ = std::fs::remove_dir_all(dir);
+}

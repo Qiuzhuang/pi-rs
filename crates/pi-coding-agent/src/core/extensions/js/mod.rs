@@ -19,6 +19,7 @@ mod component;
 mod context;
 mod native;
 mod provider;
+mod sdk;
 mod tui_helpers;
 
 use std::collections::HashMap;
@@ -56,6 +57,7 @@ const PI_AI_MODELS_JS: &str = include_str!("../../../../js/pi-ai-models.js");
 const PI_AI_PROVIDERS_ALL_JS: &str = include_str!("../../../../js/pi-ai-providers-all.js");
 const PI_AGENT_CORE_JS: &str = include_str!("../../../../js/pi-agent-core.js");
 const PI_CODING_AGENT_JS: &str = include_str!("../../../../js/pi-coding-agent.js");
+const PI_SDK_JS: &str = include_str!("../../../../js/pi-sdk.js");
 
 /// Specifier of the internal bridge module.
 const BRIDGE_SPECIFIER: &str = "pi-rs:bridge";
@@ -199,6 +201,8 @@ pub(crate) struct Bridge {
     pub(crate) native_provider_ids: Mutex<HashMap<usize, u64>>,
     /// The JavaScript values behind Rust objects built from them (see [`Origins`]).
     pub(crate) origins: Origins,
+    /// Settings managers created from JavaScript (`SettingsManager.create()`, ...).
+    pub(crate) settings_managers: Registry<Arc<crate::core::settings_manager::SettingsManager>>,
     /// Unregisters the JavaScript session-resource cleanup (`registerSessionResourceCleanup`).
     session_cleanup: Mutex<Option<Box<dyn FnOnce() + Send + Sync>>>,
     /// Ordered executor for UI calls made from JS (see [`Bridge::ui_dispatch`]).
@@ -417,6 +421,7 @@ impl JsExtensionHost {
         virtual_modules.insert("pi-rs:ai-core".to_string(), VirtualModule::EsmJs(PI_AI_CORE_JS.to_string()));
         virtual_modules.insert("pi-rs:ai-faux".to_string(), VirtualModule::EsmJs(PI_AI_FAUX_JS.to_string()));
         virtual_modules.insert("pi-rs:ai-rust".to_string(), VirtualModule::EsmJs(PI_AI_RUST_JS.to_string()));
+        virtual_modules.insert("pi-rs:sdk".to_string(), VirtualModule::EsmJs(PI_SDK_JS.to_string()));
         virtual_modules.insert("@earendil-works/pi-ai/models".to_string(), VirtualModule::EsmJs(PI_AI_MODELS_JS.to_string()));
         virtual_modules
             .insert("@earendil-works/pi-ai/providers/all".to_string(), VirtualModule::EsmJs(PI_AI_PROVIDERS_ALL_JS.to_string()));
@@ -518,6 +523,7 @@ impl JsExtensionHost {
             natives: Registry::new(),
             native_provider_ids: Mutex::new(HashMap::new()),
             origins: Origins::default(),
+            settings_managers: Registry::new(),
             session_cleanup: Mutex::new(None),
             ui_tx: Mutex::new(ui_tx),
         });

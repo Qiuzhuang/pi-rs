@@ -62,8 +62,8 @@ const isZstd = (mode) => mode === constants.ZSTD_COMPRESS || mode === constants.
 const finishFlagFor = (mode) => (isBrotli(mode) || isZstd(mode) ? 2 : constants.Z_FINISH);
 
 function invalidArgType(name, expected, actual) {
-  const received = actual === null ? "null" : actual === undefined ? "undefined" : `type ${typeof actual} (${String(actual).slice(0, 25)})`;
-  return Object.assign(new TypeError(`The "${name}" argument must be ${expected}. Received ${received}`), { code: "ERR_INVALID_ARG_TYPE" });
+  const kind = name.includes(".") ? "property" : "argument";
+  return Object.assign(new TypeError(`The "${name}" ${kind} must be ${expected}. Received ${internal.describeReceived(actual)}`), { code: "ERR_INVALID_ARG_TYPE" });
 }
 
 function toInput(buffer, name = "buffer") {
@@ -78,11 +78,15 @@ function zlibError(err) {
   return err;
 }
 
-function checkRange(name, value, min, max, def) {
-  if (value === undefined || value === null || (typeof value === "number" && Number.isNaN(value))) return def;
-  if (typeof value !== "number") throw invalidArgType(`options.${name}`, "of type number", value);
-  if (!Number.isFinite(value) || value < min || value > max) {
-    throw Object.assign(new RangeError(`The value of "options.${name}" is out of range. It must be >= ${min} and <= ${max}. Received ${value}`), { code: "ERR_OUT_OF_RANGE" });
+function checkRange(name, value, min, max, def, prefix = "options.") {
+  name = prefix + name;
+  if (value === undefined || (typeof value === "number" && Number.isNaN(value))) return def;
+  if (typeof value !== "number") throw invalidArgType(name, "of type number", value);
+  if (!Number.isFinite(value)) {
+    throw Object.assign(new RangeError(`The value of "${name}" is out of range. It must be a finite number. Received ${value}`), { code: "ERR_OUT_OF_RANGE" });
+  }
+  if (value < min || value > max) {
+    throw Object.assign(new RangeError(`The value of "${name}" is out of range. It must be >= ${min} and <= ${max}. Received ${value}`), { code: "ERR_OUT_OF_RANGE" });
   }
   return value;
 }
@@ -113,22 +117,23 @@ class ZlibHandle {
       this._writeState = writeState;
       this._processCallback = processCallback;
     } else {
-      const [, level, , strategy, writeState, processCallback, dictionary] = args;
-      if (dictionary !== undefined && dictionary !== null && dictionary.length) {
-        throw Object.assign(new Error("zlib dictionaries are not supported in pi-jsrt"), { code: "ERR_NOT_SUPPORTED" });
-      }
+      const [windowBits, level, memLevel, strategy, writeState, processCallback, dictionary] = args;
       this._level = level ?? -1;
       this._strategy = strategy ?? 0;
+      this._windowBits = windowBits ?? 15;
+      this._memLevel = memLevel ?? 8;
+      this._dictionary = dictionary && dictionary.byteLength ? new Uint8Array(dictionary.buffer, dictionary.byteOffset, dictionary.byteLength) : undefined;
       this._writeState = writeState;
       this._processCallback = processCallback;
     }
-    this._native = ops.zlibNew(this.mode, this._level, this._strategy, this._params);
+    this._native = ops.zlibNew(this.mode, this._level, this._strategy, this._params, this._windowBits, this._memLevel, this._dictionary);
     return true;
   }
 
   params(level, strategy) {
     this._level = level;
     this._strategy = strategy;
+    if (this._native) ops.zlibParams(this._native, level, strategy);
   }
 
   reset() {
@@ -211,9 +216,21 @@ class ZlibBase extends Transform {
     } else {
       const level = checkRange("level", opts.level, -1, 9, -1);
       const strategy = checkRange("strategy", opts.strategy, 0, 4, 0);
-      checkRange("windowBits", opts.windowBits, mode === constants.UNZIP || mode === constants.GUNZIP || mode === constants.INFLATE || mode === constants.INFLATERAW ? 0 : 8, 15, 15);
-      checkRange("memLevel", opts.memLevel, 1, 9, 8);
-      this._handle.init(15, level, 8, strategy, this._writeState, () => {}, opts.dictionary);
+      let windowBits;
+      if ((opts.windowBits === undefined || opts.windowBits === null || opts.windowBits === 0) && (mode === constants.INFLATE || mode === constants.GUNZIP || mode === constants.UNZIP)) {
+        windowBits = 0;
+      } else {
+        windowBits = checkRange("windowBits", opts.windowBits, constants.Z_MIN_WINDOWBITS + (mode === constants.GZIP ? 1 : 0), constants.Z_MAX_WINDOWBITS, constants.Z_DEFAULT_WINDOWBITS);
+      }
+      const memLevel = checkRange("memLevel", opts.memLevel, constants.Z_MIN_MEMLEVEL, constants.Z_MAX_MEMLEVEL, constants.Z_DEFAULT_MEMLEVEL);
+      let dictionary = opts.dictionary;
+      if (dictionary !== undefined && !ArrayBuffer.isView(dictionary)) {
+        if (dictionary instanceof ArrayBuffer || (typeof SharedArrayBuffer === "function" && dictionary instanceof SharedArrayBuffer)) dictionary = Buffer.from(dictionary);
+        else throw invalidArgType("options.dictionary", "an instance of Buffer, TypedArray, DataView, or ArrayBuffer", dictionary);
+      }
+      this._level = level;
+      this._strategy = strategy;
+      this._handle.init(windowBits, level, memLevel, strategy, this._writeState, () => {}, dictionary);
     }
   }
 
@@ -299,8 +316,20 @@ class ZlibBase extends Transform {
   }
 
   params(level, strategy, callback) {
-    this._handle.params(level, strategy);
-    if (callback) process.nextTick(callback);
+    checkRange("level", level, constants.Z_MIN_LEVEL, constants.Z_MAX_LEVEL, undefined, "");
+    checkRange("strategy", strategy, constants.Z_DEFAULT_STRATEGY, constants.Z_FIXED, undefined, "");
+    if (this._level !== level || this._strategy !== strategy) {
+      this.flush(constants.Z_SYNC_FLUSH, () => {
+        if (this._handle._native) this._handle.params(level, strategy);
+        if (!this.destroyed) {
+          this._level = level;
+          this._strategy = strategy;
+          if (callback) callback();
+        }
+      });
+    } else if (callback) {
+      process.nextTick(callback);
+    }
   }
 
   reset() {

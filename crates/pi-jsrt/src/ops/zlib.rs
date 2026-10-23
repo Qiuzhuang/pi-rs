@@ -1,5 +1,6 @@
 //! Compression ops backing `node:zlib`: deflate/inflate (zlib, raw, gzip, auto-detect) on
-//! miniz_oxide, brotli on the `brotli` crate, zstd on ruzstd, and CRC-32.
+//! zlib-rs (a port of zlib, so output bytes, windowBits/memLevel/strategy/dictionary handling and
+//! error messages are zlib's), brotli on the `brotli` crate, zstd on ruzstd, and CRC-32.
 //!
 //! A stream is an opaque JS object owning a [`ZStream`]. `ops.zlibWrite(stream, input, flush)`
 //! consumes all of `input` and returns everything produced so far (the JS glue slices it for
@@ -9,10 +10,6 @@
 use std::io::Read;
 
 use boa_engine::{Context, JsArgs, JsResult, JsValue};
-use miniz_oxide::deflate::core::{CompressorOxide, create_comp_flags_from_zip_params};
-use miniz_oxide::inflate::TINFLStatus;
-use miniz_oxide::inflate::stream::InflateState;
-use miniz_oxide::{DataFormat, MZError, MZFlush, MZStatus};
 
 use super::{bytes_arg, bytes_to_js, coded_error, native_object, with_native};
 use crate::engine::{OpFn, arg_f64, js_str};
@@ -61,97 +58,163 @@ impl ZError {
 type ZResult<T> = Result<T, ZError>;
 
 // ---------------------------------------------------------------------------
-// Deflate
+// Deflate / inflate on zlib-rs (a port of zlib: identical output, options and messages)
 // ---------------------------------------------------------------------------
 
+/// zlib options of a stream (`windowBits`, `memLevel`, `strategy`, `dictionary`).
+#[derive(Clone, Default)]
+pub(crate) struct ZOptions {
+    pub level: i32,
+    pub window_bits: i32,
+    pub mem_level: i32,
+    pub strategy: i32,
+    pub dictionary: Option<Vec<u8>>,
+}
+
+fn stream_error(message: &str) -> ZError {
+    ZError { message: message.into(), code: "Z_STREAM_ERROR".into(), errno: -2 }
+}
+
+/// A zlib deflate stream on zlib-rs's zlib-style API (`z_stream`), which, unlike its safe
+/// wrapper, supports `deflateParams` with a strategy exactly like zlib (as Node calls it).
+struct RawDeflate {
+    strm: Box<zlib_rs::c_api::z_stream>,
+}
+
+// SAFETY: the stream owns its state; it is only used from the thread that holds it.
+unsafe impl Send for RawDeflate {}
+
+impl RawDeflate {
+    fn new(config: zlib_rs::DeflateConfig) -> Option<Self> {
+        let mut strm = Box::new(zlib_rs::c_api::z_stream::default());
+        (zlib_rs::deflate::init(&mut strm, config) == zlib_rs::ReturnCode::Ok).then_some(Self { strm })
+    }
+
+    fn stream(&mut self) -> &mut zlib_rs::deflate::DeflateStream<'static> {
+        // SAFETY: `strm` was initialized by `deflate::init` and is ended only in `drop`.
+        unsafe { zlib_rs::deflate::DeflateStream::from_stream_mut(&mut *self.strm) }.expect("initialized deflate stream")
+    }
+
+    fn message(&self) -> Option<&'static str> {
+        if self.strm.msg.is_null() {
+            None
+        } else {
+            // SAFETY: zlib messages are static NUL-terminated strings.
+            unsafe { std::ffi::CStr::from_ptr(self.strm.msg) }.to_str().ok()
+        }
+    }
+
+    /// One `deflate()` call: returns (return code, consumed, produced).
+    fn deflate(&mut self, input: &[u8], output: &mut [u8], flush: zlib_rs::DeflateFlush) -> (zlib_rs::ReturnCode, usize, usize) {
+        let avail_in = input.len().min(u32::MAX as usize) as u32;
+        let avail_out = output.len().min(u32::MAX as usize) as u32;
+        self.strm.next_in = input.as_ptr();
+        self.strm.avail_in = avail_in;
+        self.strm.next_out = output.as_mut_ptr();
+        self.strm.avail_out = avail_out;
+        let ret = zlib_rs::deflate::deflate(self.stream(), flush);
+        let consumed = (avail_in - self.strm.avail_in) as usize;
+        let produced = (avail_out - self.strm.avail_out) as usize;
+        self.strm.next_in = std::ptr::null();
+        self.strm.avail_in = 0;
+        self.strm.next_out = std::ptr::null_mut();
+        self.strm.avail_out = 0;
+        (ret, consumed, produced)
+    }
+
+    fn set_dictionary(&mut self, dict: &[u8]) -> bool {
+        zlib_rs::deflate::set_dictionary(self.stream(), dict) == zlib_rs::ReturnCode::Ok
+    }
+
+    /// `deflateParams(level, strategy)` as Node calls it: after a flush, with no output space.
+    fn params(&mut self, level: i32, strategy: i32) -> bool {
+        let Ok(strategy) = zlib_rs::Strategy::try_from(strategy) else { return false };
+        let mut dummy = [0u8; 1];
+        self.strm.next_out = dummy.as_mut_ptr();
+        self.strm.avail_out = 0;
+        let ret = zlib_rs::deflate::params(self.stream(), level, strategy);
+        self.strm.next_out = std::ptr::null_mut();
+        matches!(ret, zlib_rs::ReturnCode::Ok | zlib_rs::ReturnCode::BufError)
+    }
+}
+
+impl Drop for RawDeflate {
+    fn drop(&mut self) {
+        let _ = zlib_rs::deflate::end(self.stream());
+    }
+}
+
 struct Deflater {
-    comp: Box<CompressorOxide>,
-    gzip: bool,
-    level: i32,
-    header_written: bool,
-    crc: crc32fast::Hasher,
-    size: u32,
+    z: RawDeflate,
     finished: bool,
 }
 
 impl Deflater {
-    fn new(mode: i32, level: i32, strategy: i32) -> Self {
-        let level = if level < 0 { 6 } else { level.min(9) };
-        let window_bits = if mode == DEFLATE { 15 } else { -15 };
-        let flags = create_comp_flags_from_zip_params(level, window_bits, strategy);
-        Self {
-            comp: Box::new(CompressorOxide::new(flags)),
-            gzip: mode == GZIP,
-            level,
-            header_written: false,
-            crc: crc32fast::Hasher::new(),
-            size: 0,
-            finished: false,
+    fn new(mode: i32, o: &ZOptions) -> ZResult<Self> {
+        let bits = if o.window_bits == 0 { 15 } else { o.window_bits };
+        let window_bits = match mode {
+            GZIP => bits + 16,
+            DEFLATERAW => -bits,
+            _ => bits,
+        };
+        let config = zlib_rs::DeflateConfig {
+            level: o.level,
+            method: zlib_rs::Method::Deflated,
+            window_bits,
+            mem_level: if o.mem_level == 0 { 8 } else { o.mem_level },
+            strategy: zlib_rs::Strategy::try_from(o.strategy).map_err(|_| init_failed())?,
+        };
+        let mut z = RawDeflate::new(config).ok_or_else(init_failed)?;
+        if let Some(dict) = &o.dictionary
+            && mode != GZIP
+            && !z.set_dictionary(dict)
+        {
+            return Err(ZError { message: "Failed to set dictionary".into(), code: "ERR_ZLIB_INITIALIZATION_FAILED".into(), errno: -2 });
         }
+        Ok(Self { z, finished: false })
     }
 
     fn write(&mut self, input: &[u8], flush: i32, out: &mut Vec<u8>) -> ZResult<()> {
+        use zlib_rs::DeflateFlush;
+        use zlib_rs::ReturnCode;
         if self.finished {
             return Ok(());
         }
-        if self.gzip && !self.header_written {
-            // Like zlib: no mtime, the extra flags hint at the level, OS = Unix.
-            let xfl = match self.level {
-                9 => 2,
-                1 => 4,
-                _ => 0,
-            };
-            out.extend_from_slice(&[0x1f, 0x8b, 8, 0, 0, 0, 0, 0, xfl, 3]);
-            self.header_written = true;
-        }
-        if self.gzip {
-            self.crc.update(input);
-            self.size = self.size.wrapping_add(input.len() as u32);
-        }
-        let mz_flush = match flush {
-            Z_NO_FLUSH | Z_BLOCK => MZFlush::None,
-            // miniz_oxide's partial flush emits nothing; a sync flush also makes everything
-            // written so far decodable (it ends with an empty stored block instead).
-            Z_PARTIAL_FLUSH | Z_SYNC_FLUSH => MZFlush::Sync,
-            Z_FULL_FLUSH => MZFlush::Full,
-            _ => MZFlush::Finish,
+        let flush = match flush {
+            Z_NO_FLUSH => DeflateFlush::NoFlush,
+            Z_PARTIAL_FLUSH => DeflateFlush::PartialFlush,
+            Z_SYNC_FLUSH => DeflateFlush::SyncFlush,
+            Z_FULL_FLUSH => DeflateFlush::FullFlush,
+            Z_BLOCK => DeflateFlush::Block,
+            _ => DeflateFlush::Finish,
         };
         let mut pos = 0;
         loop {
             let start = out.len();
-            let room = CHUNK.max(input.len() - pos + 64);
-            out.resize(start + room, 0);
-            let r = miniz_oxide::deflate::stream::deflate(&mut self.comp, &input[pos..], &mut out[start..], mz_flush);
-            out.truncate(start + r.bytes_written);
-            pos += r.bytes_consumed;
-            match r.status {
-                Ok(MZStatus::StreamEnd) => {
+            out.resize(start + CHUNK, 0);
+            let (ret, consumed, produced) = self.z.deflate(&input[pos..], &mut out[start..], flush);
+            pos += consumed;
+            out.truncate(start + produced);
+            match ret {
+                ReturnCode::StreamEnd => {
                     self.finished = true;
-                    break;
+                    return Ok(());
                 }
-                Ok(_) | Err(MZError::Buf) => {
-                    if pos >= input.len() && r.bytes_written < room {
-                        break;
-                    }
-                    if r.bytes_written == 0 && r.bytes_consumed == 0 {
-                        break;
+                ReturnCode::Ok | ReturnCode::BufError => {
+                    // Done when the input is consumed and the output did not fill up.
+                    if pos >= input.len() && produced < CHUNK {
+                        return Ok(());
                     }
                 }
-                Err(_) => return Err(ZError { message: "stream error".into(), code: "Z_STREAM_ERROR".into(), errno: -2 }),
+                _ => return Err(stream_error(self.z.message().unwrap_or("stream error"))),
             }
         }
-        if self.finished && self.gzip {
-            let crc = std::mem::take(&mut self.crc).finalize();
-            out.extend_from_slice(&crc.to_le_bytes());
-            out.extend_from_slice(&self.size.to_le_bytes());
-        }
-        Ok(())
     }
 }
 
-// ---------------------------------------------------------------------------
-// Inflate
-// ---------------------------------------------------------------------------
+fn init_failed() -> ZError {
+    ZError { message: "Initialization failed".into(), code: "ERR_ZLIB_INITIALIZATION_FAILED".into(), errno: -2 }
+}
 
 #[derive(Clone, Copy, PartialEq)]
 enum InKind {
@@ -161,246 +224,199 @@ enum InKind {
     Auto,
 }
 
-enum Phase {
-    /// UNZIP: waiting for the first byte to pick gzip or zlib.
-    Detect,
-    /// Collecting a zlib header (2 bytes) to validate it.
-    ZlibHeader,
-    /// Collecting a gzip member header.
-    GzHeader,
-    Body,
-    GzTrailer,
-    /// Between gzip members.
-    AfterMember,
-    Done,
-}
-
 struct Inflater {
     kind: InKind,
-    phase: Phase,
-    pending: Vec<u8>,
-    state: Box<InflateState>,
-    crc: crc32fast::Hasher,
-    size: u32,
-    /// At least one gzip member was decoded (later members are optional).
+    window_bits: i32,
+    z: Box<zlib_rs::Inflate>,
+    dictionary: Option<Vec<u8>>,
+    ended: bool,
+    /// Gzip: a member ended; more members may follow.
     member_done: bool,
+    /// Bytes after a finished gzip member, kept until there is enough to decide.
+    pending: Vec<u8>,
+    /// Auto mode (unzip) saw a gzip header: behaves like gunzip from then on, as in Node.
+    gzip_detected: bool,
+    /// Input of the current member (bounded), replayed to recover zlib's error message.
+    history: Option<Vec<u8>>,
 }
 
+/// zlib-rs reports "repeated call with bad state" for errors detected in its fast decoding
+/// loop (where zlib keeps the original message); replaying the input through the slow path
+/// recovers zlib's message.
+const BAD_STATE: &str = "repeated call with bad state";
+const HISTORY_LIMIT: usize = 8 * 1024 * 1024;
+
 impl Inflater {
-    fn new(mode: i32) -> Self {
+    fn new(mode: i32, o: &ZOptions) -> ZResult<Self> {
         let kind = match mode {
             INFLATE => InKind::Zlib,
             INFLATERAW => InKind::Raw,
             GUNZIP => InKind::Gzip,
             _ => InKind::Auto,
         };
-        let (phase, format) = match kind {
-            InKind::Zlib => (Phase::ZlibHeader, DataFormat::Zlib),
-            InKind::Raw => (Phase::Body, DataFormat::Raw),
-            InKind::Gzip => (Phase::GzHeader, DataFormat::Raw),
-            InKind::Auto => (Phase::Detect, DataFormat::Raw),
-        };
-        Self {
+        let bits = if o.window_bits == 0 && kind == InKind::Raw { 15 } else { o.window_bits };
+        let mut this = Self {
             kind,
-            phase,
-            pending: Vec::new(),
-            state: InflateState::new_boxed(format),
-            crc: crc32fast::Hasher::new(),
-            size: 0,
+            window_bits: bits,
+            z: Self::make(kind, bits),
+            dictionary: o.dictionary.clone(),
+            ended: false,
             member_done: false,
+            pending: Vec::new(),
+            gzip_detected: false,
+            history: Some(Vec::new()),
+        };
+        if kind == InKind::Raw
+            && let Some(dict) = this.dictionary.clone()
+            && this.z.set_dictionary(&dict).is_err()
+        {
+            return Err(stream_error("Failed to set dictionary"));
         }
+        Ok(this)
     }
 
-    fn ended(&self) -> bool {
-        matches!(self.phase, Phase::Done) || (matches!(self.phase, Phase::AfterMember) && self.member_done)
+    fn make(kind: InKind, bits: i32) -> Box<zlib_rs::Inflate> {
+        let bits = bits.clamp(0, 15) as u8;
+        Box::new(match kind {
+            InKind::Zlib => zlib_rs::Inflate::new(true, bits),
+            InKind::Raw => zlib_rs::Inflate::new(false, bits.max(8)),
+            InKind::Gzip => zlib_rs::Inflate::new(true, 16 + bits),
+            InKind::Auto => zlib_rs::Inflate::new(true, 32 + bits),
+        })
     }
 
-    fn write(&mut self, input: &[u8], flush: i32, out: &mut Vec<u8>) -> ZResult<()> {
-        let data: Vec<u8>;
-        let mut input = input;
-        if !self.pending.is_empty() {
-            let mut joined = std::mem::take(&mut self.pending);
-            joined.extend_from_slice(input);
-            data = joined;
-            input = &data;
+    /// The data error of the stream, with zlib's message (see [`BAD_STATE`]).
+    fn data_error(&self, rest: &[u8]) -> ZError {
+        let message = self.z.error_message().unwrap_or("invalid data");
+        if message != BAD_STATE {
+            return ZError::data(message);
         }
+        let Some(history) = &self.history else { return ZError::data(message) };
+        let mut input = history.clone();
+        input.extend_from_slice(rest);
+        let kind = if self.gzip_detected { InKind::Gzip } else { self.kind };
+        let mut z = Self::make(kind, self.window_bits);
+        if kind == InKind::Raw
+            && let Some(dict) = &self.dictionary
+        {
+            let _ = z.set_dictionary(dict);
+        }
+        // Output buffers below 258 bytes keep zlib(-rs) out of its fast loop.
+        let mut buf = [0u8; 128];
         let mut pos = 0;
         loop {
-            match self.phase {
-                Phase::Done => return Ok(()),
-                Phase::Detect => {
-                    if pos >= input.len() {
+            let before_in = z.total_in();
+            let before_out = z.total_out();
+            match z.decompress(&input[pos..], &mut buf, zlib_rs::InflateFlush::NoFlush) {
+                Ok(zlib_rs::Status::StreamEnd) => break,
+                Ok(_) => {
+                    pos += (z.total_in() - before_in) as usize;
+                    if z.total_in() == before_in && z.total_out() == before_out {
                         break;
                     }
-                    if input[pos] == 0x1f {
-                        self.kind = InKind::Gzip;
-                        self.phase = Phase::GzHeader;
-                    } else {
-                        self.kind = InKind::Zlib;
-                        self.phase = Phase::ZlibHeader;
-                        self.state.reset(DataFormat::Zlib);
-                    }
                 }
-                Phase::ZlibHeader => {
-                    let rest = &input[pos..];
-                    if rest.len() < 2 {
-                        if !rest.is_empty() && (rest[0] & 0x0f != 8 || rest[0] >> 4 > 7) {
-                            return Err(ZError::data("incorrect header check"));
-                        }
-                        self.pending = rest.to_vec();
-                        pos = input.len();
-                        break;
+                Err(zlib_rs::InflateError::NeedDict { .. }) => match &self.dictionary {
+                    Some(dict) if z.set_dictionary(dict).is_ok() => pos += (z.total_in() - before_in) as usize,
+                    _ => break,
+                },
+                Err(_) => {
+                    if let Some(m) = z.error_message().filter(|m| *m != BAD_STATE) {
+                        return ZError::data(m);
                     }
-                    let (cmf, flg) = (rest[0] as u16, rest[1] as u16);
-                    if cmf & 0x0f != 8 || (cmf << 8 | flg) % 31 != 0 {
-                        return Err(ZError::data("incorrect header check"));
-                    }
-                    if cmf >> 4 > 7 {
-                        return Err(ZError::data("invalid window size"));
-                    }
-                    if flg & 0x20 != 0 {
-                        return Err(ZError { message: "Missing dictionary".into(), code: "Z_NEED_DICT".into(), errno: 2 });
-                    }
-                    self.phase = Phase::Body;
-                }
-                Phase::GzHeader => {
-                    let rest = &input[pos..];
-                    match parse_gzip_header(rest)? {
-                        Some(len) => {
-                            pos += len;
-                            self.state.reset(DataFormat::Raw);
-                            self.crc = crc32fast::Hasher::new();
-                            self.size = 0;
-                            self.phase = Phase::Body;
-                        }
-                        None => {
-                            self.pending = rest.to_vec();
-                            pos = input.len();
-                            break;
-                        }
-                    }
-                }
-                Phase::Body => {
-                    let (consumed, ended) = self.inflate(&input[pos..], out)?;
-                    pos += consumed;
-                    if !ended {
-                        break;
-                    }
-                    self.phase = if self.kind == InKind::Gzip { Phase::GzTrailer } else { Phase::Done };
-                }
-                Phase::GzTrailer => {
-                    let rest = &input[pos..];
-                    if rest.len() < 8 {
-                        self.pending = rest.to_vec();
-                        pos = input.len();
-                        break;
-                    }
-                    let crc = u32::from_le_bytes([rest[0], rest[1], rest[2], rest[3]]);
-                    let size = u32::from_le_bytes([rest[4], rest[5], rest[6], rest[7]]);
-                    if crc != std::mem::take(&mut self.crc).finalize() {
-                        return Err(ZError::data("incorrect data check"));
-                    }
-                    if size != self.size {
-                        return Err(ZError::data("incorrect length check"));
-                    }
-                    pos += 8;
-                    self.member_done = true;
-                    self.phase = Phase::AfterMember;
-                }
-                Phase::AfterMember => {
-                    if pos >= input.len() {
-                        break;
-                    }
-                    // Like Node: zero padding after a member ends the stream, anything else must
-                    // be another member.
-                    if input[pos] == 0 {
-                        self.phase = Phase::Done;
-                        return Ok(());
-                    }
-                    self.phase = Phase::GzHeader;
+                    break;
                 }
             }
         }
-        debug_assert!(pos <= input.len());
-        if flush == Z_FINISH && !self.ended() {
+        ZError::data(message)
+    }
+
+    fn record(&mut self, consumed: &[u8]) {
+        if let Some(h) = &mut self.history {
+            if h.len() + consumed.len() > HISTORY_LIMIT {
+                self.history = None;
+            } else {
+                h.extend_from_slice(consumed);
+            }
+        }
+    }
+
+    fn write(&mut self, input: &[u8], flush: i32, out: &mut Vec<u8>) -> ZResult<()> {
+        use zlib_rs::{InflateError, InflateFlush, Status};
+        let joined: Vec<u8>;
+        let mut input = input;
+        if !self.pending.is_empty() {
+            let mut j = std::mem::take(&mut self.pending);
+            j.extend_from_slice(input);
+            joined = j;
+            input = &joined;
+        }
+        let mut pos = 0;
+        while !self.ended {
+            if self.member_done {
+                // Like Node: another gzip member may follow; zero padding after one ends the
+                // stream, anything else must be a member.
+                if pos >= input.len() {
+                    break;
+                }
+                if input[pos] == 0 {
+                    self.ended = true;
+                    break;
+                }
+                self.z = Self::make(InKind::Gzip, self.window_bits);
+                self.history = Some(Vec::new());
+                self.member_done = false;
+            }
+            if self.kind == InKind::Auto && self.z.total_in() == 0 && pos < input.len() && input[pos] == 0x1f {
+                self.gzip_detected = true;
+            }
+            let start = out.len();
+            out.resize(start + CHUNK, 0);
+            let before_in = self.z.total_in();
+            let before_out = self.z.total_out();
+            let r = self.z.decompress(&input[pos..], &mut out[start..], InflateFlush::NoFlush);
+            let produced = (self.z.total_out() - before_out) as usize;
+            let consumed = (self.z.total_in() - before_in) as usize;
+            out.truncate(start + produced);
+            if r.is_err() && !matches!(r, Err(InflateError::NeedDict { .. })) {
+                return Err(match r {
+                    Err(InflateError::DataError) => self.data_error(&input[pos..]),
+                    _ => stream_error(self.z.error_message().unwrap_or("stream error")),
+                });
+            }
+            self.record(&input[pos..pos + consumed]);
+            pos += consumed;
+            match r {
+                Ok(Status::StreamEnd) => {
+                    if self.kind == InKind::Gzip || self.gzip_detected {
+                        self.member_done = true;
+                    } else {
+                        self.ended = true;
+                    }
+                }
+                Ok(_) => {
+                    if produced < CHUNK && (pos >= input.len() || produced == 0) {
+                        break;
+                    }
+                }
+                Err(_) => {
+                    // Z_NEED_DICT, as in Node: set the dictionary or fail.
+                    let Some(dict) = self.dictionary.clone() else {
+                        return Err(ZError { message: "Missing dictionary".into(), code: "Z_NEED_DICT".into(), errno: 2 });
+                    };
+                    if self.z.set_dictionary(&dict).is_err() {
+                        return Err(ZError { message: "Bad dictionary".into(), code: "Z_NEED_DICT".into(), errno: 2 });
+                    }
+                }
+            }
+        }
+        if self.member_done && pos < input.len() {
+            self.pending = input[pos..].to_vec();
+        }
+        if flush == Z_FINISH && !self.ended && !self.member_done {
             return Err(ZError::eof());
         }
         Ok(())
     }
-
-    /// Feed body bytes; returns (consumed, stream ended).
-    fn inflate(&mut self, input: &[u8], out: &mut Vec<u8>) -> ZResult<(usize, bool)> {
-        let mut pos = 0;
-        loop {
-            let start = out.len();
-            out.resize(start + CHUNK, 0);
-            let r = miniz_oxide::inflate::stream::inflate(&mut self.state, &input[pos..], &mut out[start..], MZFlush::None);
-            if self.kind == InKind::Gzip {
-                self.crc.update(&out[start..start + r.bytes_written]);
-                self.size = self.size.wrapping_add(r.bytes_written as u32);
-            }
-            out.truncate(start + r.bytes_written);
-            pos += r.bytes_consumed;
-            match r.status {
-                Ok(MZStatus::StreamEnd) => return Ok((pos, true)),
-                Ok(_) | Err(MZError::Buf) => {
-                    if r.bytes_written < CHUNK && (pos >= input.len() || (r.bytes_written == 0 && r.bytes_consumed == 0)) {
-                        return Ok((pos, false));
-                    }
-                }
-                Err(_) => {
-                    return Err(match self.state.last_status() {
-                        TINFLStatus::Adler32Mismatch => ZError::data("incorrect data check"),
-                        _ => ZError::data("invalid block type"),
-                    });
-                }
-            }
-        }
-    }
-}
-
-/// Parse a gzip member header: `Ok(Some(len))` when complete, `Ok(None)` when more bytes are
-/// needed.
-fn parse_gzip_header(b: &[u8]) -> ZResult<Option<usize>> {
-    if !b.is_empty() && b[0] != 0x1f || b.len() > 1 && b[1] != 0x8b {
-        return Err(ZError::data("incorrect header check"));
-    }
-    if b.len() > 2 && b[2] != 8 {
-        return Err(ZError::data("unknown compression method"));
-    }
-    if b.len() < 10 {
-        return Ok(None);
-    }
-    let flags = b[3];
-    if flags & 0xe0 != 0 {
-        return Err(ZError::data("unknown header flags set"));
-    }
-    let mut pos = 10;
-    if flags & 4 != 0 {
-        if b.len() < pos + 2 {
-            return Ok(None);
-        }
-        let xlen = u16::from_le_bytes([b[pos], b[pos + 1]]) as usize;
-        pos += 2 + xlen;
-        if b.len() < pos {
-            return Ok(None);
-        }
-    }
-    for flag in [8u8, 16] {
-        if flags & flag != 0 {
-            match b[pos..].iter().position(|&c| c == 0) {
-                Some(i) => pos += i + 1,
-                None => return Ok(None),
-            }
-        }
-    }
-    if flags & 2 != 0 {
-        pos += 2;
-        if b.len() < pos {
-            return Ok(None);
-        }
-    }
-    Ok(Some(pos))
 }
 
 // ---------------------------------------------------------------------------
@@ -518,33 +534,43 @@ enum Engine {
 
 pub(crate) struct ZStream {
     mode: i32,
-    level: i32,
-    strategy: i32,
+    options: ZOptions,
     params: Vec<(u32, u32)>,
     engine: Engine,
 }
 
 impl ZStream {
-    pub(crate) fn new(mode: i32, level: i32, strategy: i32, params: Vec<(u32, u32)>) -> Self {
-        let engine = Self::engine(mode, level, strategy, &params);
-        Self { mode, level, strategy, params, engine }
+    pub(crate) fn new(mode: i32, options: ZOptions, params: Vec<(u32, u32)>) -> ZResult<Self> {
+        let engine = Self::engine(mode, &options, &params)?;
+        Ok(Self { mode, options, params, engine })
     }
 
-    fn engine(mode: i32, level: i32, strategy: i32, params: &[(u32, u32)]) -> Engine {
-        match mode {
-            DEFLATE | GZIP | DEFLATERAW => Engine::Deflate(Deflater::new(mode, level, strategy)),
+    fn engine(mode: i32, options: &ZOptions, params: &[(u32, u32)]) -> ZResult<Engine> {
+        Ok(match mode {
+            DEFLATE | GZIP | DEFLATERAW => Engine::Deflate(Deflater::new(mode, options)?),
             BROTLI_ENCODE => Engine::BrotliEnc(Box::new(brotli_encoder(params))),
             BROTLI_DECODE => Engine::BrotliDec(BrotliDec {
                 state: Box::new(BrotliDecoder::new(Default::default(), Default::default(), Default::default())),
                 done: false,
             }),
             ZSTD_COMPRESS | ZSTD_DECOMPRESS => Engine::Zstd { compress: mode == ZSTD_COMPRESS, input: Vec::new(), done: false },
-            _ => Engine::Inflate(Inflater::new(mode)),
-        }
+            _ => Engine::Inflate(Inflater::new(mode, options)?),
+        })
     }
 
     pub(crate) fn reset(&mut self) {
-        self.engine = Self::engine(self.mode, self.level, self.strategy, &self.params);
+        if let Ok(engine) = Self::engine(self.mode, &self.options, &self.params) {
+            self.engine = engine;
+        }
+    }
+
+    /// `params(level, strategy)` on a deflate stream.
+    pub(crate) fn params(&mut self, level: i32, strategy: i32) {
+        self.options.level = level;
+        self.options.strategy = strategy;
+        if let Engine::Deflate(d) = &mut self.engine {
+            d.z.params(level, strategy);
+        }
     }
 
     /// Consume `input`, appending output. `flush` is a zlib flush value (brotli/zstd: an
@@ -589,18 +615,26 @@ impl ZStream {
 #[cfg(test)]
 pub(crate) fn process(mode: i32, level: i32, data: &[u8]) -> ZResult<Vec<u8>> {
     let finish = if matches!(mode, BROTLI_DECODE | BROTLI_ENCODE | ZSTD_COMPRESS | ZSTD_DECOMPRESS) { 2 } else { Z_FINISH };
-    ZStream::new(mode, level, 0, Vec::new()).write(data, finish)
+    ZStream::new(mode, ZOptions { level, window_bits: 15, ..Default::default() }, Vec::new())?.write(data, finish)
 }
 
 fn throw(ctx: &mut Context, e: ZError) -> boa_engine::JsError {
     coded_error(ctx, "Error", &e.message, &[("code", js_str(&e.code)), ("errno", JsValue::from(e.errno))])
 }
 
-/// `ops.zlibNew(mode, level, strategy, brotliParams?: number[]) -> stream`
+/// `ops.zlibNew(mode, level, strategy, brotliParams?: number[], windowBits, memLevel, dictionary)
+/// -> stream`
 fn op_zlib_new(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     let mode = arg_f64(args, 0, ctx)? as i32;
     let level = args.get_or_undefined(1).to_number(ctx).map(|n| if n.is_nan() { -1 } else { n as i32 })?;
     let strategy = args.get_or_undefined(2).to_number(ctx).map(|n| if n.is_nan() { 0 } else { n as i32 })?;
+    let num = |v: &JsValue, default: i32, ctx: &mut Context| -> JsResult<i32> {
+        if v.is_null_or_undefined() { Ok(default) } else { v.to_number(ctx).map(|n| if n.is_nan() { default } else { n as i32 }) }
+    };
+    let window_bits = num(args.get_or_undefined(4), 15, ctx)?;
+    let mem_level = num(args.get_or_undefined(5), 8, ctx)?;
+    let dict = args.get_or_undefined(6);
+    let dictionary = if dict.is_null_or_undefined() { None } else { Some(bytes_arg(dict, ctx)?) };
     let mut params = Vec::new();
     if let Some(obj) = args.get_or_undefined(3).as_object() {
         let len = obj.get(boa_engine::js_string!("length"), ctx)?.to_number(ctx)? as u32;
@@ -615,7 +649,23 @@ fn op_zlib_new(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsV
     if !(1..=11).contains(&mode) {
         return Err(crate::engine::type_error(format!("Bad argument: mode {mode}")));
     }
-    Ok(native_object(ZStream::new(mode, level, strategy, params)))
+    let options = ZOptions { level, window_bits, mem_level, strategy, dictionary };
+    match ZStream::new(mode, options, params) {
+        Ok(s) => Ok(native_object(s)),
+        Err(e) => {
+            let err = coded_error(ctx, "Error", "Initialization failed", &[("code", js_str("ERR_ZLIB_INITIALIZATION_FAILED"))]);
+            let _ = e;
+            Err(err)
+        }
+    }
+}
+
+/// `ops.zlibParams(stream, level, strategy)`
+fn op_zlib_params(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
+    let level = arg_f64(args, 1, ctx)? as i32;
+    let strategy = arg_f64(args, 2, ctx)? as i32;
+    with_native::<ZStream, _>(args.get_or_undefined(0), |s| s.params(level, strategy))?;
+    Ok(JsValue::undefined())
 }
 
 /// `ops.zlibWrite(stream, input, flush) -> Uint8Array`
@@ -645,7 +695,8 @@ fn op_crc32(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValu
 }
 
 pub(crate) const OPS: &[(&str, usize, OpFn)] = &[
-    ("zlibNew", 4, op_zlib_new),
+    ("zlibNew", 7, op_zlib_new),
+    ("zlibParams", 3, op_zlib_params),
     ("zlibWrite", 3, op_zlib_write),
     ("zlibReset", 1, op_zlib_reset),
     ("crc32", 2, op_crc32),
@@ -672,7 +723,7 @@ mod tests {
     #[test]
     fn inflate_streams_byte_by_byte() {
         let z = process(GZIP, -1, b"hello hello hello world").unwrap();
-        let mut s = ZStream::new(GUNZIP, -1, 0, vec![]);
+        let mut s = ZStream::new(GUNZIP, ZOptions { level: -1, window_bits: 15, ..Default::default() }, vec![]).unwrap();
         let mut out = Vec::new();
         for b in &z {
             out.extend(s.write(&[*b], Z_NO_FLUSH).unwrap());
@@ -704,6 +755,17 @@ mod tests {
         // Node (C brotli) reports PADDING_1 (-14) here; the Rust decoder notices PADDING_2.
         assert_eq!(e.message, "Decompression failed");
         assert!(e.code.starts_with("ERR__ERROR_FORMAT_") && e.errno < 0, "{e:?}");
+    }
+
+    #[test]
+    fn params_switches_level_mid_stream() {
+        let mut s = ZStream::new(DEFLATE, ZOptions { level: -1, window_bits: 15, mem_level: 8, ..Default::default() }, vec![]).unwrap();
+        let mut out = s.write(b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Z_NO_FLUSH).unwrap();
+        out.extend(s.write(b"", Z_SYNC_FLUSH).unwrap());
+        s.params(0, 0);
+        out.extend(s.write(b"bbbbbbbbbbbbbbbbbbbbbbbbbbbb", Z_FINISH).unwrap());
+        // Node 22: level 0 after a sync flush switches to stored blocks.
+        assert_eq!(hex(&out), "789c4a4cc40b00000000ffff011c00e3ff62626262626262626262626262626262626262626262626262626262a0991678");
     }
 
     #[test]

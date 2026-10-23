@@ -2934,7 +2934,6 @@ dependencies = [
  "http",
  "libc",
  "md-5",
- "miniz_oxide 0.8.9",
  "oxc_allocator",
  "oxc_codegen",
  "oxc_diagnostics",
@@ -2978,6 +2977,7 @@ dependencies = [
  "wasmi",
  "webpki-roots",
  "x25519-dalek",
+ "zlib-rs",
 ]
 
 [[package]]

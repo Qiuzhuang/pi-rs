@@ -85,7 +85,7 @@
 //! (no `Worker`) and `node:process` (unprefixed names work too). They are compiled on first use
 //! (see `ops/mod.rs`), so they cost nothing at startup.
 //!
-//! Native parts are pure Rust: zlib/brotli/zstd on miniz_oxide, brotli and ruzstd; ciphers, keys,
+//! Native parts are pure Rust: zlib/brotli/zstd on zlib-rs, brotli and ruzstd; ciphers, keys,
 //! signatures and KDFs on RustCrypto (`ops/cipher.rs`, `ops/keys.rs`); TLS on rustls
 //! (`ops/tls.rs`, sans I/O over any duplex); WebAssembly on the wasmi interpreter with linear
 //! memory shared zero-copy with the JS `ArrayBuffer` (`ops/wasm.rs`).

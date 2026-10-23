@@ -2070,6 +2070,9 @@ impl AgentSession {
             .await;
         self.emit(AgentSessionEvent::AgentSettled { aborted });
         self.state.lock().is_emitting_agent_settled = false;
+        // The run's transient allocations (requests, stream parsing, tool output) are freed by
+        // now; return the pages while the session is idle.
+        crate::utils::memory::release_free_memory_in_background();
 
         let deferred: Vec<DeferredAction> =
             std::mem::take(&mut self.state.lock().deferred_settled_actions);

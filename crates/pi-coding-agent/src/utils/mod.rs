@@ -23,6 +23,7 @@ pub mod js_json;
 pub mod json;
 pub mod lockfile;
 pub mod management_http;
+pub mod memory;
 pub mod mime;
 pub mod open_browser;
 pub mod output_files;

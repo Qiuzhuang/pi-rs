@@ -1,6 +1,7 @@
 //! The `pi` binary (port of `packages/coding-agent/src/cli.ts`).
 
 fn main() {
+    pi_coding_agent::utils::memory::configure_allocator();
     // `child_process.fork()` in extensions re-executes this binary as a Node-like script runner.
     if let Some(code) = pi_jsrt::node::main_if_requested() {
         std::process::exit(code);

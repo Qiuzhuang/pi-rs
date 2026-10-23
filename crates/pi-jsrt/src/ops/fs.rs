@@ -200,11 +200,24 @@ fn copy_recursive(from: &Path, to: &Path, force: bool, error_on_exist: bool) -> 
 }
 
 fn file_for(fd: i32) -> std::io::Result<std::sync::Arc<parking_lot::Mutex<fs::File>>> {
-    FILES
-        .lock()
-        .get(&fd)
-        .cloned()
-        .ok_or_else(|| std::io::Error::from_raw_os_error(libc::EBADF))
+    let mut files = FILES.lock();
+    if let Some(f) = files.get(&fd) {
+        return Ok(f.clone());
+    }
+    // The standard streams are open in every process (`fs.readFileSync(0)`, `fs.writeSync(1, ..)`):
+    // use a duplicate, so closing it here leaves the process's own descriptor alone.
+    if (0..=2).contains(&fd) {
+        use std::os::fd::FromRawFd;
+        // SAFETY: dup of a standard descriptor; the duplicate is owned by the File.
+        let dup = unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 3) };
+        if dup >= 0 {
+            // SAFETY: `dup` is a fresh descriptor.
+            let f = std::sync::Arc::new(parking_lot::Mutex::new(unsafe { fs::File::from_raw_fd(dup) }));
+            files.insert(fd, f.clone());
+            return Ok(f);
+        }
+    }
+    Err(std::io::Error::from_raw_os_error(libc::EBADF))
 }
 
 /// Execute an op (blocking).

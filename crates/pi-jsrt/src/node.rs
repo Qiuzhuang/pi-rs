@@ -117,9 +117,11 @@ pub fn run(args: Vec<String>) -> i32 {
         argv,
         exec_argv: parsed.exec_argv.clone(),
         esm_cjs_globals: false,
+        stdin: true,
         tokio: Some(tokio.handle().clone()),
         on_exit: Some(Arc::new(|code| {
             use std::io::Write;
+            crate::ops::process::reset_tty_mode();
             let _ = std::io::stdout().flush();
             let _ = std::io::stderr().flush();
             std::process::exit(code);
@@ -155,10 +157,12 @@ pub fn run(args: Vec<String>) -> i32 {
                 Err(_) => return 1,
             }
         }
-        match call_internal(&rt, "nodeExit", Value::Null).await {
+        let code = match call_internal(&rt, "nodeExit", Value::Null).await {
             Ok(v) => v.as_i64().unwrap_or(0) as i32,
             Err(_) => 1,
-        }
+        };
+        crate::ops::process::reset_tty_mode();
+        code
     })
 }
 

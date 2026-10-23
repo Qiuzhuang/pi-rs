@@ -84,6 +84,88 @@ function makeStdin() {
   return s;
 }
 
+// process.stdin when the runtime reads the real standard input (Node mode): a Readable over
+// one-chunk reads of fd 0 (ops.stdinRead); it keeps the loop alive while flowing.
+function makeReadableStdin() {
+  const { Readable } = internal.requireBuiltin("stream");
+  const tty = ops.isatty(0);
+  let outstanding = false;
+  const loop = internal.loopHandle();
+  const s = new Readable({
+    highWaterMark: 65536,
+    read() {
+      if (outstanding) return;
+      outstanding = true;
+      loop.activate();
+      if (!ops.stdinRead()) {
+        outstanding = false;
+        loop.deactivate();
+        this.push(null);
+      }
+    },
+  });
+  const updateRef = () => {
+    if (outstanding && !s.isPaused()) loop.activate();
+    else loop.deactivate();
+  };
+  internal.stdinEvent = (kind, data) => {
+    outstanding = false;
+    loop.deactivate();
+    switch (kind) {
+      case "data":
+        s.push(internal.Buffer.from(data.buffer, data.byteOffset, data.byteLength));
+        break;
+      case "end":
+        s.push(null);
+        break;
+      case "error":
+        s.destroy(data);
+        break;
+      case "retry":
+        if (!s.isPaused() || s.readableLength < s.readableHighWaterMark) s._read();
+        break;
+    }
+  };
+  const pause = s.pause;
+  s.pause = function () {
+    const r = pause.call(this);
+    updateRef();
+    return r;
+  };
+  const resume = s.resume;
+  s.resume = function () {
+    const r = resume.call(this);
+    updateRef();
+    return r;
+  };
+  s.fd = 0;
+  s.isTTY = tty || undefined;
+  s.isRaw = false;
+  s.setRawMode = function setRawMode(flag) {
+    flag = Boolean(flag);
+    const err = ops.setRawMode(0, flag);
+    if (err) {
+      const e = new Error(`setRawMode ${err === -25 ? "ENOTTY" : "EIO"}`);
+      e.errno = err;
+      e.code = err === -25 ? "ENOTTY" : "EIO";
+      e.syscall = "setRawMode";
+      throw e;
+    }
+    this.isRaw = flag;
+    return this;
+  };
+  s.ref = () => {
+    loop.ref();
+    return s;
+  };
+  s.unref = () => {
+    loop.unref();
+    return s;
+  };
+  s.setTimeout = () => s;
+  return s;
+}
+
 const process = new EventEmitter();
 const startTime = ops.now();
 let exitCode;
@@ -113,7 +195,6 @@ Object.assign(process, {
   allowedNodeEnvironmentFlags: new Set(),
   stdout: makeWriteStream(1),
   stderr: makeWriteStream(2),
-  stdin: makeStdin(),
   cwd: () => ops.cwd(),
   chdir: (dir) => ops.chdir(String(dir)),
   uptime: () => (ops.now() - startTime) / 1000,
@@ -206,6 +287,17 @@ Object.assign(process, {
   },
   emit: EventEmitter.prototype.emit,
 });
+{
+  let stdin;
+  Object.defineProperty(process, "stdin", {
+    get: () => (stdin ??= config.stdin ? makeReadableStdin() : makeStdin()),
+    set: (v) => {
+      stdin = v;
+    },
+    enumerable: true,
+    configurable: true,
+  });
+}
 Object.defineProperty(process, "exitCode", {
   get: () => exitCode,
   set: (v) => {

@@ -90,6 +90,10 @@ pub struct RuntimeOptions {
     pub loop_iteration_limit: Option<u64>,
     /// `process.execArgv`.
     pub exec_argv: Vec<String>,
+    /// Read the process's standard input for `process.stdin` (Node mode). Off by default: an
+    /// embedding application owns its stdin (pi's TUI, print and RPC modes read it), and
+    /// `process.stdin` then never delivers data, like a stdin nobody can read from.
+    pub stdin: bool,
     /// Give ES modules outside `node_modules` jiti-style `__filename`, `__dirname` and `require`
     /// bindings (default, how pi loads extensions). Node mode turns it off: Node's ES modules
     /// have none of them.
@@ -122,6 +126,7 @@ impl Default for RuntimeOptions {
             loop_iteration_limit: None,
             exec_argv: Vec::new(),
             esm_cjs_globals: true,
+            stdin: false,
             node_exec: None,
         }
     }

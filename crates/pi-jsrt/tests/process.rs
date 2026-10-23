@@ -222,3 +222,68 @@ setTimeout(() => console.log("not reached"), 300);
     assert_eq!(String::from_utf8_lossy(&out.stdout), "int\nterm SIGTERM 1\nterm SIGTERM 2\nstill alive\n");
     assert_eq!(out.status.signal(), Some(libc::SIGTERM));
 }
+
+fn run_with_stdin(dir: &Path, args: &[&str], input: &[u8]) -> (String, i32) {
+    use std::io::Write;
+    let mut child = Command::new(NODE_BIN)
+        .args(args)
+        .current_dir(dir)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let input = input.to_vec();
+    let writer = std::thread::spawn(move || {
+        let _ = stdin.write_all(&input);
+    });
+    let out = child.wait_with_output().unwrap();
+    writer.join().unwrap();
+    (String::from_utf8_lossy(&out.stdout).into_owned(), out.status.code().unwrap_or(-1))
+}
+
+#[test]
+fn process_stdin_reads_the_real_standard_input() {
+    let dir = tempfile::tempdir().unwrap();
+    let input: String = (1..=20000).map(|i| format!("{i}\n")).collect();
+    let a = write(
+        dir.path(),
+        "stdin.js",
+        r#"let data = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (d) => (data += d));
+process.stdin.on("end", () => console.log(JSON.stringify({ len: data.length, lines: data.split("\n").length, tty: process.stdin.isTTY ?? null, fd: process.stdin.fd })));
+"#,
+    );
+    assert_eq!(run_with_stdin(dir.path(), &[&a], input.as_bytes()), ("{\"len\":108894,\"lines\":20001,\"tty\":null,\"fd\":0}\n".into(), 0));
+    let b = write(
+        dir.path(),
+        "rl.js",
+        r#"const rl = require("readline").createInterface({ input: process.stdin });
+const lines = [];
+rl.on("line", (l) => lines.push(l));
+rl.on("close", () => console.log(JSON.stringify(lines)));
+"#,
+    );
+    assert_eq!(run_with_stdin(dir.path(), &[&b], b"a\nb\nc"), ("[\"a\",\"b\",\"c\"]\n".into(), 0));
+    // fs on the standard descriptors.
+    assert_eq!(
+        run_with_stdin(dir.path(), &["-e", "require('fs').writeSync(1, String(require('fs').readFileSync(0, 'utf8').length) + '\\n')"], b"12345"),
+        ("5\n".into(), 0)
+    );
+    // An unread stdin does not keep the process alive (the writer side stays open here).
+    let c = write(dir.path(), "noread.js", "console.log(typeof process.stdin.on);");
+    let mut child = Command::new(NODE_BIN).arg(&c).stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).spawn().unwrap();
+    let started = std::time::Instant::now();
+    let status = loop {
+        if let Some(s) = child.try_wait().unwrap() {
+            break Some(s);
+        }
+        if started.elapsed() > std::time::Duration::from_secs(20) {
+            let _ = child.kill();
+            break None;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    };
+    assert_eq!(status.and_then(|s| s.code()), Some(0));
+}

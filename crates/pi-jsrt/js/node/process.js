@@ -166,6 +166,26 @@ function makeReadableStdin() {
   return s;
 }
 
+// process.nextTick queue, drained by the engine before promise jobs (internal.runTicks).
+let tickQueue = [];
+let tickHead = 0;
+internal.runTicks = () => {
+  while (tickHead < tickQueue.length) {
+    const [callback, args, asyncCtx] = tickQueue[tickHead];
+    tickQueue[tickHead++] = undefined;
+    const previous = ops.asyncEnter(asyncCtx);
+    try {
+      Reflect.apply(callback, undefined, args);
+    } catch (err) {
+      ops.reportError("Uncaught exception", err);
+    } finally {
+      ops.asyncEnter(previous);
+    }
+  }
+  tickQueue = [];
+  tickHead = 0;
+};
+
 const process = new EventEmitter();
 const startTime = ops.now();
 let exitCode;
@@ -222,8 +242,14 @@ Object.assign(process, {
   },
   resourceUsage: () => ({ ...ops.cpuUsage(), maxRSS: ops.memoryUsage().rss / 1024 }),
   nextTick(callback, ...args) {
-    if (typeof callback !== "function") throw new TypeError('The "callback" argument must be of type function');
-    queueMicrotask(() => callback(...args));
+    if (typeof callback !== "function") {
+      const err = new TypeError(`The "callback" argument must be of type function. Received ${internal.describeReceived(callback)}`);
+      err.code = "ERR_INVALID_ARG_TYPE";
+      throw err;
+    }
+    if (process._exiting) return;
+    if (tickQueue.length === tickHead) ops.ticksScheduled();
+    tickQueue.push([callback, args, ops.asyncResourceNew("TickObject")]);
   },
   emitWarning(warning, type, code) {
     if (typeof type === "object" && type) {
@@ -456,7 +482,12 @@ internal.onUncaught = (kind, err, promise) => {
 // Node mode (src/node.rs): main module, beforeExit/exit
 // ---------------------------------------------------------------------------
 
-internal.nodeMain = async ({ file, eval: code, print, ipcFd, serialization, uniqueId }) => {
+internal.nodeMain = ({ file, eval: code, print, ipcFd, serialization, uniqueId }) => {
+  const done = nodeMainAsync({ file, eval: code, print, ipcFd, serialization, uniqueId });
+  // Report a synchronous main as done right away (no promise to await).
+  return done;
+};
+const nodeMainAsync = async ({ file, eval: code, print, ipcFd, serialization, uniqueId }) => {
   nodeMode = true;
   if (uniqueId !== null && uniqueId !== undefined) internal.clusterUniqueId = uniqueId;
   if (ipcFd !== null && ipcFd !== undefined) {
@@ -472,8 +503,11 @@ internal.nodeMain = async ({ file, eval: code, print, ipcFd, serialization, uniq
     } else if (file) {
       internal.mainFilename = file;
       // Like Node, `require` is a module-scope binding of CommonJS modules, not a global.
+      const require = globalThis.require;
       delete globalThis.require;
-      await import(file);
+      // A CommonJS main module runs synchronously (ticks before promise jobs afterwards).
+      if (ops.isCommonJs(file)) require(file);
+      else await import(file);
     }
   } catch (err) {
     fatal(err);

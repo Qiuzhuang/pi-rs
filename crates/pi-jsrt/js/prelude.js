@@ -441,7 +441,7 @@ function clearTimeout(timer) {
 
 function setImmediate(callback, ...args) {
   checkCallback(callback);
-  const id = ops.timerStart(() => callback(...args), 0, false);
+  const id = ops.timerStart(() => callback(...args), 0, false, "Immediate");
   return new Immediate(id);
 }
 

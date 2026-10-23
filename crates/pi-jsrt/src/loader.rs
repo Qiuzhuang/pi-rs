@@ -977,6 +977,16 @@ fn op_transpile(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<Js
     Ok(js_str(&out.code))
 }
 
+/// `ops.isCommonJs(path) -> bool`: whether a file loads as CommonJS (Node mode runs a CommonJS
+/// main module synchronously, like Node).
+fn op_is_common_js(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
+    let path = arg_string(args, 0, ctx)?;
+    let l = loader(ctx);
+    let Some(resolved) = l.resolve_path(Path::new(&path), Kind::Require) else { return Ok(JsValue::from(false)) };
+    let cjs = l.prepare_file(ctx, &resolved).is_ok_and(|p| p.format == Format::Cjs);
+    Ok(JsValue::from(cjs))
+}
+
 /// `ops.evalScript(code, filename)`: evaluate a classic script (`node -e`, `vm.runInThisContext`).
 fn op_eval_script(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     let code = arg_string(args, 0, ctx)?;
@@ -986,6 +996,7 @@ fn op_eval_script(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<
 
 pub(crate) const LOADER_OPS: &[(&str, usize, engine::OpFn)] = &[
     ("evalScript", 2, op_eval_script),
+    ("isCommonJs", 1, op_is_common_js),
     ("require", 2, op_require),
     ("requireResolve", 3, op_require_resolve),
     ("chdir", 1, op_set_cwd),

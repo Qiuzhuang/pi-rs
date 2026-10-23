@@ -64,6 +64,14 @@ pub(crate) struct State {
     /// Handles that keep the event loop alive (sockets, servers, child processes, ports...),
     /// counted by the glue through `ops.loopRef(delta)`, like libuv's active handles.
     loop_refs: Cell<i64>,
+    /// The current async context (AsyncLocalStorage frame and async_hooks ids).
+    pub(crate) async_ctx: RefCell<AsyncCtx>,
+    next_async_id: Cell<f64>,
+    /// `internal.asyncHookEmit` while an async hook is enabled.
+    pub(crate) async_hook: RefCell<Option<JsObject>>,
+    in_async_hook: Cell<bool>,
+    /// `process.nextTick` callbacks are queued (see [`run_microtasks`]).
+    ticks_pending: Cell<bool>,
     /// Events posted by I/O tasks that have not run yet (see [`Poster`]).
     queued: Arc<std::sync::atomic::AtomicUsize>,
     /// Waiters for [`State::alive`] to become false (see `JsRuntime::wait_idle`).
@@ -307,8 +315,16 @@ impl JobExecutor for Executor {
 
 /// Run all pending microtasks, then report unhandled rejections.
 pub(crate) fn run_microtasks(ctx: &mut Context) {
-    if let Err(err) = ctx.run_jobs() {
-        report_uncaught(ctx, err);
+    // Node's processTicksAndRejections: the nextTick queue runs before promise jobs, and ticks
+    // queued by promise jobs run once the job queue is empty.
+    loop {
+        run_ticks(ctx);
+        if let Err(err) = ctx.run_jobs() {
+            report_uncaught(ctx, err);
+        }
+        if !state(ctx).ticks_pending.get() {
+            break;
+        }
     }
     let st = state(ctx);
     let rejected = std::mem::take(&mut *st.rejections.borrow_mut());
@@ -322,6 +338,26 @@ pub(crate) fn run_microtasks(ctx: &mut Context) {
             report(ctx, "Unhandled promise rejection", &err);
         }
     }
+}
+
+/// Drain `process.nextTick` callbacks (`internal.runTicks`).
+fn run_ticks(ctx: &mut Context) {
+    let st = state(ctx);
+    if !st.ticks_pending.replace(false) {
+        return;
+    }
+    let Some(internal) = try_internal(ctx) else { return };
+    let Ok(f) = internal.get(js_string!("runTicks"), ctx) else { return };
+    let Some(f) = f.as_function() else { return };
+    if let Err(e) = f.call(&JsValue::undefined(), &[], ctx) {
+        report_uncaught(ctx, e);
+    }
+}
+
+/// `ops.ticksScheduled()`: the nextTick queue became non-empty.
+fn op_ticks_scheduled(_: &JsValue, _: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
+    state(ctx).ticks_pending.set(true);
+    Ok(JsValue::undefined())
 }
 
 /// Offer an uncaught exception / unhandled rejection to the JS `process` listeners
@@ -371,6 +407,62 @@ pub(crate) fn report(ctx: &mut Context, kind: &str, err: &Error) {
 
 pub(crate) struct Hooks;
 
+/// The async context jobs and timers carry: the AsyncLocalStorage frame (a JS value, `undefined`
+/// for the empty frame) and the async_hooks execution/trigger ids. It is captured when a promise
+/// reaction or a timer is created and restored while its callback runs (like V8's continuation
+/// preserved embedder data / Node's AsyncContextFrame).
+#[derive(Clone)]
+pub(crate) struct AsyncCtx {
+    pub(crate) frame: JsValue,
+    pub(crate) id: f64,
+    pub(crate) trigger: f64,
+}
+
+impl AsyncCtx {
+    fn root() -> Self {
+        AsyncCtx { frame: JsValue::undefined(), id: 1.0, trigger: 0.0 }
+    }
+}
+
+impl boa_engine::gc::Finalize for AsyncCtx {}
+// SAFETY: the frame is the only GC-managed field and it is traced.
+unsafe impl boa_engine::gc::Trace for AsyncCtx {
+    boa_engine::gc::custom_trace!(this, mark, {
+        mark(&this.frame);
+    });
+}
+impl boa_engine::JsData for AsyncCtx {}
+
+impl State {
+    /// A new async resource triggered by the current execution: captures the current frame.
+    pub(crate) fn new_async_ctx(&self) -> AsyncCtx {
+        let id = self.next_async_id.get();
+        self.next_async_id.set(id + 1.0);
+        let current = self.async_ctx.borrow();
+        AsyncCtx { frame: current.frame.clone(), id, trigger: current.id }
+    }
+
+    pub(crate) fn swap_async_ctx(&self, next: AsyncCtx) -> AsyncCtx {
+        std::mem::replace(&mut *self.async_ctx.borrow_mut(), next)
+    }
+}
+
+/// Call the enabled async hooks (`internal.asyncHookEmit(kind, id, type, trigger)`), never
+/// re-entrantly.
+pub(crate) fn emit_async_hook(ctx: &mut Context, kind: &str, id: f64, ty: &str, trigger: f64) {
+    let st = state(ctx);
+    let Some(f) = st.async_hook.borrow().clone() else { return };
+    if st.in_async_hook.replace(true) {
+        return;
+    }
+    let args = [js_str(kind), JsValue::from(id), js_str(ty), JsValue::from(trigger)];
+    let r = f.call(&JsValue::undefined(), &args, ctx);
+    st.in_async_hook.set(false);
+    if let Err(e) = r {
+        report_uncaught(ctx, e);
+    }
+}
+
 thread_local! {
     /// The global object for the next realm created on this thread (`vm.createContext`): a
     /// Proxy over the contextified object, and the Proxy's target whose prototype becomes the new
@@ -379,6 +471,42 @@ thread_local! {
 }
 
 impl HostHooks for Hooks {
+    fn make_job_callback(&self, callback: JsFunction, context: &mut Context) -> boa_engine::job::JobCallback {
+        let Some(st) = context.get_data::<Rc<State>>().cloned() else {
+            return boa_engine::job::JobCallback::new(callback, ());
+        };
+        let async_ctx = st.new_async_ctx();
+        if st.async_hook.borrow().is_some() {
+            emit_async_hook(context, "init", async_ctx.id, "PROMISE", async_ctx.trigger);
+        }
+        boa_engine::job::JobCallback::new(callback, async_ctx)
+    }
+
+    fn call_job_callback(
+        &self,
+        job: &boa_engine::job::JobCallback,
+        this: &JsValue,
+        args: &[JsValue],
+        context: &mut Context,
+    ) -> JsResult<JsValue> {
+        let saved = job.host_defined().downcast_ref::<AsyncCtx>().cloned();
+        let (Some(saved), Some(st)) = (saved, context.get_data::<Rc<State>>().cloned()) else {
+            return job.callback().call(this, args, context);
+        };
+        let id = saved.id;
+        let hooked = st.async_hook.borrow().is_some();
+        let previous = st.swap_async_ctx(saved);
+        if hooked {
+            emit_async_hook(context, "before", id, "", 0.0);
+        }
+        let r = job.callback().call(this, args, context);
+        if hooked {
+            emit_async_hook(context, "after", id, "", 0.0);
+        }
+        st.swap_async_ctx(previous);
+        r
+    }
+
     fn create_global_object(&self, intrinsics: &boa_engine::context::intrinsics::Intrinsics) -> JsObject {
         if let Some((global, target)) = NEXT_REALM_GLOBAL.with(|g| g.borrow_mut().take()) {
             target.set_prototype(Some(intrinsics.constructors().object().prototype()));
@@ -410,7 +538,7 @@ impl HostHooks for Hooks {
 type NativeTimer = Box<dyn FnOnce(&mut Context)>;
 
 pub(crate) enum TimerCallback {
-    Js(JsFunction),
+    Js(JsFunction, AsyncCtx),
     Native(Option<NativeTimer>),
 }
 
@@ -447,10 +575,10 @@ impl Timers {
         self.entries.values().filter(|e| e.refed).count()
     }
 
-    pub(crate) fn cancel(&mut self, id: u64) {
-        if let Some(e) = self.entries.remove(&id) {
-            self.queue.remove(&e.key);
-        }
+    pub(crate) fn cancel(&mut self, id: u64) -> Option<TimerCallback> {
+        let e = self.entries.remove(&id)?;
+        self.queue.remove(&e.key);
+        Some(e.callback)
     }
 
     pub(crate) fn refresh(&mut self, id: u64, delay: Duration) {
@@ -486,7 +614,7 @@ fn run_due_timers(ctx: &mut Context) {
             match entry.interval {
                 Some(interval) => {
                     let cb = match &entry.callback {
-                        TimerCallback::Js(f) => Some(f.clone()),
+                        TimerCallback::Js(f, a) => Some((f.clone(), a.clone(), false)),
                         TimerCallback::Native(_) => None,
                     };
                     timers.seq += 1;
@@ -496,16 +624,29 @@ fn run_due_timers(ctx: &mut Context) {
                     cb.map(Due::Js)
                 }
                 None => match entry.callback {
-                    TimerCallback::Js(f) => Some(Due::Js(f)),
+                    TimerCallback::Js(f, a) => Some(Due::Js((f, a, true))),
                     TimerCallback::Native(mut f) => f.take().map(Due::Native),
                 },
             }
         };
         match due {
-            Some(Due::Js(f)) => {
+            Some(Due::Js((f, async_ctx, last))) => {
+                let id = async_ctx.id;
+                let hooked = st.async_hook.borrow().is_some();
+                let previous = st.swap_async_ctx(async_ctx);
+                if hooked {
+                    emit_async_hook(ctx, "before", id, "", 0.0);
+                }
                 if let Err(e) = f.call(&JsValue::undefined(), &[], ctx) {
                     report_uncaught(ctx, e);
                 }
+                if hooked {
+                    emit_async_hook(ctx, "after", id, "", 0.0);
+                    if last {
+                        emit_async_hook(ctx, "destroy", id, "", 0.0);
+                    }
+                }
+                st.swap_async_ctx(previous);
             }
             Some(Due::Native(f)) => f(ctx),
             None => {}
@@ -515,7 +656,7 @@ fn run_due_timers(ctx: &mut Context) {
 }
 
 enum Due {
-    Js(JsFunction),
+    Js((JsFunction, AsyncCtx, bool)),
     Native(Box<dyn FnOnce(&mut Context)>),
 }
 
@@ -733,18 +874,83 @@ fn op_timer_start(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<
     let ms = args.get_or_undefined(1).to_number(ctx)?;
     let ms = if ms.is_finite() && ms > 0.0 { ms } else { 0.0 };
     let repeat = args.get_or_undefined(2).to_boolean();
+    let kind = args.get_or_undefined(3);
+    let kind = if kind.is_undefined() { "Timeout".to_string() } else { kind.to_string(ctx)?.to_std_string_lossy() };
     let delay = Duration::from_micros((ms * 1000.0) as u64);
     let st = state(ctx);
     let id = st.next_id();
-    st.timers.borrow_mut().add(id, TimerCallback::Js(f), delay, repeat.then_some(delay.max(Duration::from_millis(1))));
+    let async_ctx = st.new_async_ctx();
+    if st.async_hook.borrow().is_some() {
+        emit_async_hook(ctx, "init", async_ctx.id, &kind, async_ctx.trigger);
+    }
+    st.timers.borrow_mut().add(id, TimerCallback::Js(f, async_ctx), delay, repeat.then_some(delay.max(Duration::from_millis(1))));
     Ok(JsValue::from(id as f64))
 }
 
 fn op_timer_clear(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     let id = arg_f64(args, 0, ctx)?;
     if id.is_finite() && id >= 0.0 {
-        state(ctx).timers.borrow_mut().cancel(id as u64);
+        let st = state(ctx);
+        let removed = st.timers.borrow_mut().cancel(id as u64);
+        if let Some(TimerCallback::Js(_, a)) = removed
+            && st.async_hook.borrow().is_some()
+        {
+            emit_async_hook(ctx, "destroy", a.id, "", 0.0);
+        }
     }
+    Ok(JsValue::undefined())
+}
+
+/// `ops.asyncContext() -> [frame, executionAsyncId, triggerAsyncId]`
+fn op_async_context(_: &JsValue, _: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
+    let a = state(ctx).async_ctx.borrow().clone();
+    Ok(boa_engine::object::builtins::JsArray::from_iter([a.frame, JsValue::from(a.id), JsValue::from(a.trigger)], ctx).into())
+}
+
+/// `ops.asyncFrameSet(frame)`: AsyncLocalStorage run/enterWith/exit.
+fn op_async_frame_set(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
+    state(ctx).async_ctx.borrow_mut().frame = args.get_or_undefined(0).clone();
+    Ok(JsValue::undefined())
+}
+
+/// `ops.asyncResourceNew(type) -> context`: a new async resource (AsyncResource) capturing the
+/// current frame, triggered by the current execution; emits `init` to enabled hooks.
+fn op_async_resource_new(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
+    let ty = arg_string(args, 0, ctx)?;
+    let trigger = args.get_or_undefined(1);
+    let st = state(ctx);
+    let mut a = st.new_async_ctx();
+    if !trigger.is_undefined() {
+        a.trigger = trigger.to_number(ctx)?;
+    }
+    if st.async_hook.borrow().is_some() {
+        emit_async_hook(ctx, "init", a.id, &ty, a.trigger);
+    }
+    let proto = ctx.intrinsics().constructors().object().prototype();
+    Ok(JsObject::from_proto_and_data(Some(proto), a).into())
+}
+
+/// `ops.asyncEnter(context | undefined) -> previous context`: run inside a resource's context.
+fn op_async_enter(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
+    let st = state(ctx);
+    let next = match args.get_or_undefined(0).as_object().and_then(|o| o.downcast_ref::<AsyncCtx>().map(|a| a.clone())) {
+        Some(a) => a,
+        None => AsyncCtx::root(),
+    };
+    let previous = st.swap_async_ctx(next);
+    let proto = ctx.intrinsics().constructors().object().prototype();
+    Ok(JsObject::from_proto_and_data(Some(proto), previous).into())
+}
+
+/// `ops.asyncResourceInfo(context) -> [asyncId, triggerAsyncId]`
+fn op_async_resource_info(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
+    let a = args.get_or_undefined(0).as_object().and_then(|o| o.downcast_ref::<AsyncCtx>().map(|a| a.clone())).unwrap_or_else(AsyncCtx::root);
+    Ok(boa_engine::object::builtins::JsArray::from_iter([JsValue::from(a.id), JsValue::from(a.trigger)], ctx).into())
+}
+
+/// `ops.asyncHooksEnable(emit | null)`: route hook events to `emit(kind, id, type, trigger)`.
+fn op_async_hooks_enable(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
+    *state(ctx).async_hook.borrow_mut() = args.get_or_undefined(0).as_object();
     Ok(JsValue::undefined())
 }
 
@@ -820,10 +1026,17 @@ pub(crate) const CORE_OPS: &[(&str, usize, OpFn)] = &[
     ("handleNew", 1, op_handle_new),
     ("handleGet", 1, op_handle_get),
     ("hostFnGet", 1, op_host_fn_get),
-    ("timerStart", 3, op_timer_start),
+    ("timerStart", 4, op_timer_start),
     ("timerClear", 1, op_timer_clear),
     ("timerRefresh", 2, op_timer_refresh),
     ("timerRef", 2, op_timer_ref),
+    ("asyncContext", 0, op_async_context),
+    ("ticksScheduled", 0, op_ticks_scheduled),
+    ("asyncFrameSet", 1, op_async_frame_set),
+    ("asyncResourceNew", 2, op_async_resource_new),
+    ("asyncEnter", 1, op_async_enter),
+    ("asyncResourceInfo", 1, op_async_resource_info),
+    ("asyncHooksEnable", 1, op_async_hooks_enable),
     ("loopRef", 1, op_loop_ref),
     ("loopAlive", 0, op_loop_alive),
     ("write", 2, op_write),
@@ -934,6 +1147,11 @@ pub(crate) fn thread_main(init: ThreadInit, ready: std::sync::mpsc::SyncSender<R
         stopping: Cell::new(false),
         loop_refs: Cell::new(0),
         queued: Arc::default(),
+        async_ctx: RefCell::new(AsyncCtx::root()),
+        next_async_id: Cell::new(2.0),
+        async_hook: RefCell::default(),
+        in_async_hook: Cell::new(false),
+        ticks_pending: Cell::new(false),
         idle_waiters: RefCell::default(),
     });
     ctx.insert_data(st.clone());
@@ -957,6 +1175,8 @@ pub(crate) fn thread_main(init: ThreadInit, ready: std::sync::mpsc::SyncSender<R
     st.rejections.borrow_mut().clear();
     *st.internal.borrow_mut() = None;
     *st.ops.borrow_mut() = None;
+    *st.async_ctx.borrow_mut() = AsyncCtx::root();
+    *st.async_hook.borrow_mut() = None;
     loader.clear();
     crate::ops::teardown(&mut ctx);
     drop(ctx);

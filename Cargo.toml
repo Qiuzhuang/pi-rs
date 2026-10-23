@@ -312,3 +312,203 @@ incremental = false
 [patch.crates-io]
 boa_ast = { path = "vendor/boa_ast" }
 boa_parser = { path = "vendor/boa_parser" }
+
+# Release builds: one codegen unit with fat LTO lets LLVM drop and merge code across the
+# workspace's large dependency graph (Boa, oxc, ICU4X, RustCrypto, wasmi, rustls), and symbols are
+# stripped. Code is optimized for size, except the hot paths, which keep full speed optimization:
+# the TUI renderer, the JavaScript runtime with its engine and TypeScript stripper, regex engines,
+# JSON, hash tables, crypto, WebAssembly and compression. Measured on x86-64 Linux, the binary is
+# about a fifth smaller than with `opt-level = 3` everywhere while loading extensions ~5% slower;
+# `opt-level = "s"` everywhere saves a few MB more but loads extensions ~15% slower.
+# `panic = "unwind"` stays: tools, extensions and UI callbacks are guarded with `catch_unwind`.
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = true
+opt-level = "s"
+
+[profile.release.package.pi-tui]
+opt-level = 3
+
+[profile.release.package.pi-jsrt]
+opt-level = 3
+
+[profile.release.package.boa_engine]
+opt-level = 3
+
+[profile.release.package.boa_parser]
+opt-level = 3
+
+[profile.release.package.boa_ast]
+opt-level = 3
+
+[profile.release.package.boa_interner]
+opt-level = 3
+
+[profile.release.package.boa_gc]
+opt-level = 3
+
+[profile.release.package.boa_string]
+opt-level = 3
+
+[profile.release.package.regress]
+opt-level = 3
+
+[profile.release.package.icu_properties]
+opt-level = 3
+
+[profile.release.package.icu_collections]
+opt-level = 3
+
+[profile.release.package.hashbrown]
+opt-level = 3
+
+[profile.release.package.indexmap]
+opt-level = 3
+
+[profile.release.package."rustc-hash"]
+opt-level = 3
+
+[profile.release.package."fast-float2"]
+opt-level = 3
+
+[profile.release.package."num-bigint"]
+opt-level = 3
+
+[profile.release.package."thin-vec"]
+opt-level = 3
+
+[profile.release.package.small_btree]
+opt-level = 3
+
+[profile.release.package."ryu-js"]
+opt-level = 3
+
+[profile.release.package.dashmap]
+opt-level = 3
+
+[profile.release.package."intrusive-collections"]
+opt-level = 3
+
+[profile.release.package.arrayvec]
+opt-level = 3
+
+[profile.release.package.oxc_allocator]
+opt-level = 3
+
+[profile.release.package.oxc_ast]
+opt-level = 3
+
+[profile.release.package.oxc_span]
+opt-level = 3
+
+[profile.release.package.oxc_syntax]
+opt-level = 3
+
+[profile.release.package.oxc_ecmascript]
+opt-level = 3
+
+[profile.release.package.oxc_parser]
+opt-level = 3
+
+[profile.release.package.oxc_semantic]
+opt-level = 3
+
+[profile.release.package.oxc_transformer]
+opt-level = 3
+
+[profile.release.package.oxc_traverse]
+opt-level = 3
+
+[profile.release.package.oxc_codegen]
+opt-level = 3
+
+[profile.release.package."num-bigint-dig"]
+opt-level = 3
+
+[profile.release.package."crypto-bigint"]
+opt-level = 3
+
+[profile.release.package."elliptic-curve"]
+opt-level = 3
+
+[profile.release.package.primeorder]
+opt-level = 3
+
+[profile.release.package.p256]
+opt-level = 3
+
+[profile.release.package.p384]
+opt-level = 3
+
+[profile.release.package.p521]
+opt-level = 3
+
+[profile.release.package."curve25519-dalek"]
+opt-level = 3
+
+[profile.release.package.salsa20]
+opt-level = 3
+
+[profile.release.package.scrypt]
+opt-level = 3
+
+[profile.release.package.aes]
+opt-level = 3
+
+[profile.release.package.ghash]
+opt-level = 3
+
+[profile.release.package.polyval]
+opt-level = 3
+
+[profile.release.package.chacha20]
+opt-level = 3
+
+[profile.release.package.poly1305]
+opt-level = 3
+
+[profile.release.package.wasmi]
+opt-level = 3
+
+[profile.release.package.wasmi_core]
+opt-level = 3
+
+[profile.release.package.wasmi_ir]
+opt-level = 3
+
+[profile.release.package.wasmi_collections]
+opt-level = 3
+
+[profile.release.package.wasmparser]
+opt-level = 3
+
+[profile.release.package.miniz_oxide]
+opt-level = 3
+
+[profile.release.package.zlib-rs]
+opt-level = 3
+
+[profile.release.package.brotli]
+opt-level = 3
+
+[profile.release.package."brotli-decompressor"]
+opt-level = 3
+
+[profile.release.package.serde_json]
+opt-level = 3
+
+[profile.release.package."regex-automata"]
+opt-level = 3
+
+[profile.release.package."regex-syntax"]
+opt-level = 3
+
+[profile.release.package."fancy-regex"]
+opt-level = 3
+
+[profile.release.package."aho-corasick"]
+opt-level = 3
+
+[profile.release.package.memchr]
+opt-level = 3

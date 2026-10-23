@@ -25,6 +25,13 @@ cargo install --path crates/pi-coding-agent   # installs `pi` into ~/.cargo/bin
 Only the `pi` binary is built from `crates/pi-coding-agent`. Everything else is a library crate.
 HTTP goes through `reqwest` with rustls, so there is no OpenSSL dependency.
 
+The release profile (root `Cargo.toml`) links with fat LTO and one codegen unit, strips symbols,
+and optimizes for size except for the hot crates (TUI renderer, JavaScript engine and runtime,
+regex, JSON, crypto, compression), which keep `opt-level = 3`. The link step takes several minutes
+and up to about 4 GB of memory. For a quicker build, or one whose panic backtraces show function
+names, override it, e.g. `cargo build --release --config 'profile.release.lto="thin"' --config
+profile.release.strip=false`.
+
 ## Workspace
 
 | Crate | Ports | Contents |

@@ -46,6 +46,18 @@ fn default_roots() -> Arc<RootCertStore> {
         .clone()
 }
 
+/// A client config with the default trust store (Mozilla + system + `NODE_EXTRA_CA_CERTS`), for
+/// native clients such as `WebSocket` and `http2.connect`.
+pub(crate) fn default_client_config(alpn: Vec<Vec<u8>>) -> Result<Arc<rustls::ClientConfig>, String> {
+    let mut config = rustls::ClientConfig::builder_with_provider(provider())
+        .with_safe_default_protocol_versions()
+        .map_err(|e| e.to_string())?
+        .with_root_certificates(default_roots())
+        .with_no_client_auth();
+    config.alpn_protocols = alpn;
+    Ok(Arc::new(config))
+}
+
 fn pem_certs(text: &str) -> Vec<CertificateDer<'static>> {
     parse_pem_all(text).into_iter().filter(|p| p.label.contains("CERTIFICATE")).map(|p| CertificateDer::from(p.der)).collect()
 }

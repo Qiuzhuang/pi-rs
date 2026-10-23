@@ -263,10 +263,12 @@ class Timeout {
   }
   ref() {
     this._ref = true;
+    if (!this._destroyed) ops.timerRef(this._id, true);
     return this;
   }
   unref() {
     this._ref = false;
+    if (!this._destroyed) ops.timerRef(this._id, false);
     return this;
   }
   hasRef() {
@@ -295,10 +297,12 @@ class Immediate {
   }
   ref() {
     this._ref = true;
+    ops.timerRef(this._id, true);
     return this;
   }
   unref() {
     this._ref = false;
+    ops.timerRef(this._id, false);
     return this;
   }
   hasRef() {

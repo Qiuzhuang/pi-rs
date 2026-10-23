@@ -673,6 +673,19 @@ impl JsRuntime {
         self.with_context(|ctx| crate::ctx::handle_count(ctx)).await
     }
 
+    /// Wait until the event loop has no referenced work left: no referenced timers, pending
+    /// async operations or referenced handles (sockets, servers, child processes, workers,
+    /// message ports with listeners...). This is when Node would emit `beforeExit` and exit.
+    pub async fn wait_idle(&self) -> Result<()> {
+        let rx = self.request(|ctx, reply: Reply<oneshot::Receiver<()>>| {
+            let (tx, rx) = oneshot::channel();
+            state(ctx).add_idle_waiter(tx);
+            let _ = reply.send(Ok(rx));
+        });
+        let idle = Self::wait(rx).await?;
+        idle.await.map_err(|_| Error::Terminated)
+    }
+
     /// Number of active timers (diagnostics).
     pub async fn timer_count(&self) -> Result<usize> {
         self.with_context(|ctx| engine::timer_count(ctx)).await

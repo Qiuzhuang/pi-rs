@@ -61,6 +61,11 @@ pub(crate) struct State {
     pub(crate) ops: RefCell<Option<JsObject>>,
     pub(crate) cwd: RefCell<PathBuf>,
     stopping: Cell<bool>,
+    /// Handles that keep the event loop alive (sockets, servers, child processes, ports...),
+    /// counted by the glue through `ops.loopRef(delta)`, like libuv's active handles.
+    loop_refs: Cell<i64>,
+    /// Waiters for [`State::alive`] to become false (see `JsRuntime::wait_idle`).
+    idle_waiters: RefCell<Vec<futures::channel::oneshot::Sender<()>>>,
 }
 
 impl State {
@@ -108,6 +113,29 @@ impl State {
             if !self.shared.is_adopted(*id) {
                 handles.remove(id);
             }
+        }
+    }
+
+    /// Whether anything keeps the event loop alive: referenced timers, pending async ops or
+    /// referenced handles (Node's `uv_loop_alive`).
+    pub(crate) fn alive(&self) -> bool {
+        self.loop_refs.get() > 0 || !self.pending.borrow().is_empty() || self.timers.borrow().refed() > 0
+    }
+
+    pub(crate) fn loop_ref(&self, delta: i64) {
+        self.loop_refs.set(self.loop_refs.get() + delta);
+    }
+
+    pub(crate) fn add_idle_waiter(&self, tx: futures::channel::oneshot::Sender<()>) {
+        self.idle_waiters.borrow_mut().push(tx);
+    }
+
+    fn notify_idle(&self) {
+        if self.idle_waiters.borrow().is_empty() || self.alive() {
+            return;
+        }
+        for w in std::mem::take(&mut *self.idle_waiters.borrow_mut()) {
+            let _ = w.send(());
         }
     }
 
@@ -332,6 +360,7 @@ struct TimerEntry {
     callback: TimerCallback,
     interval: Option<Duration>,
     key: (Instant, u64),
+    refed: bool,
 }
 
 #[derive(Default)]
@@ -346,7 +375,18 @@ impl Timers {
         self.seq += 1;
         let key = (Instant::now() + delay, self.seq);
         self.queue.insert(key, id);
-        self.entries.insert(id, TimerEntry { callback, interval, key });
+        self.entries.insert(id, TimerEntry { callback, interval, key, refed: true });
+    }
+
+    /// `timeout.ref()` / `unref()`: an unreferenced timer does not keep the loop alive.
+    pub(crate) fn set_ref(&mut self, id: u64, refed: bool) {
+        if let Some(e) = self.entries.get_mut(&id) {
+            e.refed = refed;
+        }
+    }
+
+    fn refed(&self) -> usize {
+        self.entries.values().filter(|e| e.refed).count()
     }
 
     pub(crate) fn cancel(&mut self, id: u64) {
@@ -650,6 +690,25 @@ fn op_timer_clear(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<
     Ok(JsValue::undefined())
 }
 
+fn op_timer_ref(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
+    let id = arg_f64(args, 0, ctx)? as u64;
+    let refed = args.get_or_undefined(1).to_boolean();
+    state(ctx).timers.borrow_mut().set_ref(id, refed);
+    Ok(JsValue::undefined())
+}
+
+/// `ops.loopRef(delta)`: count a handle that keeps the event loop alive (+1) or release it (-1).
+fn op_loop_ref(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
+    let delta = arg_f64(args, 0, ctx)? as i64;
+    state(ctx).loop_ref(delta);
+    Ok(JsValue::undefined())
+}
+
+/// `ops.loopAlive()`: whether the event loop has referenced work.
+fn op_loop_alive(_: &JsValue, _: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
+    Ok(JsValue::from(state(ctx).alive()))
+}
+
 fn op_timer_refresh(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     let id = arg_f64(args, 0, ctx)? as u64;
     let ms = arg_f64(args, 1, ctx)?.max(0.0);
@@ -703,6 +762,9 @@ pub(crate) const CORE_OPS: &[(&str, usize, OpFn)] = &[
     ("timerStart", 3, op_timer_start),
     ("timerClear", 1, op_timer_clear),
     ("timerRefresh", 2, op_timer_refresh),
+    ("timerRef", 2, op_timer_ref),
+    ("loopRef", 1, op_loop_ref),
+    ("loopAlive", 0, op_loop_alive),
     ("write", 2, op_write),
     ("reportError", 2, op_report_error),
     ("remapStack", 1, op_remap_stack),
@@ -809,6 +871,8 @@ pub(crate) fn thread_main(init: ThreadInit, ready: std::sync::mpsc::SyncSender<R
         ops: RefCell::default(),
         cwd: RefCell::new(cwd),
         stopping: Cell::new(false),
+        loop_refs: Cell::new(0),
+        idle_waiters: RefCell::default(),
     });
     ctx.insert_data(st.clone());
 
@@ -861,6 +925,7 @@ fn event_loop(ctx: &mut Context, rx: &mpsc::Receiver<Msg>) {
             Err(mpsc::RecvTimeoutError::Timeout) => {}
         }
         run_due_timers(ctx);
+        st.notify_idle();
     }
 }
 

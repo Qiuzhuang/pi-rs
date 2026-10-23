@@ -20,6 +20,7 @@ pub(crate) mod net;
 pub(crate) mod process;
 pub(crate) mod tls;
 pub(crate) mod wasm;
+pub(crate) mod ws;
 pub(crate) mod zlib;
 
 /// Glue scripts installed in every runtime.
@@ -164,6 +165,12 @@ const LAZY_GLUE: &[LazyGlue] = &[
         globals: &["MessageEvent", "MessagePort", "MessageChannel", "BroadcastChannel", "Navigator", "navigator"],
     },
     LazyGlue {
+        file: "web/websocket.js",
+        src: include_str!("../../js/web/websocket.js"),
+        builtins: &[],
+        globals: &["WebSocket"],
+    },
+    LazyGlue {
         file: "web/compression.js",
         src: include_str!("../../js/web/compression.js"),
         builtins: &[],
@@ -258,6 +265,7 @@ pub(crate) fn bootstrap(ctx: &mut Context) -> JsResult<()> {
         define_ops(ctx, &ops, wasm::OPS)?;
         define_ops(ctx, &ops, tls::OPS)?;
         define_ops(ctx, &ops, net::DNS_OPS)?;
+        define_ops(ctx, &ops, ws::OPS)?;
     }
     let config = process::config_object(ctx)?;
     if node && let Some(cfg) = config.as_object() {
@@ -286,6 +294,7 @@ pub(crate) fn teardown(ctx: &mut Context) {
     net::teardown(ctx);
     fs::teardown(ctx);
     wasm::teardown(ctx);
+    ws::teardown(ctx);
 }
 
 /// Read bytes from a string (UTF-8), ArrayBuffer, typed array or DataView.

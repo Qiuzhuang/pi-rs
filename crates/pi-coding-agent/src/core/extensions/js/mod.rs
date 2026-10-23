@@ -17,6 +17,7 @@ mod api;
 mod builtin;
 mod component;
 mod context;
+mod messages;
 mod native;
 mod provider;
 mod sdk;
@@ -126,6 +127,12 @@ impl<T: Clone> Registry<T> {
 
     pub(crate) fn remove(&self, id: u64) -> Option<T> {
         self.items.lock().remove(&id)
+    }
+
+    /// The most recently registered entry.
+    pub(crate) fn latest(&self) -> Option<T> {
+        let items = self.items.lock();
+        items.keys().max().and_then(|id| items.get(id).cloned())
     }
 }
 

@@ -10,7 +10,7 @@ in pi-rs; the reason is given), `[ ]` missing (none).
 
 | Package | Runtime exports | Implemented | Host-only | Missing |
 | --- | ---: | ---: | ---: | ---: |
-| `@earendil-works/pi-coding-agent` | 157 | 122 | 35 | 0 |
+| `@earendil-works/pi-coding-agent` | 157 | 130 | 27 | 0 |
 | `@earendil-works/pi-tui` | 91 | 88 | 3 | 0 |
 | `@earendil-works/pi-ai` | 77 | 77 | 0 | 0 |
 | `@earendil-works/pi-ai/compat` | 136 | 136 | 0 | 0 |
@@ -54,16 +54,16 @@ in pi-rs; the reason is given), `[ ]` missing (none).
 - [x] `AgentSession`: the class of sessions from `createAgentSession()` (a Rust AgentSession: prompt/steer/followUp/abort, subscribe, state and tool getters, models, compaction, bindExtensions, `agent.beforeToolCall`/`afterToolCall`, ...); not constructible directly
 - [~] `AgentSessionRuntime`: host-only, the session runtime is owned by the host process
 - [~] `ArminComponent`: host-only, interactive-mode component bound to host session state (Rust); extensions get UI through ctx.ui
-- [~] `AssistantMessageComponent`: host-only, interactive-mode component bound to host session state (Rust); extensions get UI through ctx.ui
-- [~] `BashExecutionComponent`: host-only, interactive-mode component bound to host session state (Rust); extensions get UI through ctx.ui
+- [x] `AssistantMessageComponent`: pi's Rust component (constructor arguments and methods as in TS)
+- [x] `BashExecutionComponent`: pi's Rust component (constructor arguments and methods as in TS)
 - [x] `BorderedLoader`
-- [~] `BranchSummaryMessageComponent`: host-only, interactive-mode component bound to host session state (Rust); extensions get UI through ctx.ui
+- [x] `BranchSummaryMessageComponent`: pi's Rust component (constructor arguments and methods as in TS)
 - [x] `CONFIG_DIR_NAME`
 - [x] `CURRENT_SESSION_VERSION`
-- [~] `CompactionSummaryMessageComponent`: host-only, interactive-mode component bound to host session state (Rust); extensions get UI through ctx.ui
+- [x] `CompactionSummaryMessageComponent`: pi's Rust component (constructor arguments and methods as in TS)
 - [x] `CredentialSynchronizationError`
 - [x] `CustomEditor`
-- [~] `CustomMessageComponent`: host-only, interactive-mode component bound to host session state (Rust); extensions get UI through ctx.ui
+- [x] `CustomMessageComponent`: pi's Rust component (constructor arguments and methods as in TS)
 - [x] `DEFAULT_COMPACTION_SETTINGS`
 - [x] `DEFAULT_MAX_BYTES`
 - [x] `DEFAULT_MAX_LINES`
@@ -88,13 +88,13 @@ in pi-rs; the reason is given), `[ ]` missing (none).
 - [x] `SettingsManager`: `create`, `inMemory` and `fromStorage` (a JS `SettingsStorage`) build Rust settings managers; every public method
 - [~] `SettingsSelectorComponent`: host-only, interactive-mode component bound to host session state (Rust); extensions get UI through ctx.ui
 - [~] `ShowImagesSelectorComponent`: host-only, interactive-mode component bound to host session state (Rust); extensions get UI through ctx.ui
-- [~] `SkillInvocationMessageComponent`: host-only, interactive-mode component bound to host session state (Rust); extensions get UI through ctx.ui
+- [x] `SkillInvocationMessageComponent`: pi's Rust component (constructor arguments and methods as in TS)
 - [x] `Theme`
 - [~] `ThemeSelectorComponent`: host-only, interactive-mode component bound to host session state (Rust); extensions get UI through ctx.ui
 - [~] `ThinkingSelectorComponent`: host-only, interactive-mode component bound to host session state (Rust); extensions get UI through ctx.ui
-- [~] `ToolExecutionComponent`: host-only, interactive-mode component bound to host session state (Rust); extensions get UI through ctx.ui
+- [x] `ToolExecutionComponent`: pi's Rust component (constructor arguments and methods as in TS)
 - [~] `TreeSelectorComponent`: host-only, interactive-mode component bound to host session state (Rust); extensions get UI through ctx.ui
-- [~] `UserMessageComponent`: host-only, interactive-mode component bound to host session state (Rust); extensions get UI through ctx.ui
+- [x] `UserMessageComponent`: pi's Rust component (constructor arguments and methods as in TS)
 - [~] `UserMessageSelectorComponent`: host-only, interactive-mode component bound to host session state (Rust); extensions get UI through ctx.ui
 - [x] `VERSION`
 - [x] `VIRTUAL_MODEL_STATE_ENTRY`

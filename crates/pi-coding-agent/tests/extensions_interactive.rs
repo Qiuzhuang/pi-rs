@@ -1161,3 +1161,54 @@ async fn finished_tool_ctx_stays_usable_and_throwing_renderers_fall_back() {
     assert!(!screen.contains("extension render error"), "{screen}");
     fx.cleanup();
 }
+
+const TRANSCRIPT_EXTENSION: &str = r#"
+import { Container } from "@earendil-works/pi-tui";
+import {
+	AssistantMessageComponent, BashExecutionComponent, CompactionSummaryMessageComponent, ToolExecutionComponent,
+	UserMessageComponent, getMarkdownTheme,
+} from "@earendil-works/pi-coding-agent";
+export default function (pi) {
+	pi.registerCommand("transcript", {
+		description: "Show a transcript built from pi's message components",
+		handler: async (_args, ctx) => {
+			await ctx.ui.custom((tui, _theme, _kb, done) => {
+				const container = new Container();
+				container.addChild(new UserMessageComponent("question from the user", getMarkdownTheme()));
+				const assistant = new AssistantMessageComponent(undefined, false, getMarkdownTheme());
+				assistant.updateContent({ role: "assistant", content: [{ type: "text", text: "**answer** from the child" }], api: "x", provider: "p", model: "m", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: 0 });
+				container.addChild(assistant);
+				const tool = new ToolExecutionComponent("read", "call-1", { path: "notes.txt" }, {}, undefined, tui, process.cwd());
+				tool.markExecutionStarted();
+				tool.updateResult({ content: [{ type: "text", text: "tool output line" }], isError: false });
+				container.addChild(tool);
+				const bash = new BashExecutionComponent("echo hi", tui);
+				bash.appendOutput("hi from bash\n");
+				bash.setComplete(0, false);
+				container.addChild(bash);
+				container.addChild(new CompactionSummaryMessageComponent({ role: "compactionSummary", summary: "summary text", tokensBefore: 1234, timestamp: 0 }));
+				container.handleInput = (data) => { if (data === "\x1b") done(undefined); };
+				return container;
+			});
+		},
+	});
+}
+"#;
+
+/// Extensions build transcripts from pi's own message components (subagent viewers do).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn message_components_render_in_custom_ui() {
+    let _lock = LOCK.lock().await;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("transcript.ts");
+    std::fs::write(&path, TRANSCRIPT_EXTENSION).unwrap();
+    let fx = Fixture::new(dir.path(), &[path.to_str().unwrap()]).await;
+    fx.submit("/transcript");
+    let screen = fx.wait_text("[compaction]").await;
+    for expected in ["question from the user", "answer from the child", "tool output line", "hi from bash", "notes.txt"] {
+        assert!(screen.contains(expected), "missing {expected:?}:\n{screen}");
+    }
+    assert!(!screen.contains("extension render error"), "{screen}");
+    fx.keys(ESC);
+    fx.cleanup();
+}

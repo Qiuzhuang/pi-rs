@@ -836,11 +836,4 @@ function stubModule(name, names, extra = {}) {
   });
 }
 stubModule("inspector", ["open", "close", "url", "Session"]);
-stubModule("diagnostics_channel", [], {
-  channel: () => ({ hasSubscribers: false, publish() {}, subscribe() {}, unsubscribe() {} }),
-  hasSubscribers: () => false,
-  subscribe() {},
-  unsubscribe() {},
-  tracingChannel: () => ({ hasSubscribers: false, traceSync: (fn, ctx, thisArg, ...args) => fn.apply(thisArg, args), tracePromise: (fn, ctx, thisArg, ...args) => fn.apply(thisArg, args) }),
-});
 stubModule("constants", [], {});

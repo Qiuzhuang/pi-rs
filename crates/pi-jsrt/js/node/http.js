@@ -494,6 +494,10 @@ class Server extends net.Server {
         });
         const dispatch = () => {
           busy = true;
+          if (internal.dcPublish) {
+            internal.dcPublish("http.server.request.start", { request: current, response: res, socket, server: this });
+            res.once("finish", () => internal.dcPublish("http.server.response.finish", { request: current, response: res, socket, server: this }));
+          }
           this.emit("request", current, res);
         };
         if (busy) queue.push(dispatch);
@@ -596,6 +600,8 @@ class ClientRequest extends OutgoingMessage {
     this._hasBody = true;
     this._timeoutMs = opts.timeout;
     if (callback) this.once("response", callback);
+    // Requests over net sockets publish once their socket exists (see NetClientRequest).
+    if (internal.dcPublish && !(this instanceof NetClientRequest)) process.nextTick(() => internal.dcPublish("http.client.request.start", { request: this }));
     const headers = opts.headers ?? {};
     if (Array.isArray(headers)) for (let i = 0; i < headers.length; i += 2) this.appendHeader(headers[i], headers[i + 1]);
     else for (const [name, value] of Object.entries(headers)) if (value !== undefined) this.setHeader(name, value);
@@ -669,11 +675,20 @@ class NetClientRequest extends ClientRequest {
     if (this.protocol === "https:" && connectOpts.servername === undefined && !net.isIP(this.host)) {
       connectOpts.servername = this._headers.get("host")?.[1]?.replace(/:\d+$/, "") ?? this.host;
     }
-    const socket = create
+    const socket = this._createSocket(create, connectOpts);
+    internal.dcPublish?.("http.client.request.start", { request: this });
+    this._useSocket(socket);
+  }
+
+  _createSocket(create, connectOpts) {
+    return create
       ? create(connectOpts)
       : this.protocol === "https:"
         ? httpsConnect(connectOpts)
         : net.connect({ host: this.host, port: this.port });
+  }
+
+  _useSocket(socket) {
     this.socket = socket;
     this.connection = socket;
     if (this._timeoutMs) socket.setTimeout(this._timeoutMs, () => this.emit("timeout"));
@@ -694,6 +709,7 @@ class NetClientRequest extends ClientRequest {
           return { stop: true };
         }
         this.res = res;
+        internal.dcPublish?.("http.client.response.finish", { request: this, response: res });
         this.emit("response", res);
         return { skipBody: this.method === "HEAD" || head.statusCode === 204 || head.statusCode === 304 };
       },

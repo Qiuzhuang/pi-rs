@@ -139,6 +139,7 @@ class Socket extends Duplex {
     if (options.timeout) this.setTimeout(options.timeout);
     this.connecting = true;
     this._loop.activate();
+    internal.dcPublish?.("net.client.socket", { socket: this });
     const id = ops.netConnect(String(options.host ?? "localhost"), port);
     this._id = id;
     handles.set(id, this);
@@ -344,6 +345,7 @@ class Server extends EventEmitter {
         socket.destroy();
         return;
       }
+      internal.dcPublish?.("net.server.socket", { socket });
       this.emit("connection", socket);
     } else if (kind === "close") {
       handles.delete(this._id);

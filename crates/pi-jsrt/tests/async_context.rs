@@ -1,6 +1,6 @@
 //! AsyncLocalStorage propagation (promises/await, timers, immediates, nextTick, microtasks,
 //! AsyncResource, bind/snapshot, enterWith/exit/disable), async_hooks, and Node's nextTick vs
-//! promise job ordering. Expected outputs are Node 22's (scripts run by `pi-jsrt-node`).
+//! promise job ordering, diagnostics_channel. Expected outputs are Node 22's (scripts run by `pi-jsrt-node`).
 
 use std::process::Command;
 
@@ -17,6 +17,11 @@ fn run(name: &str, script: &str) -> String {
 #[test]
 fn async_local_storage_follows_async_continuations() {
     assert_eq!(run("als.js", ALS), ALS_NODE);
+}
+
+#[test]
+fn diagnostics_channel_publish_stores_tracing_and_builtin_channels() {
+    assert_eq!(run("dc.js", DC), DC_NODE);
 }
 
 #[test]
@@ -82,4 +87,43 @@ setTimeout(() => { out.push("t3"); }, 5);
 setTimeout(() => console.log(out.join(",")), 30);
 "###;
 const ORDER_NODE: &str = r###"tick1,tick2,tick-in-tick,promise1,microtask,promise-in-tick,promise2,tick-in-promise,timeout,t2,t2 tick,t2 promise,t3
+"###;
+const DC: &str = r###"const dc = require("diagnostics_channel");
+const { AsyncLocalStorage } = require("async_hooks");
+const http = require("http");
+const log = [];
+const ch = dc.channel("my-channel");
+log.push(["initial", ch.hasSubscribers, dc.hasSubscribers("my-channel"), ch instanceof dc.Channel, ch === dc.channel("my-channel"), ch.name]);
+const onMsg = (msg, name) => log.push(["got", msg, name]);
+dc.subscribe("my-channel", onMsg);
+log.push(["after subscribe", ch.hasSubscribers]);
+ch.publish({ a: 1 });
+log.push(["unsubscribe", dc.unsubscribe("my-channel", onMsg), dc.unsubscribe("my-channel", onMsg), ch.hasSubscribers]);
+ch.publish({ ignored: true });
+const store = new AsyncLocalStorage();
+const ch2 = dc.channel("store-channel");
+ch2.bindStore(store, (data) => ({ wrapped: data }));
+log.push(["runStores", ch2.runStores({ x: 1 }, function (a) { return [store.getStore(), this.t, a]; }, { t: "this" }, "arg"), store.getStore()]);
+const tc = dc.tracingChannel("op");
+const events = [];
+tc.subscribe({ start: (c) => events.push(["start", c.n]), end: (c) => events.push(["end", c.result]), asyncStart: (c) => events.push(["asyncStart", c.result]), asyncEnd: () => events.push(["asyncEnd"]), error: (c) => events.push(["error", c.error.message]) });
+log.push(["traceSync", tc.traceSync((x) => x * 2, { n: 1 }, null, 21)]);
+try { tc.traceSync(() => { throw new Error("boom"); }, { n: 2 }); } catch (e) { log.push(["sync threw", e.message]); }
+try { dc.channel(5); } catch (e) { log.push([e.code, e.message]); }
+dc.subscribe("http.client.request.start", ({ request }) => log.push(["http.client.request.start", request.method, request.path]));
+dc.subscribe("http.server.request.start", ({ request, response, server }) => log.push(["http.server.request.start", request.url, typeof response.end, typeof server.listen]));
+dc.subscribe("http.client.response.finish", ({ response }) => log.push(["http.client.response.finish", response.statusCode]));
+dc.subscribe("net.client.socket", ({ socket }) => log.push(["net.client.socket", typeof socket.write]));
+(async () => {
+  log.push(["tracePromise", await tc.tracePromise(async (x) => x + 1, { n: 3 }, null, 1)]);
+  await new Promise((resolve) => tc.traceCallback((a, cb) => setTimeout(() => cb(null, a + "!"), 1), -1, { n: 4 }, null, "cb", (err, r) => { log.push(["traceCallback", err, r]); resolve(); }));
+  const server = http.createServer((req, res) => res.end("ok"));
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  await new Promise((r) => http.get(`http://127.0.0.1:${server.address().port}/dc`, (res) => { res.resume(); res.on("end", r); }));
+  server.close();
+  log.push(["events", events]);
+  console.log(JSON.stringify(log));
+})();
+"###;
+const DC_NODE: &str = r###"[["initial",false,false,true,true,"my-channel"],["after subscribe",true],["got",{"a":1},"my-channel"],["unsubscribe",true,false,false],["runStores",[{"wrapped":{"x":1}},"this","arg"],null],["traceSync",42],["sync threw","boom"],["ERR_INVALID_ARG_TYPE","The \"channel\" argument must be one of type string or symbol. Received type number (5)"],["tracePromise",2],["traceCallback",null,"cb!"],["net.client.socket","function"],["http.client.request.start","GET","/dc"],["http.server.request.start","/dc","function","function"],["http.client.response.finish",200],["events",[["start",1],["end",42],["start",2],["error","boom"],["end",null],["start",3],["end",null],["asyncStart",2],["asyncEnd"],["start",4],["end",null],["asyncStart","cb!"],["asyncEnd"]]]]
 "###;

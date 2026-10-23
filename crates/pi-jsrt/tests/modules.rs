@@ -31,6 +31,7 @@ import { value as aliased } from "@alias/thing";
 import { tool } from "virtual:tools";
 import { ref } from "jsrt:host";
 import modJs from "./modpkg/x.js";
+import hybrid from "pkg-hybrid";
 import { cycleA } from "./cycle-a";
 
 const lazy = await import("./lazy.js");
@@ -65,6 +66,7 @@ export const result = {
   metaResolve: import.meta.resolve("./lib").endsWith("/lib.ts"),
   modJs,
   cycleA,
+  hybrid: hybrid(),
 };
 "#,
     );
@@ -118,6 +120,13 @@ exports.helper = function () { return "helper:" + require("pkg-esm"); };
     write(root, "lazy.js", "export const lazyValue = 'lazy';\n");
     write(root, "modpkg/package.json", r#"{ "type": "module" }"#);
     write(root, "modpkg/x.js", "export default typeof require === 'function' ? 'esm-with-require' : 'esm';\n");
+    // Hybrid `node_modules` build like turndown's: an ES module (`module` field) that calls
+    // `require()` inside, so it needs the jiti-style module-relative `require` binding.
+    write(root, "node_modules/pkg-hybrid/package.json", r#"{ "name": "pkg-hybrid", "main": "lib/index.cjs.js", "module": "lib/index.es.js" }"#);
+    write(root, "node_modules/pkg-hybrid/lib/index.es.js", "function getDep() { return require('pkg-plain').x; }\nexport default getDep;\n");
+    write(root, "node_modules/pkg-hybrid/lib/index.cjs.js", "module.exports = function () { return 'cjs'; };\n");
+    write(root, "node_modules/pkg-plain/package.json", r#"{ "name": "pkg-plain", "main": "index.js" }"#);
+    write(root, "node_modules/pkg-plain/index.js", "module.exports = { x: 'plain' };\n");
     write(root, "cycle-a.ts", "import { cycleB } from './cycle-b'; export const cycleA = 'a+' + cycleB(); \n");
     write(root, "cycle-b.ts", "import { cycleA } from './cycle-a'; export function cycleB() { return 'b'; } export function late() { return cycleA; }\n");
 }
@@ -161,7 +170,7 @@ async fn esm_graph_with_interop() {
             "aliased": "aliased", "tool": "virtual tool", "ref": "function", "lazy": "lazy",
             "meta": true, "dirname": true, "filename": true,
             "req": 42, "reqJson": "data", "reqEsm": "!", "reqResolve": true, "metaResolve": true,
-            "modJs": "esm-with-require", "cycleA": "a+b",
+            "modJs": "esm-with-require", "cycleA": "a+b", "hybrid": "plain",
         })
     );
 }
@@ -202,6 +211,8 @@ async fn module_errors() {
     write(root, "throws.ts", "\n\nthrow new Error('at load');\n");
     write(root, "missing-export.mjs", "import { notThere } from './esm.mjs'; export default notThere;\n");
     write(root, "esm.mjs", "export const there = 1;\n");
+    write(root, "node_modules/pkg-native/package.json", r#"{ "name": "pkg-native", "main": "native.node" }"#);
+    write(root, "node_modules/pkg-native/native.node", "\u{feff}binary\u{0}");
     let rt = JsRuntime::new(RuntimeOptions {
         cwd: Some(root.to_path_buf()),
         ..Default::default()
@@ -221,6 +232,10 @@ async fn module_errors() {
     assert!(e.contains("Cannot find module 'left-pad'"), "{e}");
     let e = rt.eval("require('./nope-cjs')").await.unwrap_err().to_string();
     assert!(e.contains("Cannot find module './nope-cjs'"), "{e}");
+    // Native Node addons (V8 N-API) cannot be loaded: descriptive error, not a UTF-8 read error.
+    let e = rt.import("pkg-native").await.unwrap_err().to_string();
+    assert!(e.contains("N-API"), "{e}");
+    assert!(!e.contains("UTF-8"), "{e}");
 }
 
 #[tokio::test]

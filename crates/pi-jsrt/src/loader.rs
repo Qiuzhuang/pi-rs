@@ -14,8 +14,13 @@
 //! File format: `.mjs/.mts` ESM, `.cjs/.cts` CommonJS, `.json` JSON; `.js` follows the
 //! nearest `package.json` `type` and otherwise ES module syntax detection; `.ts`
 //! uses syntax detection (like jiti). TypeScript is transpiled with oxc.
-//! ES modules outside `node_modules` get jiti-compatible `__filename`, `__dirname`
-//! and `require` bindings unless they declare those names themselves.
+//! ES modules get jiti-compatible `__filename`, `__dirname` and `require` bindings
+//! unless they declare those names themselves (jiti runs every module with a
+//! module-relative `require`, so hybrid `node_modules` builds whose ESM output
+//! calls `require()` work too); `node_modules` ES modules that reference none of
+//! the globals keep the parse-free fast path.
+//! Native Node addons (`.node`) are V8 N-API binaries and cannot be loaded: they
+//! fail with a descriptive error at load time.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -351,8 +356,14 @@ impl Loader {
     // -----------------------------------------------------------------------
 
     fn prepare_file(&self, ctx: &mut Context, path: &Path) -> Result<Prepared, Error> {
-        let text = std::fs::read_to_string(path).map_err(|e| Error::host(format!("cannot read {}: {e}", path.display())))?;
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        if ext == "node" {
+            return Err(Error::host(format!(
+                "native Node addon {} cannot be loaded: pi-jsrt does not support V8 N-API (.node) binaries",
+                path.display()
+            )));
+        }
+        let text = std::fs::read_to_string(path).map_err(|e| Error::host(format!("cannot read {}: {e}", path.display())))?;
         let in_node_modules = path.components().any(|c| c.as_os_str() == "node_modules");
         match ext {
             "json" => {
@@ -378,7 +389,9 @@ impl Loader {
                     _ if out.has_module_syntax => Format::Esm,
                     _ => Format::Cjs,
                 };
-                let code = if format == Format::Esm && !in_node_modules {
+                let code = if format == Format::Esm
+                    && (!in_node_modules || references_cjs_globals(&out.code))
+                {
                     self.cjs_globals(&out.code, &out.declared_cjs_names)
                 } else {
                     out.code
@@ -390,15 +403,18 @@ impl Loader {
         let text = strip_shebang(text);
         let pkg_type = self.package_type(path);
         if ext == "mjs" || pkg_type.as_deref() == Some("module") {
-            if in_node_modules {
-                return Ok(Prepared {
-                    code: text,
-                    format: Format::Esm,
-                });
-            }
-            let out = transpile::transpile(&text, path, SourceLang::JavaScript)?;
+            // jiti provides `require`/`__dirname`/`__filename` in every module; hybrid
+            // `node_modules` builds (e.g. turndown's ESM output calling `require()`) need
+            // the same. The substring gate keeps the parse-free fast path for bundles
+            // that reference none of the globals.
+            let code = if in_node_modules && !references_cjs_globals(&text) {
+                text
+            } else {
+                let out = transpile::transpile(&text, path, SourceLang::JavaScript)?;
+                self.cjs_globals(&text, &out.declared_cjs_names)
+            };
             return Ok(Prepared {
-                code: self.cjs_globals(&text, &out.declared_cjs_names),
+                code,
                 format: Format::Esm,
             });
         }
@@ -410,7 +426,7 @@ impl Loader {
         }
         let out = transpile::transpile(&text, path, SourceLang::JavaScript)?;
         if out.has_module_syntax {
-            let code = if in_node_modules {
+            let code = if in_node_modules && !references_cjs_globals(&text) {
                 text
             } else {
                 self.cjs_globals(&text, &out.declared_cjs_names)
@@ -600,6 +616,13 @@ fn strip_shebang(text: String) -> String {
         Some(rest) => format!("//{rest}"),
         None => text,
     }
+}
+
+/// Whether the text references a CommonJS global that [`inject_cjs_globals`] would
+/// provide. Substring check (a word like "require" also matches comments and strings):
+/// false positives only cost one parse, a false negative would miss a real use.
+fn references_cjs_globals(text: &str) -> bool {
+    text.contains("require") || text.contains("__filename") || text.contains("__dirname")
 }
 
 /// Prefix ES module code with jiti-compatible CommonJS bindings (on line 1, so

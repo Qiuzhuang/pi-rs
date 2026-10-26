@@ -2009,6 +2009,10 @@ impl Inner {
 
     /// Show a status message in the chat. Back-to-back status messages update the previous line.
     pub(crate) fn show_status(&self, message: &str) {
+        // Status calls arrive from the agent task and from extension UI threads. The check for a
+        // coalescable last status and the update/add below must be one step, or two threads add
+        // two status lines with the same text.
+        let _ui = pi_tui::ui_lock::lock_ui();
         let children = self.chat_container.children();
         let last = children.last().cloned();
         let second_last = if children.len() > 1 { children.get(children.len() - 2).cloned() } else { None };
@@ -2088,6 +2092,9 @@ impl Inner {
     }
 
     pub(crate) fn rebuild_chat_from_messages(&self) {
+        // The clear and the re-render are one update: a frame between them renders an empty
+        // chat, and extension status calls could add children into the half-rebuilt container.
+        let _ui = pi_tui::ui_lock::lock_ui();
         self.chat_container.clear();
         let entries = self.session_manager().build_context_entries();
         self.render_session_entries(&entries, false, false);

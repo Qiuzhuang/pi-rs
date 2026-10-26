@@ -527,11 +527,18 @@ impl Inner {
         tokio::task::yield_now().await;
 
         let dismiss = |this: &Inner, editor: ComponentRef| {
-            this.editor_container.clear();
-            this.editor_container.add_child(editor.clone());
+            {
+                // One update: the extension UI thread may swap the editor concurrently.
+                let _ui = pi_tui::ui_lock::lock_ui();
+                this.editor_container.clear();
+                this.editor_container.add_child(editor.clone());
+            }
             let ui = this.ui();
             ui.set_focus(Some(editor));
-            ui.request_render(false);
+            // Full redraw: the reload wrote raw bytes to the terminal (extension console
+            // output) and rebuilt several containers; a differential frame cannot recover a
+            // cursor the renderer never saw move.
+            ui.request_render(true);
         };
 
         let restored = Arc::new(AtomicBool::new(false));

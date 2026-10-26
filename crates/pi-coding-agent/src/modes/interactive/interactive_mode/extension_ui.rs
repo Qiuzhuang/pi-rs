@@ -1241,8 +1241,10 @@ impl Inner {
         let current_text = self.editor().get_text();
         self.state.lock().editor_component_factory = factory.clone();
         self.dispose_active_selector();
-        self.editor_container.clear();
 
+        // Build the replacement outside the swap: a JavaScript factory calls back into the JS
+        // runtime. The clear+add below must stay one update the renderer cannot interleave with.
+        let is_default = factory.is_none();
         let new_editor: Arc<dyn EditorComponent> = match factory {
             Some(factory) => {
                 let new_editor = factory(self.ui(), (*get_editor_theme()).clone(), self.keybindings.clone());
@@ -1302,25 +1304,33 @@ impl Inner {
                     // JS `CustomEditor` subclasses get the handlers on the JS object (TS duck typing).
                     js.adopt_app_handlers(&self.default_editor);
                 }
-                self.state.lock().editor_is_default = false;
                 new_editor
             }
-            None => {
-                self.default_editor.set_text(&current_text);
-                self.state.lock().editor_is_default = true;
-                self.default_editor.clone()
-            }
+            None => self.default_editor.clone(),
         };
-        self.state.lock().editor = new_editor.clone();
-        let component: ComponentRef = new_editor;
-        self.editor_container.add_child(component.clone());
-        let indicator = self.state.lock().active_status_indicator.clone();
-        if let Some(indicator) = indicator {
-            self.status_container.clear();
-            let embedded = self.set_editor_working_status_indicator_public(Some(indicator.clone()));
-            self.state.lock().active_working_indicator_embedded = embedded;
-            if !embedded {
-                self.status_container.add_child(indicator);
+        let component: ComponentRef = new_editor.clone();
+        {
+            // Perform the swap as one update: extension UI work and the reload path rewrite the
+            // editor container from other threads; an interleaved clear+add left two editors.
+            let _ui = pi_tui::ui_lock::lock_ui();
+            if is_default {
+                self.default_editor.set_text(&current_text);
+            }
+            {
+                let mut s = self.state.lock();
+                s.editor = new_editor;
+                s.editor_is_default = is_default;
+            }
+            self.editor_container.clear();
+            self.editor_container.add_child(component.clone());
+            let indicator = self.state.lock().active_status_indicator.clone();
+            if let Some(indicator) = indicator {
+                self.status_container.clear();
+                let embedded = self.set_editor_working_status_indicator_public(Some(indicator.clone()));
+                self.state.lock().active_working_indicator_embedded = embedded;
+                if !embedded {
+                    self.status_container.add_child(indicator);
+                }
             }
         }
         let ui = self.ui();

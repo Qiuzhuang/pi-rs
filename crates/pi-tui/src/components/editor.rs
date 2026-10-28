@@ -2161,6 +2161,9 @@ impl Component for Editor {
     fn render(&self, width: usize) -> Vec<String> {
         let rows = self.terminal.rows();
         let top_border = self.cbs().top_border.clone();
+        // Cloned before the lock: the color function may call into JS (bridge backends), and a
+        // JS round-trip must not hold the editor lock (workers mutate the editor concurrently).
+        let border_color = self.lock().border_color.clone();
         let (mut result, list, content_width, left, right, top_hidden) = {
             let mut s = self.lock();
             let max_padding = width.saturating_sub(1) / 2;
@@ -2186,7 +2189,7 @@ impl Component for Editor {
             let left = " ".repeat(padding_x);
             let right = left.clone();
             let top = if s.scroll_offset > 0 { create_scroll_border("↑", s.scroll_offset, width) } else { "─".repeat(width) };
-            result.push((s.border_color)(&top));
+            result.push(top);
             let marker = if s.focused { CURSOR_MARKER } else { "" };
             for ll in visible {
                 let mut display = ll.text.clone();
@@ -2215,12 +2218,18 @@ impl Component for Editor {
             }
             let below = layout_lines.len() - (s.scroll_offset + visible.len());
             let bottom = if below > 0 { create_scroll_border("↓", below, width) } else { "─".repeat(width) };
-            result.push((s.border_color)(&bottom));
+            result.push(bottom);
             s.rendered_autocomplete_height = 0;
             let list = if s.ac_state.is_some() { s.ac_list.clone() } else { None };
             let top_hidden = s.scroll_offset;
             (result, list, content_width, left, right, top_hidden)
         };
+        // Apply the (possibly JS-backed) border color only after the editor lock is released.
+        let top = result[0].clone();
+        result[0] = border_color(&top);
+        let bottom_idx = result.len() - 1;
+        let bottom = result[bottom_idx].clone();
+        result[bottom_idx] = border_color(&bottom);
         if let Some(top) = top_border.and_then(|f| f(width, top_hidden)) {
             result[0] = top;
         }

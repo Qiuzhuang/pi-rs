@@ -496,7 +496,8 @@ impl Inner {
                 }
             })),
         };
-        self.session().bind_extensions(&bindings).await?;
+        let r = self.session().bind_extensions(&bindings).await;
+        r?;
 
         set_registered_themes(self.session().resource_loader().get_themes().themes);
         self.setup_autocomplete_provider();
@@ -1309,6 +1310,7 @@ impl Inner {
             None => self.default_editor.clone(),
         };
         let component: ComponentRef = new_editor.clone();
+        let provider_target: Arc<dyn EditorComponent> = new_editor.clone();
         {
             // Perform the swap as one update: extension UI work and the reload path rewrite the
             // editor container from other threads; an interleaved clear+add left two editors.
@@ -1336,6 +1338,13 @@ impl Inner {
         let ui = self.ui();
         ui.set_focus(Some(component));
         ui.request_render(false);
+        // Close the setup/swap race: the provider copy above runs while the factory is still
+        // building, and `setup_autocomplete_provider` can land in that window reading the old
+        // (still default) flag. Re-apply the stored provider to the new editor once the swap is
+        // complete, so every interleaving ends with the provider installed. Idempotent.
+        if let Some(provider) = self.state.lock().autocomplete_provider.clone() {
+            provider_target.set_autocomplete_provider(provider);
+        }
     }
 
     fn set_editor_working_status_indicator_public(&self, indicator: Option<Arc<StatusIndicator>>) -> bool {

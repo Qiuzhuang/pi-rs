@@ -25,7 +25,7 @@ use pi_ai::types::{
     DeferredHandle, ImageModel, ImagesContext, Model, ProviderHeaders, ProviderResponse, StreamOptions, TranscriptContext,
 };
 use pi_ai::utils::model_operations::{classifier_error_result, image_error_result};
-use pi_jsrt::JsHandle;
+use super::host::JsHandle;
 use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
 
@@ -1179,7 +1179,7 @@ impl pi_ai::auth::extension_oauth_types::OAuthLoginCallbacks for JsOAuthLoginCal
     }
 
     async fn on_prompt(&self, prompt: pi_ai::auth::extension_oauth_types::OAuthPrompt) -> anyhow::Result<String> {
-        let value = self.handle.call_method("onPrompt", vec![serde_json::to_value(prompt)?]).await.map_err(super::js_error)?;
+        let value = self.handle.call_method("onPrompt", vec![serde_json::to_value(prompt)?]).await?;
         Ok(value.as_str().unwrap_or_default().to_string())
     }
 
@@ -1195,13 +1195,12 @@ impl pi_ai::auth::extension_oauth_types::OAuthLoginCallbacks for JsOAuthLoginCal
             self.handle
                 .call_method("onManualCodeInput", vec![])
                 .await
-                .map(|v| v.as_str().unwrap_or_default().to_string())
-                .map_err(super::js_error),
+                .map(|v| v.as_str().unwrap_or_default().to_string()),
         )
     }
 
     async fn on_select(&self, prompt: pi_ai::auth::extension_oauth_types::OAuthSelectPrompt) -> anyhow::Result<Option<String>> {
-        let value = self.handle.call_method("onSelect", vec![serde_json::to_value(prompt)?]).await.map_err(super::js_error)?;
+        let value = self.handle.call_method("onSelect", vec![serde_json::to_value(prompt)?]).await?;
         Ok(value.as_str().map(str::to_string))
     }
 

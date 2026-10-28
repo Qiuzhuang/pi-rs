@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use pi_jsrt::JsHandle;
+use super::host::JsHandle;
 use serde_json::{Value, json};
 
 use super::api::{arg, js_bash_operations, opt, str_arg};

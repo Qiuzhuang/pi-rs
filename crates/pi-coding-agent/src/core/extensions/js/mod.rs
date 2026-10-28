@@ -18,6 +18,9 @@ mod builtin;
 mod component;
 mod context;
 mod fff;
+mod host;
+mod host_boa;
+mod host_bun;
 mod messages;
 mod native;
 mod provider;
@@ -30,9 +33,11 @@ use std::sync::{Arc, LazyLock, Weak};
 
 use futures::future::BoxFuture;
 use parking_lot::Mutex;
-use pi_jsrt::{JsHandle, JsRuntime, RuntimeOptions, VirtualModule};
+use pi_jsrt::{JsRuntime, RuntimeOptions, VirtualModule};
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
+
+use host::{AnyHost, JsHandle, JsHost};
 
 use crate::core::extensions::runner::ExtensionErrorWithStack;
 use crate::core::extensions::types::*;
@@ -183,7 +188,8 @@ pub(crate) fn next_id() -> u64 {
 /// Shared state of one JS extension host. Host functions hold it weakly so the JS runtime can
 /// stop once every extension using it is gone.
 pub(crate) struct Bridge {
-    pub(crate) rt: JsRuntime,
+    /// The JS backend (in-process Boa or a `bun` subprocess).
+    pub(crate) host: Arc<AnyHost>,
     /// The `pi-rs:bridge` module namespace.
     pub(crate) glue: JsHandle,
     pub(crate) cwd: String,
@@ -315,14 +321,17 @@ impl Bridge {
     /// Run a UI call made from JS on the ordered UI executor. JS never blocks on the UI (or on
     /// locks held by a thread that waits for JS to render).
     pub(crate) fn ui_dispatch(&self, f: impl FnOnce() + Send + 'static) {
-        let _ = self.ui_tx.lock().send(Box::new(f));
+        let _ = self.ui_tx.lock().send(Box::new(move || {
+            f();
+        }));
     }
 
     /// Run a UI call on the ordered executor and wait for its result (getters).
     pub(crate) fn ui_dispatch_wait<R: Send + 'static>(&self, f: impl FnOnce() -> R + Send + 'static) -> anyhow::Result<R> {
         // On the JS thread, keep servicing blocking calls into JS while waiting: the UI call may
         // call back into JS (e.g. `showOverlay` focuses a JS component, which sets its `focused`).
-        self.rt
+        // Subprocess backends service calls in the child's own event loop (default implementation).
+        self.host
             .wait_servicing(|done| {
                 self.ui_dispatch(move || done(f()));
             })
@@ -336,17 +345,17 @@ impl Bridge {
 
     /// Adopt a JS function or object handle marker.
     pub(crate) fn handle(&self, value: &Value) -> Option<JsHandle> {
-        self.rt.handle(value)
+        self.host.adopt(value)
     }
 
     /// Call an exported function of the bridge module.
     pub(crate) async fn glue_call(&self, name: &str, args: Vec<Value>) -> anyhow::Result<Value> {
-        self.glue.call_method(name, args).await.map_err(js_error)
+        self.glue.call_method(name, args).await
     }
 
     /// Blocking variant of [`Self::glue_call`] for synchronous Rust callers (renderers).
     pub(crate) fn glue_call_blocking(&self, name: &str, args: Vec<Value>) -> anyhow::Result<Value> {
-        self.glue.call_method_blocking(name, args).map_err(js_error)
+        self.glue.call_method_blocking(name, args)
     }
 }
 
@@ -390,6 +399,27 @@ fn extension_io_runtime() -> anyhow::Result<tokio::runtime::Handle> {
     match rt {
         Ok(rt) => Ok(rt.handle().clone()),
         Err(e) => Err(anyhow::anyhow!("failed to start the extension I/O runtime: {e}")),
+    }
+}
+
+/// The JS backend that hosts extensions for one [`JsExtensionHost`].
+pub(crate) enum Backend {
+    /// In-process Boa runtime (`pi-jsrt`).
+    Boa,
+    /// A `bun` subprocess (`host_bun`).
+    Bun,
+}
+
+/// Select the backend: `PI_RS_JS_BACKEND` is `auto` (default: bun when available, else Boa),
+/// `boa`, or `bun`.
+fn select_backend() -> anyhow::Result<Backend> {
+    match std::env::var("PI_RS_JS_BACKEND").as_deref().unwrap_or("auto") {
+        "boa" => Ok(Backend::Boa),
+        "bun" => host_bun::find_bun()
+            .map(|_| Backend::Bun)
+            .ok_or_else(|| anyhow::anyhow!("PI_RS_JS_BACKEND=bun but bun was not found (set PI_RS_BUN to the binary)")),
+        "auto" => Ok(if host_bun::find_bun().is_some() { Backend::Bun } else { Backend::Boa }),
+        other => Err(anyhow::anyhow!("unknown PI_RS_JS_BACKEND {other:?} (expected auto, boa or bun)")),
     }
 }
 
@@ -441,8 +471,20 @@ impl JsExtensionHost {
         *SHARED.lock() = None;
     }
 
-    /// Start a new JS runtime with pi's virtual modules.
-    pub async fn new(cwd: &str) -> anyhow::Result<JsExtensionHost> {
+    /// Start the JS backend for `cwd` and return (host, bridge module namespace, bridge slot).
+    async fn start(cwd: &str) -> anyhow::Result<(Arc<AnyHost>, JsHandle, Arc<Mutex<Weak<Bridge>>>)> {
+        match select_backend()? {
+            Backend::Boa => Self::start_boa(cwd).await,
+            Backend::Bun => {
+                let (bun, bridge_slot) = host_bun::BunHost::start(cwd, extension_io_runtime()?)?;
+                let glue = bun.import(BRIDGE_SPECIFIER).await?;
+                Ok((Arc::new(AnyHost::Bun(bun)), glue, bridge_slot))
+            }
+        }
+    }
+
+    /// The Boa (in-process) backend, unchanged from the pre-bun code path.
+    async fn start_boa(cwd: &str) -> anyhow::Result<(Arc<AnyHost>, JsHandle, Arc<Mutex<Weak<Bridge>>>)> {
         let mut virtual_modules = HashMap::new();
         virtual_modules.insert(BRIDGE_SPECIFIER.to_string(), VirtualModule::EsmJs(BRIDGE_JS.to_string()));
         virtual_modules.insert("pi-rs:marked".to_string(), VirtualModule::EsmJs(MARKED_JS.to_string()));
@@ -498,13 +540,6 @@ impl JsExtensionHost {
         };
         let rt = JsRuntime::new(options).map_err(js_error)?;
 
-        let (ui_tx, ui_rx) = std::sync::mpsc::channel::<Box<dyn FnOnce() + Send>>();
-        let _ = std::thread::Builder::new().name("pi-ext-ui".to_string()).spawn(move || {
-            while let Ok(f) = ui_rx.recv() {
-                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
-            }
-        });
-
         let bridge_slot: Arc<Mutex<Weak<Bridge>>> = Arc::new(Mutex::new(Weak::new()));
         let rt2 = rt.clone();
         let slot2 = bridge_slot.clone();
@@ -517,31 +552,44 @@ impl JsExtensionHost {
             // thread may meanwhile wait for the extension UI executor, which needs the lock.
             pi_jsrt::set_blocking_wait_hook(|wait| pi_tui::ui_lock::unlocked(wait));
             let slot = slot2.clone();
-            rt2.register_function("__piHost.call", move |rt, args| {
+            rt2.register_function("__piHost.call", move |_rt, args| {
                 let bridge = slot.lock().upgrade().ok_or_else(|| pi_jsrt::Error::host("pi extension host is shut down"))?;
                 let op = args.first().and_then(Value::as_str).unwrap_or_default().to_string();
                 let payload = args.get(1).cloned().unwrap_or(Value::Null);
-                api::dispatch(&bridge, rt, &op, payload).map_err(|e| pi_jsrt::Error::host(format!("{e:#}")))
+                api::dispatch(&bridge, &op, payload).map_err(|e| pi_jsrt::Error::host(format!("{e:#}")))
             })
             .await?;
             let slot = slot2.clone();
-            rt2.register_async_function("__piHost.callAsync", move |rt, args| {
+            rt2.register_async_function("__piHost.callAsync", move |_rt, args| {
                 let bridge = slot.lock().upgrade();
                 async move {
                     let bridge = bridge.ok_or_else(|| pi_jsrt::Error::host("pi extension host is shut down"))?;
                     let op = args.first().and_then(Value::as_str).unwrap_or_default().to_string();
                     let payload = args.get(1).cloned().unwrap_or(Value::Null);
-                    api::dispatch_async(bridge, rt, op, payload).await.map_err(|e| pi_jsrt::Error::host(format!("{e:#}")))
+                    api::dispatch_async(bridge, op, payload).await.map_err(|e| pi_jsrt::Error::host(format!("{e:#}")))
                 }
             })
             .await?;
             let glue = rt2.import(BRIDGE_SPECIFIER).await?;
-            Ok::<JsHandle, pi_jsrt::Error>(glue)
+            Ok::<JsHandle, pi_jsrt::Error>(host_boa::BoaHost::wrap(glue))
         };
         let glue = init.await.map_err(js_error)?;
+        Ok((Arc::new(AnyHost::Boa(host_boa::BoaHost::new(rt))), glue, bridge_slot))
+    }
+
+    /// Start a new JS runtime with pi's virtual modules.
+    pub async fn new(cwd: &str) -> anyhow::Result<JsExtensionHost> {
+        let (host, glue, bridge_slot) = Self::start(cwd).await?;
+
+        let (ui_tx, ui_rx) = std::sync::mpsc::channel::<Box<dyn FnOnce() + Send>>();
+        let _ = std::thread::Builder::new().name("pi-ext-ui".to_string()).spawn(move || {
+            while let Ok(f) = ui_rx.recv() {
+                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+            }
+        });
 
         let bridge = Arc::new(Bridge {
-            rt: rt.clone(),
+            host,
             glue,
             cwd: cwd.to_string(),
             apis: Registry::new(),
@@ -590,26 +638,21 @@ impl JsExtensionHost {
         *bridge.session_cleanup.lock() = Some(Box::new(unregister));
         // pi-ai's glue defines the stream class used by host-backed streams. The entry point itself
         // also re-exports TypeBox's `Type`, which loads only when an extension imports pi-ai or TypeBox.
-        rt.import("pi-rs:ai-rust").await.map_err(js_error)?;
+        bridge.host.import("pi-rs:ai-rust").await?;
         // `ctx.modelRegistry.runtime` hands out the SDK's ModelRuntime class.
-        rt.import("pi-rs:sdk").await.map_err(js_error)?;
+        bridge.host.import("pi-rs:sdk").await?;
         Ok(JsExtensionHost { bridge })
-    }
-
-    /// The JS runtime of this host.
-    pub fn runtime(&self) -> &JsRuntime {
-        &self.bridge.rt
     }
 
     /// Import an extension module and return its factory, or `None` when the module does not
     /// export a function (default export or the module itself, like jiti `{ default: true }`).
     pub async fn import_factory(self: &Arc<Self>, path: &str) -> anyhow::Result<Option<ExtensionFactory>> {
-        let rt = self.bridge.rt.clone();
+        let host = self.bridge.host.clone();
         // jiti `moduleCache: false`: every import of an extension evaluates it again.
-        rt.clear_module_cache().await.map_err(js_error)?;
+        host.clear_module_cache().await?;
         // Imported as a top-level module rather than through `import()` from the glue module:
         // Boa caches dynamic imports per referrer and would reject the re-evaluated module.
-        let namespace = rt.import(path).await.map_err(js_error)?;
+        let namespace = host.import(path).await?;
         let marker = self.bridge.glue_call("factoryFromModule", vec![namespace.to_value()]).await?;
         let Some(factory) = self.bridge.handle(&marker) else {
             return Ok(None);

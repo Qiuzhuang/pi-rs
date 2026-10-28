@@ -5,7 +5,7 @@ use std::sync::Arc;
 use futures::future::BoxFuture;
 use pi_ai::types::{Model, StreamOptions, TranscriptContext};
 use pi_ai::utils::event_stream::AssistantMessageEventStream;
-use pi_jsrt::JsHandle;
+use super::host::JsHandle;
 use serde_json::{Map, Value, json};
 
 use super::api::{opt, str_arg};

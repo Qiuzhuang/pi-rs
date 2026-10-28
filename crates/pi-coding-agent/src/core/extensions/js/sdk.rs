@@ -90,7 +90,7 @@ fn settings_static(bridge: &Arc<Bridge>, payload: &Value) -> anyhow::Result<Valu
 /// A JavaScript `SettingsStorage` (`{ withLock(scope, fn) }`).
 struct JsSettingsStorage {
     bridge: std::sync::Weak<Bridge>,
-    storage: pi_jsrt::JsHandle,
+    storage: super::host::JsHandle,
 }
 
 /// The lock callback for the duration of one `withLock` call into JavaScript.
@@ -606,7 +606,7 @@ use crate::core::extensions::types::{
 };
 
 /// A JavaScript extension factory `(pi) => void | Promise<void>` as a Rust factory.
-pub(crate) fn js_extension_factory(bridge: &Arc<Bridge>, handle: pi_jsrt::JsHandle) -> ExtensionFactory {
+pub(crate) fn js_extension_factory(bridge: &Arc<Bridge>, handle: super::host::JsHandle) -> ExtensionFactory {
     let bridge = bridge.clone();
     Arc::new(move |api: ExtensionAPIRef| {
         let bridge = bridge.clone();
@@ -665,7 +665,7 @@ async fn run_builtin_extension(bridge: &Arc<Bridge>, payload: &Value) -> anyhow:
 
 use crate::core::resource_loader::{DefaultResourceLoader, DefaultResourceLoaderOptions, ResourceLoader};
 
-fn call_js_blocking<T: serde::de::DeserializeOwned>(handle: &pi_jsrt::JsHandle, arg: Value) -> Option<T> {
+fn call_js_blocking<T: serde::de::DeserializeOwned>(handle: &super::host::JsHandle, arg: Value) -> Option<T> {
     let value = handle.call_blocking(vec![arg]).ok()?;
     serde_json::from_value(value).ok()
 }
@@ -1349,7 +1349,7 @@ fn after_result_from_js(value: &Value) -> anyhow::Result<Option<AfterToolCallRes
 /// Run a JS hook with the Rust context; returns the glue result `{ result, args }`.
 async fn run_js_hook(
     bridge: &Arc<Bridge>,
-    handle: &pi_jsrt::JsHandle,
+    handle: &super::host::JsHandle,
     context: HookContext,
     signal: &tokio_util::sync::CancellationToken,
 ) -> anyhow::Result<Value> {
@@ -1363,7 +1363,7 @@ async fn run_js_hook(
     result
 }
 
-fn js_before_hook(bridge: &Arc<Bridge>, handle: pi_jsrt::JsHandle) -> BeforeToolCallFn {
+fn js_before_hook(bridge: &Arc<Bridge>, handle: super::host::JsHandle) -> BeforeToolCallFn {
     let bridge = bridge.clone();
     Arc::new(move |context: BeforeToolCallContext, signal| {
         let bridge = bridge.clone();
@@ -1377,7 +1377,7 @@ fn js_before_hook(bridge: &Arc<Bridge>, handle: pi_jsrt::JsHandle) -> BeforeTool
     })
 }
 
-fn js_after_hook(bridge: &Arc<Bridge>, handle: pi_jsrt::JsHandle) -> AfterToolCallFn {
+fn js_after_hook(bridge: &Arc<Bridge>, handle: super::host::JsHandle) -> AfterToolCallFn {
     let bridge = bridge.clone();
     Arc::new(move |context: AfterToolCallContext, signal| {
         let bridge = bridge.clone();
@@ -1575,7 +1575,7 @@ fn extensions_result_from_js(bridge: &Bridge, value: &Value, fallback_runtime: &
 /// A ResourceLoader implemented in JavaScript (an object with `getExtensions()`, `getSkills()`, ...).
 pub(crate) struct JsResourceLoader {
     bridge: std::sync::Weak<Bridge>,
-    handle: pi_jsrt::JsHandle,
+    handle: super::host::JsHandle,
     runtime: Arc<ExtensionRuntime>,
 }
 

@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use futures::FutureExt;
-use pi_jsrt::{JsHandle, JsRuntime};
+use super::host::JsHandle;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
@@ -36,7 +36,7 @@ pub(crate) fn arg(payload: &Value, index: usize) -> Value {
 /// Post a call to a JS function without waiting: re-entrant (synchronous, like an EventEmitter)
 /// when already inside a host call on the JS thread, queued otherwise.
 pub(crate) fn post_call(handle: &JsHandle, method: Option<&str>, args: Vec<Value>) {
-    if handle.runtime().is_js_thread() {
+    if handle.is_js_thread() {
         let _ = match method {
             Some(m) => handle.call_method_blocking(m, args),
             None => handle.call_blocking(args),
@@ -51,7 +51,7 @@ pub(crate) fn post_call(handle: &JsHandle, method: Option<&str>, args: Vec<Value
 }
 
 /// Synchronous host calls (`__piHost.call`).
-pub(crate) fn dispatch(bridge: &Arc<Bridge>, rt: &JsRuntime, op: &str, payload: Value) -> anyhow::Result<Value> {
+pub(crate) fn dispatch(bridge: &Arc<Bridge>, op: &str, payload: Value) -> anyhow::Result<Value> {
     match op {
         "unsub" => {
             if let Some(id) = payload.get("id").and_then(Value::as_u64)
@@ -75,7 +75,7 @@ pub(crate) fn dispatch(bridge: &Arc<Bridge>, rt: &JsRuntime, op: &str, payload: 
             callback(args)
         }
         "version" => Ok(json!(crate::config::VERSION)),
-        _ if op.starts_with("pi.") => pi_op(bridge, rt, op, payload),
+        _ if op.starts_with("pi.") => pi_op(bridge, op, payload),
         "ctx.get" | "ctx.release" | "ctx.call" | "sm" | "sm.static" | "mr" | "ui" => context::dispatch(bridge, op, payload),
         "theme" | "tui" | "kb" | "sv" | "overlay" | "footer" | "rc" | "rc.new" | "tui.util" | "tui.markdown"
         | "tui.markdownTheme" | "renderer.call" | "renderer.result" | "ac" => component::dispatch(bridge, op, payload),
@@ -92,7 +92,7 @@ pub(crate) fn dispatch(bridge: &Arc<Bridge>, rt: &JsRuntime, op: &str, payload: 
 }
 
 /// Asynchronous host calls (`__piHost.callAsync`).
-pub(crate) async fn dispatch_async(bridge: Arc<Bridge>, _rt: JsRuntime, op: String, payload: Value) -> anyhow::Result<Value> {
+pub(crate) async fn dispatch_async(bridge: Arc<Bridge>, op: String, payload: Value) -> anyhow::Result<Value> {
     match op.as_str() {
         "pi.exec" => {
             let api = api_of(&bridge, &payload)?;
@@ -142,7 +142,7 @@ fn handle_of(bridge: &Bridge, value: &Value, what: &str) -> anyhow::Result<JsHan
     bridge.handle(value).ok_or_else(|| anyhow::anyhow!("{what} must be a function"))
 }
 
-fn pi_op(bridge: &Arc<Bridge>, _rt: &JsRuntime, op: &str, payload: Value) -> anyhow::Result<Value> {
+fn pi_op(bridge: &Arc<Bridge>, op: &str, payload: Value) -> anyhow::Result<Value> {
     let api = api_of(bridge, &payload)?;
     match op {
         "pi.path" => Ok(json!(api.extension_path().unwrap_or_default())),

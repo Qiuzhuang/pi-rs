@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use futures::future::BoxFuture;
 use parking_lot::Mutex;
-use pi_jsrt::JsHandle;
+use super::host::JsHandle;
 use pi_tui::autocomplete::{AutocompleteProvider, AutocompleteSuggestions, CompletionResult, SuggestOptions};
 use pi_tui::components::editor::{Editor, EditorComponent, EditorOptions, EditorTheme, TextCallback};
 use pi_tui::components::input::{Input, InputOptions};
@@ -26,7 +26,7 @@ use pi_tui::layout_node::{
 use serde_json::{Value, json};
 
 use super::api::{arg, autocomplete_item, autocomplete_item_json, custom_entry_json, opt, post_call, rust_marker, str_arg};
-use super::{Bridge, Registry, js_error};
+use super::{Bridge, Registry};
 use crate::core::extensions::types::*;
 use crate::core::footer_data_provider::ReadonlyFooterDataProvider;
 use crate::core::keybindings::{AppKeybinding, KeybindingsManager};
@@ -185,7 +185,7 @@ impl JsComponent {
         self.rust_id.and_then(|id| self.bridge.components.rust.get(id)).map(|c| c.component())
     }
 
-    fn call(&self, method: &str, args: Vec<Value>) -> pi_jsrt::Result<Value> {
+    fn call(&self, method: &str, args: Vec<Value>) -> anyhow::Result<Value> {
         self.handle.call_method_blocking(method, args)
     }
 }
@@ -206,9 +206,13 @@ impl Component for JsComponent {
                 lines
             }
             Ok(_) => Vec::new(),
-            Err(pi_jsrt::Error::Deadlock) => self.last_lines.lock().clone(),
+            Err(e)
+                if format!("{e:#}").to_ascii_lowercase().contains("deadlock") =>
+            {
+                self.last_lines.lock().clone()
+            }
             Err(e) => {
-                let message = format!("[extension render error: {}]", js_error(e));
+                let message = format!("[extension render error: {e}]");
                 vec![pi_tui::utils::truncate_to_width(&message, width, "...", false)]
             }
         }
@@ -249,7 +253,22 @@ impl Component for JsComponent {
     fn set_focused(&self, focused: bool) {
         self.focused.store(focused, Ordering::SeqCst);
         if self.focusable {
-            let _ = self.bridge.glue_call_blocking("setProp", vec![self.handle.to_value(), json!("focused"), json!(focused)]);
+            if self.bridge.host.reentrant_js() {
+                let _ = self
+                    .bridge
+                    .glue_call_blocking("setProp", vec![self.handle.to_value(), json!("focused"), json!(focused)]);
+            } else {
+                // Subprocess backend: a synchronous host call may be in flight (the child's
+                // event loop is blocked), so a blocking call into JS would deadlock. The
+                // property is not read back synchronously; post it instead.
+                let bridge = self.bridge.clone();
+                let value = self.handle.to_value();
+                super::tokio_spawn(async move {
+                    let _ = bridge
+                        .glue_call("setProp", vec![value, json!("focused"), json!(focused)])
+                        .await;
+                });
+            }
         }
     }
 
@@ -638,14 +657,26 @@ impl EditorComponent for JsEditorComponent {
     fn set_autocomplete_provider(&self, provider: Arc<dyn AutocompleteProvider>) {
         let id = self.inner.bridge.components.autocomplete.insert(provider);
         // Pass JS a callable view of the provider (a JS `setAutocompleteProvider` override may
-        // wrap and delegate to it, like the TS host passing the provider object itself). Falls
-        // back to the raw marker if the glue is unavailable.
-        let _ = self
-            .inner
-            .bridge
-            .glue_call_blocking("callSetAutocompleteProvider", vec![self.inner.handle.to_value(), json!(id)]);
+        // wrap and delegate to it, like the TS host passing the provider object itself).
+        // The call is a nested sync round-trip into the child; it can land while the child is
+        // still unwinding a prior dispatch (e.g. the editor swap itself) and fail or drop.
+        // Retry briefly instead of swallowing the first error: without it the JS editor keeps
+        // no provider and slash/@ autocompletion silently dies (timing dependent).
+        let args = vec![self.inner.handle.to_value(), json!(id)];
+        for _attempt in 0..10u32 {
+            match self
+                .inner
+                .bridge
+                .glue_call_blocking("callSetAutocompleteProvider", args.clone())
+            {
+                Ok(_) => return,
+                Err(_) => std::thread::sleep(std::time::Duration::from_millis(25)),
+            }
+        }
+        // Install failed repeatedly: the provider stays registered on the Rust side and is
+        // re-applied on the next provider change or editor swap.
     }
-    fn set_border_color(&self, f: StyleFn) {
+fn set_border_color(&self, f: StyleFn) {
         self.set_callback(
             "borderColor",
             Some(Arc::new(move |args: Vec<Value>| Ok(json!(f(args.first().and_then(Value::as_str).unwrap_or_default()))))),
@@ -845,7 +876,7 @@ pub(crate) fn js_editor_factory(bridge: Arc<Bridge>, factory: JsHandle) -> Edito
         let inner = match bridge.handle(&value["$piJsComponent"]) {
             Some(handle) => JsComponent::new(bridge.clone(), handle, &value),
             None => {
-                let handle = bridge.rt.handle(&json!({ "$jsHandle": 0 }));
+                let handle = bridge.handle(&json!({ "$jsHandle": 0 }));
                 match handle {
                     Some(h) => JsComponent::new(bridge.clone(), h, &Value::Null),
                     None => unreachable!("handle markers always adopt"),
@@ -1687,8 +1718,21 @@ fn rust_component_new(bridge: &Arc<Bridge>, payload: &Value) -> anyhow::Result<V
 
 fn text_callback(bridge: &Arc<Bridge>, value: &Value) -> Option<TextCallback> {
     let handle = bridge.handle(value)?;
+    let reentrant = bridge.host.reentrant_js();
     Some(Arc::new(move |text: String| {
-        let _ = handle.call_blocking(vec![json!(text)]);
+        if reentrant {
+            let _ = handle.call_blocking(vec![json!(text)]);
+            return;
+        }
+        // Subprocess backend: this callback can fire from inside a synchronous host call
+        // (for example `setEditorText`), while the child's event loop is blocked on the host
+        // FIFO. A blocking call into JS would deadlock, and the return value is unused, so
+        // post the callback instead. It runs once the in-flight host call returns and the
+        // child's loop is free again.
+        let handle = handle.clone();
+        super::tokio_spawn(async move {
+            let _ = handle.call(vec![json!(text)]).await;
+        });
     }))
 }
 

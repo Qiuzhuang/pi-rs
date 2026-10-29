@@ -151,6 +151,34 @@ fn materialize() -> anyhow::Result<std::path::PathBuf> {
     Ok(dir)
 }
 
+/// Env-gated JSONL frame log: set `PI_RS_JSONL_LOG=/path` to record every protocol frame
+/// between Rust and the bun child (`R->C` stdin/FIFO writes, `C->R` stdout lines).
+/// Zero cost when unset. Lines are truncated to 4000 bytes at a char boundary;
+/// set `PI_RS_JSONL_FULL=1` to keep them whole.
+fn jsonl_log(dir: &str, line: &str) {
+    use std::io::Write;
+    static F: std::sync::OnceLock<parking_lot::Mutex<std::fs::File>> = std::sync::OnceLock::new();
+    if std::env::var_os("PI_RS_JSONL_LOG").is_none() {
+        return;
+    }
+    let f = F.get_or_init(|| {
+        let path = std::env::var("PI_RS_JSONL_LOG").unwrap();
+        parking_lot::Mutex::new(
+            std::fs::OpenOptions::new().create(true).append(true).open(path).expect("PI_RS_JSONL_LOG file"),
+        )
+    });
+    let mut shown = line;
+    if std::env::var_os("PI_RS_JSONL_FULL").is_none() && shown.len() > 4000 {
+        let mut end = 4000;
+        while end > 0 && !line.is_char_boundary(end) {
+            end -= 1;
+        }
+        shown = &line[..end];
+    }
+    let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+    let _ = writeln!(f.lock(), "{ts} {dir} {shown}");
+}
+
 pub struct BunInner {
     /// Protocol lines to the child's stdin (drained by the writer thread).
     write_tx: SyncSender<String>,
@@ -290,6 +318,7 @@ impl BunHost {
                     if line.is_empty() {
                         continue;
                     }
+                    jsonl_log("C->R", &line);
                     let Ok(v) = serde_json::from_str::<Value>(&line) else {
                         continue;
                     };
@@ -353,7 +382,9 @@ impl BunInner {
         msg["id"] = json!(id);
         let (tx, rx) = oneshot::channel();
         self.pending.lock().insert(id, tx);
-        if !self.alive.load(Ordering::SeqCst) || self.write_tx.send(msg.to_string() + "\n").is_err() {
+        let wire = msg.to_string();
+        jsonl_log("R->C", &wire);
+        if !self.alive.load(Ordering::SeqCst) || self.write_tx.send(wire + "\n").is_err() {
             if let Some(tx) = self.pending.lock().remove(&id) {
                 let _ = tx.send(Err(anyhow::anyhow!("the JS extension process exited")));
             }
@@ -462,6 +493,7 @@ impl BunInner {
     /// it can see right now.
     fn respond_host_fifo(&self, id: u64, res: anyhow::Result<Value>) {
         let msg = host_resp_msg(id, res);
+        jsonl_log("R->C fifo", &msg);
         let mut f = self.hostresp.lock();
         let _ = f.write_all((msg + "\n").as_bytes());
     }
@@ -469,7 +501,9 @@ impl BunInner {
     /// Resolve an asynchronous host call. Its promise resolves from a stdin frame (the child's
     /// event loop is live), so the response goes down the stdin pipe, not the FIFO.
     fn respond_host_stdin(&self, id: u64, res: anyhow::Result<Value>) {
-        let _ = self.write_tx.send(host_resp_msg(id, res) + "\n");
+        let msg = host_resp_msg(id, res);
+        jsonl_log("R->C async", &msg);
+        let _ = self.write_tx.send(msg + "\n");
     }
 }
 

@@ -145,6 +145,10 @@ pub struct JsComponent {
     has_mouse: bool,
     /// Rust component behind a JS subclass of a Rust-backed class (e.g. CustomEditor).
     rust_id: Option<u64>,
+    /// The JS wrapper only forwards `render`/`handleInput`/`handleMouse` to its Rust
+    /// base (`rid`). Every hot call would otherwise be a child round trip that runs
+    /// no JS logic, so the host drives the Rust component directly instead.
+    mirror_input: bool,
     /// Has `[LAYOUT_NODE]()` (JS stacks and scroll views).
     has_layout_node: bool,
     /// The Rust ScrollView laying out this JS ScrollView in the fullscreen layout.
@@ -167,6 +171,10 @@ impl JsComponent {
             has_dispose: desc["hasDispose"].as_bool().unwrap_or(false),
             has_mouse: desc["hasMouse"].as_bool().unwrap_or(false),
             rust_id: desc["rid"].as_u64(),
+            mirror_input: desc["mirrorInput"].as_bool().unwrap_or(false)
+                && desc["rid"].as_u64().is_some()
+                // Kill switch: `PI_RS_NO_MIRROR=1` keeps every call on the child path.
+                && std::env::var("PI_RS_NO_MIRROR").is_err(),
             has_layout_node: desc["hasLayoutNode"].as_bool().unwrap_or(false),
             scroll_mirror: Mutex::new(None),
             layout_children: Mutex::new(Vec::new()),
@@ -185,6 +193,16 @@ impl JsComponent {
         self.rust_id.and_then(|id| self.bridge.components.rust.get(id)).map(|c| c.component())
     }
 
+    /// The Rust component behind this wrapper, only when the wrapper is a pure
+    /// forwarder (see `mirror_input`). Hot methods skip the child entirely.
+    fn mirror_target(&self) -> Option<ComponentRef> {
+        if self.mirror_input {
+            self.rust_component()
+        } else {
+            None
+        }
+    }
+
     fn call(&self, method: &str, args: Vec<Value>) -> anyhow::Result<Value> {
         self.handle.call_method_blocking(method, args)
     }
@@ -192,6 +210,11 @@ impl JsComponent {
 
 impl Component for JsComponent {
     fn render(&self, width: usize) -> Vec<String> {
+        if let Some(rc) = self.mirror_target() {
+            let lines = rc.render(width);
+            *self.last_lines.lock() = lines.clone();
+            return lines;
+        }
         match self.call("render", vec![json!(width)]) {
             Ok(Value::Array(lines)) => {
                 let lines: Vec<String> = lines
@@ -219,6 +242,10 @@ impl Component for JsComponent {
     }
 
     fn handle_input(&self, data: &str) {
+        if let Some(rc) = self.mirror_target() {
+            rc.handle_input(data);
+            return;
+        }
         if self.handles_input {
             let _ = self.call("handleInput", vec![json!(data)]);
         }
@@ -233,6 +260,9 @@ impl Component for JsComponent {
     }
 
     fn handle_mouse(&self, event: &MouseEvent) -> Option<MouseResult> {
+        if let Some(rc) = self.mirror_target() {
+            return rc.handle_mouse(event);
+        }
         if !self.has_mouse {
             return None;
         }
@@ -241,6 +271,10 @@ impl Component for JsComponent {
     }
 
     fn invalidate(&self) {
+        if let Some(rc) = self.mirror_target() {
+            rc.invalidate();
+            return;
+        }
         if self.has_invalidate {
             let _ = self.call("invalidate", vec![]);
         }
@@ -566,11 +600,44 @@ impl JsEditorComponent {
             .into_iter()
             .map(|(action, f)| json!([action, void(f)]))
             .collect();
-        bridge
+        let adopted = bridge
             .glue_call_blocking("adoptAppHandlers", vec![self.inner.handle.to_value(), handlers, Value::Array(actions)])
             .ok()
             .and_then(|v| v.as_bool())
-            .unwrap_or(false)
+            .unwrap_or(false);
+        if adopted {
+            if let Some(host) = self.rust_custom_editor() {
+                // The JS property setters echoed these callbacks back onto the host
+                // editor as wrapper-of-wrapper calls. Replace the echoes with the
+                // native handlers: same behavior, no child round trip per keypress.
+                let d = default_editor.clone();
+                host.set_on_escape(Some(Arc::new(move || {
+                    if let Some(f) = d.on_escape() {
+                        f();
+                    }
+                })));
+                let d = default_editor.clone();
+                host.set_on_ctrl_d(Some(Arc::new(move || {
+                    if let Some(f) = d.on_ctrl_d() {
+                        f();
+                    }
+                })));
+                let d = default_editor.clone();
+                host.set_on_paste_image(Some(Arc::new(move || {
+                    if let Some(f) = d.on_paste_image() {
+                        f();
+                    }
+                })));
+                let d = default_editor.clone();
+                host.set_on_extension_shortcut(Some(Arc::new(move |data: String| d.on_extension_shortcut().is_some_and(|f| f(data)))));
+                let mut merged = host.action_handlers();
+                for (action, handler) in default_editor.action_handlers() {
+                    merged.insert(action, handler);
+                }
+                host.set_action_handlers(merged);
+            }
+        }
+        adopted
     }
 
     fn call_if_exists(&self, method: &str, args: Vec<Value>) -> Value {
@@ -621,6 +688,13 @@ impl EditorComponent for JsEditorComponent {
         self.call_if_exists("setText", vec![json!(text)]);
     }
     fn set_on_submit(&self, f: Option<TextCallback>) {
+        // A forwarding JS editor *is* the host editor. Keep callbacks on the host
+        // editor: pushing them into the child only makes them echo back as a child
+        // wrapper call per keystroke.
+        if let Some(host) = self.rust_custom_editor() {
+            host.set_on_submit(f);
+            return;
+        }
         self.set_callback(
             "onSubmit",
             f.map(|f| {
@@ -632,6 +706,10 @@ impl EditorComponent for JsEditorComponent {
         );
     }
     fn set_on_change(&self, f: Option<TextCallback>) {
+        if let Some(host) = self.rust_custom_editor() {
+            host.set_on_change(f);
+            return;
+        }
         self.set_callback(
             "onChange",
             f.map(|f| {
@@ -677,6 +755,10 @@ impl EditorComponent for JsEditorComponent {
         // re-applied on the next provider change or editor swap.
     }
 fn set_border_color(&self, f: StyleFn) {
+        if let Some(host) = self.rust_custom_editor() {
+            host.set_border_color(f);
+            return;
+        }
         self.set_callback(
             "borderColor",
             Some(Arc::new(move |args: Vec<Value>| Ok(json!(f(args.first().and_then(Value::as_str).unwrap_or_default()))))),
@@ -847,7 +929,25 @@ pub(crate) fn js_footer_factory(bridge: Arc<Bridge>, factory: JsHandle) -> Foote
 
 fn style_callback(bridge: &Bridge, f: &StyleFn) -> u64 {
     let f = f.clone();
-    bridge.register_callback(Arc::new(move |args: Vec<Value>| Ok(json!(f(args.first().and_then(Value::as_str).unwrap_or_default())))))
+    // Theme stylers are pure `line -> line` functions. In TS pi they are in-process
+    // calls; here each one would be a child round trip, once per styled line per
+    // frame (borders, popups, status lines). Remember results so repeats — every
+    // redraw of unchanged text — never cross the process boundary.
+    let cache = std::sync::Mutex::new(std::collections::HashMap::<String, Value>::new());
+    bridge.register_callback(Arc::new(move |args: Vec<Value>| {
+        let line = args.first().and_then(Value::as_str).unwrap_or_default();
+        let key = line.to_string();
+        if let Some(hit) = cache.lock().unwrap().get(&key) {
+            return Ok(hit.clone());
+        }
+        let out = json!(f(line));
+        let mut cache = cache.lock().unwrap();
+        if cache.len() >= 512 {
+            cache.clear();
+        }
+        cache.insert(key, out.clone());
+        Ok(out)
+    }))
 }
 
 fn editor_theme_json(bridge: &Bridge, theme: &EditorTheme) -> Value {
@@ -1282,10 +1382,38 @@ pub(crate) fn js_tool_renderer_resolver(bridge: Arc<Bridge>, resolver: JsHandle)
 // ---------------------------------------------------------------------------
 
 fn js_style_fn(bridge: &Arc<Bridge>, value: &Value) -> Option<StyleFn> {
+    // A child-side theme styler that only forwards a host callback arrives as a
+    // `$piHostCb` marker. Call the original Rust closure directly: no child round
+    // trip per styled line, cold path included (the echo wrapper costs two).
+    if let Some(id) = value.get("$piHostCb").and_then(Value::as_u64) {
+        if let Some(cb) = bridge.callbacks.get(id) {
+            return Some(Arc::new(move |text: &str| match cb(vec![json!(text)]) {
+                Ok(Value::String(s)) => s,
+                _ => text.to_string(),
+            }));
+        }
+    }
     let handle = bridge.handle(value)?;
-    Some(Arc::new(move |text: &str| match handle.call_blocking(vec![json!(text)]) {
-        Ok(Value::String(s)) => s,
-        _ => text.to_string(),
+    // Theme stylers are pure `line -> line` functions. The host renderer asks once
+    // per styled line per frame (borders, popup items, counters); without a cache
+    // every repeat redraw pays a child round trip per line. In TS pi these are
+    // in-process calls. Worst case of caching: an unseen styler with hidden state serves
+    // a stale (visual-only) string until the cache churns.
+    let cache = std::sync::Mutex::new(std::collections::HashMap::<String, String>::new());
+    Some(Arc::new(move |text: &str| {
+        if let Some(hit) = cache.lock().unwrap().get(text) {
+            return hit.clone();
+        }
+        let out = match handle.call_blocking(vec![json!(text)]) {
+            Ok(Value::String(s)) => s,
+            _ => text.to_string(),
+        };
+        let mut cache = cache.lock().unwrap();
+        if cache.len() >= 512 {
+            cache.clear();
+        }
+        cache.insert(text.to_string(), out.clone());
+        out
     }))
 }
 

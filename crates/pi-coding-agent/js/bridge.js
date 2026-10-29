@@ -28,6 +28,19 @@ export function rustCallback(id) {
 	return (...args) => u(call("cb", { id, args }));
 }
 
+/**
+ * Mark a `rustCallback` wrapper as a pure forward of host callback `id`.
+ * `toPlain` serializes marked functions as `{ $piHostCb: id }`, letting Rust call
+ * the original closure instead of round-tripping through the child. Only safe on
+ * values Rust consumes as plain callables (theme stylers).
+ */
+export function tagHostCallback(fn, id) {
+	if (typeof fn === "function" && id !== null && id !== undefined) {
+		Object.defineProperty(fn, "__piHostCb", { value: id, enumerable: false });
+	}
+	return fn;
+}
+
 /** An async JS function forwarding to an async Rust callback registered under `id`. */
 export function rustAsyncCallback(id) {
 	if (id === null || id === undefined) return undefined;
@@ -90,6 +103,7 @@ export function componentRef(component) {
 	return {
 		$piJsComponent: ref(component),
 		rid: component.__rid ?? null,
+		mirrorInput: isMirrorComponent(component),
 		handlesInput: typeof component.handleInput === "function",
 		focusable: "focused" in component,
 		wantsKeyRelease: !!component.wantsKeyRelease,
@@ -212,6 +226,27 @@ markRustBase(RustComponent);
 
 export function rustComponent(id) {
 	return id === null || id === undefined ? undefined : new RustComponent(id);
+}
+
+// A component is a "mirror" when it only forwards render/handleInput/handleMouse
+// to its Rust base: every keystroke would otherwise take a child round trip
+// that computes nothing in the child. The host then calls its own component
+// directly. Subclasses that define any hot method themselves are not mirrors
+// and keep the normal path.
+const MIRROR_METHODS = ["render", "handleInput", "handleMouse"];
+
+function isMirrorComponent(component) {
+	const id = component.__rid;
+	if (id === undefined || id === null) return false;
+	for (let p = Object.getPrototypeOf(component); p; p = Object.getPrototypeOf(p)) {
+		for (const name of MIRROR_METHODS) {
+			// Only the exact base forwarders count as a mirror. A subclass that
+			// defines its own version changes behavior and must keep the round trip.
+			if (Object.prototype.hasOwnProperty.call(p, name) && p[name] !== RustComponent.prototype[name]) return false;
+		}
+		if (rustBases.has(p.constructor)) return true;
+	}
+	return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -1748,13 +1783,13 @@ export function statIsDirectory(stat) {
 
 function styleFns(ids) {
 	const out = {};
-	for (const [key, id] of Object.entries(ids ?? {})) out[key] = rustCallback(id);
+	for (const [key, id] of Object.entries(ids ?? {})) out[key] = tagHostCallback(rustCallback(id), id);
 	return out;
 }
 
 export function makeEditorComponent(factory, tui, editorTheme, keybindings) {
 	const theme = {
-		borderColor: rustCallback(editorTheme.borderColor),
+		borderColor: tagHostCallback(rustCallback(editorTheme.borderColor), editorTheme.borderColor),
 		selectList: styleFns(editorTheme.selectList),
 	};
 	return componentRef(factory(tuiProxy(tui), theme, keybindingsProxy(keybindings)));

@@ -99,7 +99,10 @@ globalThis.__piHandles = { mark, get: (id) => handles.get(id) };
 function toPlain(value, seen = new WeakSet()) {
 	if (value === null || value === undefined) return value;
 	const t = typeof value;
-	if (t === "function") return mark(value);
+	if (t === "function") {
+		if (value.__piHostCb !== undefined) return { $piHostCb: value.__piHostCb };
+		return mark(value);
+	}
 	if (t !== "object") return t === "symbol" ? String(value) : value;
 	if (seen.has(value)) throw new Error("circular structure in host call");
 	seen.add(value);

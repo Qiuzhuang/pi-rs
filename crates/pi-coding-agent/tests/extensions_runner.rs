@@ -18,6 +18,7 @@ use pi_coding_agent::core::extensions::runner::{
 };
 use pi_coding_agent::core::extensions::types::*;
 use pi_coding_agent::core::keybindings::KeybindingsManager;
+use pi_agent::types::AgentMessage;
 use pi_tui::keybindings::{KeySpec, KeybindingsConfig};
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
@@ -1483,4 +1484,36 @@ async fn before_provider_headers_isolates_throwing_handlers() {
     assert_eq!(errors.len(), 1);
     assert_eq!(errors[0].event, "before_provider_headers");
     assert!(errors[0].error.contains("header handler boom"));
+}
+
+// ----------------------------------------------------------------------------
+// Large protocol frames
+// ----------------------------------------------------------------------------
+
+/// A context handler that echoes the transcript back must survive messages larger than the
+/// 64 KiB pipe buffer. The bun host used to send protocol lines with one non-blocking
+/// `writeFileSync` (bun sets O_NONBLOCK on fd 1 once `process.stdout` is touched): an
+/// over-size frame was partially written, rejected with EAGAIN, and desynced the line
+/// protocol, so the pending response never arrived and the call hung. The image-mention
+/// prompt (~2 MB base64) triggered this in a live session. `writeFull` in `entry.mjs`
+/// retries from the partial offset; this test keeps it that way.
+#[tokio::test(flavor = "multi_thread")]
+async fn context_echo_survives_a_multi_megabyte_message() {
+    let dir = ExtDir::new();
+    dir.write(
+        "bigecho.ts",
+        r#"export default function(pi) { pi.on("context", async (event) => event.messages); }"#,
+    );
+    let result = dir.discover().await;
+    let runner = dir.runner(&result).await;
+    let big = "A".repeat(2 * 1024 * 1024);
+    let msgs = vec![AgentMessage::user_text(big, 1)];
+    let out = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        runner.emit_context(&msgs),
+    )
+    .await
+    .expect("emit_context hung (a protocol frame was lost)")
+    .expect("emit_context failed");
+    assert_eq!(out, msgs);
 }

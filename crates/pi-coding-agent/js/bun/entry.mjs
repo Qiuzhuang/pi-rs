@@ -14,7 +14,7 @@
 // backend. Only frames answered synchronously can be served while pumping: a handler that
 // returns a promise responds after the outer call unwinds, so host-call handlers must not
 // depend on async nested results (same rule as Boa, where re-entry runs on one stack).
-import { openSync, readSync, writeFileSync, constants as FS } from "node:fs";
+import { openSync, readSync, writeSync, constants as FS } from "node:fs";
 import { Readable } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
 
@@ -32,8 +32,32 @@ const SLEEP = new Int32Array(new SharedArrayBuffer(4));
 let pumpDepth = 0;
 const HANDLE_KEY = "$jsHandle";
 
+// Write one full buffer to an fd. Bun sets O_NONBLOCK on fd 1's shared file description the
+// first time process.stdout is touched (the rows/columns in the stdout shim below do that),
+// so a sync write to the stdout pipe returns EAGAIN once the 64 KiB pipe buffer fills --
+// after having written only PART of the data. Retrying the whole buffer would duplicate the
+// first bytes; instead resume from the offset writeSync reports. The Rust side drains this
+// pipe on a dedicated thread, so the loop always terminates. A burst of small frames can
+// fill the pipe too, so every protocol line goes through here, not just large ones.
+function writeFull(fd, data) {
+	let off = 0;
+	while (off < data.length) {
+		let n;
+		try {
+			n = writeSync(fd, data, off, data.length - off, null);
+		} catch (e) {
+			if (e && (e.code === "EAGAIN" || e.code === "EWOULDBLOCK")) {
+				Atomics.wait(SLEEP, 0, 0, 1);
+				continue;
+			}
+			throw e;
+		}
+		off += n;
+	}
+}
+
 function line(obj) {
-	writeFileSync(1, JSON.stringify(obj) + "\n");
+	writeFull(1, Buffer.from(JSON.stringify(obj) + "\n"));
 }
 
 // JS stdout (console.*, process.stdout.write) goes to Rust's stdout sink as tagged messages,
@@ -314,15 +338,15 @@ Object.defineProperty(process, "stdin", {
 });
 const failExit = (code) => {
 	line({ type: "exit", code: code ?? 0 });
-	writeFileSync(2, `process.exit(${code}) is not supported in pi extensions\n`);
+	writeFull(2, Buffer.from(`process.exit(${code}) is not supported in pi extensions\n`));
 };
 process.exit = (code) => failExit(code);
 const failUncaught = (e) => {
-	writeFileSync(2, `Uncaught ${e?.stack ?? e}\n`);
+	writeFull(2, Buffer.from(`Uncaught ${e?.stack ?? e}\n`));
 };
 process.on("uncaughtException", failUncaught);
 process.on("unhandledRejection", (e) => {
-	writeFileSync(2, `Unhandled rejection ${e?.stack ?? e}\n`);
+	writeFull(2, Buffer.from(`Unhandled rejection ${e?.stack ?? e}\n`));
 });
 
 line({ type: "ready" });

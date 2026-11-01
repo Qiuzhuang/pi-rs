@@ -440,10 +440,14 @@ impl BunInner {
                     });
                 } else {
                     // Separate thread: a handler may block (UI getters) while the reader thread
-                    // keeps resolving Rust -> child responses.
+                    // keeps resolving Rust -> child responses. Entering the runtime context
+                    // lets spawn_detached callers (pi.sendMessage, pi.sendUserMessage) schedule
+                    // their work on the runtime; without it the future is dropped.
+                    let handle = this.tokio.clone();
                     thread::Builder::new()
                         .name("pi-bun-hostcall".into())
                         .spawn(move || {
+                            let _guard = handle.enter();
                             let res = match bridge {
                                 Some(b) => super::api::dispatch(&b, &op, payload),
                                 None => Err(anyhow::anyhow!("pi extension host is shut down")),

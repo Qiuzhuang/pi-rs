@@ -807,6 +807,7 @@ fn err(message: impl Into<String>) -> anyhow::Error {
 /// tokio runtime; without one the future is dropped.
 fn spawn_detached(future: impl std::future::Future<Output = ()> + Send + 'static) {
     let Ok(handle) = tokio::runtime::Handle::try_current() else {
+        tracing::error!("spawn_detached: no tokio runtime in current context; future dropped");
         return;
     };
     let mut future = Box::pin(future);

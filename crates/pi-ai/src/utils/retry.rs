@@ -44,6 +44,8 @@ static RETRYABLE_PROVIDER_ERROR_PATTERN: Lazy<Regex> = Lazy::new(|| {
         "upstream.?request.?failed",
         "upstream_stream_read_error",
         "stream was interrupted",
+        "error decoding response",
+        "stream terminated unexpectedly",
         "http/?2 stream failed",
         "network.?error",
         "connection.?error",

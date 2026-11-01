@@ -87,6 +87,8 @@ fn retry_classification() {
         "overloaded_error",
         "520 status code (no body)",
         "524 status code (no body)",
+        "error decoding response body",
+        "Upstream stream terminated unexpectedly before completion",
     ] {
         assert!(is_retryable_assistant_error(&error_message(retryable)), "{retryable}");
     }

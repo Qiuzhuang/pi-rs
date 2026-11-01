@@ -22,7 +22,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{sync_channel, SyncSender};
 use std::sync::{Arc, Weak};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::{fs, thread};
 
 use futures::channel::oneshot;
@@ -179,13 +179,30 @@ fn jsonl_log(dir: &str, line: &str) {
     let _ = writeln!(f.lock(), "{ts} {dir} {shown}");
 }
 
+/// One Rust -> child request awaiting its response. Kept (with age and label) so the
+/// reaper can report a call that never answers: a lost response hangs the JS side.
+struct PendingCall {
+    tx: oneshot::Sender<anyhow::Result<Value>>,
+    label: String,
+    started: Instant,
+}
+
+/// Turn a panic payload from a host op into an error response. A dropped response would
+/// leave the child waiting forever (sync op: frozen event loop; async op: dead promise).
+fn panic_to_host_error(payload: Box<dyn std::any::Any + Send>) -> anyhow::Error {
+    let msg = crate::utils::uncaught::panic_message(&*payload);
+    tracing::error!(target: "pi_js", "extension host op panicked; responding with error: {msg}");
+    anyhow::anyhow!("extension host op panicked: {msg}")
+}
+
 pub struct BunInner {
     /// Protocol lines to the child's stdin (drained by the writer thread).
     write_tx: SyncSender<String>,
     /// Write end of the fd-3 pipe: synchronous host responses.
     hostresp: PlMutex<fs::File>,
-    /// Outstanding Rust -> child requests.
-    pending: PlMutex<HashMap<u64, oneshot::Sender<anyhow::Result<Value>>>>,
+    /// Outstanding Rust -> child requests, keyed by frame id. The reaper thread reports
+    /// entries that stay pending too long: a lost response means the JS side waits forever.
+    pending: PlMutex<HashMap<u64, PendingCall>>,
     next_id: AtomicU64,
     alive: Arc<AtomicBool>,
     child: PlMutex<Child>,
@@ -269,7 +286,44 @@ impl BunHost {
             bust_pending: AtomicBool::new(false),
         });
 
-        // Writer thread: serialize protocol lines onto the child's stdin.
+        // Stdin writer thread: serialize protocol lines onto the child's stdin.
+        //
+        // Reaper thread: report Rust -> child calls pending for more than 60 s. Without
+        // this, a lost response (a dropped task, a hung JS handler) is invisible.
+        {
+            let inner_reaper = inner.clone();
+            let alive_reaper = alive.clone();
+            thread::Builder::new()
+                .name("pi-bun-pending".into())
+                .spawn(move || loop {
+                    std::thread::sleep(Duration::from_secs(30));
+                    if !alive_reaper.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    let now = Instant::now();
+                    let stale = inner_reaper
+                        .pending
+                        .lock()
+                        .iter()
+                        .filter(|(_, p)| now.duration_since(p.started) > Duration::from_secs(60))
+                        .map(|(id, p)| (*id, p.label.clone(), p.started.elapsed().as_secs()))
+                        .collect::<Vec<_>>();
+                    for (id, label, secs) in stale {
+                        tracing::error!(
+                            target: "pi_js",
+                            id,
+                            %label,
+                            secs,
+                            "JS call pending without response; the handler may be hung"
+                        );
+                        jsonl_log(
+                            "R->C stale",
+                            &format!("{{\"id\":{id},\"label\":\"{label}\",\"secs\":{secs}}}"),
+                        );
+                    }
+                })
+                .ok();
+        }
         {
             let mut stdin = inner.child.lock().stdin.take().expect("stdin piped");
             let alive = alive.clone();
@@ -305,12 +359,14 @@ impl BunHost {
                 })
                 .ok();
         }
-        // Reader thread: the child's stdout.
+        // Reader thread: the child's stdout. Supervised: a panic here would kill the only
+        // reader of the child and orphan every pending Rust -> child call (a frozen
+        // session). Reporting it crashes loudly instead.
         let (ready_tx, ready_rx) = std::sync::mpsc::channel::<()>();
         let inner_reader = inner.clone();
         thread::Builder::new()
             .name("pi-bun-stdout".into())
-            .spawn(move || {
+            .spawn(crate::utils::uncaught::supervise_fn(move || {
                 let stdout = inner_reader.child.lock().stdout.take().expect("stdout piped");
                 let mut lines = BufReader::new(stdout).lines();
                 while let Some(line) = lines.next() {
@@ -329,7 +385,7 @@ impl BunHost {
                     BunInner::dispatch_line(&inner_reader, v);
                 }
                 inner_reader.mark_dead();
-            })
+            }))
             .ok();
         // Waiter thread: notice child exit. `try_wait` in a loop: a blocking `wait()` would
         // hold the child lock and deadlock the reader thread (which needs the lock to
@@ -381,12 +437,20 @@ impl BunInner {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         msg["id"] = json!(id);
         let (tx, rx) = oneshot::channel();
-        self.pending.lock().insert(id, tx);
+        let label = msg
+            .get("method")
+            .and_then(Value::as_str)
+            .or_else(|| msg.get("type").and_then(Value::as_str))
+            .unwrap_or("call")
+            .to_string();
+        self.pending
+            .lock()
+            .insert(id, PendingCall { tx, label, started: Instant::now() });
         let wire = msg.to_string();
         jsonl_log("R->C", &wire);
         if !self.alive.load(Ordering::SeqCst) || self.write_tx.send(wire + "\n").is_err() {
-            if let Some(tx) = self.pending.lock().remove(&id) {
-                let _ = tx.send(Err(anyhow::anyhow!("the JS extension process exited")));
+            if let Some(p) = self.pending.lock().remove(&id) {
+                let _ = p.tx.send(Err(anyhow::anyhow!("the JS extension process exited")));
             }
         }
         rx
@@ -414,8 +478,8 @@ impl BunInner {
         if !self.alive.swap(false, Ordering::SeqCst) {
             return;
         }
-        for (_, tx) in self.pending.lock().drain() {
-            let _ = tx.send(Err(anyhow::anyhow!("the JS extension process exited")));
+        for (_, p) in self.pending.lock().drain() {
+            let _ = p.tx.send(Err(anyhow::anyhow!("the JS extension process exited")));
         }
     }
 
@@ -431,30 +495,56 @@ impl BunInner {
                 let inner: Arc<BunInner> = this.clone();
                 if async_op {
                     let handle = this.tokio.clone();
-                    handle.spawn(async move {
-                        let res = match bridge {
-                            Some(b) => super::api::dispatch_async(b, op, payload).await,
-                            None => Err(anyhow::anyhow!("pi extension host is shut down")),
-                        };
-                        inner.respond_host_stdin(id, res);
-                    });
+                    // If the spawn itself panics (runtime shutting down), the child would wait
+                    // for a response that never comes; answer with an error instead.
+                    let inner_async = inner.clone();
+                    let spawned = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        handle.spawn(async move {
+                            let res = match bridge {
+                                Some(b) => futures::FutureExt::catch_unwind(
+                                    std::panic::AssertUnwindSafe(async move {
+                                        super::api::dispatch_async(b, op.clone(), payload).await
+                                    }),
+                                )
+                                .await
+                                .map_err(panic_to_host_error)
+                                .and_then(|r| r),
+                                None => Err(anyhow::anyhow!("pi extension host is shut down")),
+                            };
+                            inner_async.respond_host_stdin(id, res);
+                        })
+                    }));
+                    if let Err(payload) = spawned {
+                        inner.respond_host_stdin(id, Err(panic_to_host_error(payload)));
+                    }
                 } else {
                     // Separate thread: a handler may block (UI getters) while the reader thread
                     // keeps resolving Rust -> child responses. Entering the runtime context
                     // lets spawn_detached callers (pi.sendMessage, pi.sendUserMessage) schedule
-                    // their work on the runtime; without it the future is dropped.
+                    // their work on the runtime; without it the future is dropped. The panic
+                    // guard guarantees the FIFO response is written: a missing response freezes
+                    // the child's event loop forever.
                     let handle = this.tokio.clone();
-                    thread::Builder::new()
+                    // If the thread spawn itself fails, the child would block on the FIFO for a
+                    // response that never comes; answer with an error instead.
+                    let inner_thread = inner.clone();
+                    if let Err(e) = thread::Builder::new()
                         .name("pi-bun-hostcall".into())
                         .spawn(move || {
                             let _guard = handle.enter();
-                            let res = match bridge {
-                                Some(b) => super::api::dispatch(&b, &op, payload),
-                                None => Err(anyhow::anyhow!("pi extension host is shut down")),
-                            };
-                            inner.respond_host_fifo(id, res);
+                            let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+                                match bridge {
+                                    Some(b) => super::api::dispatch(&b, &op, payload),
+                                    None => Err(anyhow::anyhow!("pi extension host is shut down")),
+                                }
+                            }))
+                            .map_err(panic_to_host_error)
+                            .and_then(|r| r);
+                            inner_thread.respond_host_fifo(id, res);
                         })
-                        .ok();
+                    {
+                        inner.respond_host_fifo(id, Err(anyhow::anyhow!("host op thread spawn failed: {e}")));
+                    }
                 }
             }
             Some("jsout") => {
@@ -473,7 +563,7 @@ impl BunInner {
             _ => {
                 // A response to a Rust-originated request.
                 if let Some(id) = v.get("id").and_then(Value::as_u64)
-                    && let Some(tx) = this.pending.lock().remove(&id)
+                    && let Some(p) = this.pending.lock().remove(&id)
                 {
                     let res = match v.get("error") {
                         Some(e) => {
@@ -486,7 +576,7 @@ impl BunInner {
                         }
                         None => Ok(v.get("result").cloned().unwrap_or(Value::Null)),
                     };
-                    let _ = tx.send(res);
+                    let _ = p.tx.send(res);
                 }
             }
         }

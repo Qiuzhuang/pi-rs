@@ -197,8 +197,13 @@ function fifoDrain(target) {
 function hostCall(op, payload) {
 	if (FD_SYNC === null) throw new Error("no synchronous host channel (PI_RS_HOST_FIFO)");
 	// A sync host call cannot run forever: a lost Rust response would park this
-	// process's event loop, and with it every future Rust-side call to it.
-	const HOST_CALL_TIMEOUT_MS = 120_000;
+	// process's event loop, and with it every future Rust-side call to it. The cap
+	// also bounds how long the event loop is starved while this thread spins: while
+	// the spin is active, no other promise (a pending import, an async response)
+	// can make progress. Keep it well below the Rust-side 60 s reaper so one stuck
+	// sync call cannot false-positive a still-healthy child as hung. Sync host ops
+	// are in-memory UI/render work; 30 s is already far beyond any legitimate run.
+	const HOST_CALL_TIMEOUT_MS = 30_000;
 	const startedAt = Date.now();
 	const id = nextMsg++;
 	line({ id, type: "host", op, payload: toPlain(payload) });

@@ -458,7 +458,10 @@ impl Inner {
                         self.footer.invalidate();
                     }
                 } else if let Some(error_message) = error_message {
-                    if reason == CompactionReason::Manual {
+                    if error_message.ends_with("Already compacted") {
+                        // Not an error: the context already sits at a compaction boundary.
+                        self.show_status("Context is already compacted");
+                    } else if reason == CompactionReason::Manual {
                         self.show_error(&error_message);
                     } else {
                         self.add_spacer();

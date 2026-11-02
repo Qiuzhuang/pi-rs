@@ -904,7 +904,7 @@ async fn load_extension(
     let resolved_path =
         resolve_path(extension_path, Some(cwd), Some(&PathInputOptions { normalize_unicode_spaces: Some(true), ..Default::default() }));
     let result = async {
-        let factory = load_extension_module(&resolved_path, cwd, cache_token).await?;
+        let factory = import_extension_module_retried(&resolved_path, cwd, cache_token).await?;
         time(&format!("{extension_path} module import"), Some(&TimingLabel::Extensions));
         let Some(factory) = factory else {
             return Ok(Err(format!("Extension does not export a valid factory function: {extension_path}")));
@@ -918,6 +918,37 @@ async fn load_extension(
         Err(err) => {
             let (message, _) = crate::core::extensions::runner::error_parts(&err);
             Err(format!("Failed to load extension: {message}"))
+        }
+    }
+}
+
+/// A timed-out module import can be a false alarm: the child's event loop can be starved
+/// for a while at startup (CPU/disk contention, or render chains that park it inside a
+/// synchronous host call) without the process being hung; the import then still completes
+/// later. Retry after a cooldown so the extension loads once the pressure passes.
+const MODULE_IMPORT_TIMEOUT_RETRIES: u32 = 2;
+const MODULE_IMPORT_RETRY_DELAY_MS: u64 = 20_000;
+
+async fn import_extension_module_retried(
+    path: &str,
+    cwd: &str,
+    cache_token: Option<&ExtensionCacheToken>,
+) -> anyhow::Result<Option<ExtensionFactory>> {
+    let mut attempt = 0u32;
+    loop {
+        match load_extension_module(path, cwd, cache_token).await {
+            Ok(factory) => return Ok(factory),
+            Err(err) if err.to_string().contains("waiting for the JS extension process") && attempt < MODULE_IMPORT_TIMEOUT_RETRIES => {
+                attempt += 1;
+                tracing::warn!(
+                    target: "pi_js",
+                    path,
+                    attempt,
+                    "extension import timed out (the JS event loop may be starved); retrying in {MODULE_IMPORT_RETRY_DELAY_MS} ms"
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(MODULE_IMPORT_RETRY_DELAY_MS)).await;
+            }
+            Err(err) => return Err(err),
         }
     }
 }

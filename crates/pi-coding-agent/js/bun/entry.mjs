@@ -196,6 +196,10 @@ function fifoDrain(target) {
 
 function hostCall(op, payload) {
 	if (FD_SYNC === null) throw new Error("no synchronous host channel (PI_RS_HOST_FIFO)");
+	// A sync host call cannot run forever: a lost Rust response would park this
+	// process's event loop, and with it every future Rust-side call to it.
+	const HOST_CALL_TIMEOUT_MS = 120_000;
+	const startedAt = Date.now();
 	const id = nextMsg++;
 	line({ id, type: "host", op, payload: toPlain(payload) });
 	pumpDepth++;
@@ -208,6 +212,9 @@ function hostCall(op, payload) {
 			}
 			const resp = fifoDrain(id);
 			if (resp !== undefined) return hostFinish(resp);
+			if (Date.now() - startedAt > HOST_CALL_TIMEOUT_MS) {
+				throw new Error(`synchronous host call timed out after ${HOST_CALL_TIMEOUT_MS}ms`);
+			}
 			// Nothing on the sync channel yet: serve whatever the host queued on stdin,
 			// then pace briefly. Atomics.wait sleeps this thread only (there is none other).
 			pumpStdin();
@@ -284,20 +291,45 @@ function handleLine(l) {
 		if (h === undefined) {
 			return line({ id: m.id, error: { message: `unknown JS handle ${m.handle}` } });
 		}
+		// Exactly one response per call, under every condition. A missing response
+		// frame parks the Rust-side waiter forever (a lost render answer freezes the
+		// TUI frame thread), so every path below must end in replyResult/replyError.
+		let answered = false;
+		const once = (fn) => {
+			if (answered) return;
+			answered = true;
+			fn();
+		};
+		const replyResult = (value) =>
+			once(() => {
+				try {
+					line({ id: m.id, result: toPlain(value) });
+				} catch (e) {
+					try {
+						line({ id: m.id, error: { message: `failed to encode result: ${String(e?.message ?? e)}`, stack: e?.stack } });
+					} catch { /* the pipe is gone; nothing left to do */ }
+				}
+			});
+		const replyError = (e) =>
+			once(() => {
+				try {
+					line({ id: m.id, error: { message: String(e?.message ?? e), stack: e?.stack } });
+				} catch { /* the pipe is gone; nothing left to do */ }
+			});
 		let r;
 		try {
 			const args = (m.args ?? []).map(unmark);
 			r = m.method !== undefined ? h[m.method](...args) : h(...args);
 		} catch (e) {
-			return line({ id: m.id, error: { message: String(e?.message ?? e), stack: e?.stack } });
+			return replyError(e);
 		}
 		if (r && typeof r.then === "function") {
 			r.then(
-				(v) => line({ id: m.id, result: toPlain(v) }),
-				(e) => line({ id: m.id, error: { message: String(e?.message ?? e), stack: e?.stack } }),
+				(v) => replyResult(v),
+				(e) => replyError(e),
 			);
 		} else {
-			line({ id: m.id, result: toPlain(r) });
+			replyResult(r);
 		}
 		return;
 	}

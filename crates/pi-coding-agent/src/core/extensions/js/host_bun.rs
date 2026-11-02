@@ -19,7 +19,7 @@
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{sync_channel, SyncSender};
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
@@ -187,6 +187,25 @@ struct PendingCall {
     started: Instant,
 }
 
+/// Max wait for a synchronous Rust -> child call. A legitimate sync call (a getter, a
+/// component render) finishes in milliseconds, so a longer wait means the child event loop
+/// is wedged (a lost response frame). The bounded wait turns that into a visible error
+/// instead of parking the caller's thread forever. The most important caller is the TUI
+/// frame thread (JS component render); if it parks, the whole UI freezes.
+const SYNC_CALL_TIMEOUT: Duration = Duration::from_secs(10);
+/// Consecutive sync-call failures before the bridge is declared degraded.
+const SYNC_FAILURE_LIMIT: u32 = 3;
+/// How long a degraded bridge fails fast before one retry.
+const SYNC_DEGRADED_RETRY_MS: u64 = 15_000;
+
+/// Wall clock in milliseconds (0 if the clock is before the epoch).
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
 /// Turn a panic payload from a host op into an error response. A dropped response would
 /// leave the child waiting forever (sync op: frozen event loop; async op: dead promise).
 fn panic_to_host_error(payload: Box<dyn std::any::Any + Send>) -> anyhow::Error {
@@ -214,6 +233,11 @@ pub struct BunInner {
     bust: AtomicU64,
     /// Set by `clear_module_cache`; consumed by the next import.
     bust_pending: AtomicBool,
+    /// Consecutive synchronous call failures (timeout, process exit); cleared on success.
+    sync_failures: AtomicU32,
+    /// Sync calls fail fast until this wall-clock time (ms): a wedged bridge must not park
+    /// one new caller thread per failed call.
+    degraded_until_ms: AtomicU64,
     /// FIFO file backing the sync host channel (unlinked on drop).
     fifo_path: Option<std::path::PathBuf>,
 }
@@ -284,12 +308,15 @@ impl BunHost {
             bridge_slot: bridge_slot.clone(),
             bust: AtomicU64::new(0),
             bust_pending: AtomicBool::new(false),
+            sync_failures: AtomicU32::new(0),
+            degraded_until_ms: AtomicU64::new(0),
         });
 
         // Stdin writer thread: serialize protocol lines onto the child's stdin.
         //
-        // Reaper thread: report Rust -> child calls pending for more than 60 s. Without
-        // this, a lost response (a dropped task, a hung JS handler) is invisible.
+        // Reaper thread: report and resolve Rust -> child calls pending for more than 60 s.
+        // Resolving with an error (not just logging) is what bounds every waiter: a lost
+        // response then costs one failed call instead of a parked thread or a dead await.
         {
             let inner_reaper = inner.clone();
             let alive_reaper = alive.clone();
@@ -309,6 +336,13 @@ impl BunHost {
                         .map(|(id, p)| (*id, p.label.clone(), p.started.elapsed().as_secs()))
                         .collect::<Vec<_>>();
                     for (id, label, secs) in stale {
+                        // Resolve the waiter with an error so it never hangs on the lost
+                        // response; the one hung handler loses its call.
+                        if let Some(p) = inner_reaper.pending.lock().remove(&id) {
+                            let _ = p.tx.send(Err(anyhow::anyhow!(
+                                "timed out after {secs}s waiting for the JS extension process to respond (the handler may be hung)"
+                            )));
+                        }
                         tracing::error!(
                             target: "pi_js",
                             id,
@@ -435,6 +469,15 @@ impl BunInner {
     /// Send a message to the child; the response (matched by id) resolves the returned future.
     pub(crate) fn send(&self, mut msg: Value) -> oneshot::Receiver<anyhow::Result<Value>> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        // A degraded bridge rejects up front: every call to a wedged child would fail
+        // anyway, and rejecting here keeps waiters from piling up on it.
+        if now_ms() < self.degraded_until_ms.load(Ordering::SeqCst) {
+            let (tx, rx) = oneshot::channel();
+            let _ = tx.send(Err(anyhow::anyhow!(
+                "the JS extension bridge is degraded (repeated failed calls); retrying in a few seconds"
+            )));
+            return rx;
+        }
         msg["id"] = json!(id);
         let (tx, rx) = oneshot::channel();
         let label = msg
@@ -472,6 +515,82 @@ impl BunInner {
 
     pub(crate) fn request_get(&self, handle: u64, name: String) -> oneshot::Receiver<anyhow::Result<Value>> {
         self.send(json!({ "type": "get", "handle": handle, "name": name }))
+    }
+
+    /// Bounded wait plus failure bookkeeping for a synchronous Rust -> child call.
+    /// The bounded wait is the hard guarantee: a lost response can never park the caller
+    /// thread for more than [`SYNC_CALL_TIMEOUT`].
+    fn sync_wait(
+        &self,
+        rx: oneshot::Receiver<anyhow::Result<Value>>,
+        label: &str,
+    ) -> anyhow::Result<Value> {
+        let now = now_ms();
+        if now < self.degraded_until_ms.load(Ordering::SeqCst) {
+            return Err(anyhow::anyhow!(
+                "the JS extension bridge is degraded (repeated failed calls); retrying in a few seconds"
+            ));
+        }
+        match host_bun_wait(rx, SYNC_CALL_TIMEOUT) {
+            Ok(value) => {
+                self.sync_failures.store(0, Ordering::SeqCst);
+                Ok(value)
+            }
+            Err(e) => {
+                let n = self.sync_failures.fetch_add(1, Ordering::SeqCst) + 1;
+                // A timed-out sync call is a strong wedge signal (legit sync calls finish
+                // in milliseconds): degrade immediately instead of waiting for the
+                // failure counter.
+                let timed_out = format!("{e:#}").contains("timed out");
+                if timed_out || n >= SYNC_FAILURE_LIMIT {
+                    self.degraded_until_ms
+                        .store(now + SYNC_DEGRADED_RETRY_MS, Ordering::SeqCst);
+                    let note = if timed_out {
+                        format!("JS extension call timed out; bridge degraded for {SYNC_DEGRADED_RETRY_MS}ms (the extension event loop may be wedged)")
+                    } else {
+                        format!("JS extension bridge degraded after {n} consecutive failed calls; calls fail fast for {SYNC_DEGRADED_RETRY_MS}ms")
+                    };
+                    tracing::error!(
+                        target: "pi_js",
+                        call = %label,
+                        error = %format!("{e:#}"),
+                        "{note}"
+                    );
+                }
+                Err(e)
+            }
+        }
+    }
+
+    /// Synchronous call into a JS value; fails fast while the bridge is degraded.
+    pub(crate) fn sync_call(
+        &self,
+        handle: u64,
+        method: Option<String>,
+        args: Vec<Value>,
+    ) -> anyhow::Result<Value> {
+        let now = now_ms();
+        if now < self.degraded_until_ms.load(Ordering::SeqCst) {
+            return Err(anyhow::anyhow!(
+                "the JS extension bridge is degraded (repeated failed calls); retrying in a few seconds"
+            ));
+        }
+        let label = method.clone().unwrap_or_else(|| "invoke".to_string());
+        let rx = self.request_call(handle, method, args);
+        self.sync_wait(rx, &label)
+    }
+
+    /// Synchronous property read; fails fast while the bridge is degraded.
+    pub(crate) fn sync_get(&self, handle: u64, name: &str) -> anyhow::Result<Value> {
+        let now = now_ms();
+        if now < self.degraded_until_ms.load(Ordering::SeqCst) {
+            return Err(anyhow::anyhow!(
+                "the JS extension bridge is degraded (repeated failed calls); retrying in a few seconds"
+            ));
+        }
+        let label = format!("get {name}");
+        let rx = self.request_get(handle, name.to_string());
+        self.sync_wait(rx, &label)
     }
 
     pub(crate) fn mark_dead(&self) {
@@ -639,15 +758,15 @@ impl HandleOps for BunHandle {
     }
 
     fn call_blocking(&self, args: Vec<Value>) -> anyhow::Result<Value> {
-        host_bun_wait(self.host.request_call(self.id, None, args))
+        self.host.sync_call(self.id, None, args)
     }
 
     fn call_method_blocking(&self, method: &str, args: Vec<Value>) -> anyhow::Result<Value> {
-        host_bun_wait(self.host.request_call(self.id, Some(method.to_string()), args))
+        self.host.sync_call(self.id, Some(method.to_string()), args)
     }
 
     fn get_blocking(&self, name: &str) -> anyhow::Result<Value> {
-        host_bun_wait(self.host.request_get(self.id, name.to_string()))
+        self.host.sync_get(self.id, name)
     }
 }
 
@@ -704,16 +823,26 @@ fn host_resp_msg(id: u64, res: anyhow::Result<Value>) -> String {
     msg.to_string()
 }
 
-/// Wait for a pending oneshot from a non-async context.
-fn host_bun_wait(rx: oneshot::Receiver<anyhow::Result<Value>>) -> anyhow::Result<Value> {
-    host_bun_block_on(async move {
-        rx.await
-            .map_err(|_| anyhow::anyhow!("the JS extension process exited"))
-            .and_then(|r| r)
-    })
+/// Wait for a pending oneshot from a non-async context. The wait is bounded: a lost
+/// response frame must never park the caller's thread for more than `timeout`.
+fn host_bun_wait(
+    rx: oneshot::Receiver<anyhow::Result<Value>>,
+    timeout: Duration,
+) -> anyhow::Result<Value> {
+    host_bun_block_on(
+        async move {
+            rx.await
+                .map_err(|_| anyhow::anyhow!("the JS extension process exited"))
+                .and_then(|r| r)
+        },
+        timeout,
+    )
 }
 
-fn host_bun_block_on<F: Future>(fut: F) -> F::Output {
+fn host_bun_block_on<F: Future<Output = anyhow::Result<Value>>>(
+    fut: F,
+    timeout: Duration,
+) -> anyhow::Result<Value> {
     let mut fut = Box::pin(fut);
     struct Unpark(thread::Thread);
     impl std::task::Wake for Unpark {
@@ -723,10 +852,109 @@ fn host_bun_block_on<F: Future>(fut: F) -> F::Output {
     }
     let waker = std::task::Waker::from(Arc::new(Unpark(thread::current())));
     let mut cx = std::task::Context::from_waker(&waker);
+    let started = Instant::now();
     loop {
         if let std::task::Poll::Ready(r) = fut.as_mut().poll(&mut cx) {
             return r;
         }
+        if started.elapsed() >= timeout {
+            return Err(anyhow::anyhow!(
+                "timed out after {timeout:?} waiting for the JS extension process to respond (the extension event loop may be wedged)"
+            ));
+        }
         thread::park_timeout(Duration::from_millis(1));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn start_host() -> (tokio::runtime::Runtime, Arc<BunHost>) {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let (host, _slot) = BunHost::start("/tmp", rt.handle().clone()).unwrap();
+        (rt, host)
+    }
+
+    fn write_module(source: &str) -> String {
+        let path = std::env::temp_dir().join(format!(
+            "pi-bun-host-test-{}-{}.mjs",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::write(&path, source).unwrap();
+        path.to_string_lossy().into_owned()
+    }
+
+    fn send_signal(pid: u32, sig: &str) {
+        std::process::Command::new("kill")
+            .args([sig, &pid.to_string()])
+            .status()
+            .expect("kill(1) for the test child");
+    }
+
+    /// Regression (frozen TUI): a stopped child used to park the calling thread forever
+    /// (the event loop thread rendering a JS component). A bounded wait must turn that
+    /// into an error, and the bridge must recover once the child runs again.
+    #[test]
+    fn sync_call_is_bounded_when_the_child_is_wedged() {
+        let (_rt, host) = start_host();
+        let inner = host.inner.clone();
+        let path = write_module("export default 1;\n");
+        std::thread::sleep(Duration::from_millis(300));
+        let ns = futures::executor::block_on(host.import(&path)).unwrap();
+        let handle = BunHandle { host: inner.clone(), id: ns.id() };
+
+        // Sanity while healthy.
+        assert_eq!(handle.get_blocking("default").unwrap(), json!(1));
+
+        // Wedge the child: its event loop no longer answers.
+        let pid = inner.child.lock().id();
+        send_signal(pid, "-STOP");
+        std::thread::sleep(Duration::from_millis(200));
+
+        let t0 = Instant::now();
+        let err = handle.get_blocking("default").unwrap_err();
+        let elapsed = t0.elapsed();
+        assert!(elapsed < Duration::from_secs(15), "the call parked {elapsed:?}: {err:#}");
+        assert!(err.to_string().contains("timed out"), "{err:#}");
+
+        // Let the child run again, reset the circuit, and verify recovery.
+        send_signal(pid, "-CONT");
+        inner.sync_failures.store(0, Ordering::SeqCst);
+        inner.degraded_until_ms.store(0, Ordering::SeqCst);
+        std::thread::sleep(Duration::from_millis(200));
+        assert_eq!(handle.get_blocking("default").unwrap(), json!(1));
+        std::fs::remove_file(&path).ok();
+    }
+
+    /// Regression: when encoding the result fails (a circular value), the bridge used to
+    /// send no response at all, so the calling thread parked forever. It must answer
+    /// every call, with a result or an error.
+    #[test]
+    fn response_is_guaranteed_when_encoding_fails() {
+        let (_rt, host) = start_host();
+        let inner = host.inner.clone();
+        let path = write_module("const o = { v: 1 }; o.self = o; export default o;\n");
+        std::thread::sleep(Duration::from_millis(300));
+        let ns = futures::executor::block_on(host.import(&path)).unwrap();
+        let handle = BunHandle { host: inner.clone(), id: ns.id() };
+
+        let t0 = Instant::now();
+        let err = handle.get_blocking("default").unwrap_err();
+        let elapsed = t0.elapsed();
+        assert!(elapsed < Duration::from_secs(10), "the call parked {elapsed:?}: {err:#}");
+        let msg = err.to_string().to_lowercase();
+        assert!(
+            msg.contains("circular") || msg.contains("encode"),
+            "unexpected error: {err:#}"
+        );
+        std::fs::remove_file(&path).ok();
     }
 }

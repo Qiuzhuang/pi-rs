@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
 use futures::future::BoxFuture;
 use parking_lot::Mutex;
@@ -157,6 +157,12 @@ pub struct JsComponent {
     layout_children: Mutex<Vec<ComponentRef>>,
     focused: AtomicBool,
     last_lines: Mutex<Vec<String>>,
+    /// Consecutive failed blocking calls into the child. At [`RENDER_FAILURE_LIMIT`] the
+    /// component stops calling the child and keeps drawing its last good lines: a wedged
+    /// child must not hold the frame thread in a new timed-out call every frame.
+    consecutive_errors: AtomicUsize,
+    /// Wall-clock ms of the last blocking call attempt (cooldown retries).
+    last_attempt_ms: AtomicU64,
 }
 
 impl JsComponent {
@@ -180,6 +186,8 @@ impl JsComponent {
             layout_children: Mutex::new(Vec::new()),
             focused: AtomicBool::new(false),
             last_lines: Mutex::new(Vec::new()),
+            consecutive_errors: AtomicUsize::new(0),
+            last_attempt_ms: AtomicU64::new(0),
         }
     }
 
@@ -204,8 +212,59 @@ impl JsComponent {
     }
 
     fn call(&self, method: &str, args: Vec<Value>) -> anyhow::Result<Value> {
-        self.handle.call_method_blocking(method, args)
+        let now = now_ms();
+        if self.consecutive_errors.load(Ordering::SeqCst) >= RENDER_FAILURE_LIMIT
+            && now.saturating_sub(self.last_attempt_ms.load(Ordering::SeqCst)) < RENDER_RETRY_AFTER_MS
+        {
+            return Err(anyhow::anyhow!(
+                "the JS component is in cooldown after repeated failed calls"
+            ));
+        }
+        self.last_attempt_ms.store(now, Ordering::SeqCst);
+        match self.handle.call_method_blocking(method, args) {
+            Ok(value) => {
+                self.consecutive_errors.store(0, Ordering::SeqCst);
+                Ok(value)
+            }
+            Err(e) => {
+                let n = self.consecutive_errors.fetch_add(1, Ordering::SeqCst) + 1;
+                if n == RENDER_FAILURE_LIMIT {
+                    tracing::error!(
+                        target: "pi_js",
+                        method,
+                        error = %format!("{e:#}"),
+                        "JS component failed {RENDER_FAILURE_LIMIT} calls in a row; it keeps its last rendered lines for {RENDER_RETRY_AFTER_MS}ms, then retries"
+                    );
+                }
+                Err(e)
+            }
+        }
     }
+}
+
+/// Wall clock in milliseconds (0 if the clock is before the epoch).
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Consecutive failures before a JS component stops calling the child.
+const RENDER_FAILURE_LIMIT: usize = 3;
+/// How long a JS component keeps its last lines before retrying the child.
+const RENDER_RETRY_AFTER_MS: u64 = 5_000;
+
+/// A render failure caused by the bridge (a wedged or dead child), not by the component's
+/// own JS: show the last good lines instead of an error line. The bridge-level problem is
+/// already logged by the host.
+fn render_is_transient(e: &anyhow::Error) -> bool {
+    let msg = format!("{e:#}").to_ascii_lowercase();
+    msg.contains("deadlock")
+        || msg.contains("timed out")
+        || msg.contains("degraded")
+        || msg.contains("cooldown")
+        || msg.contains("exited")
 }
 
 impl Component for JsComponent {
@@ -230,7 +289,7 @@ impl Component for JsComponent {
             }
             Ok(_) => Vec::new(),
             Err(e)
-                if format!("{e:#}").to_ascii_lowercase().contains("deadlock") =>
+                if render_is_transient(&e) =>
             {
                 self.last_lines.lock().clone()
             }

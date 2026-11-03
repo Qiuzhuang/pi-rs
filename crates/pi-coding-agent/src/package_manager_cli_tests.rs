@@ -16,6 +16,7 @@ struct Env {
     package_dir: String,
     original_cwd: std::path::PathBuf,
     original_agent_dir: Option<String>,
+    original_offline: Option<String>,
 }
 
 impl Env {
@@ -31,6 +32,10 @@ impl Env {
         }
         let original_cwd = std::env::current_dir().unwrap();
         let original_agent_dir = std::env::var(ENV_AGENT_DIR).ok();
+        // Update and install work is simulated by the capture below; a shell-exported
+        // PI_OFFLINE would short-circuit it. Unset it for the test and restore it on drop.
+        let original_offline = std::env::var("PI_OFFLINE").ok();
+        unsafe { std::env::remove_var("PI_OFFLINE") };
         unsafe { std::env::set_var(ENV_AGENT_DIR, &agent_dir) };
         std::env::set_current_dir(&project_dir).unwrap();
         set_exit_code(0);
@@ -43,6 +48,7 @@ impl Env {
             package_dir,
             original_cwd,
             original_agent_dir,
+            original_offline,
         }
     }
 
@@ -76,6 +82,10 @@ impl Drop for Env {
         match &self.original_agent_dir {
             Some(v) => unsafe { std::env::set_var(ENV_AGENT_DIR, v) },
             None => unsafe { std::env::remove_var(ENV_AGENT_DIR) },
+        }
+        match &self.original_offline {
+            Some(v) => unsafe { std::env::set_var("PI_OFFLINE", v) },
+            None => unsafe { std::env::remove_var("PI_OFFLINE") },
         }
         set_exit_code(0);
     }

@@ -992,8 +992,10 @@ fn golden_resource_loader() {
         let skills = loader.get_skills();
         let prompts = loader.get_prompts();
         let themes = loader.get_themes();
+        // The fixture ran with a clean HOME; drop skills loaded from the real home's
+        // ~/.agents so the comparison covers only the case's file tree.
         let actual = json!({
-            "skills": skills.skills.iter().map(|s| json!({ "name": s.name, "filePath": s.file_path, "sourceInfo": to_json(&s.source_info) })).collect::<Vec<_>>(),
+            "skills": skills.skills.iter().filter(|s| s.file_path.starts_with(&tree.root)).map(|s| json!({ "name": s.name, "filePath": s.file_path, "sourceInfo": to_json(&s.source_info) })).collect::<Vec<_>>(),
             "skillDiagnostics": to_json(&skills.diagnostics),
             "prompts": prompts.prompts.iter().map(|p| json!({ "name": p.name, "filePath": p.file_path, "sourceInfo": to_json(&p.source_info) })).collect::<Vec<_>>(),
             "promptDiagnostics": to_json(&prompts.diagnostics),

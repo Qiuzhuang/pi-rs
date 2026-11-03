@@ -264,6 +264,7 @@ const EXT: &str = "export default function() {}";
 #[tokio::test]
 async fn resolve_returns_no_package_paths_without_sources() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     let result = f.pm.resolve(None).await.unwrap();
     assert!(result.extensions.is_empty());
@@ -278,6 +279,7 @@ async fn resolve_returns_no_package_paths_without_sources() {
 #[tokio::test]
 async fn resolve_local_extension_paths_from_settings() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     let ext_path = f.agent_path(&["extensions", "my-extension.ts"]);
     write(&ext_path, EXT);
@@ -289,6 +291,7 @@ async fn resolve_local_extension_paths_from_settings() {
 #[tokio::test]
 async fn resolve_builtin_extensions_with_user_exclusions_and_project_overrides() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     let pm = DefaultPackageManager::with_command_runner(
         &PackageManagerOptions {
@@ -333,6 +336,7 @@ async fn resolve_builtin_extensions_with_user_exclusions_and_project_overrides()
 #[tokio::test]
 async fn resolve_skill_paths_from_settings_and_root_markdown_skills() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     let skill_file = f.agent_path(&["skills", "my-skill", "SKILL.md"]);
     write(&skill_file, "---\nname: test-skill\ndescription: A test skill\n---\nContent");
@@ -347,6 +351,7 @@ async fn resolve_skill_paths_from_settings_and_root_markdown_skills() {
 #[tokio::test]
 async fn resolve_project_paths_relative_to_pi_dir() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     let ext_path = f.path(&[".pi", "extensions", "project-ext.ts"]);
     write(&ext_path, EXT);
@@ -360,6 +365,7 @@ async fn resolve_project_paths_relative_to_pi_dir() {
 #[tokio::test]
 async fn resolve_auto_discovered_prompts_with_overrides() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     let user_prompt = f.agent_path(&["prompts", "auto.md"]);
     write(&user_prompt, "Auto prompt");
@@ -378,6 +384,7 @@ async fn resolve_auto_discovered_prompts_with_overrides() {
 #[tokio::test]
 async fn resolve_symlinked_user_and_project_resources_once() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     let previous_home = std::env::var("HOME").ok();
     unsafe { std::env::set_var("HOME", &f.temp) };
@@ -413,6 +420,7 @@ async fn resolve_symlinked_user_and_project_resources_once() {
 #[tokio::test]
 async fn resolve_directory_with_pi_extensions_manifest_in_extensions_setting() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     let pkg_dir = f.path(&["my-extensions-pkg"]);
     write(
@@ -439,6 +447,7 @@ async fn resolve_directory_with_pi_extensions_manifest_in_extensions_setting() {
 #[tokio::test]
 async fn auto_discovered_skill_metadata_base_dirs() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     let previous_home = std::env::var("HOME").ok();
     let home = f.path(&["home"]);
@@ -487,6 +496,7 @@ async fn auto_discovered_skill_metadata_base_dirs() {
 #[tokio::test]
 async fn scans_agents_skills_from_cwd_up_to_git_root() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     let repo = f.path(&["repo"]);
     mkdir(&node_join(&[&repo, ".git"]));
@@ -520,6 +530,7 @@ async fn scans_agents_skills_from_cwd_up_to_git_root() {
 #[tokio::test]
 async fn respects_gitignore_in_skill_directories() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     let skills = f.agent_path(&["skills"]);
     write(&node_join(&[&skills, ".gitignore"]), "venv\n");
@@ -539,6 +550,7 @@ async fn respects_gitignore_in_skill_directories() {
 #[tokio::test]
 async fn does_not_apply_parent_gitignore_to_pi_auto_discovery() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     write(&f.path(&[".gitignore"]), ".pi\n");
     let ext = f.path(&[".pi", "extensions", "ext.ts"]);
@@ -554,6 +566,7 @@ async fn does_not_apply_parent_gitignore_to_pi_auto_discovery() {
 #[tokio::test]
 async fn resolve_extension_sources_local_paths_and_manifests() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     let ext_path = f.path(&["ext.ts"]);
     write(&ext_path, EXT);
@@ -577,6 +590,7 @@ async fn resolve_extension_sources_local_paths_and_manifests() {
 #[tokio::test]
 async fn keeps_pi_manifest_entries_with_leading_tilde_package_relative() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     let pkg_dir = f.path(&["tilde-manifest-package"]);
     let direct_ext = node_join(&[&pkg_dir, "~extensions", "main.ts"]);
@@ -601,6 +615,7 @@ async fn keeps_pi_manifest_entries_with_leading_tilde_package_relative() {
 #[tokio::test]
 async fn resolve_extension_sources_auto_discovery_layout_and_skill_roots() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     let pkg_dir = f.path(&["auto-pkg"]);
     write(&node_join(&[&pkg_dir, "extensions", "main.ts"]), EXT);
@@ -622,6 +637,7 @@ async fn resolve_extension_sources_auto_discovery_layout_and_skill_roots() {
 #[tokio::test]
 async fn progress_callback_not_called_for_local_paths() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     let events = Arc::new(StdMutex::new(Vec::<ProgressEvent>::new()));
     let sink = events.clone();
@@ -681,6 +697,7 @@ async fn process_runner_preserves_argv_and_captures_output() {
 #[tokio::test]
 async fn uses_npm_command_argv_for_npm_installs() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::with_settings(json!({"npmCommand": ["mise", "exec", "node@20", "--", "npm"]}));
     f.pm.install("npm:@scope/pkg", None).await.unwrap();
     let root = f.agent_path(&["npm"]);
@@ -702,6 +719,7 @@ async fn uses_npm_command_argv_for_npm_installs() {
 #[tokio::test]
 async fn passes_legacy_peer_deps_when_uninstalling() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     let root = f.agent_path(&["npm"]);
     mkdir(&root);
@@ -716,6 +734,7 @@ async fn passes_legacy_peer_deps_when_uninstalling() {
 #[tokio::test]
 async fn uses_bun_cwd_for_npm_package_installs() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::with_settings(json!({"npmCommand": ["mise", "exec", "bun@1", "--", "bun"]}));
     f.pm.install("npm:@scope/pkg", None).await.unwrap();
     let root = f.agent_path(&["npm"]);
@@ -741,6 +760,7 @@ fn clone_creates_package(f: &Fixture, target_dir: String) {
 #[tokio::test]
 async fn installs_git_package_dependencies_without_auto_installing_peers() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     let target = f.agent_path(&["git", "github.com", "user", "repo"]);
     clone_creates_package(&f, target.clone());
@@ -758,6 +778,7 @@ async fn installs_git_package_dependencies_without_auto_installing_peers() {
 #[tokio::test]
 async fn removes_new_checkout_when_clone_or_dependency_install_fails() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     let target = f.agent_path(&["git", "github.com", "user", "repo"]);
     let t = target.clone();
@@ -791,6 +812,7 @@ async fn removes_new_checkout_when_clone_or_dependency_install_fails() {
 #[tokio::test]
 async fn reconciles_existing_checkout_to_pinned_ref_during_install() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     let target = f.agent_path(&["git", "github.com", "user", "repo"]);
     write(&node_join(&[&target, "package.json"]), "{\"name\":\"repo\",\"version\":\"1.0.0\"}");
@@ -811,6 +833,7 @@ async fn reconciles_existing_checkout_to_pinned_ref_during_install() {
 #[tokio::test]
 async fn reconciles_existing_checkout_to_update_target_without_ref() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     let target = f.agent_path(&["git", "github.com", "user", "repo"]);
     mkdir(&target);
@@ -836,6 +859,7 @@ async fn reconciles_existing_checkout_to_update_target_without_ref() {
 #[tokio::test]
 async fn detects_package_manager_names() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::with_settings(json!({"npmCommand": ["npm", "exec", "--", "pnpm"]}));
     assert_eq!(f.pm.get_package_manager_name().unwrap(), "pnpm");
     assert_eq!(
@@ -865,6 +889,7 @@ async fn detects_package_manager_names() {
 #[tokio::test]
 async fn detects_pnpm_through_corepack_and_bun_for_git_dependencies() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::with_settings(json!({"npmCommand": ["corepack", "pnpm"]}));
     let target = f.agent_path(&["git", "github.com", "user", "repo"]);
     clone_creates_package(&f, target.clone());
@@ -904,6 +929,7 @@ fn upstream_capture(f: &Fixture) {
 #[tokio::test]
 async fn updates_git_package_dependencies_without_auto_installing_peers() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     let target = f.path(&[".pi", "git", "github.com", "user", "repo"]);
     write(&node_join(&[&target, "package.json"]), "{\"name\":\"repo\",\"version\":\"1.0.0\"}");
@@ -947,6 +973,7 @@ async fn updates_git_package_dependencies_without_auto_installing_peers() {
 #[tokio::test]
 async fn repairs_missing_git_dependencies_when_checkout_is_current() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     let target = f.agent_path(&["git", "github.com", "user", "repo"]);
     write(
@@ -968,6 +995,7 @@ async fn repairs_missing_git_dependencies_when_checkout_is_current() {
 #[tokio::test]
 async fn repairs_deleted_git_dependencies_when_cleaning_fails() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     let target = f.agent_path(&["git", "github.com", "user", "repo"]);
     write(
@@ -997,6 +1025,7 @@ async fn repairs_deleted_git_dependencies_when_cleaning_fails() {
 #[tokio::test]
 async fn uses_npm_command_for_root_lookup_and_invalidates_cache() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::with_settings(json!({"npmCommand": ["mise", "exec", "node@20", "--", "npm"]}));
     let root20 = f.path(&["node20", "lib", "node_modules"]);
     let root22 = f.path(&["node22", "lib", "node_modules"]);
@@ -1025,6 +1054,7 @@ async fn uses_npm_command_for_root_lookup_and_invalidates_cache() {
 #[tokio::test]
 async fn installs_user_npm_packages_into_managed_root_once() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::with_settings(json!({"npmCommand": ["pnpm"], "packages": ["npm:pnpm-pkg"]}));
     let package_path = f.agent_path(&["npm", "node_modules", "pnpm-pkg"]);
     let root = f.agent_path(&["npm"]);
@@ -1065,6 +1095,7 @@ async fn installs_user_npm_packages_into_managed_root_once() {
 #[tokio::test]
 async fn loads_legacy_pnpm_global_package_paths() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::with_settings(json!({"npmCommand": ["pnpm"], "packages": ["npm:pnpm-pkg"]}));
     let pnpm_root = f.path(&["pnpm", "global", "v11"]);
     let package_path = node_join(&[&pnpm_root, "20-hash", "node_modules", "pnpm-pkg"]);
@@ -1101,6 +1132,7 @@ async fn loads_legacy_pnpm_global_package_paths() {
 #[tokio::test]
 async fn emits_progress_events_on_install_attempts() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     let events = Arc::new(StdMutex::new(Vec::<ProgressEvent>::new()));
     let sink = events.clone();
@@ -1332,6 +1364,7 @@ fn refuses_project_package_storage_when_untrusted() {
 #[tokio::test]
 async fn expands_tilde_in_exclusion_and_exact_patterns() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     let previous_home = std::env::var("HOME").ok();
     unsafe { std::env::set_var("HOME", &f.temp) };
@@ -1355,6 +1388,7 @@ async fn expands_tilde_in_exclusion_and_exact_patterns() {
 #[tokio::test]
 async fn filters_top_level_arrays_with_patterns() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     for name in ["keep.ts", "legacy.ts"] {
         write(&f.agent_path(&["exts", name]), EXT);
@@ -1385,6 +1419,7 @@ async fn filters_top_level_arrays_with_patterns() {
 #[tokio::test]
 async fn force_include_and_force_exclude_top_level() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     for name in ["a.ts", "b.ts", "c.ts"] {
         write(&f.agent_path(&["exts", name]), EXT);
@@ -1400,6 +1435,7 @@ async fn force_include_and_force_exclude_top_level() {
 #[tokio::test]
 async fn supports_glob_patterns_in_manifests() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     let pkg_dir = f.path(&["manifest-pkg"]);
     write(&node_join(&[&pkg_dir, "extensions", "local.ts"]), EXT);
@@ -1441,6 +1477,7 @@ async fn supports_glob_patterns_in_manifests() {
 #[tokio::test]
 async fn sorts_manifest_glob_matches_and_uses_exact_entries_for_dot_paths_and_symlinks() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     let pkg_dir = f.path(&["manifest-glob-semantics-pkg"]);
     let files = node_join(&[&pkg_dir, "extension-files"]);
@@ -1494,6 +1531,7 @@ fn layered_pkg(f: &Fixture) -> String {
 #[tokio::test]
 async fn applies_user_filters_on_top_of_manifest_filters() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     let pkg_dir = layered_pkg(&f);
     f.settings.set_packages(&[pkg(json!({"source": pkg_dir, "extensions": ["!**/bar.ts"], "themes": ["+themes/dark.json", "!*.json"]}))]);
@@ -1509,6 +1547,7 @@ async fn applies_user_filters_on_top_of_manifest_filters() {
 #[tokio::test]
 async fn empty_filter_arrays_disable_and_direct_paths_select() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     let pkg_dir = layered_pkg(&f);
     f.settings.set_packages(&[pkg(json!({"source": pkg_dir, "extensions": ["extensions/foo.ts"], "themes": []}))]);
@@ -1522,6 +1561,7 @@ async fn empty_filter_arrays_disable_and_direct_paths_select() {
 #[tokio::test]
 async fn resolves_autoload_disabled_project_entries_as_deltas() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     let pkg_dir = layered_pkg(&f);
     f.settings.set_packages(&[pkg(json!(pkg_dir))]);
@@ -1555,6 +1595,7 @@ async fn resolves_autoload_disabled_project_entries_as_deltas() {
 #[tokio::test]
 async fn dedupes_same_local_package_project_wins() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     let pkg_dir = f.path(&["shared-pkg"]);
     write(&node_join(&[&pkg_dir, "extensions", "shared.ts"]), EXT);
@@ -1592,6 +1633,7 @@ fn dedupes_ssh_and_https_urls_for_same_repo() {
 #[tokio::test]
 async fn multi_file_extension_discovery() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     let ext = f.agent_path(&["extensions"]);
     write(&node_join(&[&ext, "top.ts"]), EXT);
@@ -1624,6 +1666,7 @@ fn write_installed(path: &str, name: &str, version: &str) {
 #[tokio::test]
 async fn updates_npm_range_packages_using_configured_spec() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     write_installed(&f.path(&[".pi", "npm", "node_modules", "example"]), "example", "1.0.0");
     f.settings.set_project_packages(&[pkg(json!("npm:example@^1.0.0"))]).unwrap();
@@ -1640,6 +1683,7 @@ async fn updates_npm_range_packages_using_configured_spec() {
 #[tokio::test]
 async fn skips_npm_updates_when_current_or_newer() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     write_installed(&f.path(&[".pi", "npm", "node_modules", "example"]), "example", "1.3.1");
     f.settings.set_project_packages(&[pkg(json!("npm:example@^1.0.0"))]).unwrap();
@@ -1659,6 +1703,7 @@ async fn skips_npm_updates_when_current_or_newer() {
 #[tokio::test]
 async fn migrates_legacy_user_npm_installs_into_managed_root() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     let legacy_root = f.path(&["legacy-global", "node_modules"]);
     let legacy_path = node_join(&[&legacy_root, "legacy-pkg"]);
@@ -1690,6 +1735,7 @@ async fn migrates_legacy_user_npm_installs_into_managed_root() {
 #[tokio::test]
 async fn batches_npm_updates_per_scope_and_runs_git_updates_in_parallel() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     for (scope_root, name) in [
         (f.agent_path(&["npm", "node_modules"]), "user-old"),
@@ -1804,6 +1850,7 @@ async fn batches_npm_updates_per_scope_and_runs_git_updates_in_parallel() {
 #[tokio::test]
 async fn suggests_source_prefixes_for_update_lookups() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     f.settings.set_project_packages(&[pkg(json!("npm:example"))]).unwrap();
     assert_eq!(
@@ -1822,22 +1869,51 @@ async fn suggests_source_prefixes_for_update_lookups() {
     );
 }
 
-struct OfflineGuard;
+struct OfflineGuard {
+    previous: Option<String>,
+}
 impl OfflineGuard {
     fn set() -> Self {
+        let previous = std::env::var("PI_OFFLINE").ok();
         unsafe { std::env::set_var("PI_OFFLINE", "1") };
-        OfflineGuard
+        OfflineGuard { previous }
     }
 }
 impl Drop for OfflineGuard {
     fn drop(&mut self) {
+        match self.previous.clone() {
+            Some(value) => unsafe { std::env::set_var("PI_OFFLINE", value) },
+            None => unsafe { std::env::remove_var("PI_OFFLINE") },
+        }
+    }
+}
+
+/// Keeps `PI_OFFLINE` unset for the guarded scope and restores the previous value on drop.
+/// Tests that assert on update work would silently see an early return on hosts where the
+/// shell exports `PI_OFFLINE`.
+struct OnlineGuard {
+    previous: Option<String>,
+}
+impl OnlineGuard {
+    fn set() -> Self {
+        let previous = std::env::var("PI_OFFLINE").ok();
         unsafe { std::env::remove_var("PI_OFFLINE") };
+        OnlineGuard { previous }
+    }
+}
+impl Drop for OnlineGuard {
+    fn drop(&mut self) {
+        match self.previous.clone() {
+            Some(value) => unsafe { std::env::set_var("PI_OFFLINE", value) },
+            None => unsafe { std::env::remove_var("PI_OFFLINE") },
+        }
     }
 }
 
 #[tokio::test]
 async fn skips_installing_missing_sources_and_update_checks_when_offline() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let _offline = OfflineGuard::set();
     let f = Fixture::new();
     f.settings
@@ -1862,6 +1938,7 @@ async fn skips_installing_missing_sources_and_update_checks_when_offline() {
 #[tokio::test]
 async fn skips_refreshing_temporary_git_sources_when_offline() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let _offline = OfflineGuard::set();
     let f = Fixture::new();
     let source = "git:github.com/example/repo";
@@ -1879,6 +1956,7 @@ async fn skips_refreshing_temporary_git_sources_when_offline() {
 #[tokio::test]
 async fn loads_new_checkout_when_pinned_temporary_git_source_changes_ref() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     let old_path = f.pm.get_git_install_path(&git(&f.pm, "git:github.com/example/repo@aaaaaaa"), SourceScope::Temporary).unwrap();
     write(&node_join(&[&old_path, "extensions", "old.ts"]), EXT);
@@ -1905,6 +1983,7 @@ async fn loads_new_checkout_when_pinned_temporary_git_source_changes_ref() {
 #[tokio::test]
 async fn does_not_run_npm_view_during_resolve_and_reinstalls_mismatched_pins() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     {
         let _offline = OfflineGuard::set();
         let f = Fixture::new();
@@ -1927,6 +2006,7 @@ async fn does_not_run_npm_view_during_resolve_and_reinstalls_mismatched_pins() {
 #[tokio::test]
 async fn missing_source_handler_controls_installs() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     f.settings.set_packages(&[pkg(json!("npm:missing"))]);
     let skip: MissingSourceHandler = Arc::new(|_| Box::pin(async { Ok(MissingSourceAction::Skip) }));
@@ -1942,6 +2022,7 @@ async fn missing_source_handler_controls_installs() {
 #[tokio::test]
 async fn reports_available_updates_for_unpinned_npm_packages() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     write_installed(&f.path(&[".pi", "npm", "node_modules", "example"]), "example", "1.0.0");
     f.settings.set_project_packages(&[pkg(json!("npm:example"))]).unwrap();
@@ -1962,6 +2043,7 @@ async fn reports_available_updates_for_unpinned_npm_packages() {
 #[tokio::test]
 async fn skips_pinned_packages_when_checking_for_updates() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     write_installed(&f.path(&[".pi", "npm", "node_modules", "example"]), "example", "1.0.0");
     mkdir(&f.pm.get_git_install_path(&git(&f.pm, "git:github.com/example/repo@v1"), SourceScope::Project).unwrap());
@@ -1975,6 +2057,7 @@ async fn skips_pinned_packages_when_checking_for_updates() {
 #[tokio::test]
 async fn reports_git_updates_from_ls_remote() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     mkdir(&f.agent_path(&["git", "github.com", "example", "repo"]));
     f.settings.set_packages(&[pkg(json!("git:github.com/example/repo"))]);
@@ -1995,6 +2078,7 @@ async fn reports_git_updates_from_ls_remote() {
 #[tokio::test]
 async fn uses_npm_view_to_fetch_latest_version() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     f.runner.on_capture(|_| Ok("\"1.2.3\"".to_string()));
     assert_eq!(f.pm.get_latest_npm_version("example", None).await.unwrap(), "1.2.3");
@@ -2020,6 +2104,7 @@ async fn uses_npm_view_to_fetch_latest_version() {
 #[tokio::test]
 async fn ignores_invalid_manifest_resource_fields() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::with_settings(json!({"packages": ["npm:bad-package"]}));
     let package_dir = f.agent_path(&["npm", "node_modules", "bad-package"]);
     let skill_path = node_join(&[&package_dir, "skills", "bad", "SKILL.md"]);
@@ -2061,6 +2146,7 @@ impl PackageCommandRunner for NoNpmRunner {
 async fn installs_updates_and_removes_with_builtin_npm_client() {
     use super::npm_registry::test_support::{FakeVersion, serve_registry};
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let fake = |name: &str, version: &str, deps: &[(&str, &str)]| FakeVersion {
         name: name.to_string(),
         version: version.to_string(),
@@ -2213,6 +2299,8 @@ async fn git_update_skips_reset_clean_and_install_when_up_to_date() {
     if !git_available() {
         return;
     }
+    let _g = env_lock();
+    let _o = OnlineGuard::set();
     let g = git_fixture();
     init_repo(&g.remote);
     std::fs::write(node_join(&[&g.remote, "package.json"]), "{\"name\":\"test-extension\",\"version\":\"1.0.0\"}").unwrap();
@@ -2230,6 +2318,8 @@ async fn git_update_follows_new_commits_and_history_rewrites() {
     if !git_available() {
         return;
     }
+    let _g = env_lock();
+    let _o = OnlineGuard::set();
     let g = git_fixture();
     init_repo(&g.remote);
     commit(&g.remote, "extension.ts", "// v1", "Initial commit");
@@ -2256,6 +2346,8 @@ async fn git_update_checks_out_configured_pinned_ref() {
     if !git_available() {
         return;
     }
+    let _g = env_lock();
+    let _o = OnlineGuard::set();
     let g = git_fixture();
     init_repo(&g.remote);
     let v1 = commit(&g.remote, "extension.ts", "// v1", "Initial commit");
@@ -2277,6 +2369,7 @@ async fn git_update_checks_out_configured_pinned_ref() {
 #[tokio::test]
 async fn refreshes_cached_temporary_git_sources_when_resolving() {
     let _g = env_lock();
+    let _o = OnlineGuard::set();
     let f = Fixture::new();
     let cached = f.pm.get_git_install_path(&git(&f.pm, GIT_SOURCE), SourceScope::Temporary).unwrap();
     let extension_file = node_join(&[&cached, "pi-extensions", "session-breakdown.ts"]);

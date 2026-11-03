@@ -278,7 +278,16 @@ impl BunHost {
                 anyhow::bail!("mkfifo({}) failed: {}", fifo_path.display(), std::io::Error::last_os_error());
             }
         }
-        let write_end = fs::OpenOptions::new().read(true).write(true).open(&fifo_path)?;
+        // O_NONBLOCK: a reply write must never block on the FIFO when the child is no
+        // longer draining it (it timed out its sync call and moved on). Bounded writes
+        // in `respond_host_fifo` handle EAGAIN; a blocking write here could park the
+        // writer (and the `hostresp` lock) forever and wedge every later sync reply.
+        use std::os::unix::fs::OpenOptionsExt;
+        let write_end = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .custom_flags(libc::O_NONBLOCK)
+            .open(&fifo_path)?;
 
         let mut cmd = Command::new(&bun);
         cmd.arg(&entry);
@@ -489,11 +498,17 @@ impl BunInner {
         self.pending
             .lock()
             .insert(id, PendingCall { tx, label, started: Instant::now() });
-        let wire = msg.to_string();
+        let wire = msg.to_string() + "\n";
         jsonl_log("R->C", &wire);
-        if !self.alive.load(Ordering::SeqCst) || self.write_tx.send(wire + "\n").is_err() {
+        // try_send, not a blocking send: this can run on the TUI thread (a sync call) or a
+        // tokio worker, and neither may park on a wedged child. A full queue (4096 undelivered
+        // frames) means the child is deeply wedged; the new call fails fast instead of piling
+        // onto the reaper's 60 s wait, and healthy calls are unaffected.
+        if !self.alive.load(Ordering::SeqCst)
+            || self.write_tx.try_send(wire).is_err()
+        {
             if let Some(p) = self.pending.lock().remove(&id) {
-                let _ = p.tx.send(Err(anyhow::anyhow!("the JS extension process exited")));
+                let _ = p.tx.send(Err(anyhow::anyhow!("the JS extension bridge did not accept the call (it exited or is wedged)")));
             }
         }
         rx
@@ -703,20 +718,106 @@ impl BunInner {
 
     /// Write one synchronous host response to the FIFO. The child is blocked reading the FIFO
     /// (its event loop is frozen for the duration of the sync call), so this is the only channel
-    /// it can see right now.
+    /// it can see right now. The write is bounded: the child stops reading the FIFO when its
+    /// own sync-call cap fires, and a blocking write of a full pipe buffer would park this
+    /// thread and the `hostresp` lock forever. A reply that is still waiting for the child is
+    /// delivered immediately (the child drains the FIFO while it spins); a reply the child no
+    /// longer waits for is dropped with a loud log instead of wedging the channel.
     fn respond_host_fifo(&self, id: u64, res: anyhow::Result<Value>) {
         let msg = host_resp_msg(id, res);
         jsonl_log("R->C fifo", &msg);
-        let mut f = self.hostresp.lock();
-        let _ = f.write_all((msg + "\n").as_bytes());
+        let mut wire = (msg + "\n").into_bytes();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        match write_fifo_bounded(&self.hostresp, &mut wire, deadline) {
+            FifoWrite::Complete => {}
+            FifoWrite::Terminated => tracing::error!(
+                target: "pi_js",
+                id,
+                "dropping sync host response after 5s: the child stopped reading the sync channel (its sync call likely timed out); the torn line is terminated so the child resynchronizes"
+            ),
+            FifoWrite::Failed(e) => tracing::error!(target: "pi_js", id, "dropping sync host response: {e:#}"),
+        }
     }
 
     /// Resolve an asynchronous host call. Its promise resolves from a stdin frame (the child's
-    /// event loop is live), so the response goes down the stdin pipe, not the FIFO.
+    /// event loop is live), so the response goes down the stdin pipe, not the FIFO. The send is
+    /// bounded: a silently dropped response would leave the child's promise pending forever
+    /// (a hung handler whose Rust-side call is then reaped at 60 s).
     fn respond_host_stdin(&self, id: u64, res: anyhow::Result<Value>) {
-        let msg = host_resp_msg(id, res);
-        jsonl_log("R->C async", &msg);
-        let _ = self.write_tx.send(msg + "\n");
+        let wire = host_resp_msg(id, res).to_string() + "\n";
+        jsonl_log("R->C async", &wire);
+        match self.write_tx.try_send(wire.clone()) {
+            Ok(()) => {}
+            Err(e @ std::sync::mpsc::TrySendError::Disconnected(_)) => {
+                // The writer thread is gone: no further frame can get through.
+                let _ = e;
+                tracing::error!(target: "pi_js", id, "async host response not sent (stdin writer gone); the bridge is dead");
+                self.mark_dead();
+            }
+            Err(std::sync::mpsc::TrySendError::Full(_)) => {
+                // Queue full: 4096 undelivered frames. The child has not drained stdin for
+                // longer than it takes to produce that backlog; it is wedged. Declare the
+                // bridge dead so every waiter resolves instead of hanging to the reaper.
+                tracing::error!(target: "pi_js", id, "async host response not sent (stdin queue full); the bridge is dead");
+                self.mark_dead();
+            }
+        }
+    }
+}
+
+/// Outcome of a bounded FIFO write.
+#[derive(Debug)]
+enum FifoWrite {
+    /// Every byte of the reply is in the pipe.
+    Complete,
+    /// The deadline passed mid-line. The torn line was terminated with `\n` (when the buffer
+    /// accepted it), so the child's line parser drops the torn line and the stream
+    /// resynchronizes; at worst one later reply is lost to the torn line.
+    Terminated,
+    /// A real I/O error (the FIFO is gone).
+    Failed(std::io::Error),
+}
+
+/// Write `wire` to a non-blocking FIFO within `deadline`. The lock is held only for one
+/// non-blocking write per attempt, so a later reply may interleave while this one paces.
+fn write_fifo_bounded(f: &PlMutex<fs::File>, wire: &mut Vec<u8>, deadline: Instant) -> FifoWrite {
+    loop {
+        match f.lock().write(wire) {
+            Ok(0) if !wire.is_empty() => {
+                return FifoWrite::Failed(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "the FIFO accepted no data",
+                ))
+            }
+            Ok(n) => {
+                *wire = wire.split_off(n);
+                if wire.is_empty() {
+                    return FifoWrite::Complete;
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+            Err(e) => return FifoWrite::Failed(e),
+        }
+        if Instant::now() > deadline {
+            // A partial line is now in the pipe buffer. Terminate it so the child's line
+            // parser can drop the torn line and resynchronize. If even the byte does not
+            // fit (the buffer is exactly full of torn bytes), the child's next line swallows
+            // the rest and fails to parse the same way: one lost reply, then clean.
+            let mut term = [b'\n'];
+            let term_deadline = Instant::now() + Duration::from_millis(500);
+            loop {
+                match f.lock().write(&mut term) {
+                    Ok(_) => return FifoWrite::Terminated,
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+                    Err(_) => return FifoWrite::Terminated,
+                }
+                if Instant::now() > term_deadline {
+                    return FifoWrite::Terminated;
+                }
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        }
+        std::thread::sleep(Duration::from_millis(1));
     }
 }
 
@@ -955,6 +1056,102 @@ mod tests {
             msg.contains("circular") || msg.contains("encode"),
             "unexpected error: {err:#}"
         );
+        std::fs::remove_file(&path).ok();
+    }
+
+    /// A FIFO with no reader (the child timed out its sync call and stopped draining):
+    /// a reply that fits the pipe buffer still lands; a reply that fills the buffer must
+    /// give up at the deadline instead of parking the writer (and the `hostresp` lock)
+    /// forever. Regression for the chronic sync-channel wedge behind the 65 s
+    /// "waiting for the JS extension process to respond" errors.
+    #[test]
+    fn fifo_reply_write_is_bounded_without_a_reader() {
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::OpenOptionsExt;
+        use std::os::unix::io::FromRawFd;
+        let path = std::env::temp_dir().join(format!(
+            "pi-bun-fifo-bounded-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        // SAFETY: c_path is a valid NUL-terminated C string for the duration of the call.
+        let c_path = std::ffi::CString::new(path.as_os_str().as_bytes().to_vec()).unwrap();
+        // SAFETY: c_path is a valid NUL-terminated C string for the duration of the call.
+        unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) };
+        let open = || {
+            fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .custom_flags(libc::O_NONBLOCK)
+                .open(&path)
+                .unwrap()
+        };
+
+        // 1. A small reply fits the pipe buffer: it lands even while nobody reads.
+        {
+            let f = PlMutex::new(open());
+            let mut wire = b"{\"id\":1,\"type\":\"hostResp\"}\n".to_vec();
+            let out = write_fifo_bounded(&f, &mut wire, Instant::now() + Duration::from_millis(500));
+            assert!(matches!(out, FifoWrite::Complete), "small reply: {out:?}");
+            assert!(wire.is_empty());
+        }
+
+        // 2. A reply larger than the pipe buffer with no reader: the write must stop at the
+        //    deadline (Torn or Terminated), never park. 256 KiB >> the 64 KiB pipe buffer.
+        {
+            let f = PlMutex::new(open());
+            let mut wire = vec![b'x'; 256 * 1024];
+            let t0 = Instant::now();
+            let out = write_fifo_bounded(&f, &mut wire, Instant::now() + Duration::from_millis(200));
+            let elapsed = t0.elapsed();
+            assert!(
+                matches!(out, FifoWrite::Terminated | FifoWrite::Failed(_)),
+                "big reply with no reader: {out:?}"
+            );
+            assert!(elapsed < Duration::from_secs(5), "the write parked {elapsed:?}");
+        }
+
+        // 3. With a reader draining the FIFO, a large reply completes in full.
+        {
+            let f = open();
+            let (mut rd, _wr) = unsafe {
+                // A second O_RDONLY end so the reader thread has its own description;
+                // the shared `f` above stays the writer.
+                let fd = libc::open(
+                    c_path.as_ptr(),
+                    libc::O_RDONLY | libc::O_NONBLOCK,
+                );
+                assert!(fd >= 0, "second open of the FIFO");
+                let file = fs::File::from_raw_fd(fd);
+                (file, ())
+            };
+            let reader = std::thread::spawn(move || {
+                use std::io::Read;
+                let mut buf = [0u8; 8192];
+                loop {
+                    match rd.read(&mut buf) {
+                        Ok(0) => break,
+                        Ok(_) => {}
+                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                            std::thread::sleep(Duration::from_millis(1));
+                        }
+                        Err(_) => break,
+                    }
+                }
+            });
+            let f = PlMutex::new(f);
+            let mut wire = vec![b'y'; 200 * 1024];
+            let out = write_fifo_bounded(&f, &mut wire, Instant::now() + Duration::from_secs(5));
+            assert!(matches!(out, FifoWrite::Complete), "big reply with a reader: {out:?}");
+            assert!(wire.is_empty());
+            // Close the writer end so the reader's read returns EOF and it can finish.
+            drop(f);
+            let _ = reader.join();
+        }
+
         std::fs::remove_file(&path).ok();
     }
 }

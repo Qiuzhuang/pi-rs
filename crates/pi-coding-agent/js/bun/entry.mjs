@@ -168,7 +168,15 @@ function fifoDrain(target) {
 		if (cut >= 0) {
 			const text = fifoAcc.toString("utf8", 0, cut);
 			fifoAcc = fifoAcc.subarray(cut + 1);
-			const resp = JSON.parse(text);
+			let resp;
+			try {
+				resp = JSON.parse(text);
+			} catch {
+				// A torn sync reply: Rust dropped a reply while this channel was undrained and
+				// terminated the line. Drop the line; the stream resynchronizes here. At worst
+				// the line also swallowed one good reply (its call times out on its own caps).
+				continue;
+			}
 			if (resp.id === target) return resp;
 			if (resp.type === "host" || resp.type === "hostAsync" || resp.type === "call") {
 				// Defensive: routed frames never use the sync channel; keep them moving.
@@ -176,6 +184,10 @@ function fifoDrain(target) {
 				continue;
 			}
 			syncArrived.set(resp.id, resp);
+			// Late responses for calls the child no longer waits for (Rust dropped them, or the
+			// call timed out) park here; cap the map so a wedged channel cannot grow it without
+			// bound. Oldest first: a useful response is always one of the newest lines.
+			if (syncArrived.size > 64) syncArrived.delete(syncArrived.keys().next().value);
 			continue;
 		}
 		if (fifoAcc.length > 16 * 1024 * 1024) throw new Error("host response too large");

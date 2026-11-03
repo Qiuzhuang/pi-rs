@@ -18,12 +18,22 @@ struct BoundedTerminalWriter<'a> {
     buffer: String,
     buffer_units: usize,
     written: usize,
-    write: &'a dyn Fn(&str),
+    write: &'a dyn Fn(&str) -> bool,
+    /// Set once a chunk cannot be delivered: further chunks are dropped (the frame is lost;
+    /// the renderer forces a full redraw next frame), so a stalled terminal cannot park the
+    /// caller for one deadline per chunk.
+    lost: bool,
 }
 
 impl<'a> BoundedTerminalWriter<'a> {
-    fn new(write: &'a dyn Fn(&str)) -> Self {
-        Self { buffer: String::new(), buffer_units: 0, written: 0, write }
+    fn new(write: &'a dyn Fn(&str) -> bool) -> Self {
+        Self {
+            buffer: String::new(),
+            buffer_units: 0,
+            written: 0,
+            write,
+            lost: false,
+        }
     }
 
     fn append(&mut self, value: &str) {
@@ -44,7 +54,9 @@ impl<'a> BoundedTerminalWriter<'a> {
         if self.buffer.is_empty() {
             return;
         }
-        (self.write)(&self.buffer);
+        if !self.lost && !(self.write)(&self.buffer) {
+            self.lost = true;
+        }
         self.written += self.buffer_units;
         self.buffer.clear();
         self.buffer_units = 0;
@@ -353,7 +365,16 @@ impl Tui {
         let mut viewport_top = prev_viewport_top;
         let mut hardware_cursor_row = s.hardware_cursor_row;
 
-        let write = |d: &str| terminal.write(d);
+        let write = |d: &str| -> bool {
+            // A write that cannot be delivered (stalled/dead terminal, e.g. a dropped SSH
+            // connection) leaves the screen content unknown. Flag it so the next frame
+            // redraws the whole screen instead of diffing against a screen we cannot trust.
+            let ok = terminal.write(d);
+            if !ok {
+                self.force_full_redraw.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+            ok
+        };
 
         let full_render = |this: &Tui, s: &mut MainRenderState, new_lines: Vec<String>, clear: bool| {
             this.full_redraw_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -401,6 +422,14 @@ impl Tui {
             s.previous_width = w;
             s.previous_height = h;
         };
+
+        // The previous frame lost terminal output (stalled/dead terminal): the screen content
+        // is unknown, so redraw the whole screen from scratch instead of diffing.
+        if self.force_full_redraw.swap(false, std::sync::atomic::Ordering::SeqCst) {
+            self.log_redraw("previous frame write lost, forcing full redraw", s.previous_lines.len(), new_lines.len(), height);
+            full_render(self, &mut s, new_lines, true);
+            return;
+        }
 
         let prev_len = s.previous_lines.len();
         if s.previous_lines.is_empty() && !width_changed && !height_changed {

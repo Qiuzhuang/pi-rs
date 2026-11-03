@@ -855,6 +855,9 @@ pub struct Tui {
     pub(crate) log_directory: Option<PathBuf>,
     on_debug: Mutex<Option<DebugCallback>>,
     pub(crate) full_redraw_count: std::sync::atomic::AtomicUsize,
+    /// Set when a frame write could not be delivered (stalled or dead terminal).
+    /// The next frame must redraw the whole screen: the terminal content is unknown.
+    pub(crate) force_full_redraw: std::sync::atomic::AtomicBool,
     pub(crate) screen: Screen,
     /// The renderer that replaced this one (see [`Tui::redirect_to`]).
     redirect: Mutex<Option<Weak<Tui>>>,
@@ -899,6 +902,7 @@ impl Tui {
             log_directory: options.log_directory,
             on_debug: Mutex::new(None),
             full_redraw_count: std::sync::atomic::AtomicUsize::new(0),
+            force_full_redraw: std::sync::atomic::AtomicBool::new(false),
             screen: make_screen(weak),
             redirect: Mutex::new(None),
         })

@@ -105,8 +105,8 @@ impl Terminal for RecordingTerminal {
         self.stops.fetch_add(1, Ordering::SeqCst);
         self.inner.stop();
     }
-    fn write(&self, data: &str) {
-        self.inner.write(data);
+    fn write(&self, data: &str) -> bool {
+        self.inner.write(data)
     }
     fn columns(&self) -> usize {
         self.inner.columns()

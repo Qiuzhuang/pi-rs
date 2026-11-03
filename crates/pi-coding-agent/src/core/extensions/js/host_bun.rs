@@ -217,6 +217,10 @@ fn panic_to_host_error(payload: Box<dyn std::any::Any + Send>) -> anyhow::Error 
 pub struct BunInner {
     /// Protocol lines to the child's stdin (drained by the writer thread).
     write_tx: SyncSender<String>,
+    /// Child console output (jsout frames). A dedicated thread writes it to the process
+    /// stdout: the reader thread must never block on the TTY, or a stalled terminal
+    /// (e.g. a dropped SSH connection) would stall every host-call dispatch.
+    jsout_tx: std::sync::mpsc::Sender<String>,
     /// Write end of the fd-3 pipe: synchronous host responses.
     hostresp: PlMutex<fs::File>,
     /// Outstanding Rust -> child requests, keyed by frame id. The reaper thread reports
@@ -293,9 +297,22 @@ impl BunHost {
 
         let bridge_slot: Arc<PlMutex<Weak<super::Bridge>>> = Arc::new(PlMutex::new(Weak::new()));
         let (write_tx, write_rx) = sync_channel::<String>(4096);
+        // jsout (child console output) goes to a dedicated writer thread, never the reader:
+        // a blocking TTY write on the reader thread would stop all host-call dispatch.
+        let (jsout_tx, jsout_rx) = std::sync::mpsc::channel::<String>();
+        thread::Builder::new()
+            .name("pi-bun-jsout".into())
+            .spawn(move || {
+                for data in jsout_rx {
+                    let _ = std::io::stdout().write_all(data.as_bytes());
+                    let _ = std::io::stdout().flush();
+                }
+            })
+            .ok();
         let alive = Arc::new(AtomicBool::new(true));
         let inner = Arc::new(BunInner {
             write_tx,
+            jsout_tx,
             hostresp: PlMutex::new(write_end),
             fifo_path: Some(fifo_path),
             pending: PlMutex::new(HashMap::new()),
@@ -667,9 +684,11 @@ impl BunInner {
                 }
             }
             Some("jsout") => {
+                // The dedicated jsout thread consumes this. Never write the TTY here: a
+                // stalled terminal would block this (the only) dispatcher thread, and every
+                // sync host call would then time out on its 30 s JS-side cap.
                 if let Some(data) = v.get("data").and_then(Value::as_str) {
-                    let _ = std::io::stdout().write_all(data.as_bytes());
-                    let _ = std::io::stdout().flush();
+                    let _ = this.jsout_tx.send(data.to_string());
                 }
             }
             Some("exit") => {

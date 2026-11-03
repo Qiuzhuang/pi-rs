@@ -1745,7 +1745,9 @@ fn tui_call(bridge: &Arc<Bridge>, payload: &Value) -> anyhow::Result<Value> {
         "rows" => json!(tui.terminal().rows()),
         "write" => {
             let data = arg(payload, 0).as_str().unwrap_or_default().to_string();
-            bridge.ui_dispatch(move || tui.terminal().write(&data));
+            bridge.ui_dispatch(move || {
+                tui.terminal().write(&data);
+            });
             Value::Null
         }
         "setFocus" => {

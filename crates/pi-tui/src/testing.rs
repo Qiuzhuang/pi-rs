@@ -668,12 +668,13 @@ impl Terminal for VirtualTerminal {
         st.resize_handler = None;
     }
 
-    fn write(&self, data: &str) {
+    fn write(&self, data: &str) -> bool {
         let mut st = self.lock();
         if st.log_writes {
             st.writes.push(data.to_string());
         }
         st.emu.feed(data);
+        true
     }
 
     fn columns(&self) -> usize {

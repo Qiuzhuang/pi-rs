@@ -228,7 +228,9 @@ mod tests {
     impl Terminal for RecordingTerminal {
         fn start(&self, _on_input: InputHandler, _on_resize: ResizeHandler) {}
         fn stop(&self) {}
-        fn write(&self, _data: &str) {}
+        fn write(&self, _data: &str) -> bool {
+            true
+        }
         fn columns(&self) -> usize {
             80
         }

@@ -38,8 +38,9 @@ struct BoundedWriteTerminal {
 impl Terminal for BoundedWriteTerminal {
     fn start(&self, _: pi_tui::terminal::InputHandler, _: pi_tui::terminal::ResizeHandler) {}
     fn stop(&self) {}
-    fn write(&self, data: &str) {
+    fn write(&self, data: &str) -> bool {
         self.writes.lock().unwrap().push(data.to_string());
+        true
     }
     fn columns(&self) -> usize {
         80

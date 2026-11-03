@@ -2232,12 +2232,19 @@ impl AltScreen {
             None => buffer.push_str("\x1b[?25l"),
         }
         buffer.push_str(END_SYNCHRONIZED_OUTPUT);
-        tui.terminal().write(&buffer);
-
+        let ok = tui.terminal().write(&buffer);
         let mut s = self.st();
-        s.previous_screen = screen;
-        s.previous_screen_width = width;
-        s.previous_screen_height = height;
+        if ok {
+            s.previous_screen = screen;
+            s.previous_screen_width = width;
+            s.previous_screen_height = height;
+        } else {
+            // The frame did not reach the terminal: its content is now unknown. Clear the
+            // previous frame so the next render is a full redraw, not a stale diff.
+            s.previous_screen.clear();
+            s.previous_screen_width = 0;
+            s.previous_screen_height = 0;
+        }
         s.current_layout = Some(Arc::new(next_layout));
     }
 }

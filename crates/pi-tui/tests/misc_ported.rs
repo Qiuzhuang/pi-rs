@@ -125,8 +125,9 @@ impl Terminal for TestTerminal {
     fn stop(&self) {
         *self.input.lock().unwrap() = None;
     }
-    fn write(&self, data: &str) {
+    fn write(&self, data: &str) -> bool {
         self.writes.lock().unwrap().push(data.to_string());
+        true
     }
     fn columns(&self) -> usize {
         80

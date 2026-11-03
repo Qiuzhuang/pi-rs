@@ -770,9 +770,9 @@ impl pi_tui::terminal::Terminal for RecordingTerminal {
         self.events.lock().unwrap().push(TermEvent::Stop);
         self.inner.stop();
     }
-    fn write(&self, data: &str) {
+    fn write(&self, data: &str) -> bool {
         self.events.lock().unwrap().push(TermEvent::Write(data.to_string()));
-        self.inner.write(data);
+        self.inner.write(data)
     }
     fn columns(&self) -> usize {
         self.inner.columns()

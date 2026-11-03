@@ -164,8 +164,10 @@ pub trait Terminal: Send + Sync {
     fn restore_on_exit(&self, _before: &str, _after: &str) {}
     /// Drain stdin before exiting so Kitty key release events do not leak to the shell.
     fn drain_input(&self, _max: Duration, _idle: Duration) {}
-    /// Write output to the terminal.
-    fn write(&self, data: &str);
+    /// Write output to the terminal. Returns false when the bytes could not be
+    /// delivered (stalled or dead terminal): the screen content is then unknown and
+    /// the renderer must redraw from scratch.
+    fn write(&self, data: &str) -> bool;
     fn columns(&self) -> usize;
     fn rows(&self) -> usize;
     /// Whether the Kitty keyboard protocol is active.
@@ -330,8 +332,23 @@ mod process {
         }
     }
 
-    /// Write all bytes to a file descriptor, retrying on EINTR/EAGAIN.
-    pub(crate) fn write_all_fd(fd: i32, data: &[u8]) {
+    /// Maximum time to wait for one write to complete. A stalled consumer (an SSH
+    /// terminal over a dropped network) must not pin the calling thread: losing the
+    /// output is cheaper than a frozen UI. The renderer detects the loss and redraws
+    /// the full screen on the next frame.
+    const WRITE_DEADLINE: Duration = Duration::from_secs(5);
+    /// Writes while the terminal is known-stalled use this shorter deadline: they are
+    /// probes for recovery, and a long wait per probe would hitch the event loop.
+    const STALL_PROBE_DEADLINE: Duration = Duration::from_millis(500);
+    /// Writes fast-fail while the terminal is stalled; a real write is retried once
+    /// the stall is older than this (the probe above).
+    const STALL_RETRY_MS: u64 = 2_000;
+
+    /// Write all bytes to a file descriptor within `deadline`, retrying on
+    /// EINTR/EAGAIN. Returns false when the deadline passes with bytes left, or on a
+    /// hard error; the output is then partial or lost.
+    pub(crate) fn write_all_fd_deadline(fd: i32, data: &[u8], deadline: Duration) -> bool {
+        let start = std::time::Instant::now();
         let mut off = 0;
         while off < data.len() {
             let n = unsafe { libc::write(fd, data[off..].as_ptr() as *const libc::c_void, data.len() - off) };
@@ -341,8 +358,15 @@ mod process {
             }
             let err = std::io::Error::last_os_error();
             match err.raw_os_error() {
-                Some(libc::EINTR) => continue,
+                Some(libc::EINTR) => {
+                    if start.elapsed() > deadline {
+                        return false;
+                    }
+                }
                 Some(libc::EAGAIN) => {
+                    if start.elapsed() > deadline {
+                        return false;
+                    }
                     let mut pfd = libc::pollfd { fd, events: libc::POLLOUT, revents: 0 };
                     unsafe { libc::poll(&mut pfd, 1, 100) };
                 }
@@ -351,10 +375,17 @@ mod process {
                     if n < 0 && (fd == libc::STDOUT_FILENO || fd == libc::STDERR_FILENO) {
                         super::notify_output_error(&err);
                     }
-                    return;
+                    return false;
                 }
             }
         }
+        true
+    }
+
+    /// Write all bytes to a file descriptor, retrying on EINTR/EAGAIN, with the default
+    /// deadline. See [`write_all_fd_deadline`].
+    pub(crate) fn write_all_fd(fd: i32, data: &[u8]) -> bool {
+        write_all_fd_deadline(fd, data, WRITE_DEADLINE)
     }
 
     fn write_log_path_from_env() -> Option<PathBuf> {
@@ -411,6 +442,10 @@ mod process {
         state: Mutex<State>,
         write_log_path: Option<PathBuf>,
         last_data_ms: AtomicU64,
+        /// Milliseconds (epoch-relative) of the last failed stdout write; 0 = healthy.
+        /// Writes fast-fail while a stall is younger than STALL_RETRY_MS so a dead
+        /// terminal cannot park the event loop once per write.
+        stalled_since_ms: AtomicU64,
         epoch: Instant,
     }
 
@@ -442,6 +477,7 @@ mod process {
                     state: Mutex::new(State::default()),
                     write_log_path: write_log_path_from_env(),
                     last_data_ms: AtomicU64::new(0),
+                    stalled_since_ms: AtomicU64::new(0),
                     epoch: Instant::now(),
                 }),
             }
@@ -451,8 +487,18 @@ mod process {
             self.inner.state.lock().unwrap_or_else(|e| e.into_inner())
         }
 
-        fn raw_write(&self, data: &str) {
-            write_all_fd(libc::STDOUT_FILENO, data.as_bytes());
+        fn raw_write(&self, data: &str) -> bool {
+            let now_ms = self.inner.epoch.elapsed().as_millis() as u64;
+            let stalled_since = self.inner.stalled_since_ms.load(Ordering::SeqCst);
+            if stalled_since != 0 && now_ms.saturating_sub(stalled_since) < STALL_RETRY_MS {
+                // The terminal is known-stalled and the retry window has not opened:
+                // dropping the bytes is cheaper than parking the caller.
+                return false;
+            }
+            let deadline = if stalled_since == 0 { WRITE_DEADLINE } else { STALL_PROBE_DEADLINE };
+            let ok = write_all_fd_deadline(libc::STDOUT_FILENO, data.as_bytes(), deadline);
+            self.inner.stalled_since_ms.store(if ok { 0 } else { now_ms }, Ordering::SeqCst);
+            ok
         }
 
         /// Whether xterm modifyOtherKeys mode was enabled as a Kitty fallback.
@@ -886,13 +932,14 @@ mod process {
             self.lock().input_handler = previous;
         }
 
-        fn write(&self, data: &str) {
-            self.raw_write(data);
+        fn write(&self, data: &str) -> bool {
+            let ok = self.raw_write(data);
             if let Some(path) = &self.inner.write_log_path
                 && let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path)
             {
                 let _ = f.write_all(data.as_bytes());
             }
+            ok
         }
 
         fn columns(&self) -> usize {

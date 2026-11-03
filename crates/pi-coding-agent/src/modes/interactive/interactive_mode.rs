@@ -2625,7 +2625,7 @@ impl Inner {
     // Queues
     // ------------------------------------------------------------------
 
-    /// Get all queued messages (session queue and compaction queue).
+    /// Get all queued messages (session queue, compaction queue, and session-parked prompts).
     pub(crate) fn get_all_queued_messages(&self) -> (Vec<String>, Vec<String>) {
         let session = self.session();
         let compaction = self.state.lock().compaction_queued_messages.clone();
@@ -2634,6 +2634,9 @@ impl Inner {
         let mut follow_up = session.get_follow_up_messages();
         follow_up
             .extend(compaction.iter().filter(|m| m.mode == CompactionQueuedMessageMode::FollowUp).map(|m| m.text.clone()));
+        let parked = session.parked_compaction_prompts();
+        steering.extend(parked.iter().filter(|(_, follow)| !*follow).map(|(text, _)| text.clone()));
+        follow_up.extend(parked.into_iter().filter(|(_, follow)| *follow).map(|(text, _)| text));
         (steering, follow_up)
     }
 
@@ -2641,11 +2644,14 @@ impl Inner {
     pub(crate) fn clear_all_queues(&self) -> (Vec<String>, Vec<String>) {
         let result = self.session().clear_queue();
         let compaction = std::mem::take(&mut self.state.lock().compaction_queued_messages);
+        let parked = self.session().take_parked_compaction_prompts();
         let mut steering = result.steering;
         steering.extend(compaction.iter().filter(|m| m.mode == CompactionQueuedMessageMode::Steer).map(|m| m.text.clone()));
+        steering.extend(parked.iter().filter(|(_, follow)| !*follow).map(|(text, _)| text.clone()));
         let mut follow_up = result.follow_up;
         follow_up
             .extend(compaction.iter().filter(|m| m.mode == CompactionQueuedMessageMode::FollowUp).map(|m| m.text.clone()));
+        follow_up.extend(parked.into_iter().filter(|(_, follow)| *follow).map(|(text, _)| text));
         (steering, follow_up)
     }
 

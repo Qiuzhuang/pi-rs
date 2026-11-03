@@ -505,6 +505,13 @@ pub struct PromptOptions {
     pub preflight_result: Option<Arc<dyn Fn(PromptDisposition) + Send + Sync>>,
 }
 
+/// A prompt parked while compaction ran; delivered FIFO at compaction end, whatever the
+/// outcome (the parked prompts of the pi-web wrapper).
+struct ParkedPrompt {
+    text: String,
+    options: PromptOptions,
+}
+
 /// Options for model/thinking mutations.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -848,6 +855,8 @@ struct SessionState {
     next_listener_id: u64,
     is_agent_run_active: bool,
     agent_run_abort_requested: bool,
+    /// Count of `start_run` calls; a compaction resume backs off when a newer run starts.
+    run_start_count: u64,
 
     /// Tracks pending steering messages for UI display. Removed when delivered.
     steering_messages: Vec<String>,
@@ -860,6 +869,8 @@ struct SessionState {
 
     compaction_abort: Option<CancellationToken>,
     auto_compaction_abort: Option<(u64, CancellationToken)>,
+    /// Prompts parked while compaction runs; delivered FIFO at compaction end.
+    parked_during_compaction: Vec<ParkedPrompt>,
     overflow_recovery_attempted: bool,
     branch_summary_abort: Option<CancellationToken>,
     retry_abort: Option<CancellationToken>,
@@ -996,12 +1007,14 @@ impl AgentSession {
                 next_listener_id: 1,
                 is_agent_run_active: false,
                 agent_run_abort_requested: false,
+                run_start_count: 0,
                 steering_messages: Vec::new(),
                 follow_up_messages: Vec::new(),
                 pending_next_turn_messages: Vec::new(),
                 pending_custom_messages: Vec::new(),
                 compaction_abort: None,
                 auto_compaction_abort: None,
+                parked_during_compaction: Vec::new(),
                 overflow_recovery_attempted: false,
                 branch_summary_abort: None,
                 retry_abort: None,
@@ -2910,6 +2923,34 @@ impl AgentSession {
             || state.branch_summary_abort.is_some()
     }
 
+    /// Prompts parked while compaction runs, as (text, is_follow_up), for UI display.
+    pub fn parked_compaction_prompts(&self) -> Vec<(String, bool)> {
+        self.state
+            .lock()
+            .parked_during_compaction
+            .iter()
+            .map(|p| {
+                (
+                    p.text.clone(),
+                    p.options.streaming_behavior == Some(PromptOptionsStreamingBehavior::FollowUp),
+                )
+            })
+            .collect()
+    }
+
+    /// Take all prompts parked while compaction runs (recall/stop), as (text, is_follow_up).
+    pub fn take_parked_compaction_prompts(&self) -> Vec<(String, bool)> {
+        std::mem::take(&mut self.state.lock().parked_during_compaction)
+            .into_iter()
+            .map(|p| {
+                (
+                    p.text,
+                    p.options.streaming_behavior == Some(PromptOptionsStreamingBehavior::FollowUp),
+                )
+            })
+            .collect()
+    }
+
     /// All messages including custom types like BashExecutionMessage
     pub fn messages(&self) -> Vec<AgentMessage> {
         self.agent.messages()
@@ -3265,6 +3306,7 @@ impl AgentSession {
                 let mut state = self.state.lock();
                 state.is_agent_run_active = true;
                 state.agent_run_abort_requested = false;
+                state.run_start_count += 1;
             }
             let messages = match self.prepare_run(trigger).await {
                 Ok(messages) => messages,
@@ -3606,12 +3648,18 @@ impl AgentSession {
                 return Ok(());
             }
 
-            if self.state.lock().compaction_abort.is_some() {
-                anyhow::bail!(
-                    "Cannot submit a prompt while compaction is in progress. Wait for compaction to finish and retry."
-                );
+            // A prompt cannot be admitted while compaction is running: park it and
+            // deliver it FIFO at compaction end, whatever the outcome. A prompt with an
+            // explicit streaming behavior still joins the active run through the queue below.
+            if self.is_compacting()
+                && !(self.is_streaming() && options.streaming_behavior.is_some())
+            {
+                self.state
+                    .lock()
+                    .parked_during_compaction
+                    .push(ParkedPrompt { text, options });
+                return Ok(());
             }
-
             // Emit input event for extension interception (before skill/template expansion)
             let streaming = self.is_streaming();
             let processed = self
@@ -4456,6 +4504,7 @@ impl AgentSession {
         &self,
         custom_instructions: Option<&str>,
     ) -> anyhow::Result<CompactionResult> {
+        let interrupted = self.state.lock().is_agent_run_active;
         self.abort().await?;
         let abort = CancellationToken::new();
         self.state.lock().compaction_abort = Some(abort.clone());
@@ -4538,6 +4587,8 @@ impl AgentSession {
                     will_retry: false,
                     error_message: None,
                 });
+                self.spawn_parked_flush();
+                self.spawn_compaction_resume(interrupted);
                 Ok(compaction_result)
             }
             Err(error) => {
@@ -4559,6 +4610,8 @@ impl AgentSession {
                     from_extension,
                 })
                 .await;
+                self.spawn_parked_flush();
+                self.spawn_compaction_resume(interrupted);
                 Err(error)
             }
         }
@@ -4628,6 +4681,110 @@ impl AgentSession {
         if let Some((_, abort)) = &state.auto_compaction_abort {
             abort.cancel();
         }
+    }
+
+    /// Deliver the prompts parked while compaction ran, FIFO. The first starts a run when
+    /// idle; the rest join it, a plain one as steer (the pi-web wrapper's `flushParkedPrompts`).
+    async fn flush_parked_prompts(self: Arc<Self>) {
+        let parked = std::mem::take(&mut self.state.lock().parked_during_compaction);
+        for entry in parked {
+            let compacting = {
+                let state = self.state.lock();
+                state.auto_compaction_abort.is_some()
+                    || state.compaction_abort.is_some()
+                    || state.branch_summary_abort.is_some()
+            };
+            if compacting {
+                // A new compaction started mid-flush: re-park the rest.
+                self.state.lock().parked_during_compaction.push(entry);
+                continue;
+            }
+            // Settle once the admission lands (started/queued/handled), not when the run
+            // ends, so the next parked prompt joins the run the first one started.
+            let (settled_tx, settled_rx) = tokio::sync::oneshot::channel::<()>();
+            let settled_tx = std::sync::Mutex::new(Some(settled_tx));
+            let mut options = entry.options;
+            let previous_preflight = options.preflight_result.take();
+            options.preflight_result = Some(Arc::new(move |disposition| {
+                if let Some(tx) = settled_tx.lock().unwrap().take() {
+                    let _ = tx.send(());
+                }
+                if let Some(previous) = &previous_preflight {
+                    previous(disposition);
+                }
+            }));
+            if options.streaming_behavior.is_none() {
+                options.streaming_behavior = Some(PromptOptionsStreamingBehavior::Steer);
+            }
+            let session = self.clone();
+            let text = entry.text;
+            tokio::spawn(async move {
+                let _ = session.prompt_owned(text, options).await;
+            });
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(30), settled_rx).await;
+        }
+    }
+
+    /// Spawn the parked-prompt flush after a compaction end (any outcome).
+    fn spawn_parked_flush(&self) {
+        if self.state.lock().parked_during_compaction.is_empty() {
+            return;
+        }
+        let session = self.arc();
+        tokio::spawn(async move {
+            session.flush_parked_prompts().await;
+        });
+    }
+
+    /// Custom type of the invisible marker that resumes work after a compaction.
+    const COMPACTION_RESUME_CUSTOM_TYPE: &str = "pi-compaction-resume";
+
+    /// Resume the work a compaction interrupted. Without this, a compaction that aborts the
+    /// active run ends with the session idle and the work stops until the user sends a prompt.
+    /// The resume starts a run from the current context with an invisible marker (the way
+    /// pi-invisible-continue resumes), so the model continues without a new user prompt.
+    /// It backs off when another run takes over (a parked-prompt flush, a run-loop
+    /// continuation, or a user prompt).
+    fn spawn_compaction_resume(&self, interrupted: bool) {
+        if !interrupted {
+            return;
+        }
+        let base_run_count = self.state.lock().run_start_count;
+        let session = self.arc();
+        tokio::spawn(async move {
+            // Up to 10 s: wait for the interrupted run to settle.
+            for _ in 0..200 {
+                let (active, nothing_queued, run_count) = {
+                    let state = session.state.lock();
+                    (
+                        state.is_agent_run_active,
+                        state.steering_messages.is_empty()
+                            && state.follow_up_messages.is_empty()
+                            && state.parked_during_compaction.is_empty(),
+                        state.run_start_count,
+                    )
+                };
+                if run_count > base_run_count {
+                    return; // a new run started; it takes over the work
+                }
+                if !active && nothing_queued {
+                    let marker = CustomMessage {
+                        role: CUSTOM_ROLE.to_string(),
+                        custom_type: AgentSession::COMPACTION_RESUME_CUSTOM_TYPE.to_string(),
+                        content: UserContent::Blocks(Vec::new()),
+                        display: false,
+                        details: None,
+                        timestamp: now_ms(),
+                    };
+                    let _ = session
+                        .clone()
+                        .start_run(BeforeAgentStartKind::Custom { message: marker }, None)
+                        .await;
+                    return;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+        });
     }
 
     /// Cancel in-progress branch summarization.
@@ -4845,6 +5002,7 @@ impl AgentSession {
         if let Some(hook) = hook {
             return hook(reason, will_retry);
         }
+        let interrupted = self.state.lock().is_agent_run_active;
         let model = self.model();
         let mut started = false;
         let mut from_extension = false;
@@ -4973,6 +5131,8 @@ impl AgentSession {
             }
         }
         self.resolve_idle_wait_if_idle();
+        self.spawn_parked_flush();
+        self.spawn_compaction_resume(interrupted);
         outcome
     }
 

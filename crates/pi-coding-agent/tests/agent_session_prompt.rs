@@ -586,3 +586,160 @@ async fn send_user_message_can_opt_into_extension_command_dispatch() {
     assert!(harness.session.messages().is_empty());
     harness.cleanup();
 }
+
+/// Polls `condition` (5 ms interval, ~10 s budget) until it holds.
+async fn wait_until(condition: &dyn Fn() -> bool) {
+    for _ in 0..2000 {
+        if condition() {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    panic!("condition not met in time");
+}
+
+fn compactable_settings() -> serde_json::Value {
+    json!({"compaction": {"enabled": true, "reserveTokens": 0, "keepRecentTokens": 20}})
+}
+
+/// Seed text long enough that the session exceeds the compact keep budget.
+const SEED_TEXT: &str = "seed content one with enough words to be counted as tokens for the cut point";
+const SEED_TEXT_2: &str = "seed content two with enough words to be counted as tokens for the cut point";
+/// A long summary so the faux stream (rate-limited) keeps compaction in flight long enough
+/// to observe it.
+const SUMMARY_TEXT: &str = "summary of the earlier context that is long enough to stream for several seconds at the test token rate so the test can observe the compaction in flight and park a prompt while it runs before it settles";
+
+#[tokio::test]
+async fn parks_a_prompt_during_manual_compaction_and_delivers_it_at_compaction_end() {
+    let harness = create_harness(HarnessOptions {
+        settings: Some(compactable_settings()),
+        faux_tokens_per_second: Some(15.0),
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    harness.set_responses(vec![text(SEED_TEXT), text(SEED_TEXT_2)]);
+    harness.session.prompt("seed 1", None).await.unwrap();
+    harness.session.prompt("seed 2", None).await.unwrap();
+
+    // One response for the summary, one for the run of the delivered prompt.
+    harness.set_responses(vec![text(SUMMARY_TEXT), text("after compaction")]);
+    let compact = tokio::spawn({
+        let session = harness.session.clone();
+        async move { session.compact(None).await }
+    });
+
+    wait_until(&|| harness.session.is_compacting()).await;
+    // A prompt submitted while compaction runs is parked, not rejected and not run.
+    harness.session.prompt("parked", None).await.unwrap();
+    assert!(!harness.session.is_streaming());
+    assert_eq!(
+        harness.session.parked_compaction_prompts(),
+        vec![("parked".to_string(), false)]
+    );
+
+    let result = compact.await.unwrap().unwrap();
+    assert!(result.summary.contains("summary of the earlier context"));
+
+    // The parked prompt is delivered at compaction end: a new run starts and completes.
+    wait_until(&|| {
+        harness
+            .session
+            .messages()
+            .iter()
+            .any(|m| get_message_text(m) == "after compaction")
+    })
+    .await;
+    wait_until(&|| !harness.session.is_streaming()).await;
+    let messages = harness.session.messages();
+    assert!(
+        messages
+            .iter()
+            .any(|m| matches!(m, AgentMessage::User(_)) && get_message_text(m) == "parked")
+    );
+    harness.cleanup();
+}
+
+#[tokio::test]
+async fn resumes_the_interrupted_run_after_manual_compaction() {
+    let release = Arc::new(tokio::sync::Notify::new());
+    // A tool that blocks until released or aborted, so an interrupt can be observed.
+    let release_for_tool = release.clone();
+    let blocker = FnAgentTool::new(
+        "block",
+        "Block",
+        "Block until release or abort",
+        json!({"type": "object", "properties": {}}),
+        move |_id, _params, signal, _update| {
+            let release = release_for_tool.clone();
+            async move {
+                tokio::select! {
+                    _ = release.notified() => {}
+                    _ = signal.cancelled() => {}
+                }
+                Ok(AgentToolResult::text("released", Some(json!({}))))
+            }
+        },
+    )
+    .into_ref();
+    let harness = create_harness(HarnessOptions {
+        settings: Some(compactable_settings()),
+        tools: Some(vec![blocker]),
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    // Seed turns so there is enough context to compact.
+    harness.set_responses(vec![text(SEED_TEXT), text(SEED_TEXT_2)]);
+    harness.session.prompt("seed 1", None).await.unwrap();
+    harness.session.prompt("seed 2", None).await.unwrap();
+
+    // A run that blocks inside a tool; compaction interrupts it. Responses: the tool call,
+    // the compaction main summary, the turn-prefix summary (the cut splits the interrupted
+    // turn), then the resume run's answer.
+    // A run that blocks inside a tool; compaction interrupts it. Before the resume run,
+    // three responses are consumed: the interrupted run's tail call, the compaction main
+    // summary, and its split-turn prefix summary. They all contain "summary"; the last
+    // response is left for the resume run.
+    harness.set_responses(vec![
+        message(vec![tool_call("block", json!({}))], Some(StopReason::ToolUse)),
+        text("summary a"),
+        text("summary b"),
+        text("summary c"),
+        text("resumed"),
+    ]);
+    let tool_started = wait_for_tool_start(&harness);
+    let run = tokio::spawn({
+        let session = harness.session.clone();
+        async move { session.prompt("work", None).await }
+    });
+    let _ = tool_started.await;
+
+    let compact = tokio::spawn({
+        let session = harness.session.clone();
+        async move { session.compact(None).await }
+    });
+    let result = compact.await.unwrap().unwrap();
+    assert!(result.summary.contains("summary"));
+    drop(run.await);
+
+    // The interrupted work resumes on its own: a hidden marker starts a new run.
+    wait_until(&|| {
+        harness
+            .session
+            .messages()
+            .iter()
+            .any(|m| get_message_text(m) == "resumed")
+    })
+    .await;
+    wait_until(&|| !harness.session.is_streaming()).await;
+    assert!(
+        harness
+            .session
+            .messages()
+            .iter()
+            .any(|m| matches!(m, AgentMessage::Custom(c) if c.fields.get("customType").and_then(|v| v.as_str()) == Some("pi-compaction-resume") && c.fields.get("display").and_then(|v| v.as_bool()) == Some(false)))
+    );
+    release.notify_one();
+    harness.cleanup();
+}

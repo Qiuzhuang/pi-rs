@@ -42,6 +42,108 @@ fn advance(src: &str, n: usize) -> &str {
     &src[n..]
 }
 
+/// True when `src` holds a setext heading: one or more text lines followed by an
+/// underline line of only `=` or `-` (up to 3 leading spaces, optional trailing spaces).
+/// The heading text contains no blank line, so the scan stops at the first blank line.
+fn lheading_underline_present(src: &str) -> bool {
+    let mut lines = src.split_inclusive('\n');
+    lines.next(); // the first text line
+    for line in lines {
+        let body = line.trim_end_matches(['\n', '\r', ' ']);
+        let inner = body.trim_start_matches(' ');
+        if inner.is_empty() {
+            return false; // blank line: the heading text ends with no underline
+        }
+        let leading = body.len() - inner.len();
+        if leading <= 3 && inner.bytes().all(|b| b == b'=' || b == b'-') {
+            return true; // underline line directly after the text
+        }
+        // A normal text line: multi-line setext text may continue.
+    }
+    false
+}
+
+/// Exclusive end offset of the paragraph prefix inside `src`: the run of lines from
+/// the start while each following line is non-blank and not a special block start.
+/// Mirrors the paragraph pattern's lookaheads, which are position-anchored at each
+/// line boundary.
+fn paragraph_prefix_end(src: &str, other: &Other) -> usize {
+    let mut line_start = 0;
+    let mut end = 0;
+    while line_start <= src.len() {
+        let rest = &src[line_start..];
+        let off = match rest.find('\n') {
+            Some(off) => off,
+            None => {
+                if line_start == 0 || !para_line_stops(rest, other, false, None) {
+                    end = src.len();
+                }
+                break;
+            }
+        };
+        let line = &rest[..off];
+        if line_start > 0 && para_line_stops(line, other, true, next_line(src, line_start + off + 1)) {
+            break;
+        }
+        end = line_start + off;
+        line_start += off + 1;
+    }
+    end
+}
+
+/// The line starting at `start`, without its newline, or None when there is none.
+fn next_line(src: &str, start: usize) -> Option<&str> {
+    if start >= src.len() {
+        return None;
+    }
+    let rest = &src[start..];
+    match rest.find('\n') {
+        Some(off) => Some(&rest[..off]),
+        None => Some(rest),
+    }
+}
+
+/// True when the line starting at `rest` ends a paragraph. `has_newline` says whether
+/// a newline follows the line (the `[ \t]+\n` alternative needs it). `next` is the
+/// following line for the table alternative. A one-byte fast path rejects lines that
+/// cannot start any stop pattern; candidate lines are tested against the exact stop
+/// patterns with an appended `\n` so that patterns which can consume the line's
+/// newline behave as they do on the full document.
+fn para_line_stops(line: &str, other: &Other, has_newline: bool, next: Option<&str>) -> bool {
+    if line.is_empty() {
+        return true; // `[^\n]+` cannot match an empty line
+    }
+    // Table alternative: a text line followed by a delimiter line.
+    if let Some(next) = next
+        && line.bytes().any(|b| b != b' ')
+        && other.para_table_delim.test(next)
+    {
+        return true;
+    }
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() && (bytes[i] == b' ' || bytes[i] == b'\t') {
+        i += 1;
+    }
+    if i == bytes.len() {
+        return has_newline; // whitespace-only line: the `[ \t]+\n` alternative
+    }
+    // The stop patterns allow at most 3 leading spaces; a tab never counts.
+    let leading_spaces = bytes[..i].iter().filter(|&&b| b == b' ').count();
+    if leading_spaces > 3 {
+        return false;
+    }
+    let probe = format!("{}\n", line);
+    match bytes[i] {
+        b'#' => other.para_heading.test(&probe),
+        b'>' => other.para_blockquote.test(&probe),
+        b'`' => other.para_fences.test(&probe),
+        b'*' | b'+' | b'-' | b'1' => other.para_list.test(&probe),
+        b'<' => other.para_html.test(&probe),
+        _ => false,
+    }
+}
+
 /// `s.substring(0, s.length - n)` (clamped to a character boundary).
 fn cut_end(s: &str, n: usize) -> &str {
     let mut end = s.len().saturating_sub(n);
@@ -661,6 +763,10 @@ impl Lexer {
     }
 
     fn fences(&self, src: &str) -> Option<Token> {
+        // O(1) gate: the fancy-regex VM would scan all of `src` on a non-match.
+        if !rules().other.fences_begin[3].test(src) {
+            return None;
+        }
         let cap = rules().block.fences.exec(src)?;
         let raw = group(&cap, 0);
         let text = indent_code_compensation(raw, group(&cap, 3));
@@ -677,6 +783,10 @@ impl Lexer {
     }
 
     fn heading(&self, src: &str) -> Option<Token> {
+        // O(1) gate: the fancy-regex VM would scan all of `src` on a non-match.
+        if !rules().other.heading_begin[3].test(src) {
+            return None;
+        }
         let cap = rules().block.heading.exec(src)?;
         let mut text = js_trim(group(&cap, 2)).to_string();
         if rules().other.ending_hash.test(&text) {
@@ -699,6 +809,10 @@ impl Lexer {
 
     fn blockquote(&mut self, src: &str) -> Option<Token> {
         let other = &rules().other;
+        // O(1) gate: the fancy-regex VM would scan all of `src` on a non-match.
+        if !other.blockquote_begin[3].test(src) {
+            return None;
+        }
         let cap = rules().block.blockquote.exec(src)?;
         let cap0 = rtrim(group(&cap, 0), '\n').to_string();
         let mut lines: Vec<String> = cap0.split('\n').map(str::to_string).collect();
@@ -963,6 +1077,10 @@ impl Lexer {
     }
 
     fn html(&self, src: &str) -> Option<Token> {
+        // O(1) gate: the fancy-regex VM would scan all of `src` on a non-match.
+        if !rules().other.html_open.test(src) {
+            return None;
+        }
         let cap = rules().block.html.exec(src)?;
         let raw = trim_trailing_blank_lines(group(&cap, 0));
         let tag = group(&cap, 1);
@@ -975,6 +1093,10 @@ impl Lexer {
 
     fn def(&self, src: &str) -> Option<Token> {
         let r = rules();
+        // O(1) gate: the fancy-regex VM would scan all of `src` on a non-match.
+        if !r.other.def_open.test(src) {
+            return None;
+        }
         let cap = r.block.def.exec(src)?;
         let tag = r.other.multiple_space_global.replace_all_str(&group(&cap, 1).to_lowercase(), " ");
         let href = if has(&cap, 2) {
@@ -1000,6 +1122,10 @@ impl Lexer {
 
     fn table(&self, src: &str) -> Option<Token> {
         let other = &rules().other;
+        // O(1) gate: the fancy-regex VM would scan all of `src` on a non-match.
+        if !other.table_open.test(src) {
+            return None;
+        }
         let cap = rules().block.table.exec(src)?;
         if !other.table_delimiter.test(group(&cap, 2)) {
             return None;
@@ -1056,6 +1182,12 @@ impl Lexer {
     }
 
     fn lheading(&self, src: &str) -> Option<Token> {
+        // O(lines) gate: the fancy-regex VM would scan all of `src` on a non-match.
+        // A setext underline is a line of only `=` or `-` (up to 3 leading spaces) that
+        // directly follows the heading text; the text never contains a blank line.
+        if !lheading_underline_present(src) {
+            return None;
+        }
         let cap = rules().block.lheading.exec(src)?;
         let text = js_trim(group(&cap, 1)).to_string();
         let mut t = Token::new(T::Heading, rtrim(group(&cap, 0), '\n'));
@@ -1066,10 +1198,16 @@ impl Lexer {
     }
 
     fn paragraph(&self, src: &str) -> Option<Token> {
-        let cap = rules().block.paragraph.exec(src)?;
-        let c1 = group(&cap, 1);
-        let text = c1.strip_suffix('\n').unwrap_or(c1).to_string();
-        let mut t = Token::new(T::Paragraph, group(&cap, 0));
+        // Built from a line scan instead of the full pattern: the pattern compiles to
+        // the fancy-regex backtracking VM, whose fixed cost per exec (~0.5 ms) and its
+        // walk past the paragraph end make it unusable here. The scan applies the
+        // pattern's own stop conditions per line, so the token is identical.
+        let end = paragraph_prefix_end(src, &rules().other);
+        if end == 0 {
+            return None;
+        }
+        let text = src[..end].to_string();
+        let mut t = Token::new(T::Paragraph, &src[..end]);
         t.inline_src = Some(text.clone());
         t.text = text;
         Some(t)
@@ -1642,5 +1780,66 @@ impl Lexer {
         t.text = raw.to_string();
         t.escaped = self.state.in_raw_block;
         Some(t)
+    }
+}
+
+#[cfg(test)]
+mod perf_tests {
+    use super::*;
+
+    /// A changelog-like document: headings, paragraphs, lists, fences and tables.
+    fn changelog_like(n: usize) -> String {
+        let mut s = String::new();
+        for i in 0..n {
+            s.push_str(&format!(
+                "## 1.0.{i}\n\nSome description text for release {i} with words.\n\
+                 More prose that continues on a second line.\n\n\
+                 - first bullet item {i}\n- second bullet item {i}\n\n\
+                 ```rust\nfn f{i}() {{ {i} }}\n```\n\n\
+                 | a | b |\n|---|---|\n| {i} | x |\n\n"
+            ));
+        }
+        s
+    }
+
+    /// Guards the O(n^2) regression: every block rule used to run its full
+    /// fancy-regex pattern against the whole remaining source, so lexing the
+    /// 640 KB CHANGELOG took over 16 s (release) / minutes (debug).
+    /// Timing bounds only hold in release builds.
+    #[test]
+    fn large_document_lexes_in_linear_time() {
+        if cfg!(debug_assertions) {
+            eprintln!("skipped in debug builds: regex timing is not comparable");
+            return;
+        }
+        let text = changelog_like(5500); // ~660 KB
+        assert!(text.len() > 500_000);
+        let t = std::time::Instant::now();
+        let mut lexer = Lexer::new(MarkedOptions::pi());
+        let tokens = lexer.lex(&text);
+        let elapsed = t.elapsed();
+        assert!(tokens.len() > 20_000, "tokens: {}", tokens.len());
+        assert!(
+            elapsed < std::time::Duration::from_secs(10),
+            "lexing {len} bytes took {elapsed:?}; block rules regressed to per-call full scans",
+            len = text.len()
+        );
+    }
+
+    #[test]
+    fn paragraph_prefix_edges() {
+        let o = &rules().other;
+        assert_eq!(paragraph_prefix_end("source", o), 6); // single line, no newline
+        assert_eq!(paragraph_prefix_end("a\n\nb", o), 1); // blank line stops
+        assert_eq!(paragraph_prefix_end("a\nb", o), 3); // lazy continuation
+        assert_eq!(paragraph_prefix_end("a\n# h", o), 1); // heading stops
+        assert_eq!(paragraph_prefix_end("a\n> q", o), 1); // blockquote stops
+        assert_eq!(paragraph_prefix_end("a\n```", o), 1); // fence stops
+        assert_eq!(paragraph_prefix_end("a\n- x", o), 1); // list stops
+        assert_eq!(paragraph_prefix_end("a\n<div>", o), 1); // html stops
+        assert_eq!(paragraph_prefix_end("a\nb\n| c | d |\n|---|---|\n| 1 | 2 |", o), 3); // table stops
+        assert_eq!(paragraph_prefix_end("a\n1 | 2", o), 7); // no delimiter line: no stop
+        assert_eq!(paragraph_prefix_end("a\n-nope\n", o), 7); // bullet needs `[ \t]+[^ \t\n]`
+        assert_eq!(paragraph_prefix_end("\t> tab quote", o), 12); // tabs never start a stop
     }
 }

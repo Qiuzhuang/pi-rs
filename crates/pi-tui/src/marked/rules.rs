@@ -75,6 +75,25 @@ pub struct Other {
     pub start_a_tag: JsRegex,
     pub end_a_tag: JsRegex,
     pub start_pre_script_tag: JsRegex,
+    /// `^ {0,3}<` - the only characters a block-level HTML tag can start with.
+    pub html_open: JsRegex,
+    /// `^ {0,3}\[` - the only characters a link definition can start with.
+    pub def_open: JsRegex,
+    /// First text line plus a delimiter line starting with `|`, `:` or `-`.
+    pub table_open: JsRegex,
+    /// Paragraph stop checks, tested against single lines. These mirror the
+    /// position-anchored alternatives inside the paragraph pattern's lookaheads
+    /// (the `^`-anchored `hr` and table alternatives can never match at an internal
+    /// line boundary, so they are omitted).
+    pub para_heading: JsRegex,
+    pub para_blockquote: JsRegex,
+    pub para_fences: JsRegex,
+    pub para_list: JsRegex,
+    pub para_html: JsRegex,
+    /// Table delimiter line: the second line that makes a table. Tested position-
+    /// anchored on the line after a paragraph line (the table alternative inside the
+    /// paragraph lookaheads has its `^` stripped, like in marked's `k()` helper).
+    pub para_table_delim: JsRegex,
     pub end_pre_script_tag: JsRegex,
     pub start_angle_bracket: JsRegex,
     pub end_angle_bracket: JsRegex,
@@ -150,6 +169,7 @@ fn indexed(f: impl Fn(usize) -> JsRegex) -> [JsRegex; 4] {
 }
 
 fn build() -> Rules {
+    let tag_names = "address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|meta|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul";
     let other = Other {
         code_remove_indent: JsRegex::new(r"^(?: {1,4}| {0,3}\t)", "gm"),
         output_link_replace: JsRegex::new(r"\\([\[\]])", "g"),
@@ -181,6 +201,25 @@ fn build() -> Rules {
         start_a_tag: JsRegex::new(r"^<a ", "i"),
         end_a_tag: JsRegex::new(r"^<\/a>", "i"),
         start_pre_script_tag: JsRegex::new(r"^<(pre|code|kbd|script)(\s|>)", "i"),
+        // O(1) start-character prechecks for block rules whose full grammar compiles to the
+        // fancy-regex backtracking VM (backreferences/lookarounds). The VM walks every start
+        // position on a failed match, so without these gates each rule costs O(src) per call
+        // and the lexer as a whole degrades to O(n^2) on long documents.
+        html_open: JsRegex::new(r"^ {0,3}<", ""),
+        def_open: JsRegex::new(r"^ {0,3}\[", ""),
+        table_open: JsRegex::new(r"^[^\n]*\n {0,3}[|:\-]", ""),
+        para_heading: JsRegex::new(r"^ {0,3}#{1,6}(?:\s|$)", ""),
+        para_blockquote: JsRegex::new(r"^ {0,3}>", ""),
+        para_fences: JsRegex::new(r"^ {0,3}(?:```|~~~)", ""),
+        para_list: JsRegex::new(r"^ {0,3}(?:[*+-]|1[.)])[ \t]+[^ \t\n]", ""),
+        para_table_delim: JsRegex::new(
+            r"^ {0,3}(?:\| *)?:?-+:? *(?:\| *:?-+:? *)*(?:\| *)?$",
+            "",
+        ),
+        para_html: JsRegex::new(
+            &format!("^(?:</?(?:{tag_names})(?: +|\n|/?>)|<(?:script|pre|style|textarea|!--))"),
+            "",
+        ),
         end_pre_script_tag: JsRegex::new(r"^<\/(pre|code|kbd|script)(\s|>)", "i"),
         start_angle_bracket: JsRegex::new(r"^<", ""),
         end_angle_bracket: JsRegex::new(r">$", ""),
@@ -222,7 +261,6 @@ fn build() -> Rules {
     .replace("title", r#"(?:"(?:\\"?|[^"\\])*"|'[^'\n]*(?:\n[^'\n]+)*\n?'|\([^()]*\))"#)
     .get();
     let list = edit(r"^(bull)([ \t][^\n]*?)?(?:\n|$)", "").replace_all("bull", bullet).get();
-    let tag_names = "address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|meta|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul";
     let comment = r"<!--(?:-?>|[\s\S]*?(?:-->|$))";
     let html = edit(
         concat!(

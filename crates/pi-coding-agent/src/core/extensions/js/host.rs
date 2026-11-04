@@ -122,6 +122,15 @@ pub enum AnyHost {
 }
 
 impl AnyHost {
+    /// Kill the JS backend's child if there is one (bun). The in-process Boa
+    /// runtime has no child to kill; the caller's cancel is the whole recovery.
+    pub(crate) fn kill_child(&self) {
+        match self {
+            Self::Boa(_) => {}
+            Self::Bun(h) => h.kill_now(),
+        }
+    }
+
     pub async fn import(&self, specifier: &str) -> anyhow::Result<JsHandle> {
         match self {
             Self::Boa(h) => h.import(specifier).await,

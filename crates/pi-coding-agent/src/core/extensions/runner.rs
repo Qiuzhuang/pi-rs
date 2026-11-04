@@ -350,7 +350,35 @@ pub async fn emit_session_shutdown_event(
     event: &SessionShutdownEvent,
 ) -> anyhow::Result<bool> {
     if extension_runner.has_handlers("session_shutdown") {
-        extension_runner.emit(ExtensionEvent::SessionShutdown(event.clone())).await?;
+        // Bound the dispatch. A handler that blocks in synchronous JS (a spawned
+        // child process, a huge flush) would otherwise hold up every quit and
+        // reload for its full duration. TS pi waits forever; we cap and move on.
+        // Override with PI_SHUTDOWN_BUDGET_MS.
+        let budget_ms: u64 = std::env::var("PI_SHUTDOWN_BUDGET_MS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(3000);
+        let emit = extension_runner.emit(ExtensionEvent::SessionShutdown(event.clone()));
+        match tokio::time::timeout(std::time::Duration::from_millis(budget_ms), emit).await {
+            Ok(r) => {
+                let _ = r?;
+            }
+            Err(_elapsed) => {
+                tracing::warn!(
+                    target: "pi_extensions",
+                    "session_shutdown handlers exceeded the {} ms shutdown budget; continuing",
+                    budget_ms
+                );
+                // Quit and reload tear the runtime down anyway. A child stuck in a
+                // handler could not answer the teardown calls (UI component dispose)
+                // or the reload re-imports, so kill it: pending calls fail at once
+                // and the reload loads a fresh child. Other reasons (new, resume,
+                // fork) keep the loaded extensions, so the child must survive.
+                if matches!(event.reason, SessionShutdownReason::Quit | SessionShutdownReason::Reload) {
+                    super::js::JsExtensionHost::kill_shared_child();
+                }
+            }
+        }
         return Ok(true);
     }
     Ok(false)

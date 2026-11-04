@@ -168,7 +168,16 @@ function fifoDrain(target) {
 		if (cut >= 0) {
 			const text = fifoAcc.toString("utf8", 0, cut);
 			fifoAcc = fifoAcc.subarray(cut + 1);
-			const resp = JSON.parse(text);
+			let resp;
+			try {
+				resp = JSON.parse(text);
+			} catch {
+				// A torn or corrupt line means the byte stream lost its framing. Drop the
+				// buffer and resynchronize on the next newline instead of poisoning every
+				// later sync call with the same parse error.
+				fifoAcc = Buffer.alloc(0);
+				continue;
+			}
 			if (resp.id === target) return resp;
 			if (resp.type === "host" || resp.type === "hostAsync" || resp.type === "call") {
 				// Defensive: routed frames never use the sync channel; keep them moving.
@@ -178,7 +187,14 @@ function fifoDrain(target) {
 			syncArrived.set(resp.id, resp);
 			continue;
 		}
-		if (fifoAcc.length > 16 * 1024 * 1024) throw new Error("host response too large");
+		// A legitimate frame can be large: a sync host op may return the whole session
+		// transcript (tens of MB). The guard only catches a stream that lost framing and
+		// accumulates forever. Drop the buffer on overflow so later calls recover: without
+		// the reset, every later sync call failed instantly for the rest of the process.
+		if (fifoAcc.length > 256 * 1024 * 1024) {
+			fifoAcc = Buffer.alloc(0);
+			throw new Error("host response too large");
+		}
 		let n;
 		try {
 			n = readSync(FD_SYNC, fifoTmp, 0, fifoTmp.length, null);

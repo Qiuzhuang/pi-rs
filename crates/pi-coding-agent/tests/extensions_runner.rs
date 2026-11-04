@@ -14,7 +14,7 @@ use pi_coding_agent::core::extensions::loader::{
 };
 use pi_coding_agent::core::extensions::runner::{
     BoundaryBaseEvent, BoundaryContextBuilder, ExtensionRunner, NoOpUIContext,
-    emit_project_trust_event,
+    emit_project_trust_event, emit_session_shutdown_event,
 };
 use pi_coding_agent::core::extensions::types::*;
 use pi_coding_agent::core::keybindings::KeybindingsManager;
@@ -1516,4 +1516,37 @@ async fn context_echo_survives_a_multi_megabyte_message() {
     .expect("emit_context hung (a protocol frame was lost)")
     .expect("emit_context failed");
     assert_eq!(out, msgs);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn session_shutdown_dispatch_honors_the_budget() {
+    // A stuck session_shutdown handler must not hold up quit or reload.
+    // Reason "new" keeps the loaded extensions (no child kill), so the test
+    // cannot disturb other tests' JS children.
+    unsafe { std::env::set_var("PI_SHUTDOWN_BUDGET_MS", "300") };
+    let (_dir, _extension, runner) = subscription_runner(factory(|pi| {
+        pi.on(
+            "session_shutdown",
+            handler(|| Box::pin(async { tokio::time::sleep(std::time::Duration::from_secs(30)).await })),
+        )?;
+        Ok(())
+    }))
+    .await;
+    let started = std::time::Instant::now();
+    let emitted = emit_session_shutdown_event(
+        runner.clone(),
+        &SessionShutdownEvent {
+            reason: SessionShutdownReason::New,
+            target_session_file: None,
+        },
+    )
+    .await
+    .expect("budget overrun must not fail the emit");
+    unsafe { std::env::remove_var("PI_SHUTDOWN_BUDGET_MS") };
+    assert!(emitted, "the event had a handler");
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(5),
+        "the emit waited {:?}",
+        started.elapsed()
+    );
 }

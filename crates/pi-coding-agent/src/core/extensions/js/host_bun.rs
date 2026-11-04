@@ -462,6 +462,11 @@ impl BunHost {
         tracing::info!(target: "pi_js", "bun extension backend started ({})", bun.display());
         Ok((Arc::new(BunHost { inner }), bridge_slot))
     }
+
+    /// Kill the child now and fail every pending call; see [`BunInner::kill_now`].
+    pub(crate) fn kill_now(&self) {
+        self.inner.kill_now();
+    }
 }
 
 impl Drop for BunInner {
@@ -580,6 +585,11 @@ impl BunInner {
     }
 
     /// Synchronous call into a JS value; fails fast while the bridge is degraded.
+    pub(crate) fn kill_now(&self) {
+        let _ = self.child.lock().kill();
+        self.mark_dead();
+    }
+
     pub(crate) fn sync_call(
         &self,
         handle: u64,

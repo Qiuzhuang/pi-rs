@@ -471,6 +471,18 @@ impl JsExtensionHost {
         *SHARED.lock() = None;
     }
 
+    /// Kill the shared backend's child, if it has one. Used after a session_shutdown
+    /// budget overrun: a child still inside a blocked handler cannot serve anything,
+    /// and the next load (reload) starts a fresh one anyway.
+    pub fn kill_shared_child() {
+        if let Some(s) = &*SHARED.lock() {
+            s.host.bridge.host.kill_child();
+        }
+        // Forget it too: the next extension load must start a fresh child, not reuse
+        // the killed one from this generation.
+        Self::reset_shared();
+    }
+
     /// Start the JS backend for `cwd` and return (host, bridge module namespace, bridge slot).
     async fn start(cwd: &str) -> anyhow::Result<(Arc<AnyHost>, JsHandle, Arc<Mutex<Weak<Bridge>>>)> {
         match select_backend()? {

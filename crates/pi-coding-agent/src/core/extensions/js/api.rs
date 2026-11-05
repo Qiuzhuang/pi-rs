@@ -1,6 +1,7 @@
 //! Host-call dispatch and the `pi` object (ExtensionAPI) of JavaScript extensions.
 
 use std::sync::Arc;
+use std::time::Instant;
 
 use futures::FutureExt;
 use super::host::JsHandle;
@@ -152,7 +153,8 @@ fn pi_op(bridge: &Arc<Bridge>, op: &str, payload: Value) -> anyhow::Result<Value
             let unsubscribe = if event == "project_trust" {
                 api.on_project_trust(js_project_trust_handler(bridge.clone(), handler))?
             } else {
-                api.on(&event, js_event_handler(bridge.clone(), handler))?
+                let extension = api.extension_path().unwrap_or_else(|| "<js>".to_string());
+                api.on(&event, js_event_handler(bridge.clone(), handler, extension))?
             };
             Ok(json!(bridge.unsubscribes.insert(unsubscribe)))
         }
@@ -387,11 +389,17 @@ pub(crate) fn tool_info_json(info: &ToolInfo) -> Value {
 
 /// A JS event handler as an [`ExtensionHandler`]. The event is passed as JSON; in-place
 /// mutations are read back by `invokeHandler` (bridge.js) and returned as replacements.
-pub(crate) fn js_event_handler(bridge: Arc<Bridge>, handler: JsHandle) -> ExtensionHandler {
+///
+/// Every call is timed (see [`crate::core::extensions::metrics`]). Notification events are
+/// abandoned after a budget so a stalled handler cannot wedge the core; mutating events are
+/// awaited fully because the core consumes their reply.
+pub(crate) fn js_event_handler(bridge: Arc<Bridge>, handler: JsHandle, extension: String) -> ExtensionHandler {
     Arc::new(move |event: ExtensionEvent, ctx: ExtensionContext| {
         let bridge = bridge.clone();
         let handler = handler.clone();
+        let extension = extension.clone();
         Box::pin(async move {
+            let event_name = event.type_name();
             let signal = match &event {
                 ExtensionEvent::SessionBeforeCompact(e) => Some(e.signal.clone()),
                 ExtensionEvent::SessionBeforeTree(e) => Some(e.signal.clone()),
@@ -408,9 +416,18 @@ pub(crate) fn js_event_handler(bridge: Arc<Bridge>, handler: JsHandle) -> Extens
                 }
                 None => (Value::Null, None),
             };
-            let result = bridge
-                .glue_call("invokeHandler", vec![handler.to_value(), value, json!(ctx_id), json!("base"), signal_value])
-                .await;
+            let started = Instant::now();
+            let call = bridge.glue_call("invokeHandler", vec![handler.to_value(), value, json!(ctx_id), json!("base"), signal_value]);
+            let mut timed_out = false;
+            let result = match super::super::metrics::notify_timeout(event_name) {
+                // Stalled notification: stop waiting; the late reply is dropped with the receiver.
+                Some(budget) => tokio::time::timeout(budget, call).await.unwrap_or_else(|_| {
+                    timed_out = true;
+                    Ok(Value::Null)
+                }),
+                None => call.await,
+            };
+            super::super::metrics::record(&extension, event_name, started.elapsed(), timed_out);
             if transient {
                 bridge.detach_ctx(ctx_id, "base");
             }

@@ -2,6 +2,7 @@
 
 pub mod js;
 pub mod loader;
+pub(crate) mod metrics;
 pub mod runner;
 pub mod types;
 pub mod wrapper;

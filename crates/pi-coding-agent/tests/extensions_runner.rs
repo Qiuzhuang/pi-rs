@@ -1550,3 +1550,39 @@ async fn session_shutdown_dispatch_honors_the_budget() {
         started.elapsed()
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn stalled_js_notification_handlers_are_abandoned_after_the_budget() {
+    // A JS handler for a notification event that never answers must not wedge
+    // the core. The emit returns when the budget expires, and the next dispatch
+    // is still fast: the late reply is dropped, not queued in front of it.
+    unsafe { std::env::set_var("PI_EXT_TIMEOUT_MS", "1500") };
+    let dir = ExtDir::new();
+    dir.write(
+        "stalled.ts",
+        r#"export default function(pi) {
+            pi.on("agent_end", async () => { await new Promise((resolve) => setTimeout(resolve, 30000)); });
+        }"#,
+    );
+    let result = dir.discover().await;
+    assert!(result.errors.is_empty(), "{:?}", result.errors);
+    let runner = dir.runner(&result).await;
+    let started = std::time::Instant::now();
+    runner
+        .emit(agent_end())
+        .await
+        .expect("an abandoned notification must not fail the emit");
+    let first = started.elapsed();
+    let started = std::time::Instant::now();
+    runner
+        .emit(agent_end())
+        .await
+        .expect("the core must stay usable after an abandoned handler");
+    let second = started.elapsed();
+    unsafe { std::env::remove_var("PI_EXT_TIMEOUT_MS") };
+    assert!(first < std::time::Duration::from_secs(10), "first emit waited {first:?}");
+    // The handler answers at 30 s, so a first emit near the 1.5 s budget can only
+    // be the timeout path, not an early return.
+    assert!(first >= std::time::Duration::from_millis(1400), "first emit waited {first:?}");
+    assert!(second < std::time::Duration::from_secs(10), "second emit waited {second:?}");
+}

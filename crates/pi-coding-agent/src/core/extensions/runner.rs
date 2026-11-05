@@ -349,7 +349,7 @@ pub async fn emit_session_shutdown_event(
     extension_runner: Arc<ExtensionRunner>,
     event: &SessionShutdownEvent,
 ) -> anyhow::Result<bool> {
-    if extension_runner.has_handlers("session_shutdown") {
+    let dispatched = if extension_runner.has_handlers("session_shutdown") {
         // Bound the dispatch. A handler that blocks in synchronous JS (a spawned
         // child process, a huge flush) would otherwise hold up every quit and
         // reload for its full duration. TS pi waits forever; we cap and move on.
@@ -379,9 +379,15 @@ pub async fn emit_session_shutdown_event(
                 }
             }
         }
-        return Ok(true);
+        true
+    } else {
+        false
+    };
+    // One-line lifetime summary: slowest (extension, event) pairs first.
+    for line in super::metrics::summary_lines() {
+        tracing::info!(target: "pi_extensions", "extension stats: {line}");
     }
-    Ok(false)
+    Ok(dispatched)
 }
 
 /// Snapshot of `(extension path, handlers)` for one event type, so handlers registered or removed

@@ -308,6 +308,13 @@ impl Inner {
                     let mut assistant = assistant.clone();
                     let mut error_message: Option<String> = None;
                     if assistant.stop_reason == StopReason::Aborted {
+                        // Make the abort feel immediate: the extension `turn_end` hooks can
+                        // still run for a while before `agent_end`, so do not make the user
+                        // watch a working spinner next to the abort notice.
+                        if settings.get_show_terminal_progress() {
+                            self.ui().terminal().set_progress(false);
+                        }
+                        self.clear_status_indicator(Some(StatusIndicatorKind::Working));
                         let text = aborted_message(self.session().retry_attempt());
                         assistant.error_message = Some(text.clone());
                         error_message = Some(text);

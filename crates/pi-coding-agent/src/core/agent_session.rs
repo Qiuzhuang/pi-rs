@@ -5672,6 +5672,7 @@ impl AgentSession {
             },
         )
         .await?;
+        pi_agent::dbg_log::dbg_log("reload: shutdown-done");
         old_runner.invalidate(None);
         let get_default_tools = |session: &AgentSession| -> Vec<String> {
             if !session.uses_default_tools {
@@ -5684,9 +5685,11 @@ impl AgentSession {
         };
         let previous_default_tools: HashSet<String> = get_default_tools(self).into_iter().collect();
         self.settings_manager.reload().await?;
+        pi_agent::dbg_log::dbg_log("reload: settings");
         self.sync_queue_modes_from_settings();
         reset_api_providers();
         self.resource_loader.reload(None).await?;
+        pi_agent::dbg_log::dbg_log("reload: resources");
         // Activate tools newly added to defaultTools. Removed ones stay active, and tools disabled
         // during the session stay disabled unless the setting newly adds them.
         let added_default_tools: Vec<String> = get_default_tools(self)

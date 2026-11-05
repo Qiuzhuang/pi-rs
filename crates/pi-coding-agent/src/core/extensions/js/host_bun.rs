@@ -260,8 +260,10 @@ impl BunHost {
     ) -> anyhow::Result<(Arc<BunHost>, Arc<PlMutex<Weak<super::Bridge>>>)> {
         let bun =
             find_bun().ok_or_else(|| anyhow::anyhow!("bun not found in PATH (set PI_RS_BUN to the binary)"))?;
+        pi_agent::dbg_log::dbg_log("bun start: pre-materialize");
         let dir = virtual_dir()?;
         let entry = dir.join("entry.mjs");
+        pi_agent::dbg_log::dbg_log("bun start: materialized");
 
         // fd-3 channel: Rust writes synchronous host responses, the child blocks on it in
         // `__piHost.call` (the child's event loop is frozen for the duration of a sync call,
@@ -294,6 +296,7 @@ impl BunHost {
         cmd.stderr(Stdio::piped());
 
         let child = cmd.spawn()?;
+        pi_agent::dbg_log::dbg_log("bun start: spawned");
 
         let bridge_slot: Arc<PlMutex<Weak<super::Bridge>>> = Arc::new(PlMutex::new(Weak::new()));
         let (write_tx, write_rx) = sync_channel::<String>(4096);
@@ -466,6 +469,7 @@ impl BunHost {
             anyhow::bail!("bun extension process did not start (check the stderr output above)");
         }
         tracing::info!(target: "pi_js", "bun extension backend started ({})", bun.display());
+        pi_agent::dbg_log::dbg_log("bun start: ready");
         Ok((Arc::new(BunHost { inner }), bridge_slot))
     }
 

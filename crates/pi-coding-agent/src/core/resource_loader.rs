@@ -3,11 +3,12 @@
 use crate::config::CONFIG_DIR_NAME;
 use crate::core::event_bus::{EventBus, create_event_bus};
 use crate::core::extensions::loader::{
-    clear_extension_cache, create_extension_runtime, load_extension_from_factory,
+    create_extension_runtime, invalidate_extension_factories,
+    load_extension_from_factory,
     load_extensions_cached,
 };
 use crate::core::extensions::types::{
-    ExtensionLoadError, ExtensionLoadWarning, ExtensionRef, ExtensionRuntime, InlineExtension,
+    ExtensionFactory, ExtensionLoadError, ExtensionLoadWarning, ExtensionRef, ExtensionRuntime, InlineExtension,
     LoadExtensionsResult, NamedInlineExtension,
 };
 use crate::core::footer_data_provider::find_git_paths;
@@ -701,7 +702,9 @@ impl DefaultResourceLoader {
         reset_timings(Some(&TimingLabel::Extensions));
 
         if self.state.lock().loaded {
-            clear_extension_cache();
+            // Keep the shared JS host: unchanged extensions re-import from its warm module
+            // cache. Only changed files pay the re-eval cost.
+            invalidate_extension_factories();
         }
 
         let mut pre_trust_extensions: Option<LoadExtensionsResult> = None;
@@ -717,8 +720,11 @@ impl DefaultResourceLoader {
 
         // reload() preserves SettingsManager.projectTrusted and reloads settings for that trust state.
         self.settings_manager.reload().await?;
+        pi_agent::dbg_log::dbg_log("resload: settings");
         let resolved_paths = self.package_manager().resolve(None).await?;
+        pi_agent::dbg_log::dbg_log("resload: package resolve");
         let cli_extension_paths = self.resolve_cli_extension_sources().await?;
+        pi_agent::dbg_log::dbg_log("resload: cli sources");
 
         // Kept on the instance so post-reload passes (extendResources) can still resolve package metadata.
         let mut metadata_by_path: IndexMap<String, PathMetadata> = IndexMap::new();
@@ -793,9 +799,11 @@ impl DefaultResourceLoader {
         .collect();
 
         let package_warnings = collect_extension_package_warnings(&extension_paths, &metadata_by_path)?;
+        pi_agent::dbg_log::dbg_log("resload: pre-extension-load");
         let mut extensions_result = self
             .load_final_extension_set(&extension_paths, pre_trust_extensions)
             .await?;
+        pi_agent::dbg_log::dbg_log("resload: extensions loaded");
         merge_extension_warnings(&mut extensions_result, package_warnings);
         for p in &self.additional_extension_paths {
             if is_local_path(p) {
@@ -832,6 +840,7 @@ impl DefaultResourceLoader {
         };
         self.state.lock().last_skill_paths = skill_paths.clone();
         self.update_skills_from_paths(&skill_paths, Some(&metadata_by_path));
+        pi_agent::dbg_log::dbg_log("resload: skills");
         for p in &self.additional_skill_paths {
             if is_local_path(p) {
                 let resolved = self.resolve_resource_path(p);
@@ -864,6 +873,7 @@ impl DefaultResourceLoader {
         };
         self.state.lock().last_prompt_paths = prompt_paths.clone();
         self.update_prompts_from_paths(&prompt_paths, Some(&metadata_by_path));
+        pi_agent::dbg_log::dbg_log("resload: prompts");
         for p in &self.additional_prompt_template_paths {
             if is_local_path(p) {
                 let resolved = self.resolve_resource_path(p);
@@ -896,6 +906,7 @@ impl DefaultResourceLoader {
         };
         self.state.lock().last_theme_paths = theme_paths.clone();
         self.update_themes_from_paths(&theme_paths, Some(&metadata_by_path));
+        pi_agent::dbg_log::dbg_log("resload: themes");
         for p in &self.additional_theme_paths {
             let resolved = self.resolve_resource_path(p);
             let mut state = self.state.lock();
@@ -1556,31 +1567,52 @@ impl DefaultResourceLoader {
         let mut extensions = Vec::new();
         let mut errors = Vec::new();
 
-        for (index, input) in self.extension_factories.iter().enumerate() {
-            let (factory, extension_path, named) = match input {
+        // Concurrent: each inline factory initializes against its own JS handle. Collect owned
+        // inputs first so the async blocks capture nothing borrowed from self.
+        let inputs: Vec<(ExtensionFactory, String, Option<NamedInlineExtension>)> = self
+            .extension_factories
+            .iter()
+            .enumerate()
+            .map(|(index, input)| match input {
                 InlineExtension::Factory(factory) => {
                     (factory.clone(), format!("<inline:{}>", index + 1), None)
                 }
                 InlineExtension::Named(named) => (
                     named.factory.clone(),
                     format!("<inline:{}>", named.name),
-                    Some(named),
+                    Some(named.clone()),
                 ),
-            };
-            match load_extension_from_factory(
-                &factory,
-                &self.cwd,
-                self.event_bus.clone(),
-                runtime.clone(),
-                Some(&extension_path),
-            )
-            .await
-            {
+            })
+            .collect();
+        let event_bus = self.event_bus.clone();
+        let cwd = self.cwd.clone();
+        let tasks: Vec<_> = inputs
+            .into_iter()
+            .map(move |(factory, extension_path, named)| {
+                let event_bus = event_bus.clone();
+                let cwd = cwd.clone();
+                let runtime = runtime.clone();
+                async move {
+                    let result = load_extension_from_factory(
+                        &factory,
+                        &cwd,
+                        event_bus,
+                        runtime,
+                        Some(&extension_path),
+                    )
+                    .await;
+                    (extension_path, named, result)
+                }
+            })
+            .collect();
+        let results = futures::future::join_all(tasks).await;
+        for (extension_path, named, result) in results {
+            match result {
                 Ok(extension) => {
                     {
                         let mut ext = extension.write();
-                        ext.hidden = Some(named.is_some_and(|n| n.hidden == Some(true)));
-                        ext.replaceable = Some(named.is_some_and(|n| n.replaceable == Some(true)));
+                        ext.hidden = Some(named.as_ref().is_some_and(|n| n.hidden == Some(true)));
+                        ext.replaceable = Some(named.as_ref().is_some_and(|n| n.replaceable == Some(true)));
                     }
                     extensions.push(extension);
                 }

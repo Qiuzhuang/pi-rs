@@ -54,15 +54,56 @@ struct ExtensionCache {
 
 static EXTENSION_CACHE: LazyLock<Mutex<ExtensionCache>> = LazyLock::new(|| Mutex::new(ExtensionCache::default()));
 
+/// Import fingerprint (mtime nanos, size) per extension path for the current shared JS host.
+/// A file whose fingerprint is unchanged re-imports without cache-bust, so the child serves
+/// its already-evaluated module instead of re-transpiling and re-running it.
+static IMPORT_FINGERPRINTS: LazyLock<Mutex<HashMap<String, (u128, u64)>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn file_fingerprint(path: &str) -> Option<(u128, u64)> {
+    let meta = std::fs::metadata(path).ok()?;
+    let mtime = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_nanos())?;
+    Some((mtime, meta.len()))
+}
+
+/// Decide whether this import needs a cache-bust: only when the shared host imported this
+/// path before and the file changed since. A cold host evaluates any plain import fresh.
+fn import_needs_bust(path: &str) -> bool {
+    let Some(current) = file_fingerprint(path) else {
+        return true;
+    };
+    match IMPORT_FINGERPRINTS.lock().get(path) {
+        Some(stored) => *stored != current,
+        None => false,
+    }
+}
+
+fn remember_import(path: &str) {
+    if let Some(current) = file_fingerprint(path) {
+        IMPORT_FINGERPRINTS.lock().insert(path.to_string(), current);
+    }
+}
+
 pub fn clear_extension_cache() {
     let mut cache = EXTENSION_CACHE.lock();
     cache.factories.clear();
     cache.cwd = None;
     cache.generation += 1;
     drop(cache);
-    // Cached modules lived in the shared JS runtime of this generation; the next load starts
-    // a fresh one.
+    // The shared host dies with this generation, and its warm module cache goes with it.
+    IMPORT_FINGERPRINTS.lock().clear();
     JsExtensionHost::reset_shared();
+}
+
+/// Drop cached factories but keep the shared JS host alive. Used by /reload: unchanged files
+/// re-import from the host's warm module cache instead of re-spawning the host and
+/// re-evaluating every extension.
+pub fn invalidate_extension_factories() {
+    EXTENSION_CACHE.lock().factories.clear();
 }
 
 fn use_extension_cache_cwd(cwd: &str) -> ExtensionCacheToken {
@@ -885,9 +926,11 @@ async fn load_extension_module(
         return Ok(Some(factory));
     }
     let host = JsExtensionHost::shared(cwd).await?;
-    let Some(factory) = host.import_factory(extension_path).await? else {
+    let bust = import_needs_bust(extension_path);
+    let Some(factory) = host.import_factory_busted(extension_path, bust).await? else {
         return Ok(None);
     };
+    remember_import(extension_path);
     if is_current_cache_token(cache_token) {
         EXTENSION_CACHE.lock().factories.insert(extension_path.to_string(), factory.clone());
     }
@@ -988,8 +1031,30 @@ async fn load_extensions_internal(
     };
     let runtime = runtime.unwrap_or_else(create_extension_runtime);
 
-    for ext_path in paths {
-        match load_extension(ext_path, &resolved_cwd, event_bus.clone(), runtime.clone(), cache_token.as_ref()).await {
+    // Load concurrently: each extension is an independent JS import. The child still services
+    // them one at a time, but the round-trip overhead overlaps with the child's import work.
+    let tasks: Vec<_> = paths
+        .iter()
+        .map(|ext_path| {
+            let resolved_cwd = resolved_cwd.clone();
+            let event_bus = event_bus.clone();
+            let runtime = runtime.clone();
+            let cache_token = cache_token.clone();
+            async move {
+                load_extension(
+                    ext_path,
+                    &resolved_cwd,
+                    event_bus,
+                    runtime,
+                    cache_token.as_ref(),
+                )
+                .await
+            }
+        })
+        .collect();
+    let results = futures::future::join_all(tasks).await;
+    for (ext_path, result) in paths.iter().zip(results) {
+        match result {
             Ok(extension) => extensions.push(extension),
             Err(error) => errors.push(ExtensionLoadError { path: ext_path.clone(), error }),
         }

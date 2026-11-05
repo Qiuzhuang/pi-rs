@@ -436,11 +436,30 @@ struct SharedHost {
 
 static SHARED: LazyLock<Mutex<Option<SharedHost>>> = LazyLock::new(|| Mutex::new(None));
 static GENERATION: AtomicU64 = AtomicU64::new(0);
+// Serializes first-time host creation so concurrent loads share one child instead of
+// racing two bun processes into existence. Tokio mutex: the guard stays held across the
+// spawn await, which a std guard may not.
+static SHARED_INIT: LazyLock<tokio::sync::Mutex<()>> = LazyLock::new(|| tokio::sync::Mutex::new(()));
 
 impl JsExtensionHost {
     /// The host shared by extension loads for `cwd` in the current cache generation.
     pub async fn shared(cwd: &str) -> anyhow::Result<Arc<JsExtensionHost>> {
         let generation = GENERATION.load(Ordering::SeqCst);
+        {
+            let shared = SHARED.lock();
+            if let Some(s) = &*shared
+                && s.cwd == cwd
+                && s.generation == generation
+            {
+                return Ok(s.host.clone());
+            }
+        }
+        pi_agent::dbg_log::dbg_log(&format!(
+            "js-host shared miss: cwd={} generation={generation}",
+            cwd
+        ));
+        // Serialize first-time creation: concurrent first loads must share one child.
+        let _init = SHARED_INIT.lock().await;
         {
             let shared = SHARED.lock();
             if let Some(s) = &*shared
@@ -658,10 +677,16 @@ impl JsExtensionHost {
 
     /// Import an extension module and return its factory, or `None` when the module does not
     /// export a function (default export or the module itself, like jiti `{ default: true }`).
-    pub async fn import_factory(self: &Arc<Self>, path: &str) -> anyhow::Result<Option<ExtensionFactory>> {
+    ///
+    /// `bust` forces re-evaluation in the child's module cache. Pass `false` when the file is
+    /// unchanged since this host's last import of it: the child then returns its already-
+    /// evaluated module without re-transpiling or re-running it.
+    pub async fn import_factory_busted(self: &Arc<Self>, path: &str, bust: bool) -> anyhow::Result<Option<ExtensionFactory>> {
         let host = self.bridge.host.clone();
         // jiti `moduleCache: false`: every import of an extension evaluates it again.
-        host.clear_module_cache().await?;
+        if bust {
+            host.clear_module_cache().await?;
+        }
         // Imported as a top-level module rather than through `import()` from the glue module:
         // Boa caches dynamic imports per referrer and would reject the re-evaluated module.
         let namespace = host.import(path).await?;

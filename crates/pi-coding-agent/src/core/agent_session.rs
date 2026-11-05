@@ -1687,6 +1687,7 @@ impl AgentSession {
         message: &AssistantMessage,
         tool_results: &[ToolResultMessage],
     ) -> bool {
+        pi_agent::dbg_log::dbg_log(&format!("turn_end boundary enter stop={:?}", message.stop_reason));
         let outcome = match message.stop_reason {
             StopReason::Aborted => AgentActivityOutcome::Aborted,
             StopReason::Error => AgentActivityOutcome::Error,
@@ -1729,6 +1730,7 @@ impl AgentSession {
             )
             .await;
         let Ok(boundary) = boundary else {
+            pi_agent::dbg_log::dbg_log("turn_end boundary: emit failed");
             return false;
         };
         self.commit_boundary_drafts(&boundary.entries);
@@ -1742,6 +1744,7 @@ impl AgentSession {
                 return false;
             }
         }
+        pi_agent::dbg_log::dbg_log(&format!("turn_end boundary exit cont={}", boundary.r#continue));
         boundary.r#continue
     }
 
@@ -2069,6 +2072,7 @@ impl AgentSession {
     }
 
     async fn emit_agent_settled(&self) -> anyhow::Result<()> {
+        pi_agent::dbg_log::dbg_log("emit_agent_settled enter");
         if let Some(warmer) = &self.cache_warmer {
             warmer.on_agent_settled();
         }
@@ -2103,6 +2107,7 @@ impl AgentSession {
             return result;
         }
         self.resolve_idle_wait_if_idle();
+        pi_agent::dbg_log::dbg_log("emit_agent_settled exit");
         Ok(())
     }
 
@@ -2172,7 +2177,13 @@ impl AgentSession {
         }
 
         // Emit to extensions first, then notify public listeners.
+        if !matches!(event, AgentEvent::MessageUpdate { .. }) {
+            pi_agent::dbg_log::dbg_log(&format!("hae ext> {}", event.type_name()));
+        }
         let event = self.emit_extension_event(event).await;
+        if !matches!(event, AgentEvent::MessageUpdate { .. }) {
+            pi_agent::dbg_log::dbg_log(&format!("hae ext< {}", event.type_name()));
+        }
         let public_event = match &event {
             AgentEvent::AgentEnd { messages } => Some(AgentSessionEvent::AgentEnd {
                 messages: messages.clone(),
@@ -3351,12 +3362,16 @@ impl AgentSession {
     }
 
     async fn run_loop(&self, messages: Vec<AgentMessage>) -> anyhow::Result<()> {
+        pi_agent::dbg_log::dbg_log("run_loop: prompt begin");
         self.agent.prompt(messages).await?;
+        pi_agent::dbg_log::dbg_log("run_loop: prompt resolved");
         loop {
             if self.state.lock().agent_run_abort_requested {
                 break;
             }
-            if self.handle_post_agent_run().await? {
+            let post = self.handle_post_agent_run().await?;
+            pi_agent::dbg_log::dbg_log(&format!("run_loop: post_run={post}"));
+            if post {
                 if self.state.lock().agent_run_abort_requested {
                     break;
                 }
@@ -3372,6 +3387,7 @@ impl AgentSession {
             }
             self.agent.continue_run().await?;
         }
+        pi_agent::dbg_log::dbg_log("run_loop: end");
         Ok(())
     }
 
@@ -4109,6 +4125,7 @@ impl AgentSession {
 
     /// Abort current operation and wait for agent to become idle.
     pub async fn abort(&self) -> anyhow::Result<()> {
+        pi_agent::dbg_log::dbg_log("session.abort() begin");
         {
             let mut state = self.state.lock();
             if state.is_agent_run_active {
@@ -4125,7 +4142,10 @@ impl AgentSession {
             }
         }
         self.agent.abort();
-        self.wait_for_idle().await
+        pi_agent::dbg_log::dbg_log("session.abort(): waiting idle");
+        self.wait_for_idle().await;
+        pi_agent::dbg_log::dbg_log("session.abort(): idle");
+        Ok(())
     }
 
     pub async fn wait_for_idle(&self) -> anyhow::Result<()> {

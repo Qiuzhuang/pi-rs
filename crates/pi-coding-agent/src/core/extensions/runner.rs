@@ -1118,7 +1118,8 @@ impl ExtensionRunner {
         for (path, handlers) in snapshot_event_handlers(&self.extensions, base_event.type_name()) {
             for handler in event_handlers(handlers) {
                 let event = base_event.build(entries.clone(), should_continue, context.clone());
-                match handler(event, ctx.clone()).await.and_then(|r| match r {
+                pi_agent::dbg_log::dbg_log(&format!("bnd> {} {}", base_event.type_name(), path.rsplit('/').next().unwrap_or(path.as_str())));
+                let outcome = handler(event, ctx.clone()).await.and_then(|r| match r {
                     Some(r) => {
                         let (r, error) = split_bridge_error(r);
                         if let Some((message, stack)) = error {
@@ -1132,7 +1133,9 @@ impl ExtensionRunner {
                         BoundaryResult::from_result(r)
                     }
                     None => Ok(None),
-                }) {
+                });
+                pi_agent::dbg_log::dbg_log(&format!("bnd< {}", base_event.type_name()));
+                match outcome {
                     Ok(Some(result)) => {
                         if let Some(e) = result.entries {
                             entries = e;
@@ -1194,10 +1197,17 @@ impl ExtensionRunner {
 
         for (path, handlers) in snapshot_event_handlers(&self.extensions, event_type) {
             for handler in event_handlers(handlers) {
+                let traced = event_type != "message_update";
+                if traced {
+                    pi_agent::dbg_log::dbg_log(&format!("emit> {event_type} {}", path.rsplit('/').next().unwrap_or(path.as_str())));
+                }
                 let outcome = handler(event.clone(), ctx.clone()).await.and_then(|r| match r {
                     Some(r) if is_session_before => Self::session_before_result(event_type, r),
                     _ => Ok(None),
                 });
+                if traced {
+                    pi_agent::dbg_log::dbg_log(&format!("emit< {event_type}"));
+                }
                 match outcome {
                     Ok(Some(r)) => {
                         let cancel = r.cancel();

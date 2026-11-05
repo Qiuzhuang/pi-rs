@@ -417,6 +417,7 @@ pub(crate) fn js_event_handler(bridge: Arc<Bridge>, handler: JsHandle, extension
                 None => (Value::Null, None),
             };
             let started = Instant::now();
+            pi_agent::dbg_log::dbg_log(&format!("inv> {event_name} {}", extension.rsplit('/').next().unwrap_or(&extension)));
             let call = bridge.glue_call("invokeHandler", vec![handler.to_value(), value, json!(ctx_id), json!("base"), signal_value]);
             let mut timed_out = false;
             let result = match super::super::metrics::notify_timeout(event_name) {
@@ -427,6 +428,7 @@ pub(crate) fn js_event_handler(bridge: Arc<Bridge>, handler: JsHandle, extension
                 }),
                 None => call.await,
             };
+            pi_agent::dbg_log::dbg_log(&format!("inv< {event_name} ms={} timed_out={timed_out}", started.elapsed().as_millis()));
             super::super::metrics::record(&extension, event_name, started.elapsed(), timed_out);
             if transient {
                 bridge.detach_ctx(ctx_id, "base");

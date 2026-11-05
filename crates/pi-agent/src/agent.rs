@@ -614,7 +614,10 @@ impl Agent {
     /// Abort the current run, if one is active.
     pub fn abort(&self) {
         if let Some(run) = self.inner.active_run.lock().as_ref() {
+            crate::dbg_log::dbg_log("agent.abort: cancel token");
             run.abort.cancel();
+        } else {
+            crate::dbg_log::dbg_log("agent.abort: no active run");
         }
     }
 
@@ -858,6 +861,7 @@ impl Agent {
         let inner = self.inner.clone();
 
         let handle = tokio::spawn(async move {
+            crate::dbg_log::dbg_log("run task start");
             let _finish = FinishRunGuard {
                 inner: inner.clone(),
                 idle_tx,
@@ -897,7 +901,9 @@ impl Agent {
                     .map(|_| ()),
                 },
             };
+            crate::dbg_log::dbg_log("run loop returned");
             if let Err(error) = result {
+                crate::dbg_log::dbg_log(&format!("run loop Err: {error}"));
                 handle_run_failure(&inner, error.to_string(), &abort).await;
             }
         });
@@ -1069,9 +1075,16 @@ async fn process_events(inner: &Arc<AgentInner>, mut event: AgentEvent, signal: 
         .iter()
         .map(|(_, l)| l.clone())
         .collect();
+    let traced = !matches!(event, AgentEvent::MessageUpdate { .. });
+    if traced {
+        crate::dbg_log::dbg_log(&format!("pe> {}", event.type_name()));
+    }
     if !message_event {
         for listener in listeners {
             listener(event.clone(), signal.clone()).await;
+        }
+        if traced {
+            crate::dbg_log::dbg_log(&format!("pe< {}", event.type_name()));
         }
         return;
     }
@@ -1102,4 +1115,7 @@ async fn process_events(inner: &Arc<AgentInner>, mut event: AgentEvent, signal: 
         replaced = Some(replacement);
     }
     *inner.loop_replacement.lock() = replaced;
+    if traced {
+        crate::dbg_log::dbg_log(&format!("pe< {}", event.type_name()));
+    }
 }

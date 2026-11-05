@@ -408,6 +408,7 @@ async fn run_loop(
             .await;
 
             if decision == Some(AgentTurnDecision::End) {
+                crate::dbg_log::dbg_log("loop: decision End -> AgentEnd");
                 emit(AgentEvent::AgentEnd {
                     messages: new_messages.clone(),
                 })
@@ -421,6 +422,7 @@ async fn run_loop(
                 explicit_continuation = false;
             }
         }
+        crate::dbg_log::dbg_log("loop: inner loop exit");
 
         // Agent would stop here. Check for follow-up messages.
         let follow_up_messages = poll_messages(&config.get_follow_up_messages).await;
@@ -439,9 +441,11 @@ async fn run_loop(
         }
 
         // No more messages, exit.
+        crate::dbg_log::dbg_log("loop: outer break -> AgentEnd");
         break;
     }
 
+    crate::dbg_log::dbg_log("loop: emitting AgentEnd");
     emit(AgentEvent::AgentEnd {
         messages: new_messages.clone(),
     })
@@ -597,6 +601,7 @@ async fn stream_assistant_response(
             AssistantMessageEvent::Done { .. } | AssistantMessageEvent::Error { .. } => {
                 let mut final_message = response.result().await;
                 final_message.thinking_level = Some(thinking_level);
+                crate::dbg_log::dbg_log(&format!("stream: final stop={:?}", final_message.stop_reason));
                 return Ok(finish_response(context, final_message, partial_added, config, emit).await);
             }
             event => {
@@ -617,6 +622,7 @@ async fn stream_assistant_response(
 
     let mut final_message = response.result().await;
     final_message.thinking_level = Some(thinking_level);
+    crate::dbg_log::dbg_log(&format!("stream: final(stop) stop={:?}", final_message.stop_reason));
     Ok(finish_response(context, final_message, partial_added, config, emit).await)
 }
 

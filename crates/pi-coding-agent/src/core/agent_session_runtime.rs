@@ -224,6 +224,31 @@ impl AgentSessionRuntime {
         diagnostics: Option<&[AgentSessionRuntimeDiagnostic]>,
         model_fallback_message: Option<&str>,
     ) -> Self {
+        // Test only: place an abort() at an exact settle-chain phase.
+        if let Ok(pat) = std::env::var("PI_DBG_ABORT_AFTER") {
+            pi_agent::dbg_log::set_abort_pattern(Some(pat));
+            let weak = std::sync::Arc::downgrade(&session);
+            pi_agent::dbg_log::set_abort_hook(Some(Box::new(move || {
+                let Some(s) = weak.upgrade() else { return };
+                if let Ok(h) = tokio::runtime::Handle::try_current() {
+                    h.spawn(async move {
+                        let _ = s.abort().await;
+                    });
+                } else {
+                    let s2 = s.clone();
+                    std::thread::spawn(move || {
+                        let Ok(rt) =
+                            tokio::runtime::Builder::new_current_thread().enable_all().build()
+                        else {
+                            return;
+                        };
+                        rt.block_on(async move {
+                            let _ = s2.abort().await;
+                        });
+                    });
+                }
+            })));
+        }
         Self {
             create_runtime: create_runtime.clone(),
             state: Mutex::new(RuntimeState {

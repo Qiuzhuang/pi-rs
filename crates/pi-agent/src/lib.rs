@@ -4,6 +4,7 @@
 
 pub mod agent;
 pub mod agent_loop;
+pub mod dbg_log;
 pub mod error;
 pub mod hooks;
 pub mod proxy;

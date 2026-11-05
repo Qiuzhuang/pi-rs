@@ -356,6 +356,10 @@ impl BunHost {
                         // Resolve the waiter with an error so it never hangs on the lost
                         // response; the one hung handler loses its call.
                         if let Some(p) = inner_reaper.pending.lock().remove(&id) {
+                            pi_agent::dbg_log::dbg_log(&format!(
+                                "bun reaper: id={id} {} {secs}s",
+                                p.label
+                            ));
                             let _ = p.tx.send(Err(anyhow::anyhow!(
                                 "timed out after {secs}s waiting for the JS extension process to respond (the handler may be hung)"
                             )));
@@ -427,6 +431,7 @@ impl BunHost {
                     }
                     jsonl_log("C->R", &line);
                     let Ok(v) = serde_json::from_str::<Value>(&line) else {
+                        pi_agent::dbg_log::dbg_log(&format!("bun reader: bad json len={}", line.len()));
                         continue;
                     };
                     if v.get("type").and_then(Value::as_str) == Some("ready") {
@@ -435,6 +440,7 @@ impl BunHost {
                     }
                     BunInner::dispatch_line(&inner_reader, v);
                 }
+                pi_agent::dbg_log::dbg_log("bun reader: stdout closed");
                 inner_reader.mark_dead();
             }))
             .ok();
@@ -514,6 +520,7 @@ impl BunInner {
         let wire = msg.to_string();
         jsonl_log("R->C", &wire);
         if !self.alive.load(Ordering::SeqCst) || self.write_tx.send(wire + "\n").is_err() {
+            pi_agent::dbg_log::dbg_log(&format!("bun send: child dead id={id}"));
             if let Some(p) = self.pending.lock().remove(&id) {
                 let _ = p.tx.send(Err(anyhow::anyhow!("the JS extension process exited")));
             }
@@ -624,6 +631,7 @@ impl BunInner {
         if !self.alive.swap(false, Ordering::SeqCst) {
             return;
         }
+        pi_agent::dbg_log::dbg_log("bun mark_dead");
         for (_, p) in self.pending.lock().drain() {
             let _ = p.tx.send(Err(anyhow::anyhow!("the JS extension process exited")));
         }
@@ -725,6 +733,13 @@ impl BunInner {
                         None => Ok(v.get("result").cloned().unwrap_or(Value::Null)),
                     };
                     let _ = p.tx.send(res);
+                } else {
+                    // A response with no matching request: the call was already reaped or
+                    // the id was corrupted in transit. Both are wedge signals worth tracing.
+                    pi_agent::dbg_log::dbg_log(&format!(
+                        "bun drop unmatched response id={:?}",
+                        v.get("id").and_then(Value::as_u64)
+                    ));
                 }
             }
         }

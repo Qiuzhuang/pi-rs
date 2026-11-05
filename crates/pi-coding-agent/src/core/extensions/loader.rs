@@ -54,38 +54,22 @@ struct ExtensionCache {
 
 static EXTENSION_CACHE: LazyLock<Mutex<ExtensionCache>> = LazyLock::new(|| Mutex::new(ExtensionCache::default()));
 
-/// Import fingerprint (mtime nanos, size) per extension path for the current shared JS host.
-/// A file whose fingerprint is unchanged re-imports without cache-bust, so the child serves
-/// its already-evaluated module instead of re-transpiling and re-running it.
-static IMPORT_FINGERPRINTS: LazyLock<Mutex<HashMap<String, (u128, u64)>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+/// Extension paths the current shared JS host has already imported. Re-importing a known
+/// path must cache-bust so the child re-evaluates the module: reload semantics match jiti
+/// `moduleCache: false` — a fresh module top-level per load. Extensions keep state at module
+/// scope (funes holds its MCP client there, rtk-optimizer its config), and a re-run factory
+/// must see freshly initialized module state.
+static IMPORTED_PATHS: LazyLock<Mutex<HashSet<String>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
 
-fn file_fingerprint(path: &str) -> Option<(u128, u64)> {
-    let meta = std::fs::metadata(path).ok()?;
-    let mtime = meta
-        .modified()
-        .ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_nanos())?;
-    Some((mtime, meta.len()))
-}
-
-/// Decide whether this import needs a cache-bust: only when the shared host imported this
-/// path before and the file changed since. A cold host evaluates any plain import fresh.
+/// First import into this host: plain (a cold cache evaluates fresh). Any later import of
+/// the same path: bust, forcing re-evaluation.
 fn import_needs_bust(path: &str) -> bool {
-    let Some(current) = file_fingerprint(path) else {
-        return true;
-    };
-    match IMPORT_FINGERPRINTS.lock().get(path) {
-        Some(stored) => *stored != current,
-        None => false,
-    }
+    IMPORTED_PATHS.lock().contains(path)
 }
 
 fn remember_import(path: &str) {
-    if let Some(current) = file_fingerprint(path) {
-        IMPORT_FINGERPRINTS.lock().insert(path.to_string(), current);
-    }
+    IMPORTED_PATHS.lock().insert(path.to_string());
 }
 
 pub fn clear_extension_cache() {
@@ -94,14 +78,14 @@ pub fn clear_extension_cache() {
     cache.cwd = None;
     cache.generation += 1;
     drop(cache);
-    // The shared host dies with this generation, and its warm module cache goes with it.
-    IMPORT_FINGERPRINTS.lock().clear();
+    // The shared host dies with this generation, so do the paths it imported.
+    IMPORTED_PATHS.lock().clear();
     JsExtensionHost::reset_shared();
 }
 
-/// Drop cached factories but keep the shared JS host alive. Used by /reload: unchanged files
-/// re-import from the host's warm module cache instead of re-spawning the host and
-/// re-evaluating every extension.
+/// Drop cached factories but keep the shared JS host alive. Used by /reload: extensions
+/// re-import into the warm child (each re-evaluated, matching jiti `moduleCache: false`)
+/// instead of paying a fresh process spawn.
 pub fn invalidate_extension_factories() {
     EXTENSION_CACHE.lock().factories.clear();
 }
@@ -926,6 +910,8 @@ async fn load_extension_module(
         return Ok(Some(factory));
     }
     let host = JsExtensionHost::shared(cwd).await?;
+    // Re-imports bust so the module top-level re-runs: extensions keep state there, and the
+    // re-run factory must see freshly initialized state (jiti moduleCache: false parity).
     let bust = import_needs_bust(extension_path);
     let Some(factory) = host.import_factory_busted(extension_path, bust).await? else {
         return Ok(None);

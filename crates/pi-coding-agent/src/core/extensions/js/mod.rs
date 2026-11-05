@@ -678,9 +678,10 @@ impl JsExtensionHost {
     /// Import an extension module and return its factory, or `None` when the module does not
     /// export a function (default export or the module itself, like jiti `{ default: true }`).
     ///
-    /// `bust` forces re-evaluation in the child's module cache. Pass `false` when the file is
-    /// unchanged since this host's last import of it: the child then returns its already-
-    /// evaluated module without re-transpiling or re-running it.
+    /// `bust` forces re-evaluation in the child's module cache. The loader passes `false`
+    /// only for the first import of a path into a fresh host (its cold cache evaluates fresh);
+    /// every re-import passes `true` so the module top-level re-runs — extensions keep state
+    /// at module scope, and reload must re-initialize it (jiti `moduleCache: false`).
     pub async fn import_factory_busted(self: &Arc<Self>, path: &str, bust: bool) -> anyhow::Result<Option<ExtensionFactory>> {
         let host = self.bridge.host.clone();
         // jiti `moduleCache: false`: every import of an extension evaluates it again.

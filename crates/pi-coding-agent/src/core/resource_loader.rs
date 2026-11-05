@@ -702,8 +702,8 @@ impl DefaultResourceLoader {
         reset_timings(Some(&TimingLabel::Extensions));
 
         if self.state.lock().loaded {
-            // Keep the shared JS host: unchanged extensions re-import from its warm module
-            // cache. Only changed files pay the re-eval cost.
+            // Keep the shared JS host: extensions re-import into the warm child instead of
+            // paying a fresh process spawn. Each re-import re-evaluates (jiti parity).
             invalidate_extension_factories();
         }
 

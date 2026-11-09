@@ -888,6 +888,12 @@ struct SessionState {
     /// Set by a listener of the `message_end` event being emitted (see
     /// [`AgentSession::replace_message_end_message`]).
     message_end_replacement: Option<AgentMessage>,
+    /// The streaming assistant message, last observed state. Set on each
+    /// `MessageUpdate`, cleared on `MessageEnd`. Quit persists it.
+    in_flight_message: Option<AgentMessage>,
+    /// Set when dispose already persisted the in-flight message, so the
+    /// `MessageEnd` append does not duplicate it.
+    in_flight_persisted: bool,
     /// Messages whose turn_end boundary already ran in `finish_turn`.
     boundary_dispatched_messages: Vec<AgentMessage>,
     last_assistant_message: Option<AssistantMessage>,
@@ -1026,6 +1032,8 @@ impl AgentSession {
                 turn_index: 0,
                 entry_ids_by_message: Vec::new(),
                 message_end_replacement: None,
+                in_flight_message: None,
+                in_flight_persisted: false,
                 boundary_dispatched_messages: Vec::new(),
                 last_assistant_message: None,
                 last_assistant_tool_results: Vec::new(),
@@ -2193,7 +2201,14 @@ impl AgentSession {
         };
         let is_message_end = matches!(event, AgentEvent::MessageEnd { .. });
         if is_message_end {
-            self.state.lock().message_end_replacement = None;
+            let mut state = self.state.lock();
+            state.message_end_replacement = None;
+            state.in_flight_message = None;
+        } else if let AgentEvent::MessageUpdate { message, .. } = &event {
+            // Track the streaming assistant message so quit can persist it.
+            if matches!(message, AgentMessage::Assistant(_)) {
+                self.state.lock().in_flight_message = Some(message.clone());
+            }
         }
         if let Some(public_event) = public_event {
             self.emit(public_event);
@@ -2211,29 +2226,36 @@ impl AgentSession {
 
         // Handle session persistence
         if let AgentEvent::MessageEnd { message } = &event {
-            let entry_id = match message {
-                AgentMessage::Custom(custom) if custom.role == CUSTOM_ROLE => {
-                    match custom.to_typed::<CustomMessage>() {
-                        Ok(custom) => self
-                            .session_manager
-                            .append_custom_message_entry(
-                                &custom.custom_type,
-                                custom.content,
-                                custom.display,
-                                custom.details,
-                            )
-                            .ok(),
-                        Err(_) => None,
+            // dispose may have persisted this message from state when quitting
+            // mid-stream. Skip the append to avoid a duplicate entry.
+            let skip = std::mem::take(&mut self.state.lock().in_flight_persisted);
+            let entry_id = if skip {
+                None
+            } else {
+                match message {
+                    AgentMessage::Custom(custom) if custom.role == CUSTOM_ROLE => {
+                        match custom.to_typed::<CustomMessage>() {
+                            Ok(custom) => self
+                                .session_manager
+                                .append_custom_message_entry(
+                                    &custom.custom_type,
+                                    custom.content,
+                                    custom.display,
+                                    custom.details,
+                                )
+                                .ok(),
+                            Err(_) => None,
+                        }
                     }
+                    AgentMessage::System(_)
+                    | AgentMessage::User(_)
+                    | AgentMessage::Assistant(_)
+                    | AgentMessage::ToolResult(_) => {
+                        self.session_manager.append_message(message.clone()).ok()
+                    }
+                    // Other message types (bashExecution, compactionSummary, branchSummary) are persisted elsewhere
+                    _ => None,
                 }
-                AgentMessage::System(_)
-                | AgentMessage::User(_)
-                | AgentMessage::Assistant(_)
-                | AgentMessage::ToolResult(_) => {
-                    self.session_manager.append_message(message.clone()).ok()
-                }
-                // Other message types (bashExecution, compactionSummary, branchSummary) are persisted elsewhere
-                _ => None,
             };
             if let Some(entry_id) = entry_id {
                 self.state
@@ -2593,7 +2615,32 @@ impl AgentSession {
 
     /// Remove all listeners and disconnect from agent.
     /// Call this when completely done with the session.
+    /// Persist the streaming assistant message that has not finished.
+    ///
+    /// On quit, this process exits before the aborted run can emit its
+    /// `MessageEnd`, so the normal persistence path would not run. Persist
+    /// the last observed state of the message with `stop_reason` set to
+    /// `aborted`, and flag it so the `MessageEnd` append does not duplicate
+    /// it.
+    fn persist_in_flight_message(&self) {
+        let message = self.state.lock().in_flight_message.take();
+        let Some(AgentMessage::Assistant(assistant)) = message.as_ref() else {
+            return;
+        };
+        if assistant.content.is_empty() {
+            return;
+        }
+        let mut message = message.unwrap();
+        if let AgentMessage::Assistant(assistant) = &mut message {
+            assistant.stop_reason = StopReason::Aborted;
+        }
+        if self.session_manager().append_message(message).is_ok() {
+            self.state.lock().in_flight_persisted = true;
+        }
+    }
+
     pub fn dispose(&self) {
+        self.persist_in_flight_message();
         self.abort_retry();
         self.abort_compaction();
         self.abort_branch_summary();

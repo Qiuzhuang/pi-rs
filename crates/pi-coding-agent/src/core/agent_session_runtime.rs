@@ -701,6 +701,17 @@ impl AgentSessionRuntime {
 
     pub async fn dispose(&self) -> anyhow::Result<()> {
         let session = self.session();
+        // Settle an in-flight run before tearing the session down: abort it, then wait
+        // (bounded) for the run to finish. The aborted run's final message is persisted by
+        // the session's event processing, which stops once session.dispose() disconnects
+        // from the agent — so this wait must happen first. Without it, a /quit mid-stream
+        // exits before the final MessageEnd is processed and loses the in-flight assistant
+        // message. Bounded the same way as the shutdown dispatch: a stuck handler must not
+        // hold up the exit.
+        if session.agent().signal().is_some() {
+            session.agent().abort();
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(3), session.agent().wait_for_idle()).await;
+        }
         emit_session_shutdown_event(
             session.extension_runner(),
             &SessionShutdownEvent {

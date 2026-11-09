@@ -130,9 +130,16 @@ function toPlain(value, seen = new WeakSet()) {
 	if (t !== "object") return t === "symbol" ? String(value) : value;
 	if (seen.has(value)) throw new Error("circular structure in host call");
 	seen.add(value);
-	if (Array.isArray(value)) return value.map((v) => toPlain(v, seen));
-	const out = {};
-	for (const k of Object.keys(value)) out[k] = toPlain(value[k], seen);
+	let out;
+	if (Array.isArray(value)) out = value.map((v) => toPlain(v, seen));
+	else {
+		out = {};
+		for (const k of Object.keys(value)) out[k] = toPlain(value[k], seen);
+	}
+	// Drop the mark once the subtree is done: a shared reference (one object reachable
+	// through two paths, as in { a: C, b: { a: C } }) is legal JSON — JSON.stringify
+	// duplicates it. Only a true cycle (the object still being encoded) throws.
+	seen.delete(value);
 	return out;
 }
 

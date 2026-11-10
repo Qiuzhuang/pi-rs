@@ -45,5 +45,14 @@ pub fn exit(code: i32) -> ! {
     }
     let _ = std::io::stdout().flush();
     let _ = std::io::stderr().flush();
-    std::process::exit(code)
+    // Take the JS extension host down: a child of this process survives an exit by
+    // being reparented, and it would keep running as an orphan with no client.
+    crate::core::extensions::js::JsExtensionHost::kill_shared_child();
+    // Leave through the kernel, not the C atexit chain: `std::process::exit` runs the
+    // atexit handlers, which include Rust stdio cleanup, which takes the global
+    // stdout/stderr locks. A thread blocked while holding one of those locks (a TUI
+    // frame, extension IO) deadlocks the exit and the process survives SIGHUP and
+    // dead terminals. `_exit` cannot block.
+    // SAFETY: the process is exiting and stdio was flushed above.
+    unsafe { libc::_exit(code) }
 }

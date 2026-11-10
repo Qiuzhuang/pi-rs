@@ -2183,6 +2183,11 @@ impl Inner {
                         // SIGHUP no longer hard-exits: graceful shutdown emits session_shutdown first,
                         // then attempts terminal restore.
                         crate::utils::shell::kill_tracked_detached_children();
+                        // Drop the JS extension host before the shutdown dispatch: with the
+                        // terminal gone the extensions cannot act, and a child that already
+                        // missed the hangup would otherwise hold in-flight calls until the
+                        // reaper (60 s+).
+                        crate::core::extensions::js::JsExtensionHost::kill_shared_child();
                         if let Some(this) = this {
                             this.shutdown(true).await;
                         }

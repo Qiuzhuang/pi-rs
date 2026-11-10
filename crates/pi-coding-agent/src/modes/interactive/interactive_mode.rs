@@ -2140,9 +2140,13 @@ impl Inner {
         }
 
         self.theme_controller.disable_auto_sync();
+        pi_agent::dbg_log::dbg_log("shutdown(false) drain\n");
         self.ui().terminal().drain_input(std::time::Duration::from_millis(1000), std::time::Duration::from_millis(50));
+        pi_agent::dbg_log::dbg_log("shutdown(false) stop\n");
         self.stop(None);
+        pi_agent::dbg_log::dbg_log("shutdown(false) dispose\n");
         let _ = self.runtime_host.dispose().await;
+        pi_agent::dbg_log::dbg_log("shutdown(false) disposed\n");
 
         if let Some(resume) = format_resume_command(self.session_manager()) {
             use std::io::Write;

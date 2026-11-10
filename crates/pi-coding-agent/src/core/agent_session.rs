@@ -2640,12 +2640,15 @@ impl AgentSession {
     }
 
     pub fn dispose(&self) {
+        pi_agent::dbg_log::dbg_log("session.dispose enter\n");
         self.persist_in_flight_message();
+        pi_agent::dbg_log::dbg_log("session.dispose persisted\n");
         self.abort_retry();
         self.abort_compaction();
         self.abort_branch_summary();
         self.abort_bash();
         self.agent.abort();
+        pi_agent::dbg_log::dbg_log("session.dispose abort-set\n");
 
         self.runner().invalidate(Some(
             "This extension ctx is stale after session replacement or reload. Do not use a captured pi or command ctx after ctx.newSession(), ctx.fork(), ctx.switchSession(), or ctx.reload(). For newSession, fork, and switchSession, move post-replacement work into withSession and use the ctx passed to withSession. For reload, do not use the old ctx after await ctx.reload().",
@@ -2656,7 +2659,9 @@ impl AgentSession {
             warmer.set_on_warmed(None);
             warmer.cancel();
         }
+        pi_agent::dbg_log::dbg_log("session.dispose invalidate-done\n");
         let _ = cleanup_session_resources(Some(&self.session_id()));
+        pi_agent::dbg_log::dbg_log("session.dispose exit\n");
     }
 
     // =========================================================================

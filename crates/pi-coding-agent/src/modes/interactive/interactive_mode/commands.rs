@@ -383,8 +383,11 @@ impl Inner {
                 return;
             }
             "/quit" => {
+                pi_agent::dbg_log::dbg_log("cmd /quit enter\n");
                 clear(&editor);
+                pi_agent::dbg_log::dbg_log("cmd /quit shutdown(false)\n");
                 self.clone().shutdown(false).await;
+                pi_agent::dbg_log::dbg_log("cmd /quit shutdown returned\n");
                 return;
             }
             _ => {}

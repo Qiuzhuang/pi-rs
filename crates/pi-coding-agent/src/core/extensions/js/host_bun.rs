@@ -206,6 +206,21 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
+/// A JS-level error: the bridge round-tripped and the extension code threw or returned an
+/// error. The bridge itself is healthy, so this must not count toward the degraded
+/// threshold (a tool that errors in `execute`/`renderCall` would otherwise degrade the
+/// bridge after three throws).
+#[derive(Debug)]
+struct JsError(String);
+
+impl std::fmt::Display for JsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for JsError {}
+
 /// Turn a panic payload from a host op into an error response. A dropped response would
 /// leave the child waiting forever (sync op: frozen event loop; async op: dead promise).
 fn panic_to_host_error(payload: Box<dyn std::any::Any + Send>) -> anyhow::Error {
@@ -570,6 +585,11 @@ impl BunInner {
                 Ok(value)
             }
             Err(e) => {
+                // A JS error response proves the bridge answered: healthy, not a failure.
+                if e.downcast_ref::<JsError>().is_some() {
+                    self.sync_failures.store(0, Ordering::SeqCst);
+                    return Err(e);
+                }
                 let n = self.sync_failures.fetch_add(1, Ordering::SeqCst) + 1;
                 // A timed-out sync call is a strong wedge signal (legit sync calls finish
                 // in milliseconds): degrade immediately instead of waiting for the
@@ -732,7 +752,7 @@ impl BunInner {
                                 .and_then(|m| m.as_str())
                                 .unwrap_or("JS error")
                                 .to_string();
-                            Err(anyhow::anyhow!("{msg}"))
+                            Err(anyhow::anyhow!(JsError(msg)))
                         }
                         None => Ok(v.get("result").cloned().unwrap_or(Value::Null)),
                     };

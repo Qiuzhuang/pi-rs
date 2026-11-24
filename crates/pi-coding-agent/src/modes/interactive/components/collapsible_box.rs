@@ -20,6 +20,15 @@ pub(crate) struct CollapsibleBox {
 
 impl CollapsibleBox {
     pub(crate) fn new(output_pad: Option<i64>, build: BuildContent) -> Arc<Self> {
+        Self::with_initial(output_pad, build, false)
+    }
+
+    /// Like `new`, but starts expanded so the full content is visible at once.
+    pub(crate) fn new_expanded(output_pad: Option<i64>, build: BuildContent) -> Arc<Self> {
+        Self::with_initial(output_pad, build, true)
+    }
+
+    fn with_initial(output_pad: Option<i64>, build: BuildContent, initial_expanded: bool) -> Arc<Self> {
         let output_pad = output_pad.unwrap_or(1).max(0) as usize;
         let this = Arc::new_cyclic(|weak| CollapsibleBox {
             weak_self: weak.clone(),
@@ -28,7 +37,7 @@ impl CollapsibleBox {
                 1,
                 Some(Arc::new(|t: &str| theme().bg(&ThemeBg::CustomMessageBg, t))),
             ),
-            expanded: AtomicBool::new(false),
+            expanded: AtomicBool::new(initial_expanded),
             build,
         });
         this.update_display();

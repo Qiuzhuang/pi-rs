@@ -661,12 +661,13 @@ impl Inner {
                 }
                 Some(CodingAgentMessage::CompactionSummary(summary)) => {
                     self.add_spacer();
+                    // Compaction summaries start expanded and stay visible; the user can
+                    // collapse them by clicking or via the ctrl+o tool-output toggle.
                     let component = Arc::new(CompactionSummaryMessageComponent::new(
                         &summary,
                         Some(&self.get_markdown_theme_with_settings()),
                         Some(pad),
                     ));
-                    component.set_expanded(expanded);
                     self.chat_container.add_child(component);
                 }
                 Some(CodingAgentMessage::BranchSummary(summary)) => {

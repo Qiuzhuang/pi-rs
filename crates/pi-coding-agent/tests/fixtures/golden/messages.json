@@ -7737,7 +7737,8 @@
      "summary": "## Goal\n\nPort the parser.\n\n## Progress\n\n1. Read files\n2. Wrote tests",
      "tokensBefore": 123456,
      "timestamp": 0
-    }
+    },
+    "expanded": false
    },
    "widths": [
     20,
@@ -7979,7 +7980,8 @@
      "tokensBefore": 123456,
      "timestamp": 0
     },
-    "outputPad": 0
+    "outputPad": 0,
+    "expanded": false
    },
    "widths": [
     20,

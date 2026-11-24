@@ -74,8 +74,8 @@ pub fn build(kind: &str, input: &Value) -> Option<Built> {
         "compaction_summary" => {
             let message: CompactionSummaryMessage = from(input, "message");
             let c = CompactionSummaryMessageComponent::new(&message, None, Some(opt_i(input, "outputPad").unwrap_or(1)));
-            if b(input, "expanded") {
-                c.set_expanded(true);
+            if let Some(expanded) = input.get("expanded").and_then(Value::as_bool) {
+                c.set_expanded(expanded);
             }
             component(c)
         }

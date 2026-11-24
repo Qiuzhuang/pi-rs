@@ -59,7 +59,7 @@ impl CompactionSummaryMessageComponent {
                 )));
             }
         };
-        Self { inner: CollapsibleBox::new(output_pad, Box::new(build)) }
+        Self { inner: CollapsibleBox::new_expanded(output_pad, Box::new(build)) }
     }
 
     pub fn set_expanded(&self, expanded: bool) {

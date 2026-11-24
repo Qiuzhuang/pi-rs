@@ -317,7 +317,7 @@ g.add("branch/expanded", "branch_summary", { message: branchMessage, expanded: t
 
 const buildCompaction = (input) => {
 	const c = new CompactionSummaryMessageComponent(input.message, undefined, input.outputPad ?? 1);
-	if (input.expanded) c.setExpanded(true);
+	if (input.expanded !== undefined) c.setExpanded(input.expanded);
 	return c;
 };
 const compactionMessage = {

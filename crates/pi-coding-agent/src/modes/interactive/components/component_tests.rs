@@ -511,12 +511,12 @@ fn toggles_compaction_summary_when_clicked() {
         None,
         None,
     );
-    assert!(!strip_lines(&component.render(WIDTH)).contains("compaction details"));
+    assert!(strip_lines(&component.render(WIDTH)).contains("compaction details"));
     assert!(strip_lines(&component.render(WIDTH)).contains("Compacted from 1,234 tokens"));
     click_row(&component, "[compaction]");
-    assert!(strip_lines(&component.render(WIDTH)).contains("compaction details"));
-    click_row(&component, "[compaction]");
     assert!(!strip_lines(&component.render(WIDTH)).contains("compaction details"));
+    click_row(&component, "[compaction]");
+    assert!(strip_lines(&component.render(WIDTH)).contains("compaction details"));
 }
 
 #[test]
